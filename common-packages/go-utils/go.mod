@@ -4,6 +4,8 @@ go 1.26.3
 
 require github.com/lestrrat-go/jwx/v2 v2.1.6
 
+require github.com/rabbitmq/amqp091-go v1.11.0 // indirect
+
 require (
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect
 	github.com/goccy/go-json v0.10.3 // indirect
