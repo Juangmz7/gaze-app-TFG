@@ -232,30 +232,24 @@ func setupTopology(conn *amqp.Connection, cfg RabbitMQConfig) error {
     	}
 	}
 
-	if cfg.DLQ != nil {
-		_, err := ch.QueueDeclare(
-			cfg.DLQ.Name,
-			cfg.DLQ.Durable,
-			cfg.DLQ.AutoDelete,
-			cfg.DLQ.Exclusive,
-			cfg.DLQ.NoWait,
-			nil,
-		)
-		if err != nil {
-			return fmt.Errorf("dlq declare: %w", err)
-		}
-	}
-
 	for _, q := range cfg.Queues {
-		var args amqp.Table
-		if cfg.DLQ != nil {
-			args = amqp.Table{
-				"x-dead-letter-exchange":    "",
-				"x-dead-letter-routing-key": cfg.DLQ.Name,
-			}
-		}
+        // Declare automatically a DLQ for each queue
+        dlqName := q.Name + "-dlq"
+        _, err := ch.QueueDeclare(
+			dlqName,
+			q.Durable,
+			q.AutoDelete,
+			q.Exclusive,
+			q.NoWait,
+            nil,
+		)
 
-		_, err := ch.QueueDeclare(
+        args := amqp.Table{
+            "x-dead-letter-exchange":    "",
+            "x-dead-letter-routing-key": dlqName,
+        }
+            
+		_, err = ch.QueueDeclare(
 			q.Name,
 			q.Durable,
 			q.AutoDelete,

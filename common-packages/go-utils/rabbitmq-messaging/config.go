@@ -31,18 +31,12 @@ type QueueBinding struct {
     NoWait bool
 }
 
-type DeadLetterQueue struct {
-    Queue
-    Domain string
-}
-
 type RabbitMQConfig struct {
     URL         string
     Exchanges    []Exchange
     Queues       []Queue
     Bindings     []QueueBinding
     RoutingKeys  []RoutingKey
-    DLQ          *DeadLetterQueue
 }
 
 func loadRabbitMQ(
