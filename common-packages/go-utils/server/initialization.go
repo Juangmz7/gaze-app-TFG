@@ -3,7 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"time"
 )
@@ -17,23 +17,29 @@ func StartServer(ctx context.Context, port string, handler http.Handler) error {
 
 	errChan := make(chan error, 1)
 
-	go func() {
-		log.Printf("HTTP server listening on %s", srv.Addr)
+	go startListener(srv, errChan)
+
+	return handleShutdown(ctx, srv, errChan)
+}
+
+func startListener(srv *http.Server, errChan chan<- error) {
+		slog.Info("HTTP server listening", "addr", srv.Addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			errChan <- err
 		}
-	}()
+}
 
+func handleShutdown(ctx context.Context, srv *http.Server, errChan <-chan error) error {
 	select {
 	case <-ctx.Done():
-		log.Println("shutting down gracefully...")
+		slog.Info("shutting down gracefully...")
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer shutdownCancel()
 
 		if err := srv.Shutdown(shutdownCtx); err != nil {
 			return fmt.Errorf("HTTP server shutdown failed: %w", err)
 		}
-		log.Println("server stopped.")
+		slog.Info("server stopped.")
 		return nil
 	case err := <-errChan:
 		return fmt.Errorf("server error: %w", err)
