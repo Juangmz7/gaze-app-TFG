@@ -21,7 +21,7 @@ When working on this project, all AI agents must adhere to the following guideli
 ## 4. Implementation Workflow
 - **Task Management:** Check `tasks_list.json` and implement features one by one. Maintain the task status precisely as follows:
   - When starting an unassigned task, change its status to `pending`.
-  - When finished implementing and documenting, change its status to `awaiting_validation`. Do not wait idly; immediately proceed to the next available task while waiting for human approval.
+  - When finished implementing and documenting, change its status to `awaiting_review`. Do not wait idly; immediately proceed to the next available task while waiting for human approval.
   - Once human approval is received for a task, change its status to `done`.
 - **Branching:** For each feature, create a new git branch following the convention `working-on-<featname>`.
 - **Documentation Updates:** When you finish implementing a feature, create or update its documentation immediately in the specific package's `.md` file. Do **NOT** document specific package logic inside this `AGENTS.md` file. If you are later asked to change any code, you must also update the corresponding documentation to reflect the changes.
