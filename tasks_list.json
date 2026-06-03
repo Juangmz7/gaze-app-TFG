@@ -1,0 +1,33 @@
+{
+  "rules": {
+    "one_feature_at_a_time": true,
+    "valid_status": [
+      "pending",
+      "in_progress",
+      "awaiting_review",
+      "done"
+    ]
+  },
+  "features": [
+    {
+      "id": 1,
+      "name": "Dead-letter-queue",
+      "description": "Implement a dead letter queue type which has to be composed of a Queue type already defined and a field domain. This type must be added to the rabbitmq field. This attribute will be optional so the function setupTopology must check if present. Besides, if it is included, it must create a normal queue with the data of config and then bind it with amqp.table to the exchange \"\" and rk the name of the dlq created",
+      "technical_constraints": [
+        "Create a DLQ type composed of Queue type and domain field",
+        "Add DLQ to rabbitmq field as optional",
+        "Modify setupTopology to check if DLQ is present",
+        "Create normal queue for DLQ and bind with amqp.table to exchange \"\" and rk the name of dlq created"
+      ],
+      "acceptance": [
+        "DLQ type exists and is correctly defined",
+        "setupTopology successfully creates and binds DLQ if configured"
+      ],
+      "pitfalls": [
+        "Forgetting to check if DLQ is nil before topology setup",
+        "Incorrect routing key or exchange used for binding"
+      ],
+      "status": "pending"
+    }
+  ]
+}
