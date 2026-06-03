@@ -5,10 +5,10 @@ import (
 	"os"
 )
 
-func initLogger() {
+func initLogger(level slog.Leveler) {
 	// Custom handler para interceptar los logs e inyectar el TraceID de OpenTelemetry
 	handler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
+		Level: level,
 	})
 
 	otelHandler := &OTelLogHandler{next: handler}
