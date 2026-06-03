@@ -27,7 +27,7 @@
         "Forgetting to check if DLQ is nil before topology setup",
         "Incorrect routing key or exchange used for binding"
       ],
-      "status": "pending"
+      "status": "awaiting_review"
     }
   ]
 }

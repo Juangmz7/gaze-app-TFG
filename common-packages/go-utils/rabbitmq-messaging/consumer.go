@@ -233,13 +233,29 @@ func setupTopology(conn *amqp.Connection, cfg RabbitMQConfig) error {
 	}
 
 	for _, q := range cfg.Queues {
-		_, err := ch.QueueDeclare(
+        // Declare automatically a DLQ for each queue
+        dlqName := q.Name + "-dlq"
+        _, err := ch.QueueDeclare(
+			dlqName,
+			q.Durable,
+			q.AutoDelete,
+			q.Exclusive,
+			q.NoWait,
+            nil,
+		)
+
+        args := amqp.Table{
+            "x-dead-letter-exchange":    "",
+            "x-dead-letter-routing-key": dlqName,
+        }
+            
+		_, err = ch.QueueDeclare(
 			q.Name,
 			q.Durable,
 			q.AutoDelete,
 			q.Exclusive,
 			q.NoWait,
-			nil,
+			args,
 		)
 		if err != nil {
 			return fmt.Errorf("queue declare: %w", err)
