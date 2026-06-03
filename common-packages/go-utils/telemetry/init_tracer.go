@@ -21,33 +21,33 @@ import (
 //   - A shutdown function to be called when the application exits, ensuring all traces are flushed.
 //   - An error if the initialization fails.
 type InitTracerMetada struct {
-	ctx context.Context
-	serviceName string
-	collectorEndpoint string
-	enviromentType string
-	requestedSamplingRatio float64
+	Ctx context.Context
+	ServiceName string
+	CollectorEndpoint string
+	EnviromentType string
+	RequestedSamplingRatio float64
 }
 
 func InitTracer(itm *InitTracerMetada) (func(context.Context) error, error) {
 	slog.Info("Initializing OpenTelemetry Tracer",
-		"serviceName", itm.serviceName,
-		"collectorEndpoint", itm.collectorEndpoint,
-		"enviromentType", itm.enviromentType,
-		"requestedSamplingRatio", itm.requestedSamplingRatio,
+		"serviceName", itm.ServiceName,
+		"collectorEndpoint", itm.CollectorEndpoint,
+		"enviromentType", itm.EnviromentType,
+		"requestedSamplingRatio", itm.RequestedSamplingRatio,
 	)
 
-	exporter, err := otlptracegrpc.New(itm.ctx,
+	exporter, err := otlptracegrpc.New(itm.Ctx,
 		otlptracegrpc.WithInsecure(), // Use insecure for internal network/Kubernetes without TLS
-		otlptracegrpc.WithEndpoint(itm.collectorEndpoint),
+		otlptracegrpc.WithEndpoint(itm.CollectorEndpoint),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create trace exporter: %w", err)
 	}
 
-	res, err := resource.New(itm.ctx,
+	res, err := resource.New(itm.Ctx,
 		resource.WithAttributes(
-			semconv.ServiceNameKey.String(itm.serviceName),
-			semconv.DeploymentEnvironmentKey.String(itm.enviromentType),
+			semconv.ServiceNameKey.String(itm.ServiceName),
+			semconv.DeploymentEnvironmentKey.String(itm.EnviromentType),
 		),
 	)
 	if err != nil {
@@ -55,7 +55,7 @@ func InitTracer(itm *InitTracerMetada) (func(context.Context) error, error) {
 	}
 
 	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithSampler(sdktrace.TraceIDRatioBased(itm.requestedSamplingRatio)), 
+		sdktrace.WithSampler(sdktrace.TraceIDRatioBased(itm.RequestedSamplingRatio)), 
 		sdktrace.WithBatcher(exporter),
 		sdktrace.WithResource(res),
 	)
