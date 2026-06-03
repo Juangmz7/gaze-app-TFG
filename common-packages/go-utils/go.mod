@@ -2,9 +2,12 @@ module github.com/Juangmz7/TFG/common-packages/go-utils
 
 go 1.26.3
 
-require github.com/lestrrat-go/jwx/v2 v2.1.6
+require (
+	github.com/go-chi/chi/v5 v5.3.0
+	github.com/lestrrat-go/jwx/v2 v2.1.6
+)
 
-require github.com/rabbitmq/amqp091-go v1.11.0 // indirect
+require github.com/rabbitmq/amqp091-go v1.11.0
 
 require (
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect
