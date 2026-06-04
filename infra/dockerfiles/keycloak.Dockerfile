@@ -11,6 +11,6 @@ ENV KC_DB=postgres
 RUN /opt/keycloak/bin/kc.sh build
 
 # 'start' is the production command (replaces 'start-dev')
-# '--optimized' tells Keycloak to use the build we just created
+# '--optimized' (add when setting production)tells Keycloak to use the build we just created
 ENTRYPOINT ["/opt/keycloak/bin/kc.sh"]
-CMD ["start-dev", "--optimized", "--import-realm"]
+CMD ["start-dev", "--import-realm"]
