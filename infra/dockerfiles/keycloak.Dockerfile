@@ -1,16 +1,16 @@
-FROM quay.io/keycloak/keycloak:25.0
+FROM quay.io/keycloak/keycloak:25.0.6
 
-# Copy the RabbitMQ Plugin into the providers directory
-COPY ./keycloak/providers/ /opt/keycloak/providers/
+# Download the keycloak-to-rabbitmq event listener plugin
+# Source: https://github.com/aznamier/keycloak-event-listener-rabbitmq
+ARG KK_TO_RMQ_VERSION=3.0.5
+ADD --chmod=644 https://github.com/aznamier/keycloak-event-listener-rabbitmq/releases/download/${KK_TO_RMQ_VERSION}/keycloak-to-rabbit-${KK_TO_RMQ_VERSION}.jar /opt/keycloak/providers/keycloak-to-rabbit.jar
 
 ENV KC_DB=postgres
 
 # This bakes the plugin into the server and optimizes boot times
 RUN /opt/keycloak/bin/kc.sh build
 
-# 5. Set the default command for Production
 # 'start' is the production command (replaces 'start-dev')
-# '--optimized' tells Keycloak to use the build we just created in step 4
-# '--import-realm' ensures your JSON config is loaded
+# '--optimized' tells Keycloak to use the build we just created
 ENTRYPOINT ["/opt/keycloak/bin/kc.sh"]
 CMD ["start-dev", "--optimized", "--import-realm"]
