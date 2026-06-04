@@ -10,6 +10,12 @@
   "loginWithEmailAllowed": true,
   "duplicateEmailsAllowed": false,
 
+  "eventsEnabled": true,
+  "eventsListeners": [
+    "jboss-logging",
+    "keycloak-to-rabbitmq"
+  ],
+
   "components": {
     "org.keycloak.userprofile.UserProfileProvider": [
     {
