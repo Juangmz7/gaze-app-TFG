@@ -1,6 +1,6 @@
 {
-  "realm": "auth-service-realm",
-  "displayName": "Auth-service-realm",
+  "realm": "auth-service",
+  "displayName": "Auth-service",
   "enabled": true,
   "sslRequired": "external",
 
@@ -43,7 +43,8 @@
       "fullScopeAllowed": true,
 
       "redirectUris": [
-        "myapp://callback"
+        "myapp://callback",
+        "https://oauth.pstmn.io/v1/callback"
       ],
       "attributes": {
         "pkce.code.challenge.method": "S256"
