@@ -1,6 +1,7 @@
 {
   "realm": "auth-service",
   "displayName": "Auth-service",
+  "passwordPolicy": "length(8) and upperCase(1) and lowerCase(1) and digits(1) and specialChars(1)",
   "enabled": true,
   "sslRequired": "external",
 
@@ -9,6 +10,19 @@
   "loginWithEmailAllowed": true,
   "duplicateEmailsAllowed": false,
 
+  "components": {
+    "org.keycloak.userprofile.UserProfileProvider": [
+    {
+        "providerId": "declarative-user-profile",
+        "subComponents": {},
+        "config": {
+        "kc.user.profile.config": [
+            "{\"attributes\":[{\"name\":\"username\",\"displayName\":\"${username}\",\"validations\":{\"length\":{\"min\":4,\"max\":30},\"pattern\":{\"pattern\":\"^[a-z0-9_.]+$\"},\"username-prohibited-characters\":{}},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]},\"multivalued\":false},{\"name\":\"email\",\"displayName\":\"${email}\",\"validations\":{\"email\":{},\"length\":{\"max\":150}},\"required\":{\"roles\":[\"user\"]},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]},\"multivalued\":false}],\"groups\":[]}"
+        ]
+        }
+    }
+    ]
+},
   "roles": {
     "realm": [
       {
