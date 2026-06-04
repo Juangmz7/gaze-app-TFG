@@ -1,0 +1,106 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: keycloak_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - infra_net
+
+  keycloak:
+    build: 
+      context: ./keycloak
+      dockerfile: Dockerfile
+    container_name: keycloak
+    restart: unless-stopped
+    
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      
+      # Production Hostname (MUST match the actual URL users visit)
+      #KC_HOSTNAME: ${KC_HOSTNAME:-https://auth.domain.com}
+      
+      # Production Proxy Settings
+      # Keycloak requires HTTPS in prod. If you use a reverse proxy (like Nginx),
+      # enable these settings to let Keycloak know it is behind a secure proxy.
+      #KC_PROXY_HEADERS: xforwarded
+      #KC_HTTP_ENABLED: "true" 
+      
+      # RabbitMQ Event Listener Plugin Config
+      KK_TO_RMQ_URL: ${RABBITMQ_HOST:-rabbitmq}
+      KK_TO_RMQ_PORT: ${RABBITMQ_PORT:-5672}
+      KK_TO_RMQ_USERNAME: ${RABBITMQ_USER}
+      KK_TO_RMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      KK_TO_RMQ_VHOST: /
+      KK_TO_RMQ_EXCHANGE: keycloak-exchange
+      
+    ports:
+      - "${KC_PORT:-8080}:8080"
+    volumes:
+      - ./keycloak/realms:/opt/keycloak/data/import
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq-init:
+        condition: service_completed_successfully
+    networks:
+      - infra_net
+
+  rabbitmq:
+    image: rabbitmq:4.3-management-alpine
+    container_name: rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD-SHELL", "rabbitmq-diagnostics check_port_connectivity"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - infra_net
+
+  rabbitmq-init:
+    build:
+      context: ./rabbitmq
+      dockerfile: Dockerfile
+    container_name: rabbitmq_init
+    env_file: .env
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - infra_net
+
+volumes:
+  postgres_data:
+  rabbitmq_data:
+
+networks:
+  infra_net:
+    driver: bridge

@@ -1,0 +1,74 @@
+{
+  "realm": "auth-service",
+  "displayName": "Auth-service",
+  "passwordPolicy": "length(8) and upperCase(1) and lowerCase(1) and digits(1) and specialChars(1)",
+  "enabled": true,
+  "sslRequired": "external",
+
+  "registrationAllowed": true,
+  "resetPasswordAllowed": true,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+
+  "eventsEnabled": true,
+  "eventsListeners": [
+    "jboss-logging",
+    "keycloak-to-rabbitmq"
+  ],
+
+  "components": {
+    "org.keycloak.userprofile.UserProfileProvider": [
+    {
+        "providerId": "declarative-user-profile",
+        "subComponents": {},
+        "config": {
+        "kc.user.profile.config": [
+            "{\"attributes\":[{\"name\":\"username\",\"displayName\":\"${username}\",\"validations\":{\"length\":{\"min\":4,\"max\":30},\"pattern\":{\"pattern\":\"^[a-z0-9_.]+$\"},\"username-prohibited-characters\":{}},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]},\"multivalued\":false},{\"name\":\"email\",\"displayName\":\"${email}\",\"validations\":{\"email\":{},\"length\":{\"max\":150}},\"required\":{\"roles\":[\"user\"]},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]},\"multivalued\":false}],\"groups\":[]}"
+        ]
+        }
+    }
+    ]
+},
+  "roles": {
+    "realm": [
+      {
+        "name": "USER",
+        "description": "Regular user",
+        "composite": false
+      },
+      {
+        "name": "ADMIN",
+        "description": "Administrator",
+        "composite": true,
+        "composites": {
+          "realm": ["USER"]
+        }
+      }
+    ]
+  },
+
+  "clients": [
+    {
+      "clientId": "mobile-app",
+      "name": "App Movil",
+      "enabled": true,
+      
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "implicitFlowEnabled": false,
+
+      "protocol": "openid-connect",
+      "fullScopeAllowed": true,
+
+      "redirectUris": [
+        "myapp://callback",
+        "https://oauth.pstmn.io/v1/callback"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      }
+    }
+  ]
+}

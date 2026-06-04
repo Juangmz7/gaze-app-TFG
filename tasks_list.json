@@ -11,18 +11,18 @@
   "features": [
     {
       "id": 1,
-      "name": "server configuration",
-      "description": "Implement in initialization.go the server configuration, I want to decouple the router from the middleware and main will call the start server funcion and router new separately, dont implement main, I just want initialization, also dont implement router. Just Start server function",
+      "name": "",
+      "description": "",
       "technical_constraints": [
         
       ],
       "acceptance": [
-        "Im thinking on passing a function as a parameter to the router as the middleware"
+        ""
       ],
       "pitfalls": [
         
       ],
-      "status": "awaiting_review"
+      "status": "pending"
     }
   ]
 }
