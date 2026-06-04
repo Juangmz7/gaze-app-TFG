@@ -35,7 +35,7 @@ services:
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
       
       # Production Hostname (MUST match the actual URL users visit)
-      #KC_HOSTNAME: ${KC_HOSTNAME:-https://auth.yourdomain.com}
+      #KC_HOSTNAME: ${KC_HOSTNAME:-https://auth.domain.com}
       
       # Production Proxy Settings
       # Keycloak requires HTTPS in prod. If you use a reverse proxy (like Nginx),
@@ -58,11 +58,37 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - infra_net
+
+  rabbitmq:
+    image: rabbitmq:4.3-management-alpine
+    container_name: rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: -rabbitmq_management load_definitions "/etc/rabbitmq/definitions.json"
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - ./rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
+    healthcheck:
+      test: ["CMD-SHELL", "rabbitmq-diagnostics check_port_connectivity"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     networks:
       - infra_net
 
 volumes:
   postgres_data:
+  rabbitmq_data:
 
 networks:
   infra_net:
