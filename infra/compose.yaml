@@ -20,8 +20,8 @@ services:
 
   keycloak:
     build: 
-      context: .
-      dockerfile: ./dockerfiles/keycloak.Dockerfile
+      context: ./keycloak
+      dockerfile: Dockerfile
     container_name: keycloak
     restart: unless-stopped
     
@@ -58,8 +58,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
+      rabbitmq-init:
+        condition: service_completed_successfully
     networks:
       - infra_net
 
@@ -70,19 +70,30 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
-      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: -rabbitmq_management load_definitions "/etc/rabbitmq/definitions.json"
     ports:
       - "${RABBITMQ_PORT:-5672}:5672"
       - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
-      - ./rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
     healthcheck:
       test: ["CMD-SHELL", "rabbitmq-diagnostics check_port_connectivity"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 15s
+    networks:
+      - infra_net
+
+  rabbitmq-init:
+    build:
+      context: ./rabbitmq
+      dockerfile: Dockerfile
+    container_name: rabbitmq_init
+    env_file: .env
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    restart: "no"
     networks:
       - infra_net
 
