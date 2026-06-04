@@ -1,4 +1,9 @@
 {
+  "vhosts": [
+    {
+      "name": "/"
+    }
+  ],
   "exchanges": [
     {
       "name": "keycloak-exchange",
@@ -9,5 +14,7 @@
       "internal": false,
       "arguments": {}
     }
-  ]
+  ],
+  "queues": [],
+  "bindings": []
 }
