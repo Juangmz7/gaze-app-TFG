@@ -1,0 +1,53 @@
+{
+  "realm": "auth-service-realm",
+  "displayName": "Auth-service-realm",
+  "enabled": true,
+  "sslRequired": "external",
+
+  "registrationAllowed": true,
+  "resetPasswordAllowed": true,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+
+  "roles": {
+    "realm": [
+      {
+        "name": "USER",
+        "description": "Regular user",
+        "composite": false
+      },
+      {
+        "name": "ADMIN",
+        "description": "Administrator",
+        "composite": true,
+        "composites": {
+          "realm": ["USER"]
+        }
+      }
+    ]
+  },
+
+  "clients": [
+    {
+      "clientId": "mobile-app",
+      "name": "App Movil",
+      "enabled": true,
+      
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "implicitFlowEnabled": false,
+
+      "protocol": "openid-connect",
+      "fullScopeAllowed": true,
+
+      "redirectUris": [
+        "myapp://callback"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      }
+    }
+  ]
+}
