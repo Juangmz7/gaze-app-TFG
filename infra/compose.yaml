@@ -44,7 +44,7 @@ services:
     ports:
       - "${KC_PORT:-8080}:8080"
     volumes:
-      - ./realms:/opt/keycloak/data/import
+      - ./keycloak/realms:/opt/keycloak/data/import
     depends_on:
       postgres:
         condition: service_healthy
