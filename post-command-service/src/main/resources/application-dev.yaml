@@ -1,0 +1,68 @@
+# Development Profile — post-command-service
+# Activate with: --spring.profiles.active=dev
+spring:
+  # --- PostgreSQL ---
+  datasource:
+    url: jdbc:postgresql://localhost:5433/post_command_service_db
+    username: post_command_user
+    password: post_command_pass
+    hikari:
+      pool-name: post-command-service-hikari-pool-dev
+
+  # --- JPA / Hibernate ---
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        generate_statistics: true
+
+  # --- RabbitMQ ---
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
+
+  # --- Keycloak  ---
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: http://localhost:8080/realms/auth-service
+
+# --- Logging (verbose for debugging) ---
+logging:
+  level:
+    root: INFO
+    com.app.postcommandservice: DEBUG
+    org.springframework.web: DEBUG
+    org.springframework.security: DEBUG
+    org.springframework.security.oauth2: TRACE
+    org.hibernate.SQL: DEBUG
+    org.hibernate.orm.jdbc.bind: TRACE
+    org.springframework.amqp: DEBUG
+    org.neo4j.driver: DEBUG
+    org.springframework.data.neo4j: DEBUG
+    io.opentelemetry: DEBUG
+
+# --- OpenTelemetry (local Grafana LGTM stack) ---
+management:
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: http://localhost:4318/v1/traces
+    logging:
+      export:
+        otlp:
+          endpoint: http://localhost:4318/v1/logs
+  otlp:
+    metrics:
+      export:
+        url: http://localhost:4318/v1/metrics
+  tracing:
+    sampling:
+      probability: 1.0
