@@ -119,3 +119,29 @@ resilience4j:
         wait-duration-in-open-state:
           seconds: 10
         permitted-number-of-calls-in-half-open-state: 3
+
+# --- RabbitMQ Bindings ---
+rabbitmq:
+  queue:
+    user:
+      register: q.social-service.user.register
+  exchange:
+    auth:
+      events: x.auth.events
+    user:
+      events: x.user.events
+  rk:
+    auth:
+      user:
+        register: "KK.EVENT.CLIENT.auth-service.SUCCESS.*.REGISTER"
+    user:
+      updated: rk.user.updated
+      deleted: rk.user.deleted
+      register:
+        created: rk.user.registered
+      follow:
+        created: rk.user.follow.created
+        deleted: rk.user.followed.deleted
+      block:
+        created: rk.user.block.created
+        deleted: rk.user.block.deleted
