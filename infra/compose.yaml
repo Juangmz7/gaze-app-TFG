@@ -49,7 +49,7 @@ services:
       KK_TO_RMQ_USERNAME: ${RABBITMQ_USER}
       KK_TO_RMQ_PASSWORD: ${RABBITMQ_PASSWORD}
       KK_TO_RMQ_VHOST: /
-      KK_TO_RMQ_EXCHANGE: auth-events
+      KK_TO_RMQ_EXCHANGE: x.auth.events
       
     ports:
       - "${KC_PORT:-8080}:8080"
