@@ -11,4 +11,5 @@ Keycloak serves as the central Identity and Access Management (IAM) provider for
 ## Why
 - **Centralized IAM:** Offloads the complexity of securing microservices and managing user credentials.
 - **Event-Driven Integration:** By baking in the `keycloak-to-rabbit.jar` plugin, Keycloak can instantly notify the rest of the system about critical events (e.g., user registration, login, profile updates) in an asynchronous, decoupled manner. This prevents other microservices from having to constantly poll Keycloak for state changes and enables robust choreographies.
+  - *Note:* The specific events dispatched to RabbitMQ are strictly determined by the `enabledEventTypes` array in the Realm configuration (e.g. `REGISTER`, `LOGIN`). If an event type is omitted, the plugin will not dispatch it.
 - **Optimized Image:** The Dockerfile runs `/opt/keycloak/bin/kc.sh build` with the plugin included, ensuring faster boot times by optimizing the image beforehand.

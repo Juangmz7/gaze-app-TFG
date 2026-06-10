@@ -15,6 +15,17 @@
     "jboss-logging",
     "keycloak-to-rabbitmq"
   ],
+  "enabledEventTypes": [
+    "LOGIN",
+    "LOGIN_ERROR",
+    "REGISTER",
+    "REGISTER_ERROR",
+    "LOGOUT",
+    "LOGOUT_ERROR",
+    "UPDATE_PASSWORD",
+    "UPDATE_EMAIL",
+    "UPDATE_PROFILE"
+  ],
 
   "components": {
     "org.keycloak.userprofile.UserProfileProvider": [
