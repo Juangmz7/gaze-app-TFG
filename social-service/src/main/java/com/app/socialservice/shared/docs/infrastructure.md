@@ -1,0 +1,201 @@
+# Shared — Infrastructure Layer
+
+## What it does
+
+The shared infrastructure layer provides cross-cutting infrastructure components used across all modules: the **transactional outbox pattern**, **RabbitMQ configuration**, **data source setup**, **JSON serialization**, **observability**, and shared JPA entities/repositories.
+
+## Package Structure
+
+```
+shared/infrastructure/
+├── datasource/
+│   └── DatasourceConfig.java
+├── entity/
+│   ├── OutboxEvent.java
+│   └── ProcessedEvents.java
+├── enums/
+│   └── EventStatus.java
+├── events/
+│   └── EventMessage.java
+├── exceptions/
+│   ├── EventPublisherNotFound.java
+│   └── OutboxEventNotFoundException.java
+├── mapper/
+│   └── JsonMapper.java
+├── observability/
+│   └── InstallOpenTelemetryAppender.java
+├── outbox/
+│   ├── ImmediateOutboxSender.java
+│   └── OutboxRetryWorker.java
+├── rabbitmq/
+│   ├── config/
+│   │   ├── RabbitMQConfig.java
+│   │   └── RabbitMQProperties.java
+│   ├── listener/
+│   │   └── RabbitMQListener.java
+│   └── publisher/
+│       └── EventPublisher.java
+└── repository/
+    ├── OutboxEventRepository.java
+    └── ProcessedEventsRepository.java
+```
+
+## Components
+
+### Outbox Pattern
+
+The core reliability mechanism for event publishing. Ensures **at-least-once delivery** by writing events to the database in the same transaction as the business data.
+
+#### `OutboxEvent` (JPA Entity)
+
+Persisted event record in PostgreSQL:
+
+| Field | Type | Nullable | Annotations | Description |
+|-------|------|----------|-------------|-------------|
+| `id` | `UUID` | No | `@Id`, `@Column(nullable=false)` | Unique event ID |
+| `correlationId` | `UUID` | No | `@Column(nullable=false)` | Trace correlation |
+| `payload` | `String` | No | `@Column(columnDefinition="TEXT", nullable=false)` | Serialized event JSON |
+| `eventType` | `String` | No | `@Column(nullable=false)` | Event class name for publisher routing |
+| `status` | `EventStatus` | No | `@Enumerated(STRING)`, `@Column(nullable=false)` | PENDING or PROCESSED |
+| `createdAt` | `Instant` | No | `@Column(nullable=false)` | Event timestamp |
+
+#### `ProcessedEvents` (JPA Entity)
+
+Idempotency guard — tracks which correlation IDs have already been processed:
+
+| Field | Type | Nullable | Annotations | Description |
+|-------|------|----------|-------------|-------------|
+| `id` | `UUID` | No | `@Id` | The correlation ID itself |
+| `processedAt` | `Instant` | No | `@Column(nullable=false)`, `@PrePersist` | Auto-set on persist |
+
+#### `ImmediateOutboxSender`
+
+Listens for `DomainEvent` via `@TransactionalEventListener(phase = AFTER_COMMIT)`. After the business transaction commits:
+
+1. Looks up the `OutboxEvent` by the domain event's `id`
+2. Finds the matching `EventPublisher` via the strategy pattern
+3. Publishes to RabbitMQ
+4. Marks the event as `PROCESSED`
+5. On failure, logs a warning — the `OutboxRetryWorker` will pick it up
+
+#### `OutboxRetryWorker`
+
+A `@Scheduled` background worker that retries failed/pending events:
+
+- Runs at a configurable interval (`${outbox.retry.delay-ms:300000}` — default 5 minutes)
+- Fetches a batch of up to 100 `PENDING` events ordered by `createdAt` (oldest first)
+- Iterates through publishers and retries each event
+- On success: marks as `PROCESSED`
+- On failure: logs and leaves for the next retry cycle
+
+#### `EventStatus` (Enum)
+
+- `PENDING` — Event created but not yet published
+- `PROCESSED` — Event successfully published to RabbitMQ
+
+### Event Contracts
+
+#### `EventMessage` (Interface)
+
+Standard contract for all outgoing infrastructure events:
+
+```java
+public interface EventMessage {
+    UUID id();
+    UUID correlationId();
+    Instant occurredAt();
+}
+```
+
+#### `EventPublisher` (Strategy Interface)
+
+```java
+public interface EventPublisher {
+    boolean supports(String eventType);
+    void publish(OutboxEvent outboxEvent);
+}
+```
+
+Each module provides its own `EventPublisher` implementation. The outbox components iterate over all registered publishers and dispatch based on `supports()`.
+
+### RabbitMQ
+
+#### `RabbitMQConfig`
+
+Declarative RabbitMQ topology:
+
+- **Queues**: `auth.register` (from auth-service), `user.register` (internal)
+- **Dead Letter Queues (DLQ)**: Each queue has a `.dlq` counterpart
+- **Exchanges**: `auth.events` (topic), `auth.events.dlx` (direct), `user.events` (topic)
+- **Bindings**: Routes messages by routing key
+
+Also configures:
+- `SimpleRabbitListenerContainerFactory` with stateless retry (max 3 retries, exponential backoff)
+- `JacksonJsonMessageConverter` for JSON serialization
+- `RabbitTemplate` with the JSON converter
+
+#### `RabbitMQProperties`
+
+Type-safe configuration properties bound to `rabbitmq.*` in `application.yaml`. Nested structure mirrors the queue/exchange/routing-key hierarchy.
+
+#### `RabbitMQListener`
+
+Central listener component with two `@RabbitListener` methods:
+
+1. **`onUserRegisteredFromAuth`** — Listens to `${rabbitmq.queue.auth.register}`. Receives Keycloak registration events, maps them to `UserRegisterCommand`, and delegates to `UserService.registerUser()`.
+
+2. **`syncSecondaryDatabase`** — Listens to `${rabbitmq.queue.user.register}`. Receives internally published `UserRegisteredEvent`, maps to `SynchroniseSecondaryDatabaseCommand`, and delegates to `UserNodeService.registerUserNode()`.
+
+Both handlers catch exceptions to prevent message rejection (DLQ is handled by the retry interceptor).
+
+### Datasource
+
+#### `DatasourceConfig`
+
+Wraps the `HikariDataSource` in a `LazyConnectionDataSourceProxy` to defer physical connection acquisition until the first SQL statement. This improves performance for transactions that may not need a database connection (e.g. cache hits, early returns).
+
+### Observability
+
+#### `InstallOpenTelemetryAppender`
+
+Installs the OpenTelemetry Logback appender on application startup via `InitializingBean`. This bridges Logback logs into the OpenTelemetry trace/span context for distributed tracing.
+
+### Mapper
+
+#### `JsonMapper`
+
+A simple wrapper around Jackson's `ObjectMapper` providing `toJson()` and `fromJson()` methods with proper exception handling. Used to serialize outbox event payloads.
+
+### Repositories
+
+- **`OutboxEventRepository`** — `JpaRepository<OutboxEvent, UUID>` with a custom method `findOutboxEventByStatus(EventStatus, Pageable)` for batch retry queries.
+- **`ProcessedEventsRepository`** — `JpaRepository<ProcessedEvents, UUID>` for idempotency tracking.
+
+### Exceptions
+
+- **`EventPublisherNotFound`** — No publisher registered for a given event type
+- **`OutboxEventNotFoundException`** — OutboxEvent not found by ID during publishing
+
+## Packages Used
+
+| Package | Purpose |
+|---------|---------|
+| `org.springframework.amqp.*` | RabbitMQ AMQP support |
+| `org.springframework.data.jpa.repository.JpaRepository` | PostgreSQL persistence |
+| `org.springframework.transaction.event.TransactionalEventListener` | Post-commit event handling |
+| `org.springframework.scheduling.annotation.Scheduled` | Background retry |
+| `org.springframework.boot.context.properties.ConfigurationProperties` | Type-safe config |
+| `com.fasterxml.jackson.databind.ObjectMapper` | JSON serialization |
+| `com.zaxxer.hikari.HikariDataSource` | Connection pooling |
+| `io.opentelemetry.*` | Distributed tracing |
+| `jakarta.persistence.*` | JPA annotations |
+| `lombok.*` | Boilerplate reduction |
+
+## Why
+
+- **Transactional outbox pattern**: Guarantees that events are persisted atomically with the business data. No event is lost even if RabbitMQ is temporarily unavailable. The retry worker provides a safety net.
+- **Strategy pattern for publishers**: New event types only require a new `EventPublisher` implementation — no changes to the outbox infrastructure.
+- **DLQ configuration**: Failed messages after retries are routed to dead-letter queues for manual inspection, preventing message loss.
+- **LazyConnectionDataSourceProxy**: Avoids holding database connections for read-heavy or short-circuit operations.
+- **Centralized listener**: All RabbitMQ listeners live in one place for visibility. Each handler maps the incoming event to a command and delegates to the appropriate service.
+- **`@Enumerated(STRING)`**: Stores enum values as readable strings in the database rather than ordinal integers, making data inspection and debugging easier.
