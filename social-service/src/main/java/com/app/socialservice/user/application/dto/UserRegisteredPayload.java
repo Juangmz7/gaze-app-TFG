@@ -3,7 +3,7 @@ package com.app.socialservice.user.application.dto;
 import java.time.Instant;
 import java.util.UUID;
 
-public record UserDTO(
+public record UserRegisteredPayload(
         UUID id,
         String username,
         String email,

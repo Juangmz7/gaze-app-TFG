@@ -1,15 +1,20 @@
-package com.app.socialservice.user.service;
+package com.app.socialservice.user.application.service;
 
-import com.app.socialservice.shared.infrastructure.entity.OutboxEvents;
+import com.app.socialservice.shared.infrastructure.entity.OutboxEvent;
 import com.app.socialservice.shared.infrastructure.entity.ProcessedEvents;
-import com.app.socialservice.shared.infrastructure.repository.OutboxEventsRepository;
+import com.app.socialservice.shared.infrastructure.enums.EventStatus;
+import com.app.socialservice.shared.infrastructure.mapper.JsonMapper;
+import com.app.socialservice.shared.infrastructure.repository.OutboxEventRepository;
 import com.app.socialservice.shared.infrastructure.repository.ProcessedEventsRepository;
+import com.app.socialservice.user.application.commands.UserRegisterCommand;
 import com.app.socialservice.user.domain.events.UserRegisteredDomainEvent;
 import com.app.socialservice.user.domain.model.User;
 import com.app.socialservice.user.domain.model.valueobj.Email;
 import com.app.socialservice.user.domain.model.valueobj.UserId;
 import com.app.socialservice.user.domain.model.valueobj.Username;
-import com.app.socialservice.user.repository.UserRepository;
+import com.app.socialservice.user.infrastructure.mapper.UserEventMapper;
+import com.app.socialservice.user.infrastructure.events.UserRegisteredEvent;
+import com.app.socialservice.user.infrastructure.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -17,6 +22,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.UUID;
 
 
 @Slf4j
@@ -27,7 +33,9 @@ public class UserService {
     private final UserRepository userRepository;
     private final ProcessedEventsRepository processedEventsRepository;
     private final ApplicationEventPublisher eventPublisher;
-    private final OutboxEventsRepository outboxEventsRepository;
+    private final OutboxEventRepository outboxEventRepository;
+    private final UserEventMapper userEventMapper;
+    private final JsonMapper jsonMapper;
 
     @Transactional()
     public void registerUser(UserRegisterCommand command) {
@@ -55,20 +63,29 @@ public class UserService {
 
         var occurredOn = Instant.now();
 
-        outboxEventsRepository.save(
-                OutboxEvents.builder()
-                        // ID generated in record
-                        .correlationId(command.correlationId)
-                        .payload(jsonParser.toJson(savedUser)) // TODO
+        var event = userEventMapper
+                .toUserRegisteredEvent(
+                        UUID.randomUUID(),
+                        command.correlationId(),
+                        savedUser,
+                        occurredOn
+                );
+        var payload = jsonMapper.toJson(event);
+
+        var outboxEvent = outboxEventRepository.save(
+                OutboxEvent.builder()
+                        .id(UUID.randomUUID())
+                        .correlationId(command.correlationId())
+                        .payload(payload)
+                        .eventType(UserRegisteredEvent.class.getSimpleName())
                         .status(EventStatus.PENDING)
-                        .eventType(EventType.USER_REGISTERED)
                         .createdAt(occurredOn)
                         .build()
         );
 
         log.info("User {} registration completed successfully", command.userId());
         eventPublisher.publishEvent(new UserRegisteredDomainEvent(
-                // ID generated in record
+                outboxEvent.getId(),
                 savedUser.getId(),
                 occurredOn
         ));

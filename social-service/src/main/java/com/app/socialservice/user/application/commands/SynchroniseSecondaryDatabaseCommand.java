@@ -1,4 +1,10 @@
 package com.app.socialservice.user.application.commands;
 
-public class SynchroniseSecondaryDatabaseCommand {
+import java.util.UUID;
+
+public record SynchroniseSecondaryDatabaseCommand (
+        UUID correlationId,
+        UUID eventId,
+        UUID userId
+) {
 }
