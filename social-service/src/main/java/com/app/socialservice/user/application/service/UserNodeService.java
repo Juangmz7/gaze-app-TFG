@@ -15,7 +15,7 @@ public class UserNodeService {
 
     private final UserNodeRepository userNodeRepository;
 
-    @Transactional()
+    @Transactional("neo4jTransactionManager")
     public void registerUserNode(SynchroniseSecondaryDatabaseCommand command) {
         if (userNodeRepository.existsById(command.userId())) {
             log.warn("Detected event duplication correlationId: {} eventId: {}, discarding message...",

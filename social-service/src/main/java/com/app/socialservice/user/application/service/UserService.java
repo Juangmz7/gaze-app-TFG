@@ -83,7 +83,9 @@ public class UserService {
                         .build()
         );
 
-        log.info("User {} registration completed successfully", command.userId());
+        log.info("User {} registration completed successfully for event: {} with correlationId: {}",
+                command.userId(), event.id(), event.correlationId());
+
         eventPublisher.publishEvent(new UserRegisteredDomainEvent(
                 outboxEvent.getId(),
                 savedUser.getId(),
