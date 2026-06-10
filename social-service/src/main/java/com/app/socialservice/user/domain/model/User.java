@@ -7,11 +7,10 @@ import com.app.socialservice.user.domain.model.valueobj.UserId;
 import com.app.socialservice.user.domain.model.valueobj.Username;
 
 import java.time.Instant;
-import java.util.UUID;
 
 public class User {
 
-    private UserId userId;
+    private UserId id;
     private Username username;
     private Email email;
     private ProfilePictureUrl pictureUrl;
@@ -19,8 +18,8 @@ public class User {
     private Instant createdAt;
     private Instant updatedAt;
 
-    public User(UserId userId, Username username, Email email) {
-        this.userId = userId;
+    public User(UserId id, Username username, Email email) {
+        this.id = id;
         this.username = username;
         this.email = email;
         this.accountStatus = UserAccountStatus.ACCEPTED;
@@ -29,6 +28,30 @@ public class User {
     public void updateUser(User user) {}
 
     public UserId getId() {
-        return this.userId;
+        return this.id;
+    }
+
+    public Username getUsername() {
+        return this.username;
+    }
+
+    public Email getEmail() {
+        return this.email;
+    }
+
+    public ProfilePictureUrl getPictureUrl() {
+        return pictureUrl;
+    }
+
+    public UserAccountStatus getAccountStatus() {
+        return accountStatus;
+    }
+
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
+
+    public Instant getUpdatedAt() {
+        return updatedAt;
     }
 }
