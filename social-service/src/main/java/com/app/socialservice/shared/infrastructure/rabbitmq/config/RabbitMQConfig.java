@@ -72,7 +72,9 @@ public class RabbitMQConfig {
 
                 // Queues
                 userRegisterFromAuthQueue,
-                userRegisterDlq,
+                userRegisteredQueue,
+                userRegisterFromAuthDlq,
+                userRegisteredDlq,
 
                 // Bindings
                 BindingBuilder
@@ -80,9 +82,18 @@ public class RabbitMQConfig {
                         .to(authEventsExchange)
                         .with(props.getRk().getAuth().getUser().getRegister()),
                 BindingBuilder
-                        .bind(userRegisterDlq)
+                        .bind(userRegisteredQueue)
+                        .to(userEventsExchange)
+                        .with(props.getRk().getUser().getRegister().getCreated() + ".fall-back"),
+
+                BindingBuilder
+                        .bind(userRegisterFromAuthQueue)
                         .to(authEventsDlx)
-                        .with(props.getRk().getAuth().getUser().getRegister() + ".fall-back")
+                        .with(props.getRk().getAuth().getUser().getRegister() + ".fall-back"),
+                BindingBuilder
+                        .bind(userRegisteredDlq)
+                        .to(userEventsExchange)
+                        .with(props.getRk().getUser().getRegister().getCreated() + ".fall-back")
         );
     }
 

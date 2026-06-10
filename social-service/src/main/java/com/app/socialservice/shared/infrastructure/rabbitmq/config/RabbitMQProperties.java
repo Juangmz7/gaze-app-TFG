@@ -1,4 +1,4 @@
-package com.app.socialservice.config.rabbitmq;
+package com.app.socialservice.shared.infrastructure.rabbitmq.config;
 
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -14,9 +14,15 @@ public class RabbitMQProperties {
     @Data
     public static class Queues {
         private UserQueues user = new UserQueues();
+        private AuthQueues auth = new AuthQueues();
 
         @Data
         public static class UserQueues {
+            private String register;
+        }
+
+        @Data
+        public static class AuthQueues {
             private String register;
         }
     }
