@@ -63,12 +63,16 @@ public class RabbitMQConfig {
 
         var userEventsExchange = new TopicExchange(
                 props.getExchange().getUser().getEvents());
+        
+        var userEventsDlx = new DirectExchange(
+                props.getExchange().getUser().getEvents() + ".dlx");
 
         return new Declarables(
                 // Exchanges
                 authEventsExchange,
                 authEventsDlx,
                 userEventsExchange,
+                userEventsDlx,
 
                 // Queues
                 userRegisterFromAuthQueue,
@@ -84,10 +88,10 @@ public class RabbitMQConfig {
                 BindingBuilder
                         .bind(userRegisteredQueue)
                         .to(userEventsExchange)
-                        .with(props.getRk().getUser().getRegister().getCreated() + ".fall-back"),
+                        .with(props.getRk().getUser().getRegister().getCreated()),
 
                 BindingBuilder
-                        .bind(userRegisterFromAuthQueue)
+                        .bind(userRegisterFromAuthDlq)
                         .to(authEventsDlx)
                         .with(props.getRk().getAuth().getUser().getRegister() + ".fall-back"),
                 BindingBuilder
