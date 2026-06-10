@@ -9,6 +9,7 @@ The infrastructure layer provides the concrete implementations and adapters that
 ```
 user/infrastructure/
 ├── entity/
+│   ├── UserEntity.java
 │   └── UserNode.java
 ├── events/
 │   ├── UserRegisteredEvent.java
@@ -19,13 +20,18 @@ user/infrastructure/
 ├── rabbitmq/
 │   └── UserRegisteredEventPublisher.java
 └── repository/
+    ├── JpaUserRepository.java
     ├── UserNodeRepository.java
-    └── UserRepository.java
+    └── UserRepositoryImpl.java
 ```
 
 ## Components
 
 ### Entities
+
+#### `UserEntity`
+
+A JPA `@Entity` mapped to the `users` table in PostgreSQL. Mirrors the data structure of the domain `User` model, using native Java types (`UUID`, `String`, `Instant`) and JPA annotations (`@Column`, `@Enumerated`, `@PrePersist`, `@PreUpdate`) for persistence.
 
 #### `UserNode`
 
@@ -79,13 +85,17 @@ Maps `UserRegisteredFromAuthEvent` → `UserRegisterCommand`. Converts:
 
 ### Repositories
 
-#### `UserRepository`
+#### `JpaUserRepository`
 
 ```java
-public interface UserRepository extends JpaRepository<User, UUID>
+public interface JpaUserRepository extends JpaRepository<UserEntity, UUID>
 ```
 
-Spring Data JPA repository for the `User` domain model. Persists users to PostgreSQL.
+Spring Data JPA repository for the `UserEntity`.
+
+#### `UserRepositoryImpl`
+
+Implements the application layer `UserRepository`. It acts as an adapter, injecting `JpaUserRepository` and `UserMapper` to handle the conversion between domain models (`User`) and persistence models (`UserEntity`) before and after saving to the database.
 
 #### `UserNodeRepository`
 

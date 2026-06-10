@@ -14,7 +14,7 @@ import com.app.socialservice.user.domain.model.valueobj.UserId;
 import com.app.socialservice.user.domain.model.valueobj.Username;
 import com.app.socialservice.user.infrastructure.mapper.UserEventMapper;
 import com.app.socialservice.user.infrastructure.events.UserRegisteredEvent;
-import com.app.socialservice.user.infrastructure.repository.UserRepository;
+import com.app.socialservice.user.application.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;

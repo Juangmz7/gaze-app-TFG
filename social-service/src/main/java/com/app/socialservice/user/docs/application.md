@@ -13,6 +13,10 @@ user/application/
 │   └── UserRegisterCommand.java
 ├── dto/
 │   └── UserRegisteredPayload.java
+├── mapper/
+│   └── UserMapper.java
+├── repository/
+│   └── UserRepository.java
 └── service/
     ├── UserNodeService.java
     └── UserService.java
@@ -48,6 +52,18 @@ Simple `record` types carrying the data needed to execute a use case. They are f
 #### `UserRegisteredPayload`
 
 A data transfer record used when serializing user registration event data.
+
+### Repositories (Interfaces)
+
+#### `UserRepository`
+
+The application-layer interface for user persistence. Declares methods like `save()`, `findById()`, and `existsById()` using domain types (and standard Java types) decoupled from any framework like Spring Data JPA.
+
+### Mappers
+
+#### `UserMapper`
+
+MapStruct interface responsible for bidirectional mapping between the domain `User` model and the infrastructure `UserEntity`. Also contains default methods to wrap/unwrap value objects.
 
 ### Services
 

@@ -54,4 +54,20 @@ public class User {
     public Instant getUpdatedAt() {
         return updatedAt;
     }
+
+    public void setPictureUrl(ProfilePictureUrl pictureUrl) {
+        this.pictureUrl = pictureUrl;
+    }
+
+    public void setAccountStatus(UserAccountStatus accountStatus) {
+        this.accountStatus = accountStatus;
+    }
+
+    public void setCreatedAt(Instant createdAt) {
+        this.createdAt = createdAt;
+    }
+
+    public void setUpdatedAt(Instant updatedAt) {
+        this.updatedAt = updatedAt;
+    }
 }
