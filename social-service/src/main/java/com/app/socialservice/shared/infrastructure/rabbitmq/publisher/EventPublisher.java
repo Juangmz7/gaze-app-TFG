@@ -1,4 +1,4 @@
-package com.app.socialservice.shared.infrastructure.rabbitmq;
+package com.app.socialservice.shared.infrastructure.rabbitmq.publisher;
 
 import com.app.socialservice.shared.infrastructure.entity.OutboxEvent;
 

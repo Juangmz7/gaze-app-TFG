@@ -1,4 +1,7 @@
 package com.app.socialservice.shared.domain.events;
 
-public class DomainEvent {
+import java.util.UUID;
+
+public interface DomainEvent {
+    UUID id();
 }
