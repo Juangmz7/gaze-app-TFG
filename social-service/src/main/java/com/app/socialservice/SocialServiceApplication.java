@@ -11,5 +11,4 @@ public class SocialServiceApplication {
         TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
         SpringApplication.run(SocialServiceApplication.class, args);
     }
-
 }

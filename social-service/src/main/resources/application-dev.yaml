@@ -77,6 +77,8 @@ management:
 # --- RabbitMQ Bindings ---
 rabbitmq:
   queue:
+    auth:
+      register: q.social-service.auth.register
     user:
       register: q.social-service.user.register
   exchange:
@@ -99,3 +101,4 @@ rabbitmq:
       block:
         created: rk.user.block.created
         deleted: rk.user.block.deleted
+

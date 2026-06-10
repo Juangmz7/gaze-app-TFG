@@ -124,6 +124,8 @@ resilience4j:
 # --- RabbitMQ Bindings ---
 rabbitmq:
   queue:
+    auth:
+      register: q.social-service.auth.register
     user:
       register: q.social-service.user.register
   exchange:

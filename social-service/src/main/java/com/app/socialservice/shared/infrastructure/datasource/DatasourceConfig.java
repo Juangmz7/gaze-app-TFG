@@ -1,4 +1,4 @@
-package com.app.socialservice.config.datasource;
+package com.app.socialservice.shared.infrastructure.datasource;
 
 import com.zaxxer.hikari.HikariDataSource;
 import org.springframework.context.annotation.Bean;
