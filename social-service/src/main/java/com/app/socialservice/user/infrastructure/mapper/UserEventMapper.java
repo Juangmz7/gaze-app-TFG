@@ -1,4 +1,4 @@
-package com.app.socialservice.user.application.mapper;
+package com.app.socialservice.user.infrastructure.mapper;
 
 import com.app.socialservice.user.domain.model.User;
 import com.app.socialservice.user.infrastructure.events.UserRegisteredEvent;

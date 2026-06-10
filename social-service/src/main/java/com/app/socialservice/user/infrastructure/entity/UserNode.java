@@ -1,4 +1,4 @@
-package com.app.socialservice.user.entity;
+package com.app.socialservice.user.infrastructure.entity;
 
 import lombok.*;
 import org.springframework.data.neo4j.core.schema.Id;
@@ -10,6 +10,7 @@ import java.util.UUID;
 @AllArgsConstructor
 @NoArgsConstructor
 @Getter
+@Setter
 @Node("User")
 public class UserNode {
     @Id
