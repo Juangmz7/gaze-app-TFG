@@ -1,4 +1,4 @@
-package com.app.socialservice.config.rabbitmq;
+package com.app.socialservice.shared.infrastructure.rabbitmq.config;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.amqp.core.*;
@@ -25,8 +25,8 @@ public class RabbitMQConfig {
     @Bean
     public Declarables socialServiceSchema() {
         // Queue
-        Queue userRegisterQueue = QueueBuilder
-                .durable(props.getQueue().getUser().getRegister())
+        Queue userRegisterFromAuthQueue = QueueBuilder
+                .durable(props.getQueue().getAuth().getRegister())
                 .withArgument(
                         "x-dead-letter-exchange",
                         props.getExchange().getAuth().getEvents() + ".dlx")
@@ -35,8 +35,22 @@ public class RabbitMQConfig {
                         props.getRk().getAuth().getUser().getRegister() + ".fall-back")
                 .build();
 
+        Queue userRegisteredQueue = QueueBuilder
+                .durable(props.getQueue().getUser().getRegister())
+                .withArgument(
+                        "x-dead-letter-exchange",
+                        props.getExchange().getUser().getEvents() + ".dlx")
+                .withArgument(
+                        "x-dead-letter-routing-key",
+                        props.getRk().getUser().getRegister().getCreated() + ".fall-back")
+                .build();
+
         // DLQ
-        Queue userRegisterDlq = QueueBuilder
+        Queue userRegisterFromAuthDlq = QueueBuilder
+                .durable(props.getQueue().getAuth().getRegister() + ".dlq")
+                .build();
+
+        Queue userRegisteredDlq = QueueBuilder
                 .durable(props.getQueue().getUser().getRegister() + ".dlq")
                 .build();
 
@@ -57,12 +71,12 @@ public class RabbitMQConfig {
                 userEventsExchange,
 
                 // Queues
-                userRegisterQueue,
+                userRegisterFromAuthQueue,
                 userRegisterDlq,
 
                 // Bindings
                 BindingBuilder
-                        .bind(userRegisterQueue)
+                        .bind(userRegisterFromAuthQueue)
                         .to(authEventsExchange)
                         .with(props.getRk().getAuth().getUser().getRegister()),
                 BindingBuilder

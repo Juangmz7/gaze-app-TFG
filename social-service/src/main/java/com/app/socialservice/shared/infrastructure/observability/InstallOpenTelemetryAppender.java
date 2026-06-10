@@ -1,4 +1,4 @@
-package com.app.socialservice.config.observability;
+package com.app.socialservice.shared.infrastructure.observability;
 
 import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.instrumentation.logback.appender.v1_0.OpenTelemetryAppender;

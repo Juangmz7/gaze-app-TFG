@@ -1,4 +1,4 @@
-package com.app.socialservice.user.repository;
+package com.app.socialservice.user.infrastructure.repository;
 
 import com.app.socialservice.user.domain.model.User;
 import org.springframework.data.jpa.repository.JpaRepository;
