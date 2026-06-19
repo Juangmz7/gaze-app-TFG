@@ -5,6 +5,8 @@ import com.app.socialservice.user.domain.model.valueobj.Email;
 import com.app.socialservice.user.domain.model.valueobj.ProfilePictureUrl;
 import com.app.socialservice.user.domain.model.valueobj.UserId;
 import com.app.socialservice.user.domain.model.valueobj.Username;
+import com.app.socialservice.user.domain.exception.InvalidUsernameException;
+import com.app.socialservice.user.domain.exception.InvalidEmailException;
 
 import java.time.Instant;
 
@@ -30,8 +32,11 @@ public class User {
     }
 
     public void updateAuthInfo(Username username, Email email) {
-        if (username == null || email == null) {
-            throw new IllegalArgumentException("Username and Email cannot be null");
+        if (username == null) {
+            throw new InvalidUsernameException("Username cannot be null");
+        }
+        if (email == null) {
+            throw new InvalidEmailException("Email cannot be null");
         }
         this.username = username;
         this.email = email;
