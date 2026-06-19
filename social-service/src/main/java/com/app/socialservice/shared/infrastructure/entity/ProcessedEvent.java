@@ -13,14 +13,14 @@ import java.util.UUID;
 @Setter
 @Entity
 @Table(name = "processed_events")
-public class ProcessedEvents {
+public class ProcessedEvent {
     @Id
     private UUID id;
 
     @Column(nullable = false)
     private Instant processedAt;
 
-    public ProcessedEvents(UUID correlationId) {
+    public ProcessedEvent(UUID correlationId) {
         this.id = correlationId;
     }
 
