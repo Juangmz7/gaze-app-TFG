@@ -14,6 +14,12 @@ import com.app.socialservice.user.domain.model.valueobj.UserId;
 import com.app.socialservice.user.domain.model.valueobj.Username;
 import com.app.socialservice.user.infrastructure.mapper.UserEventMapper;
 import com.app.socialservice.user.infrastructure.events.UserRegisteredEvent;
+import com.app.socialservice.user.infrastructure.events.UserAuthInfoUpdatedEvent;
+import com.app.socialservice.user.infrastructure.events.UserDeletedEvent;
+import com.app.socialservice.user.application.commands.UpdateAuthUserInfoCommand;
+import com.app.socialservice.user.application.commands.DeleteUserCommand;
+import com.app.socialservice.user.domain.events.UserAuthInfoUpdatedDomainEvent;
+import com.app.socialservice.user.domain.events.UserDeletedDomainEvent;
 import com.app.socialservice.user.application.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -114,13 +120,13 @@ public class UserService {
         }
 
         var username = new Username(command.username());
-        var email = new Username(command.email());
-        var hasChanges = user.hasChanges(username, email);
+        var email = new Email(command.email());
+        var hasChanges = user.get().hasChanges(username, email);
         if (!hasChanges) {
             log.warn("Detected user {} does not need an update, discarding message...", command.correlationId());
             return;
         }
-        user.updateAuthInfo(username, email);
+        user.get().updateAuthInfo(username, email);
         var savedUser = userRepository.save(user.get());
 
         setEventAsProcessed(
@@ -149,7 +155,7 @@ public class UserService {
                 savedUser,
                 occurredOn
         );
-        var payload = jsonMapper.toJson(userAuthInfoUpdated);
+        var payload = jsonMapper.toJson(userAuthInfoUpdatedEvent);
         return outboxEventRepository.save(
                 OutboxEvent.builder()
                         .id(UUID.randomUUID())
@@ -224,7 +230,7 @@ public class UserService {
     }
 
     private Optional<User> getUserById(UUID id) {
-        return userRepository.findById(command.userId());
+        return userRepository.findById(id);
     }
 
 }
