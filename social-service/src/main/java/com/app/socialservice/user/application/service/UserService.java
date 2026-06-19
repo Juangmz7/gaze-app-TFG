@@ -14,7 +14,7 @@ import com.app.socialservice.user.domain.model.valueobj.UserId;
 import com.app.socialservice.user.domain.model.valueobj.Username;
 import com.app.socialservice.user.infrastructure.mapper.UserEventMapper;
 import com.app.socialservice.user.infrastructure.events.UserRegisteredEvent;
-import com.app.socialservice.user.infrastructure.events.UserAuthInfoUpdatedEvent;
+import com.app.socialservice.user.infrastructure.events.UserUpdatedEvent;
 import com.app.socialservice.user.infrastructure.events.UserDeletedEvent;
 import com.app.socialservice.user.application.commands.UpdateAuthUserInfoCommand;
 import com.app.socialservice.user.application.commands.DeleteUserCommand;
@@ -50,7 +50,7 @@ public class UserService {
             log.warn("Detected user {} already exists, discarding message...", command.userId());
             return;
         }
-        if (processedEventsRepository.existsById(command.correlationId())) {
+        if (isEventAlreadyProcessed(command.id(), command.correlationId())) {
             log.warn("Detected event {} with correlationId {} duplication, discarding message...",
                     command.id(), command.correlationId());
             return;
@@ -114,9 +114,10 @@ public class UserService {
                     command.userId(), command.id(), command.correlationId());
             return;
         }
-        if (processedEventsRepository.existsById(command.correlationId())) {
+        if (isEventAlreadyProcessed(command.id(), command.correlationId())) {
             log.warn("Detected event {} with correlationId {} duplication, discarding message...",
-                    command.id(), command.correlationId());            return;
+                    command.id(), command.correlationId());
+            return;
         }
 
         var username = new Username(command.username());
@@ -149,19 +150,19 @@ public class UserService {
     }
 
     private OutboxEvent createAndSaveOutboxEvent(UpdateAuthUserInfoCommand command, User savedUser, Instant occurredOn) {
-        var userAuthInfoUpdatedEvent = userEventMapper.toUserAuthInfoUpdated(
+        var userUpdatedEvent = userEventMapper.toUserUpdated(
                 UUID.randomUUID(),
                 command.correlationId(),
                 savedUser,
                 occurredOn
         );
-        var payload = jsonMapper.toJson(userAuthInfoUpdatedEvent);
+        var payload = jsonMapper.toJson(userUpdatedEvent);
         return outboxEventRepository.save(
                 OutboxEvent.builder()
                         .id(UUID.randomUUID())
                         .correlationId(command.correlationId())
                         .payload(payload)
-                        .eventType(UserAuthInfoUpdatedEvent.class.getSimpleName())
+                        .eventType(UserUpdatedEvent.class.getSimpleName())
                         .status(EventStatus.PENDING)
                         .createdAt(occurredOn)
                         .build()
@@ -175,7 +176,7 @@ public class UserService {
                     command.userId(), command.id(), command.correlationId());
             return;
         }
-        if (processedEventsRepository.existsById(command.correlationId())) {
+        if (isEventAlreadyProcessed(command.id(), command.correlationId())) {
             log.warn("Detected event {} with correlationId {} duplication, discarding message...",
                     command.id(), command.correlationId());
             return;
@@ -221,6 +222,11 @@ public class UserService {
                         .createdAt(occurredOn)
                         .build()
         );
+    }
+
+    private boolean isEventAlreadyProcessed(UUID eventId, UUID correlationId) {
+        return processedEventsRepository.existsById(eventId)
+                || processedEventsRepository.existsByCorrelationId(correlationId);
     }
 
     private void setEventAsProcessed(UUID eventId, UUID correlationId, String eventType) {

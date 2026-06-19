@@ -12,11 +12,17 @@ import java.util.UUID;
 @Getter
 @Setter
 @Entity
-@Table(name = "processed_events")
+@Table(name = "processed_events", indexes = {
+        @Index(name = "idx_processed_events_correlation_id", columnList = "correlationId")
+})
 public class ProcessedEvent {
     @Id
     private UUID id;
+
+    @Column(nullable = false)
     private UUID correlationId;
+
+    @Column(nullable = false)
     private String eventType;
 
     @Column(nullable = false)

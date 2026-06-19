@@ -6,4 +6,5 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.UUID;
 
 public interface ProcessedEventsRepository extends JpaRepository<ProcessedEvent, UUID> {
+    boolean existsByCorrelationId(UUID correlationId);
 }
