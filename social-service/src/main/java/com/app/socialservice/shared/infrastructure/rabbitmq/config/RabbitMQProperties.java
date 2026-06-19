@@ -19,11 +19,14 @@ public class RabbitMQProperties {
         @Data
         public static class UserQueues {
             private String register;
+            private String deleted;
         }
 
         @Data
         public static class AuthQueues {
             private String register;
+            private String update;
+            private String delete;
         }
     }
 
@@ -55,6 +58,8 @@ public class RabbitMQProperties {
             @Data
             public static class AuthUserRk {
                 private String register;
+                private String update;
+                private String delete;
             }
         }
 

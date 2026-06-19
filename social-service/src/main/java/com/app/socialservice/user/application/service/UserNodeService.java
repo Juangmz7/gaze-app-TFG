@@ -34,4 +34,20 @@ public class UserNodeService {
         log.debug("Registration completed for userNode {} for event: {} with correlationId: {}",
                 savedNode.getId(), command.eventId(), command.correlationId());
     }
+
+    @Transactional("neo4jTransactionManager")
+    public void deleteUserNode(SynchroniseSecondaryDatabaseCommand command) {
+        if (!userNodeRepository.existsById(command.userId())) {
+            log.warn("UserNode {} does not exist for event: {} with correlationId: {}, discarding message...",
+                    command.userId(), command.eventId(), command.correlationId());
+            return;
+        }
+        log.debug("Deleting node for event: {} with correlationId: {}",
+                command.eventId(), command.correlationId());
+
+        userNodeRepository.deleteById(command.userId());
+
+        log.debug("Deletion completed for userNode {} for event: {} with correlationId: {}",
+                command.userId(), command.eventId(), command.correlationId());
+    }
 }

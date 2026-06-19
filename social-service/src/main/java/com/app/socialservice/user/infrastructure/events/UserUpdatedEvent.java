@@ -7,12 +7,16 @@ import java.time.Instant;
 import java.util.UUID;
 
 @Builder
-public record UserAuthInfoUpdatedEvent(
+public record UserUpdatedEvent(
         UUID id,
         UUID correlationId,
         Instant occurredAt,
 
         UUID userId,
         String username,
-        String email
+        String email,
+        String pictureUrl,
+        String accountStatus,
+        Instant createdAt,
+        Instant updatedAt
 ) implements EventMessage {}
