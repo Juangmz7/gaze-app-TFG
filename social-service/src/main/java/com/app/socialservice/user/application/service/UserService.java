@@ -22,6 +22,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.Optional;
 import java.util.UUID;
 
 
@@ -40,17 +41,22 @@ public class UserService {
     @Transactional
     public void registerUser(UserRegisterCommand command) {
         if (userRepository.existsById(command.userId())) {
-            log.warn("Detected event {} duplication, discarding message...", command.correlationId());
+            log.warn("Detected user {} already exists, discarding message...", command.userId());
             return;
         }
         if (processedEventsRepository.existsById(command.correlationId())) {
-            log.warn("Detected user {} already exists, discarding message...", command.correlationId());
+            log.warn("Detected event {} with correlationId {} duplication, discarding message...",
+                    command.id(), command.correlationId());
             return;
         }
 
         var savedUser = createAndSaveUser(command);
 
-        processedEventsRepository.save(new ProcessedEvent(command.correlationId()));
+        setEventAsProcessed(
+                command.id(),
+                command.correlationId(),
+                command.eventType()
+        );
 
         var occurredOn = Instant.now();
         var outboxEvent = createAndSaveOutboxEvent(command, savedUser, occurredOn);
@@ -94,4 +100,131 @@ public class UserService {
                         .build()
         );
     }
+
+    public void updateUserAuthInfo(UpdateAuthUserInfoCommand command) {
+        Optional<User> user = getUserById(command.userId());
+        if (user.isEmpty()) {
+            log.warn("Detected user {} does not exists for event: {} with correlationId: {}, discarding message...",
+                    command.userId(), command.id(), command.correlationId());
+            return;
+        }
+        if (processedEventsRepository.existsById(command.correlationId())) {
+            log.warn("Detected event {} with correlationId {} duplication, discarding message...",
+                    command.id(), command.correlationId());            return;
+        }
+
+        var username = new Username(command.username());
+        var email = new Username(command.email());
+        var hasChanges = user.hasChanges(username, email);
+        if (!hasChanges) {
+            log.warn("Detected user {} does not need an update, discarding message...", command.correlationId());
+            return;
+        }
+        user.updateAuthInfo(username, email);
+        var savedUser = userRepository.save(user.get());
+
+        setEventAsProcessed(
+                command.id(),
+                command.correlationId(),
+                command.eventType()
+        );
+
+        var occurredOn = Instant.now();
+        var outboxEvent = createAndSaveOutboxEvent(command, savedUser, occurredOn);
+
+        log.info("User {} auth info updated successfully for event: {} with correlationId: {}",
+                command.userId(), outboxEvent.getId(), command.correlationId());
+
+        eventPublisher.publishEvent(new UserAuthInfoUpdatedDomainEvent(
+                outboxEvent.getId(),
+                savedUser.getId(),
+                occurredOn
+        ));
+    }
+
+    private OutboxEvent createAndSaveOutboxEvent(UpdateAuthUserInfoCommand command, User savedUser, Instant occurredOn) {
+        var userAuthInfoUpdatedEvent = userEventMapper.toUserAuthInfoUpdated(
+                UUID.randomUUID(),
+                command.correlationId(),
+                savedUser,
+                occurredOn
+        );
+        var payload = jsonMapper.toJson(userAuthInfoUpdated);
+        return outboxEventRepository.save(
+                OutboxEvent.builder()
+                        .id(UUID.randomUUID())
+                        .correlationId(command.correlationId())
+                        .payload(payload)
+                        .eventType(UserAuthInfoUpdatedEvent.class.getSimpleName())
+                        .status(EventStatus.PENDING)
+                        .createdAt(occurredOn)
+                        .build()
+        );
+    }
+
+    public void deleteUser(DeleteUserCommand command) {
+        Optional<User> user = getUserById(command.userId());
+        if (user.isEmpty()) {
+            log.warn("Detected user {} does not exists for event: {} with correlationId: {}, discarding message...",
+                    command.userId(), command.id(), command.correlationId());
+            return;
+        }
+        if (processedEventsRepository.existsById(command.correlationId())) {
+            log.warn("Detected event {} with correlationId {} duplication, discarding message...",
+                    command.id(), command.correlationId());
+            return;
+        }
+
+        user.get().delete();
+        var savedUser = userRepository.save(user.get());
+
+        setEventAsProcessed(
+                command.id(),
+                command.correlationId(),
+                command.eventType()
+        );
+
+        var occurredOn = Instant.now();
+        var outboxEvent = createAndSaveOutboxEvent(command, savedUser, occurredOn);
+
+        log.info("User {} deleted successfully for event: {} with correlationId: {}",
+                command.userId(), outboxEvent.getId(), command.correlationId());
+
+        eventPublisher.publishEvent(new UserDeletedDomainEvent(
+                outboxEvent.getId(),
+                savedUser.getId(),
+                occurredOn
+        ));
+    }
+
+    private OutboxEvent createAndSaveOutboxEvent(DeleteUserCommand command, User savedUser, Instant occurredOn) {
+        var userDeletedEvent = userEventMapper.toUserDeleted(
+                UUID.randomUUID(),
+                command.correlationId(),
+                savedUser,
+                occurredOn
+        );
+        var payload = jsonMapper.toJson(userDeletedEvent);
+        return outboxEventRepository.save(
+                OutboxEvent.builder()
+                        .id(UUID.randomUUID())
+                        .correlationId(command.correlationId())
+                        .payload(payload)
+                        .eventType(UserDeletedEvent.class.getSimpleName())
+                        .status(EventStatus.PENDING)
+                        .createdAt(occurredOn)
+                        .build()
+        );
+    }
+
+    private void setEventAsProcessed(UUID eventId, UUID correlationId, String eventType) {
+        processedEventsRepository.save(
+                new ProcessedEvent(eventId, correlationId, eventType)
+        );
+    }
+
+    private Optional<User> getUserById(UUID id) {
+        return userRepository.findById(command.userId());
+    }
+
 }
