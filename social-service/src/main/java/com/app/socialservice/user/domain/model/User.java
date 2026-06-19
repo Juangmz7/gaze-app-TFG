@@ -25,7 +25,21 @@ public class User {
         this.accountStatus = UserAccountStatus.ACCEPTED;
     }
 
-    public void updateUser(User user) {}
+    public boolean hasChanges(Username username, Email email) {
+        return !this.username.equals(username) || !this.email.equals(email);
+    }
+
+    public void updateAuthInfo(Username username, Email email) {
+        if (username == null || email == null) {
+            throw new IllegalArgumentException("Username and Email cannot be null");
+        }
+        this.username = username;
+        this.email = email;
+    }
+
+    public void delete() {
+        this.accountStatus = UserAccountStatus.DELETED;
+    }
 
     public UserId getId() {
         return this.id;
