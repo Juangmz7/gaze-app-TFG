@@ -29,12 +29,14 @@ public class RabbitMQListener {
 
         UUID eventId = UUID.randomUUID();
         UUID correlationId = UUID.randomUUID();
+        String eventType = event.getClass().getSimpleName();
 
         UserRegisterCommand command =
                 userRegisterCommandMapper.toCommand(
                         eventId,
                         correlationId,
-                        event
+                        event,
+                        eventType
                 );
         try {
             userService.registerUser(command);

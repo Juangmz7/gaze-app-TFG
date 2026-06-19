@@ -9,6 +9,7 @@ public record UserRegisterCommand(
         UUID userId,
         String username,
         String email,
-        Instant occurredOn
+        Instant occurredOn,
+        String eventType
 ) {
 }

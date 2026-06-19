@@ -16,12 +16,16 @@ import java.util.UUID;
 public class ProcessedEvent {
     @Id
     private UUID id;
+    private UUID correlationId;
+    private String eventType;
 
     @Column(nullable = false)
     private Instant processedAt;
 
-    public ProcessedEvent(UUID correlationId) {
-        this.id = correlationId;
+    public ProcessedEvent(UUID eventId, UUID correlationId, String eventType) {
+        this.id = eventId;
+        this.correlationId = correlationId;
+        this.eventType = eventType;
     }
 
     @PrePersist
