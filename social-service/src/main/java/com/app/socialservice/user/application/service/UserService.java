@@ -1,7 +1,7 @@
 package com.app.socialservice.user.application.service;
 
 import com.app.socialservice.shared.infrastructure.entity.OutboxEvent;
-import com.app.socialservice.shared.infrastructure.entity.ProcessedEvents;
+import com.app.socialservice.shared.infrastructure.entity.ProcessedEvent;
 import com.app.socialservice.shared.infrastructure.enums.EventStatus;
 import com.app.socialservice.shared.infrastructure.mapper.JsonMapper;
 import com.app.socialservice.shared.infrastructure.repository.OutboxEventRepository;
@@ -37,42 +37,53 @@ public class UserService {
     private final UserEventMapper userEventMapper;
     private final JsonMapper jsonMapper;
 
-    @Transactional()
+    @Transactional
     public void registerUser(UserRegisterCommand command) {
-        if (processedEventsRepository.existsById(command.correlationId())) {
+        if (userRepository.existsById(command.userId())) {
             log.warn("Detected event {} duplication, discarding message...", command.correlationId());
             return;
         }
-        if (userRepository.existsById(command.userId())) {
+        if (processedEventsRepository.existsById(command.correlationId())) {
             log.warn("Detected user {} already exists, discarding message...", command.correlationId());
             return;
         }
 
+        var savedUser = createAndSaveUser(command);
+
+        processedEventsRepository.save(new ProcessedEvent(command.correlationId()));
+
+        var occurredOn = Instant.now();
+        var outboxEvent = createAndSaveOutboxEvent(command, savedUser, occurredOn);
+
+        log.info("User {} registration completed successfully for event: {} with correlationId: {}",
+                command.userId(), outboxEvent.getId(), command.correlationId());
+
+        eventPublisher.publishEvent(new UserRegisteredDomainEvent(
+                outboxEvent.getId(),
+                savedUser.getId(),
+                occurredOn
+        ));
+    }
+
+    private User createAndSaveUser(UserRegisterCommand command) {
         log.debug("Starting user {} registration", command.userId());
         var user = new User(
                 new UserId(command.userId()),
                 new Username(command.username()),
                 new Email(command.email())
         );
+        return userRepository.save(user);
+    }
 
-        var savedUser = userRepository.save(user);
-
-        processedEventsRepository.save(
-                new ProcessedEvents(command.correlationId())
+    private OutboxEvent createAndSaveOutboxEvent(UserRegisterCommand command, User savedUser, Instant occurredOn) {
+        var userRegisteredEvent = userEventMapper.toUserRegisteredEvent(
+                UUID.randomUUID(),
+                command.correlationId(),
+                savedUser,
+                occurredOn
         );
-
-        var occurredOn = Instant.now();
-
-        var event = userEventMapper
-                .toUserRegisteredEvent(
-                        UUID.randomUUID(),
-                        command.correlationId(),
-                        savedUser,
-                        occurredOn
-                );
-        var payload = jsonMapper.toJson(event);
-
-        var outboxEvent = outboxEventRepository.save(
+        var payload = jsonMapper.toJson(userRegisteredEvent);
+        return outboxEventRepository.save(
                 OutboxEvent.builder()
                         .id(UUID.randomUUID())
                         .correlationId(command.correlationId())
@@ -82,14 +93,5 @@ public class UserService {
                         .createdAt(occurredOn)
                         .build()
         );
-
-        log.info("User {} registration completed successfully for event: {} with correlationId: {}",
-                command.userId(), event.id(), event.correlationId());
-
-        eventPublisher.publishEvent(new UserRegisteredDomainEvent(
-                outboxEvent.getId(),
-                savedUser.getId(),
-                occurredOn
-        ));
     }
 }
