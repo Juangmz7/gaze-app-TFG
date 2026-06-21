@@ -28,7 +28,8 @@ logging:
 # --- OpenTelemetry ---
 management:
   tracing:
-    enabled: false
+    export:
+      enabled: false
 
 # --- RabbitMQ Bindings ---
 rabbitmq:

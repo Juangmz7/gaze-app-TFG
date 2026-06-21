@@ -11,13 +11,14 @@ ok()    { printf "${GREEN}[OK]${NC}    %s\n" "$1"; }
 warn()  { printf "${YELLOW}[WARN]${NC}  %s\n" "$1"; }
 fail()  { printf "${RED}[FAIL]${NC}  %s\n" "$1"; }
 
+ENV=${1:-test}
 EXIT_CODE=0
 
-echo "── Running tests ───────────────────────────────────"
+echo "── Running tests (env: $ENV) ───────────────────────"
 
 if [ -f "pom.xml" ]; then
   # We do not redirect 2>&1 to /dev/null or anything here to allow test output to be visible
-  if ./mvnw test -Dspring.profiles.active=test --no-transfer-progress; then
+  if ./mvnw test -Dspring.profiles.active="$ENV" --no-transfer-progress; then
     ok "All tests pass"
   else
     fail "Tests failed"

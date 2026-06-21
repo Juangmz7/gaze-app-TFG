@@ -17,6 +17,7 @@ warn()  { printf "${YELLOW}[WARN]${NC}  %s\n" "$1"; }
 fail()  { printf "${RED}[FAIL]${NC}  %s\n" "$1"; }
 
 EXIT_CODE=0
+ENV=${1:-test}
 
 echo "── 1. Checking environment ────────────────────────────"
 
@@ -61,15 +62,11 @@ if [ $? -ne 0 ]; then EXIT_CODE=1; fi
 echo ""
 echo "── 3. Running tests ───────────────────────────────────"
 
-if [ -f "pom.xml" ]; then
-  if ./mvnw test -Dspring.profiles.active=test --no-transfer-progress 2>&1; then
-    ok "All tests pass"
-  else
-    fail "Tests failed"
-    EXIT_CODE=1
-  fi
+if ./test.sh "$ENV"; then
+  ok "Tests execution via test.sh passed"
 else
-  warn "pom.xml not found — skipping tests"
+  fail "Tests execution via test.sh failed"
+  EXIT_CODE=1
 fi
 
 echo ""
