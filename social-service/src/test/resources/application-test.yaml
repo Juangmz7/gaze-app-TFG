@@ -1,46 +1,17 @@
 # Test Profile — social-service
 # Activate with: --spring.profiles.active=test
 spring:
-  # --- PostgreSQL ---
-  datasource:
-    url: jdbc:postgresql://localhost:5433/social_db
-    username: social_user
-    password: super_secret_social_postgres_password_123
-    hikari:
-      pool-name: social-service-hikari-pool-test
-
   # --- JPA / Hibernate ---
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: create-drop
     show-sql: true
     properties:
       hibernate:
         format_sql: true
         generate_statistics: true
 
-  # --- Neo4j ---
-  neo4j:
-    uri: bolt://localhost:7687
-    authentication:
-      username: neo4j
-      password: super_secret_social_neo4j_password_123
-
-  # --- RabbitMQ ---
-  rabbitmq:
-    host: localhost
-    port: 5672
-    username: admin
-    password: super_secret_rabbitmq_password_123
-
-  # --- Keycloak  ---
-  security:
-    oauth2:
-      resourceserver:
-        jwt:
-          issuer-uri: http://localhost:8080/realms/auth-service
-
-# --- Logging (verbose for debugging) ---
+# --- Logging ---
 logging:
   level:
     root: INFO
@@ -53,26 +24,11 @@ logging:
     org.springframework.amqp: DEBUG
     org.neo4j.driver: DEBUG
     org.springframework.data.neo4j: DEBUG
-    io.opentelemetry: DEBUG
 
-# --- OpenTelemetry (local Grafana LGTM stack) ---
+# --- OpenTelemetry ---
 management:
-  opentelemetry:
-    tracing:
-      export:
-        otlp:
-          endpoint: http://localhost:4318/v1/traces
-    logging:
-      export:
-        otlp:
-          endpoint: http://localhost:4318/v1/logs
-  otlp:
-    metrics:
-      export:
-        url: http://localhost:4318/v1/metrics
   tracing:
-    sampling:
-      probability: 1.0
+    enabled: false
 
 # --- RabbitMQ Bindings ---
 rabbitmq:
