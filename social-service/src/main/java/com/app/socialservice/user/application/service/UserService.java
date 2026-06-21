@@ -47,7 +47,8 @@ public class UserService {
     @Transactional
     public void registerUser(UserRegisterCommand command) {
         if (userRepository.existsById(command.userId())) {
-            log.warn("Detected user {} already exists, discarding message...", command.userId());
+            log.warn("Detected user {} already exists for event: {} with correlationId: {}, discarding message...",
+                    command.userId(), command.id(), command.correlationId());
             return;
         }
         if (isEventAlreadyProcessed(command.id(), command.correlationId())) {
@@ -124,7 +125,8 @@ public class UserService {
         var email = new Email(command.email());
         var hasChanges = user.get().hasChanges(username, email);
         if (!hasChanges) {
-            log.warn("Detected user {} does not need an update, discarding message...", command.correlationId());
+            log.warn("Detected user {} does not need an update for event: {} with correlationId: {}, discarding message...",
+                    command.userId(), command.id(), command.correlationId());
             return;
         }
         user.get().updateAuthInfo(username, email);
