@@ -1,6 +1,6 @@
 package com.app.socialservice.shared.infrastructure.mapper;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 

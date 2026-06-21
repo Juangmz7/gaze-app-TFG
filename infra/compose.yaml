@@ -1,5 +1,5 @@
 services:
-  postgres:
+  postgres-keycloak:
     image: postgres:16-alpine
     container_name: keycloak_postgres
     restart: unless-stopped
@@ -8,7 +8,7 @@ services:
       POSTGRES_USER: keycloak
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - keycloak_postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
       interval: 10s
@@ -27,7 +27,7 @@ services:
     
     environment:
       KC_DB: postgres
-      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_URL: jdbc:postgresql://postgres-keycloak:5432/keycloak
       KC_DB_USERNAME: keycloak
       KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
       
@@ -49,14 +49,14 @@ services:
       KK_TO_RMQ_USERNAME: ${RABBITMQ_USER}
       KK_TO_RMQ_PASSWORD: ${RABBITMQ_PASSWORD}
       KK_TO_RMQ_VHOST: /
-      KK_TO_RMQ_EXCHANGE: auth-events
+      KK_TO_RMQ_EXCHANGE: x.auth.events
       
     ports:
       - "${KC_PORT:-8080}:8080"
     volumes:
       - ./keycloak/realms:/opt/keycloak/data/import
     depends_on:
-      postgres:
+      postgres-keycloak:
         condition: service_healthy
       rabbitmq-init:
         condition: service_completed_successfully
@@ -96,10 +96,60 @@ services:
     restart: "no"
     networks:
       - infra_net
+  
+  grafana-lgtm:
+    image: 'grafana/otel-lgtm:latest'
+    ports:
+      - '3000:3000'
+      - '4317:4317'
+      - '4318:4318'
+
+  social_postgres:
+    image: postgres:16-alpine
+    container_name: social_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${SOCIAL_POSTGRES_DB:-social_db}
+      POSTGRES_USER: ${SOCIAL_POSTGRES_USER:-social_user}
+      POSTGRES_PASSWORD: ${SOCIAL_POSTGRES_PASSWORD}
+    ports:
+      - "${SOCIAL_POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - social_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${SOCIAL_POSTGRES_USER:-social_user} -d ${SOCIAL_POSTGRES_DB:-social_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - infra_net
+
+  social_neo4j:
+    image: neo4j:5-community
+    container_name: social_neo4j
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: ${SOCIAL_NEO4J_USER:-neo4j}/${SOCIAL_NEO4J_PASSWORD}
+    ports:
+      - "${SOCIAL_NEO4J_HTTP_PORT:-7474}:7474"
+      - "${SOCIAL_NEO4J_BOLT_PORT:-7687}:7687"
+    volumes:
+      - social_neo4j_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider localhost:7474 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - infra_net
 
 volumes:
-  postgres_data:
+  keycloak_postgres_data:
   rabbitmq_data:
+  social_postgres_data:
+  social_neo4j_data:
 
 networks:
   infra_net:

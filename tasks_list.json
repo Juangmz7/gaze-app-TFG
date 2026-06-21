@@ -11,18 +11,19 @@
   "features": [
     {
       "id": 1,
-      "name": "",
-      "description": "",
+      "name": "User Service Commands",
+      "description": "Implement the missing command and records for updateUserAuthInfo and deleteUser. Fix UserRepositoryImpl.",
       "technical_constraints": [
         
       ],
       "acceptance": [
-        ""
+        "Code compiles",
+        "Commands and events implemented"
       ],
       "pitfalls": [
         
       ],
-      "status": "pending"
+      "status": "awaiting_review"
     }
   ]
 }

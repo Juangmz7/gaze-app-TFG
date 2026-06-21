@@ -3,7 +3,7 @@ package com.app.socialservice.user.application.commands;
 import java.time.Instant;
 import java.util.UUID;
 
-public record UserRegisterCommand(
+public record UpdateAuthUserInfoCommand(
         UUID id,
         UUID correlationId,
         UUID userId,

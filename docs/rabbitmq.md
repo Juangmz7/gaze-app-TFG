@@ -10,4 +10,4 @@ RabbitMQ acts as the central message broker for the microservice architecture, e
 ## Why
 - **Decoupling Services:** Using a message broker allows services to communicate without tight coupling or synchronous HTTP dependencies, improving system resilience and scalability.
 - **Management UI:** The Alpine management image provides an intuitive web interface (exposed on port 15672) to monitor queues, exchanges, and message rates during development and operations.
-- **Automated Initialization:** The `init_exchanges.py` script automatically declares the `keycloak-exchange` (a `topic` exchange) with retry logic. This ensures that the exchange exists as soon as RabbitMQ is ready, allowing Keycloak to publish events successfully even if the consuming microservices haven't started or bound their queues yet.
+- **Automated Initialization:** The `init_exchanges.py` script automatically declares the `x.auth.events` (a `topic` exchange) with retry logic. This ensures that the exchange exists as soon as RabbitMQ is ready, allowing Keycloak to publish events successfully even if the consuming microservices haven't started or bound their queues yet.

@@ -5,6 +5,8 @@ import com.app.socialservice.user.domain.model.valueobj.Email;
 import com.app.socialservice.user.domain.model.valueobj.ProfilePictureUrl;
 import com.app.socialservice.user.domain.model.valueobj.UserId;
 import com.app.socialservice.user.domain.model.valueobj.Username;
+import com.app.socialservice.user.domain.exception.InvalidUsernameException;
+import com.app.socialservice.user.domain.exception.InvalidEmailException;
 
 import java.time.Instant;
 
@@ -25,7 +27,24 @@ public class User {
         this.accountStatus = UserAccountStatus.ACCEPTED;
     }
 
-    public void updateUser(User user) {}
+    public boolean hasChanges(Username username, Email email) {
+        return !this.username.equals(username) || !this.email.equals(email);
+    }
+
+    public void updateAuthInfo(Username username, Email email) {
+        if (username == null) {
+            throw new InvalidUsernameException("Username cannot be null");
+        }
+        if (email == null) {
+            throw new InvalidEmailException("Email cannot be null");
+        }
+        this.username = username;
+        this.email = email;
+    }
+
+    public void delete() {
+        this.accountStatus = UserAccountStatus.DELETED;
+    }
 
     public UserId getId() {
         return this.id;

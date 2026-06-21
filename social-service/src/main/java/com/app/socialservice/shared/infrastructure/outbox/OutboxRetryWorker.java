@@ -23,6 +23,7 @@ public class OutboxRetryWorker {
 
     @Scheduled(fixedDelayString = "${outbox.retry.delay-ms:300000}")
     public void retry() {
+        log.debug("Worker woke up for retry PENDING events...");
         Pageable batchSize = PageRequest.of(
                 0, 100, Sort.by(Sort.Direction.ASC, "createdAt")
         );
@@ -33,7 +34,7 @@ public class OutboxRetryWorker {
             return;
         }
 
-        log.debug("Woke up and fetched a batch of {} PENDING events. Starting recovery...", pendingEvents.size());
+        log.debug("Fetched a batch of {} PENDING events. Starting recovery...", pendingEvents.size());
 
         pendingEvents.forEach(outboxEvent -> {
             publishers.stream()

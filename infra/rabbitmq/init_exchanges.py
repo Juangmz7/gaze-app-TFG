@@ -33,7 +33,7 @@ RETRY_DELAY_SECONDS = 5
 
 # Each entry: (name, type, durable)
 EXCHANGES = [
-    {"name": "keycloak-exchange", "type": "topic", "durable": True},
+    {"name": "x.auth.events", "type": "topic", "durable": True},
 ]
 
 

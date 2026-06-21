@@ -17,10 +17,12 @@ public interface UserRegisterCommandMapper {
     @Mapping(target = "username", source = "event.details.username")
     @Mapping(target = "email", source = "event.details.email")
     @Mapping(target = "occurredOn", source = "event.time")
+    @Mapping(target = "eventType", source = "eventType")
     UserRegisterCommand toCommand(
             UUID commandId,
             UUID correlationId,
-            UserRegisteredFromAuthEvent event
+            UserRegisteredFromAuthEvent event,
+            String eventType
     );
 
     default Instant map(Long epochMillis) {

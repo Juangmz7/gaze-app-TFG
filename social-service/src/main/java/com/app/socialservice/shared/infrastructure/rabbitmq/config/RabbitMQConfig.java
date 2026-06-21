@@ -35,6 +35,26 @@ public class RabbitMQConfig {
                         props.getRk().getAuth().getUser().getRegister() + ".fall-back")
                 .build();
 
+        Queue userUpdateFromAuthQueue = QueueBuilder
+                .durable(props.getQueue().getAuth().getUpdate())
+                .withArgument(
+                        "x-dead-letter-exchange",
+                        props.getExchange().getAuth().getEvents() + ".dlx")
+                .withArgument(
+                        "x-dead-letter-routing-key",
+                        props.getRk().getAuth().getUser().getUpdate() + ".fall-back")
+                .build();
+
+        Queue userDeleteFromAuthQueue = QueueBuilder
+                .durable(props.getQueue().getAuth().getDelete())
+                .withArgument(
+                        "x-dead-letter-exchange",
+                        props.getExchange().getAuth().getEvents() + ".dlx")
+                .withArgument(
+                        "x-dead-letter-routing-key",
+                        props.getRk().getAuth().getUser().getDelete() + ".fall-back")
+                .build();
+
         Queue userRegisteredQueue = QueueBuilder
                 .durable(props.getQueue().getUser().getRegister())
                 .withArgument(
@@ -45,13 +65,35 @@ public class RabbitMQConfig {
                         props.getRk().getUser().getRegister().getCreated() + ".fall-back")
                 .build();
 
+        Queue userDeletedQueue = QueueBuilder
+                .durable(props.getQueue().getUser().getDeleted())
+                .withArgument(
+                        "x-dead-letter-exchange",
+                        props.getExchange().getUser().getEvents() + ".dlx")
+                .withArgument(
+                        "x-dead-letter-routing-key",
+                        props.getRk().getUser().getDeleted() + ".fall-back")
+                .build();
+
         // DLQ
         Queue userRegisterFromAuthDlq = QueueBuilder
                 .durable(props.getQueue().getAuth().getRegister() + ".dlq")
                 .build();
 
+        Queue userUpdateFromAuthDlq = QueueBuilder
+                .durable(props.getQueue().getAuth().getUpdate() + ".dlq")
+                .build();
+
+        Queue userDeleteFromAuthDlq = QueueBuilder
+                .durable(props.getQueue().getAuth().getDelete() + ".dlq")
+                .build();
+
         Queue userRegisteredDlq = QueueBuilder
                 .durable(props.getQueue().getUser().getRegister() + ".dlq")
+                .build();
+
+        Queue userDeletedDlq = QueueBuilder
+                .durable(props.getQueue().getUser().getDeleted() + ".dlq")
                 .build();
 
         // Exchanges
@@ -63,18 +105,28 @@ public class RabbitMQConfig {
 
         var userEventsExchange = new TopicExchange(
                 props.getExchange().getUser().getEvents());
+        
+        var userEventsDlx = new DirectExchange(
+                props.getExchange().getUser().getEvents() + ".dlx");
 
         return new Declarables(
                 // Exchanges
                 authEventsExchange,
                 authEventsDlx,
                 userEventsExchange,
+                userEventsDlx,
 
                 // Queues
                 userRegisterFromAuthQueue,
+                userUpdateFromAuthQueue,
+                userDeleteFromAuthQueue,
                 userRegisteredQueue,
+                userDeletedQueue,
                 userRegisterFromAuthDlq,
+                userUpdateFromAuthDlq,
+                userDeleteFromAuthDlq,
                 userRegisteredDlq,
+                userDeletedDlq,
 
                 // Bindings
                 BindingBuilder
@@ -82,18 +134,42 @@ public class RabbitMQConfig {
                         .to(authEventsExchange)
                         .with(props.getRk().getAuth().getUser().getRegister()),
                 BindingBuilder
+                        .bind(userUpdateFromAuthQueue)
+                        .to(authEventsExchange)
+                        .with(props.getRk().getAuth().getUser().getUpdate()),
+                BindingBuilder
+                        .bind(userDeleteFromAuthQueue)
+                        .to(authEventsExchange)
+                        .with(props.getRk().getAuth().getUser().getDelete()),
+                BindingBuilder
                         .bind(userRegisteredQueue)
                         .to(userEventsExchange)
-                        .with(props.getRk().getUser().getRegister().getCreated() + ".fall-back"),
+                        .with(props.getRk().getUser().getRegister().getCreated()),
+                BindingBuilder
+                        .bind(userDeletedQueue)
+                        .to(userEventsExchange)
+                        .with(props.getRk().getUser().getDeleted()),
 
                 BindingBuilder
-                        .bind(userRegisterFromAuthQueue)
+                        .bind(userRegisterFromAuthDlq)
                         .to(authEventsDlx)
                         .with(props.getRk().getAuth().getUser().getRegister() + ".fall-back"),
                 BindingBuilder
+                        .bind(userUpdateFromAuthDlq)
+                        .to(authEventsDlx)
+                        .with(props.getRk().getAuth().getUser().getUpdate() + ".fall-back"),
+                BindingBuilder
+                        .bind(userDeleteFromAuthDlq)
+                        .to(authEventsDlx)
+                        .with(props.getRk().getAuth().getUser().getDelete() + ".fall-back"),
+                BindingBuilder
                         .bind(userRegisteredDlq)
-                        .to(userEventsExchange)
-                        .with(props.getRk().getUser().getRegister().getCreated() + ".fall-back")
+                        .to(userEventsDlx)
+                        .with(props.getRk().getUser().getRegister().getCreated() + ".fall-back"),
+                BindingBuilder
+                        .bind(userDeletedDlq)
+                        .to(userEventsDlx)
+                        .with(props.getRk().getUser().getDeleted() + ".fall-back")
         );
     }
 

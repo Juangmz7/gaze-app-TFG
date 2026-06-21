@@ -126,7 +126,7 @@ Declarative RabbitMQ topology:
 
 - **Queues**: `auth.register` (from auth-service), `user.register` (internal)
 - **Dead Letter Queues (DLQ)**: Each queue has a `.dlq` counterpart
-- **Exchanges**: `auth.events` (topic), `auth.events.dlx` (direct), `user.events` (topic)
+- **Exchanges**: `x.auth.events` (topic), `x.auth.events.dlx` (direct), `x.user.events` (topic), `x.user.events.dlx` (direct)
 - **Bindings**: Routes messages by routing key
 
 Also configures:

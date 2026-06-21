@@ -3,9 +3,9 @@
 spring:
   # --- PostgreSQL ---
   datasource:
-    url: jdbc:postgresql://localhost:5432/social_service_db
+    url: jdbc:postgresql://localhost:5433/social_db
     username: social_user
-    password: social_pass
+    password: super_secret_social_postgres_password_123
     hikari:
       pool-name: social-service-hikari-pool-dev
 
@@ -24,14 +24,14 @@ spring:
     uri: bolt://localhost:7687
     authentication:
       username: neo4j
-      password: neo4j_dev_pass
+      password: super_secret_social_neo4j_password_123
 
   # --- RabbitMQ ---
   rabbitmq:
     host: localhost
     port: 5672
-    username: guest
-    password: guest
+    username: admin
+    password: super_secret_rabbitmq_password_123
 
   # --- Keycloak  ---
   security:
@@ -79,8 +79,11 @@ rabbitmq:
   queue:
     auth:
       register: q.social-service.auth.register
+      update: q.social-service.auth.update
+      delete: q.social-service.auth.delete
     user:
       register: q.social-service.user.register
+      deleted: q.social-service.user.deleted
   exchange:
     auth:
       events: x.auth.events
@@ -90,6 +93,8 @@ rabbitmq:
     auth:
       user:
         register: "KK.EVENT.CLIENT.auth-service.SUCCESS.*.REGISTER"
+        update: "KK.EVENT.CLIENT.auth-service.SUCCESS.*.UPDATE"
+        delete: "KK.EVENT.CLIENT.auth-service.SUCCESS.*.DELETE"
     user:
       updated: rk.user.updated
       deleted: rk.user.deleted
@@ -101,4 +106,3 @@ rabbitmq:
       block:
         created: rk.user.block.created
         deleted: rk.user.block.deleted
-

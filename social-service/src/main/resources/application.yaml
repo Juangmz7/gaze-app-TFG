@@ -126,8 +126,11 @@ rabbitmq:
   queue:
     auth:
       register: q.social-service.auth.register
+      update: q.social-service.auth.update
+      delete: q.social-service.auth.delete
     user:
       register: q.social-service.user.register
+      deleted: q.social-service.user.deleted
   exchange:
     auth:
       events: x.auth.events
@@ -137,6 +140,8 @@ rabbitmq:
     auth:
       user:
         register: "KK.EVENT.CLIENT.auth-service.SUCCESS.*.REGISTER"
+        update: "KK.EVENT.CLIENT.auth-service.SUCCESS.*.UPDATE"
+        delete: "KK.EVENT.CLIENT.auth-service.SUCCESS.*.DELETE"
     user:
       updated: rk.user.updated
       deleted: rk.user.deleted
@@ -148,3 +153,4 @@ rabbitmq:
       block:
         created: rk.user.block.created
         deleted: rk.user.block.deleted
+
