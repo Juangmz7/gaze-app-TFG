@@ -34,7 +34,7 @@ public class UserDeletedEventPublisher implements EventPublisher {
                 .setContentType(MessageProperties.CONTENT_TYPE_JSON)
                 .build();
 
-        log.info("Sending message to exchange: {}, routingKey: {}", exchange, routingKey);
+        log.info("Sending message to exchange: {}, routingKey: {}, eventId: {}", exchange, routingKey, outboxEvent.getId());
         rabbitTemplate.send(exchange, routingKey, message);
     }
 }
