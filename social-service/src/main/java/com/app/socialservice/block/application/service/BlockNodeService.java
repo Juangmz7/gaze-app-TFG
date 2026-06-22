@@ -1,15 +1,15 @@
 package com.app.socialservice.block.application.service;
 
+import java.util.UUID;
+
 import com.app.socialservice.follow.application.repository.FollowGraphRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.UUID;
-
 @Service
 @RequiredArgsConstructor
-public class BlockGraphService {
+public class BlockNodeService {
 
     private final FollowGraphRepository followGraphRepository;
 

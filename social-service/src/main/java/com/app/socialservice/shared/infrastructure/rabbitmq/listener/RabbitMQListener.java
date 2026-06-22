@@ -1,5 +1,11 @@
 package com.app.socialservice.shared.infrastructure.rabbitmq.listener;
 
+import java.util.UUID;
+
+import com.app.socialservice.block.application.service.BlockNodeService;
+import com.app.socialservice.block.infrastructure.events.UserBlockedEvent;
+import com.app.socialservice.shared.infrastructure.entity.ProcessedEvent;
+import com.app.socialservice.shared.infrastructure.repository.ProcessedEventsRepository;
 import com.app.socialservice.user.application.commands.DeleteUserCommand;
 import com.app.socialservice.user.application.commands.SynchroniseSecondaryDatabaseCommand;
 import com.app.socialservice.user.application.commands.UpdateAuthUserInfoCommand;
@@ -17,8 +23,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.stereotype.Component;
 
-import java.util.UUID;
-
 @Slf4j
 @RequiredArgsConstructor
 @Component
@@ -27,6 +31,8 @@ public class RabbitMQListener {
     private final UserService userService;
     private final UserRegisterCommandMapper userRegisterCommandMapper;
     private final UserNodeService userNodeService;
+    private final BlockNodeService blockNodeService;
+    private final ProcessedEventsRepository processedEventsRepository;
 
     @RabbitListener(queues = "${rabbitmq.queue.auth.register}")
     public void onUserRegisteredFromAuth(UserRegisteredFromAuthEvent event) {
@@ -139,5 +145,59 @@ public class RabbitMQListener {
         }
     }
 
-}
+    @RabbitListener(queues = "q.social-service.user.block.created")
+    public void onUserBlocked(UserBlockedEvent event) {
+        validateUserBlockedEvent(event);
+        log.info("UserBlocked event: {} with correlationId: {} received from {}",
+                event.id(), event.correlationId(), "q.social-service.user.block.created");
 
+        if (isEventAlreadyProcessed(event.id(), event.correlationId())) {
+            log.warn("Detected block event {} with correlationId {} duplication, discarding message...",
+                    event.id(), event.correlationId());
+            return;
+        }
+
+        try {
+            blockNodeService.deleteBidirectionalFollowRelationship(
+                    event.blockerUserId(),
+                    event.blockedUserId()
+            );
+            setEventAsProcessed(event);
+        } catch (Exception e) {
+            log.warn("Error processing user blocked event: {} with correlationId={}",
+                    event.id(), event.correlationId(), e);
+            throw e;
+        }
+    }
+
+    private boolean isEventAlreadyProcessed(UUID eventId, UUID correlationId) {
+        return processedEventsRepository.existsById(eventId)
+                || processedEventsRepository.existsByCorrelationId(correlationId);
+    }
+
+    private void setEventAsProcessed(UserBlockedEvent event) {
+        processedEventsRepository.save(new ProcessedEvent(
+                event.id(),
+                event.correlationId(),
+                event.getClass().getSimpleName()
+        ));
+    }
+
+    private void validateUserBlockedEvent(UserBlockedEvent event) {
+        if (event == null) {
+            throw new IllegalArgumentException("event must not be null");
+        }
+        if (event.id() == null) {
+            throw new IllegalArgumentException("event.id must not be null");
+        }
+        if (event.correlationId() == null) {
+            throw new IllegalArgumentException("event.correlationId must not be null");
+        }
+        if (event.blockerUserId() == null) {
+            throw new IllegalArgumentException("event.blockerUserId must not be null");
+        }
+        if (event.blockedUserId() == null) {
+            throw new IllegalArgumentException("event.blockedUserId must not be null");
+        }
+    }
+}

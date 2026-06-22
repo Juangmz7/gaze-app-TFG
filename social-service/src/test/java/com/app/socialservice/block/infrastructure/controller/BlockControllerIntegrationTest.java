@@ -123,6 +123,10 @@ class BlockControllerIntegrationTest {
         assertThat(jpaFollowRepository.findById(new FollowEntityId(blockedId, blockerId))).get()
                 .extracting(FollowEntity::getStatus)
                 .isEqualTo(FollowStatus.BLOCKED);
+        assertThat(outboxEventRepository.findAll()).singleElement()
+                .extracting(event -> event.getEventType())
+                .isEqualTo("UserBlockedEvent");
+        waitForFollowRelationshipsDeletion(blockerId, blockedId);
         assertThat(countFollowRelationships(blockerId, blockedId)).isZero();
     }
 
@@ -218,6 +222,14 @@ class BlockControllerIntegrationTest {
                 .isEqualTo(EventStatus.PROCESSED);
     }
 
+    @Test
+    void rabbitMqTopologyDeclaresBlockQueueAndDlq() {
+        var blockQueueName = rabbitMQProperties.getQueue().getUser().getBlock().getCreated();
+
+        assertThat(amqpAdmin.getQueueProperties(blockQueueName)).isNotNull();
+        assertThat(amqpAdmin.getQueueProperties(blockQueueName + ".dlq")).isNotNull();
+    }
+
     private String blockRequest(UUID blockedId) {
         return """
                 {"blockedUserId":"%s"}
@@ -288,5 +300,14 @@ class BlockControllerIntegrationTest {
         }
 
         return null;
+    }
+
+    private void waitForFollowRelationshipsDeletion(UUID firstUserId, UUID secondUserId) throws InterruptedException {
+        for (int attempt = 0; attempt < 20; attempt++) {
+            if (countFollowRelationships(firstUserId, secondUserId) == 0L) {
+                return;
+            }
+            Thread.sleep(200);
+        }
     }
 }

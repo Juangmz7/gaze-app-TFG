@@ -124,10 +124,14 @@ Each module provides its own `EventPublisher` implementation. The outbox compone
 
 Declarative RabbitMQ topology:
 
-- **Queues**: `auth.register` (from auth-service), `user.register` (internal)
-- **Dead Letter Queues (DLQ)**: Each queue has a `.dlq` counterpart
+- **Queues**: `auth.register`, `auth.update`, `auth.delete`, `user.register`, `user.deleted`, `user.block.created`
+- **Dead Letter Queues (DLQ)**: Each queue has a `.dlq` counterpart, including `q.social-service.user.block.created.dlq`
 - **Exchanges**: `x.auth.events` (topic), `x.auth.events.dlx` (direct), `x.user.events` (topic), `x.user.events.dlx` (direct)
 - **Bindings**: Routes messages by routing key
+
+The block-created queue is declared from `RabbitMQProperties.queue.user.block.created` and bound to
+`RabbitMQProperties.rk.user.block.created`, so the topology stays aligned with the existing typed configuration
+pattern without requiring extra `application.yaml` changes.
 
 Also configures:
 - `SimpleRabbitListenerContainerFactory` with stateless retry (max 3 retries, exponential backoff)
@@ -140,13 +144,17 @@ Type-safe configuration properties bound to `rabbitmq.*` in `application.yaml`. 
 
 #### `RabbitMQListener`
 
-Central listener component with two `@RabbitListener` methods:
+Central listener component with six `@RabbitListener` methods:
 
 1. **`onUserRegisteredFromAuth`** — Listens to `${rabbitmq.queue.auth.register}`. Receives Keycloak registration events, maps them to `UserRegisterCommand`, and delegates to `UserService.registerUser()`.
+2. **`onUserInfoFromAuthUpdated`** — Listens to `${rabbitmq.queue.auth.update}` and delegates to `UserService.updateUserAuthInfo()`.
+3. **`onUserDeletedFromAuth`** — Listens to `${rabbitmq.queue.auth.delete}` and delegates to `UserService.deleteUser()`.
+4. **`syncSecondaryDatabase`** — Listens to `${rabbitmq.queue.user.register}`. Receives internally published `UserRegisteredEvent`, maps to `SynchroniseSecondaryDatabaseCommand`, and delegates to `UserNodeService.registerUserNode()`.
+5. **`onUserDeleted`** — Listens to `${rabbitmq.queue.user.deleted}` and delegates to `UserNodeService.deleteUserNode()`.
+6. **`onUserBlocked`** — Listens to `q.social-service.user.block.created`, receives `UserBlockedEvent`, and delegates Neo4j `FOLLOWS` cleanup to `BlockNodeService`.
 
-2. **`syncSecondaryDatabase`** — Listens to `${rabbitmq.queue.user.register}`. Receives internally published `UserRegisteredEvent`, maps to `SynchroniseSecondaryDatabaseCommand`, and delegates to `UserNodeService.registerUserNode()`.
-
-Both handlers catch exceptions to prevent message rejection (DLQ is handled by the retry interceptor).
+Auth-sync handlers swallow failures after logging because they create or update local PostgreSQL state from upstream events.
+The block graph-sync handler rethrows after logging so the Rabbit listener retry/DLQ policy can handle Neo4j cleanup failures.
 
 ### Datasource
 

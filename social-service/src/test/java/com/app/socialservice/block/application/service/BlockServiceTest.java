@@ -1,8 +1,12 @@
 package com.app.socialservice.block.application.service;
 
+import java.time.Instant;
+import java.util.Optional;
+import java.util.UUID;
+
 import com.app.socialservice.block.application.commands.BlockUserCommand;
-import com.app.socialservice.block.application.dto.BlockPersistenceResult;
 import com.app.socialservice.block.application.repository.BlockRepository;
+import com.app.socialservice.block.domain.events.UserBlockedDomainEvent;
 import com.app.socialservice.block.domain.exception.SelfBlockNotAllowedException;
 import com.app.socialservice.block.domain.exception.UserNotFoundException;
 import com.app.socialservice.block.domain.model.Block;
@@ -27,20 +31,11 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 
-import java.time.Instant;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
-import java.util.concurrent.atomic.AtomicReference;
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -49,16 +44,25 @@ import static org.mockito.Mockito.when;
 class BlockServiceTest {
 
     @Mock
+    private BlockRepository blockRepository;
+
+    @Mock
     private UserRepository userRepository;
 
     @Mock
-    private BlockPersistenceService blockPersistenceService;
+    private FollowRepository followRepository;
 
     @Mock
-    private BlockGraphService blockGraphService;
+    private ApplicationEventPublisher eventPublisher;
 
     @Mock
-    private BlockEventService blockEventService;
+    private OutboxEventRepository outboxEventRepository;
+
+    @Mock
+    private BlockEventMapper blockEventMapper;
+
+    @Mock
+    private JsonMapper jsonMapper;
 
     @InjectMocks
     private BlockService blockService;
@@ -67,185 +71,65 @@ class BlockServiceTest {
     void shouldCreateBlockRelationshipWhenBothUsersExistAndAreDifferent() {
         var blockerId = UUID.randomUUID();
         var blockedId = UUID.randomUUID();
-        var outboxEventId = UUID.randomUUID();
-        var block = new Block(new UserId(blockerId), new UserId(blockedId), Instant.now());
+        var savedBlock = new Block(new UserId(blockerId), new UserId(blockedId), Instant.now());
         var command = new BlockUserCommand(blockerId, blockedId);
+        var mappedEvent = UserBlockedEvent.builder()
+                .id(UUID.randomUUID())
+                .correlationId(UUID.randomUUID())
+                .occurredAt(Instant.now())
+                .blockerUserId(blockerId)
+                .blockedUserId(blockedId)
+                .build();
 
         when(userRepository.findById(blockedId)).thenReturn(Optional.of(buildUser(blockedId)));
-        when(blockPersistenceService.createBlockAndUpdateFollows(blockerId, blockedId))
-                .thenReturn(new BlockPersistenceResult(block, true, outboxEventId));
+        when(blockRepository.findByUsers(blockerId, blockedId)).thenReturn(Optional.empty());
+        when(blockRepository.save(any(Block.class))).thenReturn(savedBlock);
+        when(blockEventMapper.toUserBlockedEvent(any(), any(), any(Block.class), any())).thenReturn(mappedEvent);
+        when(jsonMapper.toJson(mappedEvent)).thenReturn("{\"type\":\"blocked\"}");
+        when(outboxEventRepository.save(any(OutboxEvent.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         var response = blockService.blockUser(command);
 
         assertThat(response.blockerId()).isEqualTo(blockerId);
         assertThat(response.blockedId()).isEqualTo(blockedId);
-        assertThat(response.createdAt()).isEqualTo(block.getCreatedAt());
+        assertThat(response.createdAt()).isEqualTo(savedBlock.getCreatedAt());
 
-        InOrder inOrder = inOrder(blockPersistenceService, blockGraphService, blockEventService);
-        inOrder.verify(blockPersistenceService).createBlockAndUpdateFollows(blockerId, blockedId);
-        inOrder.verify(blockGraphService).deleteBidirectionalFollowRelationship(blockerId, blockedId);
-        inOrder.verify(blockEventService).enqueueAndPublishPendingBlockEvent(outboxEventId, block);
+        var outboxCaptor = ArgumentCaptor.forClass(OutboxEvent.class);
+        verify(outboxEventRepository).save(outboxCaptor.capture());
+        assertThat(outboxCaptor.getValue().getStatus()).isEqualTo(EventStatus.PENDING);
+        assertThat(outboxCaptor.getValue().getEventType()).isEqualTo(UserBlockedEvent.class.getSimpleName());
+
+        var domainEventCaptor = ArgumentCaptor.forClass(UserBlockedDomainEvent.class);
+        verify(eventPublisher).publishEvent(domainEventCaptor.capture());
+        assertThat(domainEventCaptor.getValue().id()).isEqualTo(outboxCaptor.getValue().getId());
+        assertThat(domainEventCaptor.getValue().blockerUserId()).isEqualTo(blockerId);
+        assertThat(domainEventCaptor.getValue().blockedUserId()).isEqualTo(blockedId);
+
+        InOrder inOrder = inOrder(blockRepository, followRepository, outboxEventRepository, eventPublisher);
+        inOrder.verify(blockRepository).save(any(Block.class));
+        inOrder.verify(followRepository).markBidirectionalRelationshipsAsBlocked(blockerId, blockedId);
+        inOrder.verify(outboxEventRepository).save(any(OutboxEvent.class));
+        inOrder.verify(eventPublisher).publishEvent(any(UserBlockedDomainEvent.class));
     }
 
     @Test
     void shouldReturnWithoutErrorWhenBlockAlreadyExists() {
         var blockerId = UUID.randomUUID();
         var blockedId = UUID.randomUUID();
-        var block = new Block(new UserId(blockerId), new UserId(blockedId), Instant.now());
+        var existingBlock = new Block(new UserId(blockerId), new UserId(blockedId), Instant.now());
         var command = new BlockUserCommand(blockerId, blockedId);
 
         when(userRepository.findById(blockedId)).thenReturn(Optional.of(buildUser(blockedId)));
-        when(blockPersistenceService.createBlockAndUpdateFollows(blockerId, blockedId))
-                .thenReturn(new BlockPersistenceResult(block, false, null));
+        when(blockRepository.findByUsers(blockerId, blockedId)).thenReturn(Optional.of(existingBlock));
 
         var response = blockService.blockUser(command);
 
         assertThat(response.blockerId()).isEqualTo(blockerId);
         assertThat(response.blockedId()).isEqualTo(blockedId);
-        verify(blockGraphService).deleteBidirectionalFollowRelationship(blockerId, blockedId);
-        verify(blockEventService, never()).enqueueAndPublishPendingBlockEvent(any(), any());
-    }
-
-    @Test
-    void shouldPromotePreviouslyStoredWaitingEventWhenRetrySucceedsAfterNeo4jFailure() {
-        var blockerId = UUID.randomUUID();
-        var blockedId = UUID.randomUUID();
-        var outboxEventId = UUID.randomUUID();
-        var block = new Block(new UserId(blockerId), new UserId(blockedId), Instant.now());
-        var command = new BlockUserCommand(blockerId, blockedId);
-
-        when(userRepository.findById(blockedId)).thenReturn(Optional.of(buildUser(blockedId)));
-        when(blockPersistenceService.createBlockAndUpdateFollows(blockerId, blockedId))
-                .thenReturn(new BlockPersistenceResult(block, true, outboxEventId))
-                .thenReturn(new BlockPersistenceResult(block, false, outboxEventId));
-        org.mockito.Mockito.doThrow(new RuntimeException("neo4j cleanup failed"))
-                .doNothing()
-                .when(blockGraphService)
-                .deleteBidirectionalFollowRelationship(blockerId, blockedId);
-
-        assertThatThrownBy(() -> blockService.blockUser(command))
-                .isInstanceOf(RuntimeException.class)
-                .hasMessage("neo4j cleanup failed");
-
-        var response = blockService.blockUser(command);
-
-        assertThat(response.blockerId()).isEqualTo(blockerId);
-        assertThat(response.blockedId()).isEqualTo(blockedId);
-        verify(blockEventService).enqueueAndPublishPendingBlockEvent(outboxEventId, block);
-    }
-
-    @Test
-    void shouldPromoteOnlyCorrectDirectionWaitingEventWhenOppositeDirectionAlsoExists() {
-        var blockerId = UUID.randomUUID();
-        var blockedId = UUID.randomUUID();
-        var oppositeDirectionOutboxEventId = UUID.randomUUID();
-        var createdAt = Instant.now();
-        var block = new Block(new UserId(blockerId), new UserId(blockedId), createdAt);
-        var command = new BlockUserCommand(blockerId, blockedId);
-        var oppositeDirectionPayload = "{\"direction\":\"ba\"}";
-        var correctDirectionPayload = "{\"direction\":\"ab\"}";
-        var oppositeDirectionOutboxEvent = OutboxEvent.builder()
-                .id(oppositeDirectionOutboxEventId)
-                .correlationId(UUID.randomUUID())
-                .payload(oppositeDirectionPayload)
-                .eventType(UserBlockedEvent.class.getSimpleName())
-                .status(EventStatus.WAITING)
-                .createdAt(createdAt.minusSeconds(10))
-                .build();
-        var oppositeDirectionEvent = UserBlockedEvent.builder()
-                .id(UUID.randomUUID())
-                .correlationId(UUID.randomUUID())
-                .occurredAt(createdAt.minusSeconds(10))
-                .blockerUserId(blockedId)
-                .blockedUserId(blockerId)
-                .build();
-        var correctDirectionEvent = UserBlockedEvent.builder()
-                .id(UUID.randomUUID())
-                .correlationId(UUID.randomUUID())
-                .occurredAt(createdAt)
-                .blockerUserId(blockerId)
-                .blockedUserId(blockedId)
-                .build();
-        var storedCorrectOutboxEvent = new AtomicReference<OutboxEvent>();
-
-        var localBlockRepository = mock(BlockRepository.class);
-        var localFollowRepository = mock(FollowRepository.class);
-        var localOutboxEventRepository = mock(OutboxEventRepository.class);
-        var localBlockEventMapper = mock(BlockEventMapper.class);
-        var localJsonMapper = mock(JsonMapper.class);
-        var localEventPublisher = mock(ApplicationEventPublisher.class);
-        var realBlockEventService = new BlockEventService(
-                localEventPublisher,
-                localOutboxEventRepository,
-                localBlockEventMapper,
-                localJsonMapper
-        );
-        var realBlockPersistenceService = new BlockPersistenceService(
-                localBlockRepository,
-                localFollowRepository,
-                realBlockEventService
-        );
-        var blockServiceUnderTest = new BlockService(
-                userRepository,
-                realBlockPersistenceService,
-                blockGraphService,
-                realBlockEventService
-        );
-
-        when(userRepository.findById(blockedId)).thenReturn(Optional.of(buildUser(blockedId)));
-        when(localBlockRepository.findByUsers(blockerId, blockedId))
-                .thenReturn(Optional.empty())
-                .thenReturn(Optional.of(block));
-        when(localBlockRepository.save(any(Block.class))).thenReturn(block);
-        when(localBlockEventMapper.toUserBlockedEvent(any(), any(), eq(block), any())).thenReturn(correctDirectionEvent);
-        when(localJsonMapper.toJson(correctDirectionEvent)).thenReturn(correctDirectionPayload);
-        when(localOutboxEventRepository.save(any(OutboxEvent.class))).thenAnswer(invocation -> {
-            var outboxEvent = invocation.getArgument(0, OutboxEvent.class);
-            if (outboxEvent.getStatus() == EventStatus.WAITING) {
-                storedCorrectOutboxEvent.set(outboxEvent);
-            }
-            return outboxEvent;
-        });
-        when(localOutboxEventRepository.findByEventTypeAndStatusOrderByCreatedAtAsc(
-                UserBlockedEvent.class.getSimpleName(),
-                EventStatus.WAITING
-        )).thenAnswer(invocation -> List.of(oppositeDirectionOutboxEvent, storedCorrectOutboxEvent.get()));
-        when(localJsonMapper.fromJson(oppositeDirectionPayload, UserBlockedEvent.class)).thenReturn(oppositeDirectionEvent);
-        when(localJsonMapper.fromJson(correctDirectionPayload, UserBlockedEvent.class)).thenReturn(correctDirectionEvent);
-        when(localOutboxEventRepository.findById(any(UUID.class))).thenAnswer(invocation -> {
-            var outboxEventId = invocation.getArgument(0, UUID.class);
-            if (storedCorrectOutboxEvent.get() != null && storedCorrectOutboxEvent.get().getId().equals(outboxEventId)) {
-                return Optional.of(storedCorrectOutboxEvent.get());
-            }
-            if (oppositeDirectionOutboxEventId.equals(outboxEventId)) {
-                return Optional.of(oppositeDirectionOutboxEvent);
-            }
-            return Optional.empty();
-        });
-        org.mockito.Mockito.doThrow(new RuntimeException("neo4j cleanup failed"))
-                .doNothing()
-                .when(blockGraphService)
-                .deleteBidirectionalFollowRelationship(blockerId, blockedId);
-
-        assertThatThrownBy(() -> blockServiceUnderTest.blockUser(command))
-                .isInstanceOf(RuntimeException.class)
-                .hasMessage("neo4j cleanup failed");
-
-        var response = blockServiceUnderTest.blockUser(command);
-
-        assertThat(response.blockerId()).isEqualTo(blockerId);
-        assertThat(response.blockedId()).isEqualTo(blockedId);
-        assertThat(storedCorrectOutboxEvent.get()).isNotNull();
-        verify(localOutboxEventRepository).findById(storedCorrectOutboxEvent.get().getId());
-        verify(localOutboxEventRepository, never()).findById(oppositeDirectionOutboxEventId);
-        var eventCaptor = ArgumentCaptor.forClass(Object.class);
-        verify(localEventPublisher, times(1)).publishEvent(eventCaptor.capture());
-        assertThat(eventCaptor.getValue())
-                .isInstanceOf(com.app.socialservice.block.domain.events.UserBlockedDomainEvent.class);
-        var publishedEvent = (com.app.socialservice.block.domain.events.UserBlockedDomainEvent) eventCaptor.getValue();
-        assertThat(publishedEvent.id()).isEqualTo(storedCorrectOutboxEvent.get().getId());
-        assertThat(publishedEvent.blockerUserId()).isEqualTo(blockerId);
-        assertThat(publishedEvent.blockedUserId()).isEqualTo(blockedId);
+        verify(followRepository).markBidirectionalRelationshipsAsBlocked(blockerId, blockedId);
+        verify(blockRepository, never()).save(any(Block.class));
+        verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
+        verify(eventPublisher, never()).publishEvent(any());
     }
 
     @Test
@@ -257,7 +141,8 @@ class BlockServiceTest {
                 .isInstanceOf(SelfBlockNotAllowedException.class)
                 .hasMessage("A user cannot block themselves");
 
-        verifyNoInteractions(userRepository, blockPersistenceService, blockGraphService, blockEventService);
+        verifyNoInteractions(blockRepository, userRepository, followRepository, outboxEventRepository,
+                blockEventMapper, jsonMapper, eventPublisher);
     }
 
     @Test
@@ -272,71 +157,15 @@ class BlockServiceTest {
                 .isInstanceOf(UserNotFoundException.class)
                 .hasMessage("User not found: " + blockedId);
 
-        verifyNoInteractions(blockPersistenceService, blockGraphService, blockEventService);
-    }
-
-    @Test
-    void shouldPublishBlockEventToRabbitMqOutboxAfterSuccessfulBlock() {
-        var blockerId = UUID.randomUUID();
-        var blockedId = UUID.randomUUID();
-        var outboxEventId = UUID.randomUUID();
-        var block = new Block(new UserId(blockerId), new UserId(blockedId), Instant.now());
-        var command = new BlockUserCommand(blockerId, blockedId);
-
-        when(userRepository.findById(blockedId)).thenReturn(Optional.of(buildUser(blockedId)));
-        when(blockPersistenceService.createBlockAndUpdateFollows(blockerId, blockedId))
-                .thenReturn(new BlockPersistenceResult(block, true, outboxEventId));
-
-        blockService.blockUser(command);
-
-        verify(blockEventService).enqueueAndPublishPendingBlockEvent(outboxEventId, block);
-    }
-
-    @Test
-    void shouldNotPublishEventIfPostgreSqlWriteFails() {
-        var blockerId = UUID.randomUUID();
-        var blockedId = UUID.randomUUID();
-        var command = new BlockUserCommand(blockerId, blockedId);
-
-        when(userRepository.findById(blockedId)).thenReturn(Optional.of(buildUser(blockedId)));
-        when(blockPersistenceService.createBlockAndUpdateFollows(blockerId, blockedId))
-                .thenThrow(new RuntimeException("postgres write failed"));
-
-        assertThatThrownBy(() -> blockService.blockUser(command))
-                .isInstanceOf(RuntimeException.class)
-                .hasMessage("postgres write failed");
-
-        verify(blockGraphService, never()).deleteBidirectionalFollowRelationship(blockerId, blockedId);
-        verify(blockEventService, never()).enqueueAndPublishPendingBlockEvent(any(), any());
-    }
-
-    @Test
-    void shouldNotEnqueueOrPublishEventIfNeo4jCleanupFails() {
-        var blockerId = UUID.randomUUID();
-        var blockedId = UUID.randomUUID();
-        var outboxEventId = UUID.randomUUID();
-        var block = new Block(new UserId(blockerId), new UserId(blockedId), Instant.now());
-        var command = new BlockUserCommand(blockerId, blockedId);
-
-        when(userRepository.findById(blockedId)).thenReturn(Optional.of(buildUser(blockedId)));
-        when(blockPersistenceService.createBlockAndUpdateFollows(blockerId, blockedId))
-                .thenReturn(new BlockPersistenceResult(block, true, outboxEventId));
-        org.mockito.Mockito.doThrow(new RuntimeException("neo4j cleanup failed"))
-                .when(blockGraphService)
-                .deleteBidirectionalFollowRelationship(blockerId, blockedId);
-
-        assertThatThrownBy(() -> blockService.blockUser(command))
-                .isInstanceOf(RuntimeException.class)
-                .hasMessage("neo4j cleanup failed");
-
-        verify(blockEventService, never()).enqueueAndPublishPendingBlockEvent(any(), any());
+        verify(blockRepository, never()).findByUsers(any(), any());
+        verifyNoInteractions(followRepository, outboxEventRepository, blockEventMapper, jsonMapper, eventPublisher);
     }
 
     private User buildUser(UUID userId) {
         return new User(
                 new UserId(userId),
-                new Username("target_user"),
-                new Email("target@example.com")
+                new Username("blocked-user"),
+                new Email("blocked@example.com")
         );
     }
 }
