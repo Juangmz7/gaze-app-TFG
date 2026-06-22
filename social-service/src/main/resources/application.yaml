@@ -2,6 +2,9 @@
 spring:
   application:
     name: social-service
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
 
   # --- Virtual Threads ---
   threads:
