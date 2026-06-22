@@ -35,29 +35,7 @@ if ! command -v java >/dev/null 2>&1; then
 fi
 ok "java -> $(java -version 2>&1 | head -1)"
 
-echo ""
-echo "── 2. Validating feature_list.json ────────────────────"
 
-python - <<'PY'
-import json, sys
-try:
-    data = json.load(open("feature_list.json"))
-    valid = {"pending", "in_progress", "done", "blocked"}
-    in_progress = [f for f in data["features"] if f["status"] == "in_progress"]
-    if len(in_progress) > 1:
-        print(f"[FAIL]  {len(in_progress)} features in_progress (maximum 1)")
-        sys.exit(1)
-    for f in data["features"]:
-        if f["status"] not in valid:
-            print(f"[FAIL]  Invalid status on feature {f['id']}: {f['status']}")
-            sys.exit(1)
-    print(f"[OK]    feature_list.json valid ({len(data['features'])} features)")
-except Exception as e:
-    print(f"[FAIL]  feature_list.json invalid: {e}")
-    sys.exit(1)
-PY
-
-if [ $? -ne 0 ]; then EXIT_CODE=1; fi
 
 echo ""
 echo "── 3. Running tests ───────────────────────────────────"

@@ -1,6 +1,8 @@
 # Test Profile — social-service
 # Activate with: --spring.profiles.active=test
 spring:
+  jackson:
+
   # --- JPA / Hibernate ---
   jpa:
     hibernate:
@@ -28,38 +30,4 @@ logging:
 # --- OpenTelemetry ---
 management:
   tracing:
-    export:
-      enabled: false
-
-# --- RabbitMQ Bindings ---
-rabbitmq:
-  queue:
-    auth:
-      register: q.social-service.auth.register
-      update: q.social-service.auth.update
-      delete: q.social-service.auth.delete
-    user:
-      register: q.social-service.user.register
-      deleted: q.social-service.user.deleted
-  exchange:
-    auth:
-      events: x.auth.events
-    user:
-      events: x.user.events
-  rk:
-    auth:
-      user:
-        register: "KK.EVENT.CLIENT.auth-service.SUCCESS.*.REGISTER"
-        update: "KK.EVENT.CLIENT.auth-service.SUCCESS.*.UPDATE"
-        delete: "KK.EVENT.CLIENT.auth-service.SUCCESS.*.DELETE"
-    user:
-      updated: rk.user.updated
-      deleted: rk.user.deleted
-      register:
-        created: rk.user.registered
-      follow:
-        created: rk.user.follow.created
-        deleted: rk.user.followed.deleted
-      block:
-        created: rk.user.block.created
-        deleted: rk.user.block.deleted
+    enabled: false
