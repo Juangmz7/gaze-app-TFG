@@ -2,8 +2,7 @@
 # Activate with: --spring.profiles.active=test
 spring:
   jackson:
-    serialization:
-      write-dates-as-timestamps: false
+
   # --- JPA / Hibernate ---
   jpa:
     hibernate:

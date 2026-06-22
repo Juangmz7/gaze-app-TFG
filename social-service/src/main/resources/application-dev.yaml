@@ -2,8 +2,7 @@
 # Activate with: --spring.profiles.active=dev
 spring:
   jackson:
-    serialization:
-      write-dates-as-timestamps: false
+
   # --- PostgreSQL ---
   datasource:
     url: jdbc:postgresql://localhost:5433/social_db
