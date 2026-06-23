@@ -146,12 +146,12 @@ Type-safe configuration properties bound to `rabbitmq.*` in `application.yaml`. 
 
 Central listener component with six `@RabbitListener` methods:
 
-1. **`onUserRegisteredFromAuth`** — Listens to `${rabbitmq.queue.auth.register}`. Receives Keycloak registration events, maps them to `UserRegisterCommand`, and delegates to `UserService.registerUser()`.
-2. **`onUserInfoFromAuthUpdated`** — Listens to `${rabbitmq.queue.auth.update}` and delegates to `UserService.updateUserAuthInfo()`.
-3. **`onUserDeletedFromAuth`** — Listens to `${rabbitmq.queue.auth.delete}` and delegates to `UserService.deleteUser()`.
-4. **`syncSecondaryDatabase`** — Listens to `${rabbitmq.queue.user.register}`. Receives internally published `UserRegisteredEvent`, maps to `SynchroniseSecondaryDatabaseCommand`, and delegates to `UserNodeService.registerUserNode()`.
-5. **`onUserDeleted`** — Listens to `${rabbitmq.queue.user.deleted}` and delegates to `UserNodeService.deleteUserNode()`.
-6. **`onUserBlocked`** — Listens to `q.social-service.user.block.created`, receives `UserBlockedEvent`, and delegates Neo4j `FOLLOWS` cleanup to `BlockNodeService`.
+1. **`onUserRegisteredFromAuth`** — Listens to `${rabbitmq.queue.auth.register}`. Validates the Keycloak payload, derives deterministic event/correlation IDs, enforces idempotency with `ProcessedEventsRepository`, maps to `UserRegisterCommand`, delegates to `UserService.registerUser()`, and records the message as processed on success.
+2. **`onUserInfoFromAuthUpdated`** — Listens to `${rabbitmq.queue.auth.update}` and applies the same validation/idempotency pattern before delegating to `UserService.updateUserAuthInfo()`.
+3. **`onUserDeletedFromAuth`** — Listens to `${rabbitmq.queue.auth.delete}` and applies the same validation/idempotency pattern before delegating to `UserService.deleteUser()`.
+4. **`syncSecondaryDatabase`** — Listens to `${rabbitmq.queue.user.register}`. Validates the internal `UserRegisteredEvent`, guards against duplicates with `ProcessedEventsRepository`, maps to `SynchroniseSecondaryDatabaseCommand`, and delegates to `UserNodeService.registerUserNode()`.
+5. **`onUserDeleted`** — Listens to `${rabbitmq.queue.user.deleted}`, validates the event, performs duplicate detection, and delegates to `UserNodeService.deleteUserNode()`.
+6. **`onUserBlocked`** — Listens to `${rabbitmq.queue.user.block.created}`, receives `UserBlockedEvent`, validates/idempotently guards it, and delegates Neo4j `FOLLOWS` cleanup to `BlockNodeService`.
 
 Auth-sync handlers swallow failures after logging because they create or update local PostgreSQL state from upstream events.
 The block graph-sync handler rethrows after logging so the Rabbit listener retry/DLQ policy can handle Neo4j cleanup failures.

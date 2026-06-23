@@ -71,23 +71,24 @@ MapStruct interface responsible for bidirectional mapping between the domain `Us
 
 The primary use-case handler for user registration. Orchestrates:
 
-1. **Idempotency check** — Verifies the `correlationId` hasn't been processed yet via `ProcessedEventsRepository`
-2. **Duplicate user check** — Verifies the user doesn't already exist
-3. **Domain object creation** — Creates a `User` with value objects (`UserId`, `Username`, `Email`)
-4. **Persistence** — Saves the user via `UserRepository`
-5. **Event recording** — Saves a `ProcessedEvents` entry for idempotency
-6. **Outbox event creation** — Maps to `UserRegisteredEvent`, serializes to JSON, and persists an `OutboxEvent` with `PENDING` status
-7. **Domain event publishing** — Publishes `UserRegisteredDomainEvent` via Spring's `ApplicationEventPublisher` to trigger the `ImmediateOutboxSender` after commit
+1. **Duplicate user check** — Verifies the user doesn't already exist
+2. **Domain object creation** — Creates a `User` with value objects (`UserId`, `Username`, `Email`)
+3. **Persistence** — Saves the user via `UserRepository`
+4. **Outbox event creation** — Maps to `UserRegisteredEvent`, serializes to JSON, and persists an `OutboxEvent` with `PENDING` status
+5. **Domain event publishing** — Publishes `UserRegisteredDomainEvent` via Spring's `ApplicationEventPublisher` to trigger the `ImmediateOutboxSender` after commit
 
 The entire flow runs within a `@Transactional` boundary.
+
+Broker-specific concerns such as payload validation, deterministic event identity, duplicate detection, and
+`ProcessedEventsRepository` writes are handled by `RabbitMQListener`, not by `UserService`.
 
 #### `UserNodeService`
 
 Handles synchronization of user data to the **Neo4j secondary database**:
 
-1. **Idempotency check** — Verifies the node doesn't already exist
-2. **Node creation** — Creates a `UserNode` with the user's UUID
-3. **Persistence** — Saves via `UserNodeRepository`
+1. **Boundary validation** — Verifies the synchronization command contains the required identifiers
+2. **Node existence guard** — Avoids creating or deleting duplicate graph nodes
+3. **Node creation/deletion** — Persists via `UserNodeRepository`
 
 Also runs within a `@Transactional` boundary.
 
@@ -102,8 +103,8 @@ Also runs within a `@Transactional` boundary.
 | `lombok.extern.slf4j.Slf4j` | Logging |
 
 Internal dependencies:
-- `shared.infrastructure.entity` — `OutboxEvent`, `ProcessedEvents`
-- `shared.infrastructure.repository` — `OutboxEventRepository`, `ProcessedEventsRepository`
+- `shared.infrastructure.entity` — `OutboxEvent`
+- `shared.infrastructure.repository` — `OutboxEventRepository`
 - `shared.infrastructure.mapper` — `JsonMapper`
 - `user.domain.model` — `User` and value objects
 - `user.infrastructure.mapper` — `UserEventMapper`
@@ -112,6 +113,6 @@ Internal dependencies:
 ## Why
 
 - **Command pattern**: Decouples the "what to do" (command data) from "how it arrives" (RabbitMQ, HTTP, etc.). The application layer never knows about transport.
-- **Idempotent processing**: Uses `ProcessedEventsRepository` to guard against duplicate event processing — critical in event-driven architectures where at-least-once delivery is the norm.
-- **Transactional outbox**: The user, processed event, and outbox event are all persisted in the **same transaction**, guaranteeing atomicity. The domain event published via `ApplicationEventPublisher` only triggers after the transaction commits.
+- **Listener-owned idempotency**: Duplicate RabbitMQ deliveries are handled in the infrastructure listener so the application services remain transport-agnostic.
+- **Transactional outbox**: The user and outbox event are persisted in the **same transaction**, guaranteeing atomicity. The domain event published via `ApplicationEventPublisher` only triggers after the transaction commits.
 - **Two-database sync**: `UserService` writes to PostgreSQL (source of truth), and `UserNodeService` writes to Neo4j (graph database for social relationships). This separation allows independent scaling and failure handling.
