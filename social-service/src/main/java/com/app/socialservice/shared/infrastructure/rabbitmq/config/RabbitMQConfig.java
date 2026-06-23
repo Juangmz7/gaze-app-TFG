@@ -24,12 +24,16 @@ public class RabbitMQConfig {
 
     @Bean
     public Declarables socialServiceSchema() {
-        // Queue
+        var authEventsExchangeName = props.getExchange().getAuth().getEvents();
+        var userEventsExchangeName = props.getExchange().getUser().getEvents();
+        var blockCreatedQueueName = props.getQueue().getUser().getBlock().getCreated();
+        var blockCreatedRoutingKey = props.getRk().getUser().getBlock().getCreated();
+
         Queue userRegisterFromAuthQueue = QueueBuilder
                 .durable(props.getQueue().getAuth().getRegister())
                 .withArgument(
                         "x-dead-letter-exchange",
-                        props.getExchange().getAuth().getEvents() + ".dlx")
+                        authEventsExchangeName + ".dlx")
                 .withArgument(
                         "x-dead-letter-routing-key",
                         props.getRk().getAuth().getUser().getRegister() + ".fall-back")
@@ -39,7 +43,7 @@ public class RabbitMQConfig {
                 .durable(props.getQueue().getAuth().getUpdate())
                 .withArgument(
                         "x-dead-letter-exchange",
-                        props.getExchange().getAuth().getEvents() + ".dlx")
+                        authEventsExchangeName + ".dlx")
                 .withArgument(
                         "x-dead-letter-routing-key",
                         props.getRk().getAuth().getUser().getUpdate() + ".fall-back")
@@ -49,7 +53,7 @@ public class RabbitMQConfig {
                 .durable(props.getQueue().getAuth().getDelete())
                 .withArgument(
                         "x-dead-letter-exchange",
-                        props.getExchange().getAuth().getEvents() + ".dlx")
+                        authEventsExchangeName + ".dlx")
                 .withArgument(
                         "x-dead-letter-routing-key",
                         props.getRk().getAuth().getUser().getDelete() + ".fall-back")
@@ -59,7 +63,7 @@ public class RabbitMQConfig {
                 .durable(props.getQueue().getUser().getRegister())
                 .withArgument(
                         "x-dead-letter-exchange",
-                        props.getExchange().getUser().getEvents() + ".dlx")
+                        userEventsExchangeName + ".dlx")
                 .withArgument(
                         "x-dead-letter-routing-key",
                         props.getRk().getUser().getRegister().getCreated() + ".fall-back")
@@ -69,13 +73,22 @@ public class RabbitMQConfig {
                 .durable(props.getQueue().getUser().getDeleted())
                 .withArgument(
                         "x-dead-letter-exchange",
-                        props.getExchange().getUser().getEvents() + ".dlx")
+                        userEventsExchangeName + ".dlx")
                 .withArgument(
                         "x-dead-letter-routing-key",
                         props.getRk().getUser().getDeleted() + ".fall-back")
                 .build();
 
-        // DLQ
+        Queue userBlockedQueue = QueueBuilder
+                .durable(blockCreatedQueueName)
+                .withArgument(
+                        "x-dead-letter-exchange",
+                        userEventsExchangeName + ".dlx")
+                .withArgument(
+                        "x-dead-letter-routing-key",
+                        blockCreatedRoutingKey + ".fall-back")
+                .build();
+
         Queue userRegisterFromAuthDlq = QueueBuilder
                 .durable(props.getQueue().getAuth().getRegister() + ".dlq")
                 .build();
@@ -96,39 +109,41 @@ public class RabbitMQConfig {
                 .durable(props.getQueue().getUser().getDeleted() + ".dlq")
                 .build();
 
-        // Exchanges
+        Queue userBlockedDlq = QueueBuilder
+                .durable(blockCreatedQueueName + ".dlq")
+                .build();
+
         var authEventsExchange = new TopicExchange(
-                props.getExchange().getAuth().getEvents());
+                authEventsExchangeName);
 
         var authEventsDlx = new DirectExchange(
-                props.getExchange().getAuth().getEvents() + ".dlx");
+                authEventsExchangeName + ".dlx");
 
         var userEventsExchange = new TopicExchange(
-                props.getExchange().getUser().getEvents());
-        
+                userEventsExchangeName);
+
         var userEventsDlx = new DirectExchange(
-                props.getExchange().getUser().getEvents() + ".dlx");
+                userEventsExchangeName + ".dlx");
 
         return new Declarables(
-                // Exchanges
                 authEventsExchange,
                 authEventsDlx,
                 userEventsExchange,
                 userEventsDlx,
 
-                // Queues
                 userRegisterFromAuthQueue,
                 userUpdateFromAuthQueue,
                 userDeleteFromAuthQueue,
                 userRegisteredQueue,
                 userDeletedQueue,
+                userBlockedQueue,
                 userRegisterFromAuthDlq,
                 userUpdateFromAuthDlq,
                 userDeleteFromAuthDlq,
                 userRegisteredDlq,
                 userDeletedDlq,
+                userBlockedDlq,
 
-                // Bindings
                 BindingBuilder
                         .bind(userRegisterFromAuthQueue)
                         .to(authEventsExchange)
@@ -149,6 +164,10 @@ public class RabbitMQConfig {
                         .bind(userDeletedQueue)
                         .to(userEventsExchange)
                         .with(props.getRk().getUser().getDeleted()),
+                BindingBuilder
+                        .bind(userBlockedQueue)
+                        .to(userEventsExchange)
+                        .with(blockCreatedRoutingKey),
 
                 BindingBuilder
                         .bind(userRegisterFromAuthDlq)
@@ -169,7 +188,11 @@ public class RabbitMQConfig {
                 BindingBuilder
                         .bind(userDeletedDlq)
                         .to(userEventsDlx)
-                        .with(props.getRk().getUser().getDeleted() + ".fall-back")
+                        .with(props.getRk().getUser().getDeleted() + ".fall-back"),
+                BindingBuilder
+                        .bind(userBlockedDlq)
+                        .to(userEventsDlx)
+                        .with(blockCreatedRoutingKey + ".fall-back")
         );
     }
 
