@@ -8,6 +8,8 @@ rabbitmq:
     user:
       register: q.social-service.user.register
       deleted: q.social-service.user.deleted
+      block:
+        created: q.social-service.user.block.created
   exchange:
     auth:
       events: x.auth.events

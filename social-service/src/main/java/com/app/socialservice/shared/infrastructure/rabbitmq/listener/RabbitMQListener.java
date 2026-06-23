@@ -145,7 +145,7 @@ public class RabbitMQListener {
         }
     }
 
-    @RabbitListener(queues = "q.social-service.user.block.created")
+    @RabbitListener(queues = "${rabbitmq.queue.user.block.created}")
     public void onUserBlocked(UserBlockedEvent event) {
         validateUserBlockedEvent(event);
         log.info("UserBlocked event: {} with correlationId: {} received from {}",

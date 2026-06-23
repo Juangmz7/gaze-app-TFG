@@ -27,6 +27,7 @@ class RabbitMQConfigTest {
         properties.getRk().getAuth().getUser().setDelete("auth.delete");
         properties.getRk().getUser().getRegister().setCreated("rk.user.registered");
         properties.getRk().getUser().setDeleted("rk.user.deleted");
+        properties.getQueue().getUser().getBlock().setCreated("q.social-service.user.block.created");
         properties.getRk().getUser().getBlock().setCreated("rk.user.block.created");
 
         var config = new RabbitMQConfig(properties);

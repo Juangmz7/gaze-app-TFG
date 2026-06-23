@@ -24,7 +24,7 @@ public class RabbitMQProperties {
 
             @Data
             public static class BlockQueues {
-                private String created = "q.social-service.user.block.created";
+                private String created;
             }
         }
 
