@@ -2,6 +2,8 @@ package com.app.socialservice.shared.infrastructure.security;
 
 import com.app.socialservice.block.domain.exception.SelfBlockNotAllowedException;
 import com.app.socialservice.block.domain.exception.UserNotFoundException;
+import com.app.socialservice.follow.domain.exception.FollowBlockedException;
+import com.app.socialservice.follow.domain.exception.SelfFollowNotAllowedException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -29,6 +31,22 @@ public class ApiExceptionHandler {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
     }
 
+    @ExceptionHandler(com.app.socialservice.follow.domain.exception.UserNotFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handleFollowUserNotFoundException(
+            com.app.socialservice.follow.domain.exception.UserNotFoundException exception,
+            HttpServletRequest request) {
+
+        var response = new ApiErrorResponse(
+                Instant.now(),
+                HttpStatus.NOT_FOUND.value(),
+                HttpStatus.NOT_FOUND.getReasonPhrase(),
+                exception.getMessage(),
+                request.getRequestURI()
+        );
+
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+    }
+
     @ExceptionHandler(SelfBlockNotAllowedException.class)
     public ResponseEntity<ApiErrorResponse> handleSelfBlockNotAllowedException(
             SelfBlockNotAllowedException exception,
@@ -43,6 +61,38 @@ public class ApiExceptionHandler {
         );
 
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+    }
+
+    @ExceptionHandler(SelfFollowNotAllowedException.class)
+    public ResponseEntity<ApiErrorResponse> handleSelfFollowNotAllowedException(
+            SelfFollowNotAllowedException exception,
+            HttpServletRequest request) {
+
+        var response = new ApiErrorResponse(
+                Instant.now(),
+                HttpStatus.BAD_REQUEST.value(),
+                HttpStatus.BAD_REQUEST.getReasonPhrase(),
+                exception.getMessage(),
+                request.getRequestURI()
+        );
+
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+    }
+
+    @ExceptionHandler(FollowBlockedException.class)
+    public ResponseEntity<ApiErrorResponse> handleFollowBlockedException(
+            FollowBlockedException exception,
+            HttpServletRequest request) {
+
+        var response = new ApiErrorResponse(
+                Instant.now(),
+                HttpStatus.CONFLICT.value(),
+                HttpStatus.CONFLICT.getReasonPhrase(),
+                exception.getMessage(),
+                request.getRequestURI()
+        );
+
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

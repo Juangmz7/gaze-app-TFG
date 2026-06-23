@@ -6,6 +6,8 @@ import java.util.UUID;
 
 import com.app.socialservice.block.application.service.BlockNodeService;
 import com.app.socialservice.block.infrastructure.events.UserBlockedEvent;
+import com.app.socialservice.follow.application.service.FollowNodeService;
+import com.app.socialservice.follow.infrastructure.events.UserFollowedEvent;
 import com.app.socialservice.shared.infrastructure.entity.ProcessedEvent;
 import com.app.socialservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 import com.app.socialservice.shared.infrastructure.repository.ProcessedEventsRepository;
@@ -48,6 +50,9 @@ class RabbitMQListenerTest {
     private UserNodeService userNodeService;
 
     @Mock
+    private FollowNodeService followNodeService;
+
+    @Mock
     private BlockNodeService blockNodeService;
 
     @Mock
@@ -66,6 +71,7 @@ class RabbitMQListenerTest {
         rabbitMQProperties.getQueue().getAuth().setDelete("q.social-service.auth.delete");
         rabbitMQProperties.getQueue().getUser().setRegister("q.social-service.user.register");
         rabbitMQProperties.getQueue().getUser().setDeleted("q.social-service.user.deleted");
+        rabbitMQProperties.getQueue().getUser().getFollow().setCreated("q.social-service.user.follow.created");
         rabbitMQProperties.getQueue().getUser().getBlock().setCreated("q.social-service.user.block.created");
     }
 
@@ -351,6 +357,89 @@ class RabbitMQListenerTest {
         assertThat(processedEventCaptor.getValue().getId()).isEqualTo(event.id());
         assertThat(processedEventCaptor.getValue().getCorrelationId()).isEqualTo(event.correlationId());
         assertThat(processedEventCaptor.getValue().getEventType()).isEqualTo(UserBlockedEvent.class.getSimpleName());
+    }
+
+    @Test
+    void shouldDelegateUserFollowedEventToFollowNodeServiceAndRecordProcessedEvent() {
+        var followerId = UUID.randomUUID();
+        var followedId = UUID.randomUUID();
+        var event = UserFollowedEvent.builder()
+                .id(UUID.randomUUID())
+                .correlationId(UUID.randomUUID())
+                .occurredAt(Instant.now())
+                .followerUserId(followerId)
+                .followedUserId(followedId)
+                .build();
+        when(processedEventsRepository.existsById(event.id())).thenReturn(false);
+        when(processedEventsRepository.existsByCorrelationId(event.correlationId())).thenReturn(false);
+
+        rabbitMQListener.onUserFollowed(event);
+
+        verify(followNodeService).createFollowRelationship(followerId, followedId);
+        var processedEventCaptor = ArgumentCaptor.forClass(ProcessedEvent.class);
+        verify(processedEventsRepository).save(processedEventCaptor.capture());
+        assertThat(processedEventCaptor.getValue().getId()).isEqualTo(event.id());
+        assertThat(processedEventCaptor.getValue().getCorrelationId()).isEqualTo(event.correlationId());
+        assertThat(processedEventCaptor.getValue().getEventType()).isEqualTo(UserFollowedEvent.class.getSimpleName());
+    }
+
+    @Test
+    void shouldRejectInvalidUserFollowedEventPayload() {
+        var duplicatedUserId = UUID.randomUUID();
+        var event = UserFollowedEvent.builder()
+                .id(UUID.randomUUID())
+                .correlationId(UUID.randomUUID())
+                .occurredAt(null)
+                .followerUserId(duplicatedUserId)
+                .followedUserId(duplicatedUserId)
+                .build();
+
+        assertThatThrownBy(() -> rabbitMQListener.onUserFollowed(event))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("event.occurredAt must not be null");
+
+        verify(followNodeService, never()).createFollowRelationship(any(), any());
+        verify(processedEventsRepository, never()).save(any(ProcessedEvent.class));
+    }
+
+    @Test
+    void shouldSkipFollowNodeSyncWhenFollowEventIdWasAlreadyProcessed() {
+        var event = UserFollowedEvent.builder()
+                .id(UUID.randomUUID())
+                .correlationId(UUID.randomUUID())
+                .occurredAt(Instant.now())
+                .followerUserId(UUID.randomUUID())
+                .followedUserId(UUID.randomUUID())
+                .build();
+        when(processedEventsRepository.existsById(event.id())).thenReturn(true);
+
+        rabbitMQListener.onUserFollowed(event);
+
+        verify(followNodeService, never()).createFollowRelationship(any(), any());
+        verify(processedEventsRepository, never()).save(any(ProcessedEvent.class));
+    }
+
+    @Test
+    void shouldRethrowWhenFollowNodeSyncFails() {
+        var event = UserFollowedEvent.builder()
+                .id(UUID.randomUUID())
+                .correlationId(UUID.randomUUID())
+                .occurredAt(Instant.now())
+                .followerUserId(UUID.randomUUID())
+                .followedUserId(UUID.randomUUID())
+                .build();
+        when(processedEventsRepository.existsById(event.id())).thenReturn(false);
+        when(processedEventsRepository.existsByCorrelationId(event.correlationId())).thenReturn(false);
+
+        doThrow(new RuntimeException("neo4j follow sync failed"))
+                .when(followNodeService)
+                .createFollowRelationship(event.followerUserId(), event.followedUserId());
+
+        assertThatThrownBy(() -> rabbitMQListener.onUserFollowed(event))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage("neo4j follow sync failed");
+
+        verify(processedEventsRepository, never()).save(any(ProcessedEvent.class));
     }
 
     @Test

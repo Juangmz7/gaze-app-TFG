@@ -5,6 +5,8 @@ import java.util.UUID;
 
 import com.app.socialservice.block.application.service.BlockNodeService;
 import com.app.socialservice.block.infrastructure.events.UserBlockedEvent;
+import com.app.socialservice.follow.application.service.FollowNodeService;
+import com.app.socialservice.follow.infrastructure.events.UserFollowedEvent;
 import com.app.socialservice.shared.infrastructure.entity.ProcessedEvent;
 import com.app.socialservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 import com.app.socialservice.shared.infrastructure.repository.ProcessedEventsRepository;
@@ -34,6 +36,7 @@ public class RabbitMQListener {
     private final UserService userService;
     private final UserRegisterCommandMapper userRegisterCommandMapper;
     private final UserNodeService userNodeService;
+    private final FollowNodeService followNodeService;
     private final BlockNodeService blockNodeService;
     private final ProcessedEventsRepository processedEventsRepository;
     private final RabbitMQProperties rabbitMQProperties;
@@ -248,6 +251,31 @@ public class RabbitMQListener {
         }
     }
 
+    @RabbitListener(queues = "${rabbitmq.queue.user.follow.created}")
+    public void onUserFollowed(UserFollowedEvent event) {
+        validateUserFollowedEvent(event);
+        log.info("UserFollowed event: {} with correlationId: {} received from {}",
+                event.id(), event.correlationId(), rabbitMQProperties.getQueue().getUser().getFollow().getCreated());
+
+        if (isEventAlreadyProcessed(event.id(), event.correlationId())) {
+            log.warn("Detected follow event {} with correlationId {} duplication, discarding message...",
+                    event.id(), event.correlationId());
+            return;
+        }
+
+        try {
+            followNodeService.createFollowRelationship(
+                    event.followerUserId(),
+                    event.followedUserId()
+            );
+            setEventAsProcessed(event.id(), event.correlationId(), event.getClass().getSimpleName());
+        } catch (Exception e) {
+            log.warn("Error processing user followed event: {} with correlationId={}",
+                    event.id(), event.correlationId(), e);
+            throw e;
+        }
+    }
+
     private boolean isEventAlreadyProcessed(UUID eventId, UUID correlationId) {
         return processedEventsRepository.existsById(eventId)
                 || processedEventsRepository.existsByCorrelationId(correlationId);
@@ -276,6 +304,30 @@ public class RabbitMQListener {
         }
         if (event.blockedUserId() == null) {
             throw new IllegalArgumentException("event.blockedUserId must not be null");
+        }
+    }
+
+    private void validateUserFollowedEvent(UserFollowedEvent event) {
+        if (event == null) {
+            throw new IllegalArgumentException("event must not be null");
+        }
+        if (event.id() == null) {
+            throw new IllegalArgumentException("event.id must not be null");
+        }
+        if (event.correlationId() == null) {
+            throw new IllegalArgumentException("event.correlationId must not be null");
+        }
+        if (event.occurredAt() == null) {
+            throw new IllegalArgumentException("event.occurredAt must not be null");
+        }
+        if (event.followerUserId() == null) {
+            throw new IllegalArgumentException("event.followerUserId must not be null");
+        }
+        if (event.followedUserId() == null) {
+            throw new IllegalArgumentException("event.followedUserId must not be null");
+        }
+        if (event.followerUserId().equals(event.followedUserId())) {
+            throw new IllegalArgumentException("event follower and followed users must be different");
         }
     }
 

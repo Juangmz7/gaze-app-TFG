@@ -24,6 +24,12 @@ public class BlockRepositoryImpl implements BlockRepository {
     }
 
     @Override
+    public boolean existsByUsers(UUID blockerUserId, UUID blockedUserId) {
+        validateUserIds(blockerUserId, blockedUserId);
+        return jpaBlockRepository.existsById(new BlockEntityId(blockerUserId, blockedUserId));
+    }
+
+    @Override
     public Block save(Block block) {
         if (block == null) {
             throw new IllegalArgumentException("block must not be null");
@@ -46,5 +52,14 @@ public class BlockRepositoryImpl implements BlockRepository {
                 new BlockEntityId(block.getBlockerId().value(), block.getBlockedId().value()),
                 block.getCreatedAt()
         );
+    }
+
+    private void validateUserIds(UUID blockerUserId, UUID blockedUserId) {
+        if (blockerUserId == null) {
+            throw new IllegalArgumentException("blockerUserId must not be null");
+        }
+        if (blockedUserId == null) {
+            throw new IllegalArgumentException("blockedUserId must not be null");
+        }
     }
 }
