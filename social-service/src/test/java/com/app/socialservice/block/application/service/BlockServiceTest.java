@@ -126,7 +126,7 @@ class BlockServiceTest {
 
         assertThat(response.blockerId()).isEqualTo(blockerId);
         assertThat(response.blockedId()).isEqualTo(blockedId);
-        verify(followRepository).markBidirectionalRelationshipsAsBlocked(blockerId, blockedId);
+        verify(followRepository, never()).markBidirectionalRelationshipsAsBlocked(any(), any());
         verify(blockRepository, never()).save(any(Block.class));
         verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
         verify(eventPublisher, never()).publishEvent(any());
