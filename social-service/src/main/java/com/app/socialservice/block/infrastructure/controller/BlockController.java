@@ -25,7 +25,7 @@ public class BlockController {
     public ResponseEntity<BlockResponse> blockUser(@Valid @RequestBody BlockUserRequest request) {
         var blockerUserId = securityUtils.getUserId();
         if (blockerUserId == null) {
-            throw new IllegalArgumentException("Authenticated user id must not be null");
+            throw new IllegalArgumentException("Authenticated user id cannot be found");
         }
 
         var response = blockService.blockUser(new BlockUserCommand(blockerUserId, request.blockedUserId()));
