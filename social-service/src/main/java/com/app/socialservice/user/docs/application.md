@@ -80,7 +80,7 @@ The primary use-case handler for user registration. Orchestrates:
 The entire flow runs within a `@Transactional` boundary.
 
 Broker-specific concerns such as payload validation, deterministic event identity, duplicate detection, and
-`ProcessedEventsRepository` writes are handled by `RabbitMQListener`, not by `UserService`.
+`ProcessedEventsRepository` writes are handled by `UserRabbitMQListener`, not by `UserService`.
 
 #### `UserNodeService`
 

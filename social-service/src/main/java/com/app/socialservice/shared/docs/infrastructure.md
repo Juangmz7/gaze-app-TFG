@@ -32,7 +32,10 @@ shared/infrastructure/
 │   │   ├── RabbitMQConfig.java
 │   │   └── RabbitMQProperties.java
 │   ├── listener/
-│   │   └── RabbitMQListener.java
+│   │   ├── AbstractRabbitMQListenerSupport.java
+│   │   ├── BlockRabbitMQListener.java
+│   │   ├── FollowRabbitMQListener.java
+│   │   └── UserRabbitMQListener.java
 │   └── publisher/
 │       └── EventPublisher.java
 └── repository/
@@ -142,19 +145,17 @@ Also configures:
 
 Type-safe configuration properties bound to `rabbitmq.*` in `application.yaml`. Nested structure mirrors the queue/exchange/routing-key hierarchy.
 
-#### `RabbitMQListener`
+#### RabbitMQ listeners
 
-Central listener component with six `@RabbitListener` methods:
+Listener responsibilities are now split by domain while preserving the same queue and routing-key usage:
 
-1. **`onUserRegisteredFromAuth`** — Listens to `${rabbitmq.queue.auth.register}`. Validates the Keycloak payload, derives deterministic event/correlation IDs, enforces idempotency with `ProcessedEventsRepository`, maps to `UserRegisterCommand`, delegates to `UserService.registerUser()`, and records the message as processed on success.
-2. **`onUserInfoFromAuthUpdated`** — Listens to `${rabbitmq.queue.auth.update}` and applies the same validation/idempotency pattern before delegating to `UserService.updateUserAuthInfo()`.
-3. **`onUserDeletedFromAuth`** — Listens to `${rabbitmq.queue.auth.delete}` and applies the same validation/idempotency pattern before delegating to `UserService.deleteUser()`.
-4. **`syncSecondaryDatabase`** — Listens to `${rabbitmq.queue.user.register}`. Validates the internal `UserRegisteredEvent`, guards against duplicates with `ProcessedEventsRepository`, maps to `SynchroniseSecondaryDatabaseCommand`, and delegates to `UserNodeService.registerUserNode()`.
-5. **`onUserDeleted`** — Listens to `${rabbitmq.queue.user.deleted}`, validates the event, performs duplicate detection, and delegates to `UserNodeService.deleteUserNode()`.
-6. **`onUserBlocked`** — Listens to `${rabbitmq.queue.user.block.created}`, receives `UserBlockedEvent`, validates/idempotently guards it, and delegates Neo4j `FOLLOWS` cleanup to `BlockNodeService`.
+1. **`UserRabbitMQListener`** — Owns `${rabbitmq.queue.auth.register}`, `${rabbitmq.queue.auth.update}`, `${rabbitmq.queue.auth.delete}`, `${rabbitmq.queue.user.register}`, and `${rabbitmq.queue.user.deleted}`. It validates auth and user payloads, derives deterministic IDs for auth-originated events, performs duplicate detection with `ProcessedEventsRepository`, delegates to `UserService` or `UserNodeService`, and records processed messages on success.
+2. **`FollowRabbitMQListener`** — Owns `${rabbitmq.queue.user.follow.created}`. It validates `UserFollowedEvent`, performs idempotency bookkeeping, and delegates Neo4j `FOLLOWS` synchronization to `FollowNodeService`.
+3. **`BlockRabbitMQListener`** — Owns `${rabbitmq.queue.user.block.created}`. It validates `UserBlockedEvent`, performs idempotency bookkeeping, and delegates Neo4j cleanup to `BlockNodeService`.
+4. **`AbstractRabbitMQListenerSupport`** — Shared helper base containing defensive broker-payload validation, deterministic UUID generation, and processed-event persistence helpers used by the concrete listeners.
 
 Auth-sync handlers swallow failures after logging because they create or update local PostgreSQL state from upstream events.
-The block graph-sync handler rethrows after logging so the Rabbit listener retry/DLQ policy can handle Neo4j cleanup failures.
+The follow and block graph-sync handlers rethrow after logging so the Rabbit listener retry/DLQ policy can handle Neo4j synchronization failures.
 
 ### Datasource
 
@@ -205,5 +206,5 @@ A simple wrapper around Jackson's `ObjectMapper` providing `toJson()` and `fromJ
 - **Strategy pattern for publishers**: New event types only require a new `EventPublisher` implementation — no changes to the outbox infrastructure.
 - **DLQ configuration**: Failed messages after retries are routed to dead-letter queues for manual inspection, preventing message loss.
 - **LazyConnectionDataSourceProxy**: Avoids holding database connections for read-heavy or short-circuit operations.
-- **Centralized listener**: All RabbitMQ listeners live in one place for visibility. Each handler maps the incoming event to a command and delegates to the appropriate service.
+- **Domain-split listeners**: User, follow, and block handlers are separated so each listener stays aligned with one bounded-context workflow while still sharing the same validation and idempotency support code.
 - **`@Enumerated(STRING)`**: Stores enum values as readable strings in the database rather than ordinal integers, making data inspection and debugging easier.

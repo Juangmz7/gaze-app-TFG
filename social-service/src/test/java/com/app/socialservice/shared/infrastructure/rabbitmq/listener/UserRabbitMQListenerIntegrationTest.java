@@ -1,15 +1,9 @@
 package com.app.socialservice.shared.infrastructure.rabbitmq.listener;
 
 import java.nio.charset.StandardCharsets;
-import java.time.Instant;
 import java.util.UUID;
 
 import com.app.socialservice.TestcontainersConfiguration;
-import com.app.socialservice.follow.infrastructure.entity.FollowEntity;
-import com.app.socialservice.follow.infrastructure.entity.FollowEntityId;
-import com.app.socialservice.follow.infrastructure.enums.FollowStatus;
-import com.app.socialservice.follow.infrastructure.events.UserFollowedEvent;
-import com.app.socialservice.follow.infrastructure.repository.JpaFollowRepository;
 import com.app.socialservice.shared.infrastructure.repository.OutboxEventRepository;
 import com.app.socialservice.shared.infrastructure.repository.ProcessedEventsRepository;
 import com.app.socialservice.user.domain.enums.UserAccountStatus;
@@ -24,24 +18,22 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.neo4j.core.Neo4jClient;
-import org.springframework.dao.InvalidDataAccessApiUsageException;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @ActiveProfiles("test")
 @Import(TestcontainersConfiguration.class)
 @SpringBootTest
-class RabbitMQListenerIntegrationTest {
+class UserRabbitMQListenerIntegrationTest {
 
     @MockitoBean
     private JwtDecoder jwtDecoder;
 
     @jakarta.annotation.Resource
-    private RabbitMQListener rabbitMQListener;
+    private UserRabbitMQListener userRabbitMQListener;
 
     @jakarta.annotation.Resource
     private JpaUserRepository jpaUserRepository;
@@ -53,9 +45,6 @@ class RabbitMQListenerIntegrationTest {
     private Neo4jClient neo4jClient;
 
     @jakarta.annotation.Resource
-    private JpaFollowRepository jpaFollowRepository;
-
-    @jakarta.annotation.Resource
     private ProcessedEventsRepository processedEventsRepository;
 
     @jakarta.annotation.Resource
@@ -65,7 +54,6 @@ class RabbitMQListenerIntegrationTest {
     void setUp() {
         processedEventsRepository.deleteAll();
         outboxEventRepository.deleteAll();
-        jpaFollowRepository.deleteAll();
         neo4jClient.query("MATCH ()-[r]->() DELETE r").run();
         neo4jClient.query("MATCH (n) DELETE n").run();
         userNodeRepository.deleteAll();
@@ -73,7 +61,7 @@ class RabbitMQListenerIntegrationTest {
     }
 
     @Test
-    void rabbitMqListenerProcessesUserEventsAndSavesThemToProcessedEventsRepository() {
+    void userRabbitMqListenerProcessesUserRegisterEventsAndSavesThemToProcessedEventsRepository() {
         var event = userRegisteredFromAuthEvent();
         var expectedEventId = deterministicUuid(
                 "auth-register-event",
@@ -84,7 +72,7 @@ class RabbitMQListenerIntegrationTest {
                 event.details().email()
         );
 
-        rabbitMQListener.onUserRegisteredFromAuth(event);
+        userRabbitMQListener.onUserRegisteredFromAuth(event);
 
         assertThat(jpaUserRepository.findById(UUID.fromString(event.userId()))).isPresent();
         assertThat(processedEventsRepository.findById(expectedEventId)).isPresent();
@@ -92,7 +80,7 @@ class RabbitMQListenerIntegrationTest {
     }
 
     @Test
-    void rabbitMqListenerCorrectlyIgnoresDuplicateEventsUsingProcessedEventsRepository() {
+    void userRabbitMqListenerCorrectlyIgnoresDuplicateRegisterEventsUsingProcessedEventsRepository() {
         var event = userRegisteredFromAuthEvent();
         var expectedEventId = deterministicUuid(
                 "auth-register-event",
@@ -103,11 +91,11 @@ class RabbitMQListenerIntegrationTest {
                 event.details().email()
         );
 
-        rabbitMQListener.onUserRegisteredFromAuth(event);
+        userRabbitMQListener.onUserRegisteredFromAuth(event);
 
         var outboxCountAfterFirstMessage = outboxEventRepository.count();
 
-        rabbitMQListener.onUserRegisteredFromAuth(event);
+        userRabbitMQListener.onUserRegisteredFromAuth(event);
 
         assertThat(jpaUserRepository.count()).isEqualTo(1);
         assertThat(outboxEventRepository.count()).isEqualTo(outboxCountAfterFirstMessage);
@@ -115,7 +103,7 @@ class RabbitMQListenerIntegrationTest {
     }
 
     @Test
-    void rabbitMqListenerProcessesUserAuthUpdateEventsAndSavesThemToProcessedEventsRepository() {
+    void userRabbitMqListenerProcessesUserAuthUpdateEventsAndSavesThemToProcessedEventsRepository() {
         var userId = UUID.randomUUID();
         seedAcceptedUser(userId, "before-update", "before-update@example.com");
         var event = userInfoFromAuthUpdatedEvent(userId, "after-update", "after-update@example.com");
@@ -128,7 +116,7 @@ class RabbitMQListenerIntegrationTest {
                 event.details().email()
         );
 
-        rabbitMQListener.onUserInfoFromAuthUpdated(event);
+        userRabbitMQListener.onUserInfoFromAuthUpdated(event);
 
         assertThat(jpaUserRepository.findById(userId)).get()
                 .extracting(UserEntity::getUsername, UserEntity::getEmail)
@@ -138,7 +126,7 @@ class RabbitMQListenerIntegrationTest {
     }
 
     @Test
-    void rabbitMqListenerCorrectlyIgnoresDuplicateUserAuthUpdateEventsUsingProcessedEventsRepository() {
+    void userRabbitMqListenerCorrectlyIgnoresDuplicateUserAuthUpdateEventsUsingProcessedEventsRepository() {
         var userId = UUID.randomUUID();
         seedAcceptedUser(userId, "before-duplicate-update", "before-duplicate-update@example.com");
         var event = userInfoFromAuthUpdatedEvent(userId, "after-duplicate-update", "after-duplicate-update@example.com");
@@ -151,11 +139,11 @@ class RabbitMQListenerIntegrationTest {
                 event.details().email()
         );
 
-        rabbitMQListener.onUserInfoFromAuthUpdated(event);
+        userRabbitMQListener.onUserInfoFromAuthUpdated(event);
 
         var outboxCountAfterFirstMessage = outboxEventRepository.count();
 
-        rabbitMQListener.onUserInfoFromAuthUpdated(event);
+        userRabbitMQListener.onUserInfoFromAuthUpdated(event);
 
         assertThat(jpaUserRepository.findById(userId)).get()
                 .extracting(UserEntity::getUsername, UserEntity::getEmail)
@@ -165,7 +153,7 @@ class RabbitMQListenerIntegrationTest {
     }
 
     @Test
-    void rabbitMqListenerProcessesUserDeleteEventsAndSavesThemToProcessedEventsRepository() {
+    void userRabbitMqListenerProcessesUserDeleteEventsAndSavesThemToProcessedEventsRepository() {
         var userId = UUID.randomUUID();
         seedAcceptedUser(userId, "before-delete", "before-delete@example.com");
         var event = userDeletedFromAuthEvent(userId);
@@ -176,7 +164,7 @@ class RabbitMQListenerIntegrationTest {
                 String.valueOf(event.time())
         );
 
-        rabbitMQListener.onUserDeletedFromAuth(event);
+        userRabbitMQListener.onUserDeletedFromAuth(event);
 
         assertThat(jpaUserRepository.findById(userId)).get()
                 .extracting(UserEntity::getAccountStatus)
@@ -186,7 +174,7 @@ class RabbitMQListenerIntegrationTest {
     }
 
     @Test
-    void rabbitMqListenerCorrectlyIgnoresDuplicateUserDeleteEventsUsingProcessedEventsRepository() {
+    void userRabbitMqListenerCorrectlyIgnoresDuplicateUserDeleteEventsUsingProcessedEventsRepository() {
         var userId = UUID.randomUUID();
         seedAcceptedUser(userId, "before-duplicate-delete", "before-duplicate-delete@example.com");
         var event = userDeletedFromAuthEvent(userId);
@@ -197,113 +185,17 @@ class RabbitMQListenerIntegrationTest {
                 String.valueOf(event.time())
         );
 
-        rabbitMQListener.onUserDeletedFromAuth(event);
+        userRabbitMQListener.onUserDeletedFromAuth(event);
 
         var outboxCountAfterFirstMessage = outboxEventRepository.count();
 
-        rabbitMQListener.onUserDeletedFromAuth(event);
+        userRabbitMQListener.onUserDeletedFromAuth(event);
 
         assertThat(jpaUserRepository.findById(userId)).get()
                 .extracting(UserEntity::getAccountStatus)
                 .isEqualTo(UserAccountStatus.DELETED);
         assertThat(outboxEventRepository.count()).isEqualTo(outboxCountAfterFirstMessage);
         assertThat(processedEventsRepository.findById(expectedEventId)).isPresent();
-    }
-
-    @Test
-    void rabbitMqListenerProcessesUserFollowedEventsAndSavesThemToProcessedEventsRepository() {
-        var followerId = UUID.randomUUID();
-        var followedId = UUID.randomUUID();
-        seedAcceptedUser(followerId, "follow-listener-follower", "follow-listener-follower@example.com");
-        seedAcceptedUser(followedId, "follow-listener-followed", "follow-listener-followed@example.com");
-        userNodeRepository.save(com.app.socialservice.user.infrastructure.entity.UserNode.builder().id(followerId).build());
-        userNodeRepository.save(com.app.socialservice.user.infrastructure.entity.UserNode.builder().id(followedId).build());
-        jpaFollowRepository.save(new FollowEntity(
-                new FollowEntityId(followerId, followedId),
-                FollowStatus.ACTIVE,
-                Instant.now(),
-                null
-        ));
-
-        var event = UserFollowedEvent.builder()
-                .id(UUID.randomUUID())
-                .correlationId(UUID.randomUUID())
-                .occurredAt(Instant.now())
-                .followerUserId(followerId)
-                .followedUserId(followedId)
-                .build();
-
-        rabbitMQListener.onUserFollowed(event);
-
-        assertThat(processedEventsRepository.findById(event.id())).isPresent();
-        assertThat(countFollowRelationships(followerId, followedId)).isEqualTo(1L);
-    }
-
-    @Test
-    void rabbitMqListenerCorrectlyIgnoresDuplicateUserFollowedEventsUsingProcessedEventsRepository() {
-        var followerId = UUID.randomUUID();
-        var followedId = UUID.randomUUID();
-        seedAcceptedUser(followerId, "duplicate-follow-follower", "duplicate-follow-follower@example.com");
-        seedAcceptedUser(followedId, "duplicate-follow-followed", "duplicate-follow-followed@example.com");
-        userNodeRepository.save(com.app.socialservice.user.infrastructure.entity.UserNode.builder().id(followerId).build());
-        userNodeRepository.save(com.app.socialservice.user.infrastructure.entity.UserNode.builder().id(followedId).build());
-        jpaFollowRepository.save(new FollowEntity(
-                new FollowEntityId(followerId, followedId),
-                FollowStatus.ACTIVE,
-                Instant.now(),
-                null
-        ));
-
-        var event = UserFollowedEvent.builder()
-                .id(UUID.randomUUID())
-                .correlationId(UUID.randomUUID())
-                .occurredAt(Instant.now())
-                .followerUserId(followerId)
-                .followedUserId(followedId)
-                .build();
-
-        rabbitMQListener.onUserFollowed(event);
-        rabbitMQListener.onUserFollowed(event);
-
-        assertThat(processedEventsRepository.findById(event.id())).isPresent();
-        assertThat(countFollowRelationships(followerId, followedId)).isEqualTo(1L);
-    }
-
-    @Test
-    void rabbitMqListenerRetriesUserFollowedEventsWhenNeo4jUserNodesArriveAfterTheFollowEvent() {
-        var followerId = UUID.randomUUID();
-        var followedId = UUID.randomUUID();
-        seedAcceptedUser(followerId, "delayed-follow-follower", "delayed-follow-follower@example.com");
-        seedAcceptedUser(followedId, "delayed-follow-followed", "delayed-follow-followed@example.com");
-        jpaFollowRepository.save(new FollowEntity(
-                new FollowEntityId(followerId, followedId),
-                FollowStatus.ACTIVE,
-                Instant.now(),
-                null
-        ));
-
-        var event = UserFollowedEvent.builder()
-                .id(UUID.randomUUID())
-                .correlationId(UUID.randomUUID())
-                .occurredAt(Instant.now())
-                .followerUserId(followerId)
-                .followedUserId(followedId)
-                .build();
-
-        assertThatThrownBy(() -> rabbitMQListener.onUserFollowed(event))
-                .isInstanceOf(InvalidDataAccessApiUsageException.class)
-                .hasMessageContaining("Neo4j user nodes are missing");
-
-        assertThat(processedEventsRepository.findById(event.id())).isEmpty();
-        assertThat(countFollowRelationships(followerId, followedId)).isZero();
-
-        userNodeRepository.save(com.app.socialservice.user.infrastructure.entity.UserNode.builder().id(followerId).build());
-        userNodeRepository.save(com.app.socialservice.user.infrastructure.entity.UserNode.builder().id(followedId).build());
-
-        rabbitMQListener.onUserFollowed(event);
-
-        assertThat(processedEventsRepository.findById(event.id())).isPresent();
-        assertThat(countFollowRelationships(followerId, followedId)).isEqualTo(1L);
     }
 
     private UserRegisteredFromAuthEvent userRegisteredFromAuthEvent() {
@@ -323,8 +215,8 @@ class RabbitMQListenerIntegrationTest {
                         "http://localhost",
                         "Test",
                         "User",
-                        "listener-it@example.com",
-                        "listener-it"
+                        "registered@example.com",
+                        "registered-user"
                 )
         );
     }
@@ -382,24 +274,6 @@ class RabbitMQListenerIntegrationTest {
                 .email(email)
                 .accountStatus(UserAccountStatus.ACCEPTED)
                 .build());
-    }
-
-    private long countFollowRelationships(UUID followerId, UUID followedId) {
-        var result = neo4jClient.query("""
-                MATCH (follower:User)-[follow:FOLLOWS]->(followed:User)
-                WHERE follower.id = $followerId AND followed.id = $followedId
-                RETURN count(follow) AS relationships
-                """)
-                .bind(followerId.toString()).to("followerId")
-                .bind(followedId.toString()).to("followedId")
-                .fetch()
-                .one();
-
-        if (result.isEmpty()) {
-            return 0L;
-        }
-
-        return ((Number) result.get().get("relationships")).longValue();
     }
 
     private UUID deterministicUuid(String namespace, String... components) {
