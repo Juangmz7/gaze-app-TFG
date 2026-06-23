@@ -1,36 +1,33 @@
 package com.app.socialservice.user.application.service;
 
+import java.time.Instant;
+import java.util.Optional;
+import java.util.UUID;
+
 import com.app.socialservice.shared.infrastructure.entity.OutboxEvent;
-import com.app.socialservice.shared.infrastructure.entity.ProcessedEvent;
 import com.app.socialservice.shared.infrastructure.enums.EventStatus;
 import com.app.socialservice.shared.infrastructure.mapper.JsonMapper;
 import com.app.socialservice.shared.infrastructure.repository.OutboxEventRepository;
-import com.app.socialservice.shared.infrastructure.repository.ProcessedEventsRepository;
+import com.app.socialservice.user.application.commands.DeleteUserCommand;
+import com.app.socialservice.user.application.commands.UpdateAuthUserInfoCommand;
 import com.app.socialservice.user.application.commands.UserRegisterCommand;
+import com.app.socialservice.user.application.repository.UserRepository;
+import com.app.socialservice.user.domain.events.UserAuthInfoUpdatedDomainEvent;
+import com.app.socialservice.user.domain.events.UserDeletedDomainEvent;
 import com.app.socialservice.user.domain.events.UserRegisteredDomainEvent;
 import com.app.socialservice.user.domain.model.User;
 import com.app.socialservice.user.domain.model.valueobj.Email;
 import com.app.socialservice.user.domain.model.valueobj.UserId;
 import com.app.socialservice.user.domain.model.valueobj.Username;
-import com.app.socialservice.user.infrastructure.mapper.UserEventMapper;
+import com.app.socialservice.user.infrastructure.events.UserDeletedEvent;
 import com.app.socialservice.user.infrastructure.events.UserRegisteredEvent;
 import com.app.socialservice.user.infrastructure.events.UserUpdatedEvent;
-import com.app.socialservice.user.infrastructure.events.UserDeletedEvent;
-import com.app.socialservice.user.application.commands.UpdateAuthUserInfoCommand;
-import com.app.socialservice.user.application.commands.DeleteUserCommand;
-import com.app.socialservice.user.domain.events.UserAuthInfoUpdatedDomainEvent;
-import com.app.socialservice.user.domain.events.UserDeletedDomainEvent;
-import com.app.socialservice.user.application.repository.UserRepository;
+import com.app.socialservice.user.infrastructure.mapper.UserEventMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.time.Instant;
-import java.util.Optional;
-import java.util.UUID;
-
 
 @Slf4j
 @RequiredArgsConstructor
@@ -38,7 +35,6 @@ import java.util.UUID;
 public class UserService {
 
     private final UserRepository userRepository;
-    private final ProcessedEventsRepository processedEventsRepository;
     private final ApplicationEventPublisher eventPublisher;
     private final OutboxEventRepository outboxEventRepository;
     private final UserEventMapper userEventMapper;
@@ -46,24 +42,15 @@ public class UserService {
 
     @Transactional
     public void registerUser(UserRegisterCommand command) {
+        validateRegisterCommand(command);
+
         if (userRepository.existsById(command.userId())) {
             log.warn("Detected user {} already exists for event: {} with correlationId: {}, discarding message...",
                     command.userId(), command.id(), command.correlationId());
             return;
         }
-        if (isEventAlreadyProcessed(command.id(), command.correlationId())) {
-            log.warn("Detected event {} with correlationId {} duplication, discarding message...",
-                    command.id(), command.correlationId());
-            return;
-        }
 
         var savedUser = createAndSaveUser(command);
-
-        setEventAsProcessed(
-                command.id(),
-                command.correlationId(),
-                command.eventType()
-        );
 
         var occurredOn = Instant.now();
         var outboxEvent = createAndSaveOutboxEvent(command, savedUser, occurredOn);
@@ -108,16 +95,14 @@ public class UserService {
         );
     }
 
+    @Transactional
     public void updateUserAuthInfo(UpdateAuthUserInfoCommand command) {
+        validateUpdateCommand(command);
+
         Optional<User> user = getUserById(command.userId());
         if (user.isEmpty()) {
             log.warn("Detected user {} does not exists for event: {} with correlationId: {}, discarding message...",
                     command.userId(), command.id(), command.correlationId());
-            return;
-        }
-        if (isEventAlreadyProcessed(command.id(), command.correlationId())) {
-            log.warn("Detected event {} with correlationId {} duplication, discarding message...",
-                    command.id(), command.correlationId());
             return;
         }
 
@@ -131,12 +116,6 @@ public class UserService {
         }
         user.get().updateAuthInfo(username, email);
         var savedUser = userRepository.save(user.get());
-
-        setEventAsProcessed(
-                command.id(),
-                command.correlationId(),
-                command.eventType()
-        );
 
         var occurredOn = Instant.now();
         var outboxEvent = createAndSaveOutboxEvent(command, savedUser, occurredOn);
@@ -171,27 +150,19 @@ public class UserService {
         );
     }
 
+    @Transactional
     public void deleteUser(DeleteUserCommand command) {
+        validateDeleteCommand(command);
+
         Optional<User> user = getUserById(command.userId());
         if (user.isEmpty()) {
             log.warn("Detected user {} does not exists for event: {} with correlationId: {}, discarding message...",
                     command.userId(), command.id(), command.correlationId());
             return;
         }
-        if (isEventAlreadyProcessed(command.id(), command.correlationId())) {
-            log.warn("Detected event {} with correlationId {} duplication, discarding message...",
-                    command.id(), command.correlationId());
-            return;
-        }
 
         user.get().delete();
         var savedUser = userRepository.save(user.get());
-
-        setEventAsProcessed(
-                command.id(),
-                command.correlationId(),
-                command.eventType()
-        );
 
         var occurredOn = Instant.now();
         var outboxEvent = createAndSaveOutboxEvent(command, savedUser, occurredOn);
@@ -226,19 +197,73 @@ public class UserService {
         );
     }
 
-    private boolean isEventAlreadyProcessed(UUID eventId, UUID correlationId) {
-        return processedEventsRepository.existsById(eventId)
-                || processedEventsRepository.existsByCorrelationId(correlationId);
-    }
-
-    private void setEventAsProcessed(UUID eventId, UUID correlationId, String eventType) {
-        processedEventsRepository.save(
-                new ProcessedEvent(eventId, correlationId, eventType)
-        );
-    }
-
     private Optional<User> getUserById(UUID id) {
         return userRepository.findById(id);
     }
 
+    private void validateRegisterCommand(UserRegisterCommand command) {
+        if (command == null) {
+            throw new IllegalArgumentException("command must not be null");
+        }
+        if (command.id() == null) {
+            throw new IllegalArgumentException("command.id must not be null");
+        }
+        if (command.correlationId() == null) {
+            throw new IllegalArgumentException("command.correlationId must not be null");
+        }
+        if (command.userId() == null) {
+            throw new IllegalArgumentException("command.userId must not be null");
+        }
+        if (command.username() == null) {
+            throw new IllegalArgumentException("command.username must not be null");
+        }
+        if (command.email() == null) {
+            throw new IllegalArgumentException("command.email must not be null");
+        }
+        if (command.eventType() == null) {
+            throw new IllegalArgumentException("command.eventType must not be null");
+        }
+    }
+
+    private void validateUpdateCommand(UpdateAuthUserInfoCommand command) {
+        if (command == null) {
+            throw new IllegalArgumentException("command must not be null");
+        }
+        if (command.id() == null) {
+            throw new IllegalArgumentException("command.id must not be null");
+        }
+        if (command.correlationId() == null) {
+            throw new IllegalArgumentException("command.correlationId must not be null");
+        }
+        if (command.userId() == null) {
+            throw new IllegalArgumentException("command.userId must not be null");
+        }
+        if (command.username() == null) {
+            throw new IllegalArgumentException("command.username must not be null");
+        }
+        if (command.email() == null) {
+            throw new IllegalArgumentException("command.email must not be null");
+        }
+        if (command.eventType() == null) {
+            throw new IllegalArgumentException("command.eventType must not be null");
+        }
+    }
+
+    private void validateDeleteCommand(DeleteUserCommand command) {
+        if (command == null) {
+            throw new IllegalArgumentException("command must not be null");
+        }
+        if (command.id() == null) {
+            throw new IllegalArgumentException("command.id must not be null");
+        }
+        if (command.correlationId() == null) {
+            throw new IllegalArgumentException("command.correlationId must not be null");
+        }
+        if (command.userId() == null) {
+            throw new IllegalArgumentException("command.userId must not be null");
+        }
+        if (command.eventType() == null) {
+            throw new IllegalArgumentException("command.eventType must not be null");
+        }
+    }
 }

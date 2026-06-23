@@ -17,6 +17,8 @@ public class UserNodeService {
 
     @Transactional("neo4jTransactionManager")
     public void registerUserNode(SynchroniseSecondaryDatabaseCommand command) {
+        validateCommand(command);
+
         if (userNodeRepository.existsById(command.userId())) {
             log.warn("Detected event duplication correlationId: {} eventId: {}, discarding message...",
                     command.correlationId(), command.eventId());
@@ -37,6 +39,8 @@ public class UserNodeService {
 
     @Transactional("neo4jTransactionManager")
     public void deleteUserNode(SynchroniseSecondaryDatabaseCommand command) {
+        validateCommand(command);
+
         if (!userNodeRepository.existsById(command.userId())) {
             log.warn("UserNode {} does not exist for event: {} with correlationId: {}, discarding message...",
                     command.userId(), command.eventId(), command.correlationId());
@@ -49,5 +53,20 @@ public class UserNodeService {
 
         log.debug("Deletion completed for userNode {} for event: {} with correlationId: {}",
                 command.userId(), command.eventId(), command.correlationId());
+    }
+
+    private void validateCommand(SynchroniseSecondaryDatabaseCommand command) {
+        if (command == null) {
+            throw new IllegalArgumentException("command must not be null");
+        }
+        if (command.correlationId() == null) {
+            throw new IllegalArgumentException("command.correlationId must not be null");
+        }
+        if (command.eventId() == null) {
+            throw new IllegalArgumentException("command.eventId must not be null");
+        }
+        if (command.userId() == null) {
+            throw new IllegalArgumentException("command.userId must not be null");
+        }
     }
 }
