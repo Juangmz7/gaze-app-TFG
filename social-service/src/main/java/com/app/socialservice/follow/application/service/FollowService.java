@@ -1,0 +1,142 @@
+package com.app.socialservice.follow.application.service;
+
+import java.util.UUID;
+
+import com.app.socialservice.block.application.repository.BlockRepository;
+import com.app.socialservice.follow.application.commands.FollowUserCommand;
+import com.app.socialservice.follow.application.dto.FollowResponse;
+import com.app.socialservice.follow.application.repository.FollowRepository;
+import com.app.socialservice.follow.domain.events.UserFollowedDomainEvent;
+import com.app.socialservice.follow.domain.exception.FollowBlockedException;
+import com.app.socialservice.follow.domain.exception.SelfFollowNotAllowedException;
+import com.app.socialservice.follow.domain.exception.UserNotFoundException;
+import com.app.socialservice.follow.domain.model.Follow;
+import com.app.socialservice.follow.infrastructure.events.UserFollowedEvent;
+import com.app.socialservice.follow.infrastructure.mapper.FollowEventMapper;
+import com.app.socialservice.shared.infrastructure.entity.OutboxEvent;
+import com.app.socialservice.shared.infrastructure.enums.EventStatus;
+import com.app.socialservice.shared.infrastructure.mapper.JsonMapper;
+import com.app.socialservice.shared.infrastructure.repository.OutboxEventRepository;
+import com.app.socialservice.user.application.repository.UserRepository;
+import com.app.socialservice.user.application.repository.UserStatsRepository;
+import com.app.socialservice.user.domain.model.valueobj.UserId;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class FollowService {
+
+    private final BlockRepository blockRepository;
+    private final FollowRepository followRepository;
+    private final UserRepository userRepository;
+    private final UserStatsRepository userStatsRepository;
+    private final ApplicationEventPublisher eventPublisher;
+    private final OutboxEventRepository outboxEventRepository;
+    private final FollowEventMapper followEventMapper;
+    private final JsonMapper jsonMapper;
+
+    @Transactional
+    public FollowResponse followUser(FollowUserCommand command) {
+        if (command == null) {
+            throw new IllegalArgumentException("command must not be null");
+        }
+
+        validateCommandInput(command);
+
+        var activeFollow = followRepository.findActiveByUsers(command.followerUserId(), command.followedUserId());
+        if (activeFollow.isPresent()) {
+            log.info("Follow already exists for follower {} and followed {}",
+                    command.followerUserId(), command.followedUserId());
+            return toResponse(activeFollow.get());
+        }
+
+        if (isBlocked(command.followerUserId(), command.followedUserId())) {
+            throw new FollowBlockedException(String.format(
+                    "Follow relationship is blocked between %s and %s",
+                    command.followerUserId(),
+                    command.followedUserId()
+            ));
+        }
+
+        var savedFollow = followRepository.findRemovedByUsers(command.followerUserId(), command.followedUserId())
+                .map(existingFollow -> followRepository.reactivate(command.followerUserId(), command.followedUserId()))
+                .orElseGet(() -> followRepository.save(newFollow(command)));
+
+        userStatsRepository.incrementFollowCounters(command.followerUserId(), command.followedUserId());
+
+        var occurredOn = java.time.Instant.now();
+        var outboxEvent = createAndSaveOutboxEvent(savedFollow, occurredOn);
+
+        log.info("Follow created for follower {} and followed {} with outbox id {}",
+                command.followerUserId(), command.followedUserId(), outboxEvent.getId());
+
+        eventPublisher.publishEvent(new UserFollowedDomainEvent(
+                outboxEvent.getId(),
+                savedFollow.getFollowerId().value(),
+                savedFollow.getFollowedId().value(),
+                occurredOn
+        ));
+
+        return toResponse(savedFollow);
+    }
+
+    private void validateCommandInput(FollowUserCommand command) {
+        if (command.followerUserId().equals(command.followedUserId())) {
+            throw new SelfFollowNotAllowedException("A user cannot follow themselves");
+        }
+
+        if (userRepository.findById(command.followerUserId()).isEmpty()) {
+            throw new UserNotFoundException("User not found: " + command.followerUserId());
+        }
+        if (userRepository.findById(command.followedUserId()).isEmpty()) {
+            throw new UserNotFoundException("User not found: " + command.followedUserId());
+        }
+    }
+
+    static Follow newFollow(FollowUserCommand command) {
+        return new Follow(
+                new UserId(command.followerUserId()),
+                new UserId(command.followedUserId()),
+                java.time.Instant.now()
+        );
+    }
+
+    private boolean isBlocked(UUID followerUserId, UUID followedUserId) {
+        return blockRepository.existsByUsers(followerUserId, followedUserId)
+                || blockRepository.existsByUsers(followedUserId, followerUserId);
+    }
+
+    private OutboxEvent createAndSaveOutboxEvent(Follow follow, java.time.Instant occurredOn) {
+        var correlationId = UUID.randomUUID();
+        var followedEvent = followEventMapper.toUserFollowedEvent(
+                UUID.randomUUID(),
+                correlationId,
+                follow,
+                occurredOn
+        );
+        var payload = jsonMapper.toJson(followedEvent);
+        return outboxEventRepository.save(
+                OutboxEvent.builder()
+                        .id(UUID.randomUUID())
+                        .correlationId(correlationId)
+                        .payload(payload)
+                        .eventType(UserFollowedEvent.class.getSimpleName())
+                        .status(EventStatus.PENDING)
+                        .createdAt(occurredOn)
+                        .build()
+        );
+    }
+
+    private FollowResponse toResponse(Follow follow) {
+        return new FollowResponse(
+                follow.getFollowerId().value(),
+                follow.getFollowedId().value(),
+                follow.getCreatedAt()
+        );
+    }
+}

@@ -20,7 +20,13 @@ public class RabbitMQProperties {
         public static class UserQueues {
             private String register;
             private String deleted;
+            private FollowQueues follow = new FollowQueues();
             private BlockQueues block = new BlockQueues();
+
+            @Data
+            public static class FollowQueues {
+                private String created;
+            }
 
             @Data
             public static class BlockQueues {
