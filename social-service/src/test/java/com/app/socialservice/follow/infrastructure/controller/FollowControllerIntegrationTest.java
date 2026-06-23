@@ -207,7 +207,7 @@ class FollowControllerIntegrationTest {
     }
 
     @Test
-    void postApiSocialFollowReturns409WhenRelationshipIsBlocked() throws Exception {
+    void postApiSocialFollowReturns403WhenRelationshipIsBlocked() throws Exception {
         var followerId = UUID.randomUUID();
         var followedId = UUID.randomUUID();
 
@@ -221,7 +221,7 @@ class FollowControllerIntegrationTest {
                         .with(jwt().jwt(jwt -> jwt.claim("userId", followerId.toString())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(followRequest(followedId)))
-                .andExpect(status().isConflict());
+                .andExpect(status().isForbidden());
 
         assertThat(jpaFollowRepository.findById(new FollowEntityId(followerId, followedId))).get()
                 .extracting(FollowEntity::getStatus)
@@ -232,7 +232,7 @@ class FollowControllerIntegrationTest {
     }
 
     @Test
-    void postApiSocialFollowReturns409WhenUsersAreBlockedBeforeAnyFollowRowExists() throws Exception {
+    void postApiSocialFollowReturns403WhenUsersAreBlockedBeforeAnyFollowRowExists() throws Exception {
         var followerId = UUID.randomUUID();
         var followedId = UUID.randomUUID();
 
@@ -246,7 +246,7 @@ class FollowControllerIntegrationTest {
                         .with(jwt().jwt(jwt -> jwt.claim("userId", followerId.toString())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(followRequest(followedId)))
-                .andExpect(status().isConflict());
+                .andExpect(status().isForbidden());
 
         assertThat(jpaFollowRepository.count()).isZero();
         assertThat(outboxEventRepository.count()).isZero();
