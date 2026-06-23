@@ -48,7 +48,6 @@ public class BlockService {
 
         var existingBlock = blockRepository.findByUsers(command.blockerUserId(), command.blockedUserId());
         if (existingBlock.isPresent()) {
-            followRepository.markBidirectionalRelationshipsAsBlocked(command.blockerUserId(), command.blockedUserId());
             log.info("Block already exists for blocker {} and blocked {}",
                     command.blockerUserId(), command.blockedUserId());
             return toResponse(existingBlock.get());
