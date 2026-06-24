@@ -1,7 +1,12 @@
 package com.app.socialservice.shared.infrastructure.rabbitmq.config;
 
 import lombok.RequiredArgsConstructor;
-import org.springframework.amqp.core.*;
+import org.springframework.amqp.core.BindingBuilder;
+import org.springframework.amqp.core.Declarables;
+import org.springframework.amqp.core.DirectExchange;
+import org.springframework.amqp.core.Queue;
+import org.springframework.amqp.core.QueueBuilder;
+import org.springframework.amqp.core.TopicExchange;
 import org.springframework.amqp.rabbit.config.RetryInterceptorBuilder;
 import org.springframework.amqp.rabbit.config.SimpleRabbitListenerContainerFactory;
 import org.springframework.amqp.rabbit.connection.CachingConnectionFactory;
@@ -26,108 +31,87 @@ public class RabbitMQConfig {
     public Declarables socialServiceSchema() {
         var authEventsExchangeName = props.getExchange().getAuth().getEvents();
         var userEventsExchangeName = props.getExchange().getUser().getEvents();
+        var postEventsExchangeName = props.getExchange().getPost().getEvents();
         var followCreatedQueueName = props.getQueue().getUser().getFollow().getCreated();
+        var followDeletedQueueName = props.getQueue().getUser().getFollow().getDeleted();
         var followCreatedRoutingKey = props.getRk().getUser().getFollow().getCreated();
+        var followDeletedRoutingKey = props.getRk().getUser().getFollow().getDeleted();
         var blockCreatedQueueName = props.getQueue().getUser().getBlock().getCreated();
         var blockCreatedRoutingKey = props.getRk().getUser().getBlock().getCreated();
+        var postCreatedQueueName = props.getQueue().getPost().getCreated();
+        var postDeletedQueueName = props.getQueue().getPost().getDeleted();
+        var postCreatedRoutingKey = props.getRk().getPost().getCreated();
+        var postDeletedRoutingKey = props.getRk().getPost().getDeleted();
 
-        Queue userRegisterFromAuthQueue = QueueBuilder
-                .durable(props.getQueue().getAuth().getRegister())
-                .withArgument(
-                        "x-dead-letter-exchange",
-                        authEventsExchangeName + ".dlx")
-                .withArgument(
-                        "x-dead-letter-routing-key",
-                        props.getRk().getAuth().getUser().getRegister() + ".fall-back")
-                .build();
+        Queue userRegisterFromAuthQueue = buildQueue(
+                props.getQueue().getAuth().getRegister(),
+                authEventsExchangeName,
+                props.getRk().getAuth().getUser().getRegister());
 
-        Queue userUpdateFromAuthQueue = QueueBuilder
-                .durable(props.getQueue().getAuth().getUpdate())
-                .withArgument(
-                        "x-dead-letter-exchange",
-                        authEventsExchangeName + ".dlx")
-                .withArgument(
-                        "x-dead-letter-routing-key",
-                        props.getRk().getAuth().getUser().getUpdate() + ".fall-back")
-                .build();
+        Queue userUpdateFromAuthQueue = buildQueue(
+                props.getQueue().getAuth().getUpdate(),
+                authEventsExchangeName,
+                props.getRk().getAuth().getUser().getUpdate());
 
-        Queue userDeleteFromAuthQueue = QueueBuilder
-                .durable(props.getQueue().getAuth().getDelete())
-                .withArgument(
-                        "x-dead-letter-exchange",
-                        authEventsExchangeName + ".dlx")
-                .withArgument(
-                        "x-dead-letter-routing-key",
-                        props.getRk().getAuth().getUser().getDelete() + ".fall-back")
-                .build();
+        Queue userDeleteFromAuthQueue = buildQueue(
+                props.getQueue().getAuth().getDelete(),
+                authEventsExchangeName,
+                props.getRk().getAuth().getUser().getDelete());
 
-        Queue userRegisteredQueue = QueueBuilder
-                .durable(props.getQueue().getUser().getRegister())
-                .withArgument(
-                        "x-dead-letter-exchange",
-                        userEventsExchangeName + ".dlx")
-                .withArgument(
-                        "x-dead-letter-routing-key",
-                        props.getRk().getUser().getRegister().getCreated() + ".fall-back")
-                .build();
+        Queue userRegisteredQueue = buildQueue(
+                props.getQueue().getUser().getRegister(),
+                userEventsExchangeName,
+                props.getRk().getUser().getRegister().getCreated());
 
-        Queue userDeletedQueue = QueueBuilder
-                .durable(props.getQueue().getUser().getDeleted())
-                .withArgument(
-                        "x-dead-letter-exchange",
-                        userEventsExchangeName + ".dlx")
-                .withArgument(
-                        "x-dead-letter-routing-key",
-                        props.getRk().getUser().getDeleted() + ".fall-back")
-                .build();
+        Queue userDeletedQueue = buildQueue(
+                props.getQueue().getUser().getDeleted(),
+                userEventsExchangeName,
+                props.getRk().getUser().getDeleted());
 
-        Queue userFollowedQueue = QueueBuilder
-                .durable(followCreatedQueueName)
-                .withArgument(
-                        "x-dead-letter-exchange",
-                        userEventsExchangeName + ".dlx")
-                .withArgument(
-                        "x-dead-letter-routing-key",
-                        followCreatedRoutingKey + ".fall-back")
-                .build();
+        Queue userFollowedQueue = buildQueue(
+                followCreatedQueueName,
+                userEventsExchangeName,
+                followCreatedRoutingKey);
 
-        Queue userBlockedQueue = QueueBuilder
-                .durable(blockCreatedQueueName)
-                .withArgument(
-                        "x-dead-letter-exchange",
-                        userEventsExchangeName + ".dlx")
-                .withArgument(
-                        "x-dead-letter-routing-key",
-                        blockCreatedRoutingKey + ".fall-back")
-                .build();
+        Queue userUnfollowedQueue = buildQueue(
+                followDeletedQueueName,
+                userEventsExchangeName,
+                followDeletedRoutingKey);
 
-        Queue userRegisterFromAuthDlq = QueueBuilder
-                .durable(props.getQueue().getAuth().getRegister() + ".dlq")
-                .build();
+        Queue userBlockedQueue = buildQueue(
+                blockCreatedQueueName,
+                userEventsExchangeName,
+                blockCreatedRoutingKey);
 
-        Queue userUpdateFromAuthDlq = QueueBuilder
-                .durable(props.getQueue().getAuth().getUpdate() + ".dlq")
-                .build();
+        Queue postCreatedQueue = buildQueue(
+                postCreatedQueueName,
+                postEventsExchangeName,
+                postCreatedRoutingKey);
 
-        Queue userDeleteFromAuthDlq = QueueBuilder
-                .durable(props.getQueue().getAuth().getDelete() + ".dlq")
-                .build();
+        Queue postDeletedQueue = buildQueue(
+                postDeletedQueueName,
+                postEventsExchangeName,
+                postDeletedRoutingKey);
 
-        Queue userRegisteredDlq = QueueBuilder
-                .durable(props.getQueue().getUser().getRegister() + ".dlq")
-                .build();
+        Queue userRegisterFromAuthDlq = buildDlq(props.getQueue().getAuth().getRegister());
 
-        Queue userDeletedDlq = QueueBuilder
-                .durable(props.getQueue().getUser().getDeleted() + ".dlq")
-                .build();
+        Queue userUpdateFromAuthDlq = buildDlq(props.getQueue().getAuth().getUpdate());
 
-        Queue userFollowedDlq = QueueBuilder
-                .durable(followCreatedQueueName + ".dlq")
-                .build();
+        Queue userDeleteFromAuthDlq = buildDlq(props.getQueue().getAuth().getDelete());
 
-        Queue userBlockedDlq = QueueBuilder
-                .durable(blockCreatedQueueName + ".dlq")
-                .build();
+        Queue userRegisteredDlq = buildDlq(props.getQueue().getUser().getRegister());
+
+        Queue userDeletedDlq = buildDlq(props.getQueue().getUser().getDeleted());
+
+        Queue userFollowedDlq = buildDlq(followCreatedQueueName);
+
+        Queue userUnfollowedDlq = buildDlq(followDeletedQueueName);
+
+        Queue userBlockedDlq = buildDlq(blockCreatedQueueName);
+
+        Queue postCreatedDlq = buildDlq(postCreatedQueueName);
+
+        Queue postDeletedDlq = buildDlq(postDeletedQueueName);
 
         var authEventsExchange = new TopicExchange(
                 authEventsExchangeName);
@@ -141,11 +125,19 @@ public class RabbitMQConfig {
         var userEventsDlx = new DirectExchange(
                 userEventsExchangeName + ".dlx");
 
+        var postEventsExchange = new TopicExchange(
+                postEventsExchangeName);
+
+        var postEventsDlx = new DirectExchange(
+                postEventsExchangeName + ".dlx");
+
         return new Declarables(
                 authEventsExchange,
                 authEventsDlx,
                 userEventsExchange,
                 userEventsDlx,
+                postEventsExchange,
+                postEventsDlx,
 
                 userRegisterFromAuthQueue,
                 userUpdateFromAuthQueue,
@@ -153,14 +145,20 @@ public class RabbitMQConfig {
                 userRegisteredQueue,
                 userDeletedQueue,
                 userFollowedQueue,
+                userUnfollowedQueue,
                 userBlockedQueue,
+                postCreatedQueue,
+                postDeletedQueue,
                 userRegisterFromAuthDlq,
                 userUpdateFromAuthDlq,
                 userDeleteFromAuthDlq,
                 userRegisteredDlq,
                 userDeletedDlq,
                 userFollowedDlq,
+                userUnfollowedDlq,
                 userBlockedDlq,
+                postCreatedDlq,
+                postDeletedDlq,
 
                 BindingBuilder
                         .bind(userRegisterFromAuthQueue)
@@ -187,39 +185,85 @@ public class RabbitMQConfig {
                         .to(userEventsExchange)
                         .with(followCreatedRoutingKey),
                 BindingBuilder
+                        .bind(userUnfollowedQueue)
+                        .to(userEventsExchange)
+                        .with(followDeletedRoutingKey),
+                BindingBuilder
                         .bind(userBlockedQueue)
                         .to(userEventsExchange)
                         .with(blockCreatedRoutingKey),
+                BindingBuilder
+                        .bind(postCreatedQueue)
+                        .to(postEventsExchange)
+                        .with(postCreatedRoutingKey),
+                BindingBuilder
+                        .bind(postDeletedQueue)
+                        .to(postEventsExchange)
+                        .with(postDeletedRoutingKey),
 
                 BindingBuilder
                         .bind(userRegisterFromAuthDlq)
                         .to(authEventsDlx)
-                        .with(props.getRk().getAuth().getUser().getRegister() + ".fall-back"),
+                        .with(deadLetterRoutingKey(props.getRk().getAuth().getUser().getRegister())),
                 BindingBuilder
                         .bind(userUpdateFromAuthDlq)
                         .to(authEventsDlx)
-                        .with(props.getRk().getAuth().getUser().getUpdate() + ".fall-back"),
+                        .with(deadLetterRoutingKey(props.getRk().getAuth().getUser().getUpdate())),
                 BindingBuilder
                         .bind(userDeleteFromAuthDlq)
                         .to(authEventsDlx)
-                        .with(props.getRk().getAuth().getUser().getDelete() + ".fall-back"),
+                        .with(deadLetterRoutingKey(props.getRk().getAuth().getUser().getDelete())),
                 BindingBuilder
                         .bind(userRegisteredDlq)
                         .to(userEventsDlx)
-                        .with(props.getRk().getUser().getRegister().getCreated() + ".fall-back"),
+                        .with(deadLetterRoutingKey(props.getRk().getUser().getRegister().getCreated())),
                 BindingBuilder
                         .bind(userDeletedDlq)
                         .to(userEventsDlx)
-                        .with(props.getRk().getUser().getDeleted() + ".fall-back"),
+                        .with(deadLetterRoutingKey(props.getRk().getUser().getDeleted())),
                 BindingBuilder
                         .bind(userFollowedDlq)
                         .to(userEventsDlx)
-                        .with(followCreatedRoutingKey + ".fall-back"),
+                        .with(deadLetterRoutingKey(followCreatedRoutingKey)),
+                BindingBuilder
+                        .bind(userUnfollowedDlq)
+                        .to(userEventsDlx)
+                        .with(deadLetterRoutingKey(followDeletedRoutingKey)),
                 BindingBuilder
                         .bind(userBlockedDlq)
                         .to(userEventsDlx)
-                        .with(blockCreatedRoutingKey + ".fall-back")
+                        .with(deadLetterRoutingKey(blockCreatedRoutingKey)),
+                BindingBuilder
+                        .bind(postCreatedDlq)
+                        .to(postEventsDlx)
+                        .with(deadLetterRoutingKey(postCreatedRoutingKey)),
+                BindingBuilder
+                        .bind(postDeletedDlq)
+                        .to(postEventsDlx)
+                        .with(deadLetterRoutingKey(postDeletedRoutingKey))
         );
+    }
+
+    private Queue buildQueue(String queueName, String exchangeName, String routingKey) {
+        return QueueBuilder
+                .durable(queueName)
+                .withArgument("x-dead-letter-exchange", deadLetterExchangeName(exchangeName))
+                .withArgument("x-dead-letter-routing-key", deadLetterRoutingKey(routingKey))
+                .build();
+    }
+
+    private Queue buildDlq(String queueName) {
+        return QueueBuilder
+                .durable(queueName + ".dlq")
+                .build();
+    }
+
+    private String deadLetterExchangeName(String exchangeName) {
+        return exchangeName + ".dlx";
+    }
+
+    private String deadLetterRoutingKey(String routingKey) {
+        return routingKey + ".fall-back";
     }
 
     // Listener Factory
