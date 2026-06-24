@@ -1,8 +1,6 @@
 # Test Profile — social-service
 # Activate with: --spring.profiles.active=test
 spring:
-  jackson:
-
   # --- JPA / Hibernate ---
   jpa:
     hibernate:

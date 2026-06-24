@@ -1,7 +1,10 @@
 # Development Profile — social-service
 # Activate with: --spring.profiles.active=dev
 spring:
-  jackson:
+  data:
+    redis:
+      host: localhost
+      port: 6379
 
   # --- PostgreSQL ---
   datasource:
