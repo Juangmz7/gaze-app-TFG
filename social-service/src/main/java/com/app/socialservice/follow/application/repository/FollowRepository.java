@@ -11,5 +11,6 @@ public interface FollowRepository {
     boolean existsBlockedByUsers(UUID followerUserId, UUID followedUserId);
     boolean insertIfAbsent(Follow follow);
     boolean reactivate(UUID followerUserId, UUID followedUserId);
+    boolean markAsRemoved(UUID followerUserId, UUID followedUserId);
     boolean markBidirectionalRelationshipsAsBlocked(UUID firstUserId, UUID secondUserId);
 }

@@ -27,4 +27,19 @@ public class FollowNodeService {
 
         followGraphRepository.createFollowRelationship(followerUserId, followedUserId);
     }
+
+    @Transactional("neo4jTransactionManager")
+    public void deleteFollowRelationship(UUID followerUserId, UUID followedUserId) {
+        if (followerUserId == null) {
+            throw new IllegalArgumentException("followerUserId must not be null");
+        }
+        if (followedUserId == null) {
+            throw new IllegalArgumentException("followedUserId must not be null");
+        }
+        if (followerUserId.equals(followedUserId)) {
+            throw new IllegalArgumentException("followerUserId must not equal followedUserId");
+        }
+
+        followGraphRepository.deleteFollowRelationship(followerUserId, followedUserId);
+    }
 }

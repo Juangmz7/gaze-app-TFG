@@ -8,6 +8,7 @@ import com.app.socialservice.follow.infrastructure.entity.FollowEntity;
 import com.app.socialservice.follow.infrastructure.entity.FollowEntityId;
 import com.app.socialservice.follow.infrastructure.enums.FollowStatus;
 import com.app.socialservice.follow.infrastructure.events.UserFollowedEvent;
+import com.app.socialservice.follow.infrastructure.events.UserUnfollowedEvent;
 import com.app.socialservice.follow.infrastructure.repository.JpaFollowRepository;
 import com.app.socialservice.shared.infrastructure.repository.ProcessedEventsRepository;
 import com.app.socialservice.user.domain.enums.UserAccountStatus;
@@ -157,6 +158,43 @@ class FollowRabbitMQListenerIntegrationTest {
 
         assertThat(processedEventsRepository.findById(event.id())).isPresent();
         assertThat(countFollowRelationships(followerId, followedId)).isEqualTo(1L);
+    }
+
+    @Test
+    void followRabbitMqListenerProcessesUserUnfollowedEventsAndDeletesTheNeo4jRelationship() {
+        var followerId = UUID.randomUUID();
+        var followedId = UUID.randomUUID();
+        seedAcceptedUser(followerId, "unfollow-listener-follower", "unfollow-listener-follower@example.com");
+        seedAcceptedUser(followedId, "unfollow-listener-followed", "unfollow-listener-followed@example.com");
+        userNodeRepository.save(com.app.socialservice.user.infrastructure.entity.UserNode.builder().id(followerId).build());
+        userNodeRepository.save(com.app.socialservice.user.infrastructure.entity.UserNode.builder().id(followedId).build());
+        jpaFollowRepository.save(new FollowEntity(
+                new FollowEntityId(followerId, followedId),
+                FollowStatus.REMOVED,
+                Instant.now().minusSeconds(60),
+                Instant.now()
+        ));
+        neo4jClient.query("""
+                MATCH (follower:User {id: $followerId})
+                MATCH (followed:User {id: $followedId})
+                MERGE (follower)-[:FOLLOWS]->(followed)
+                """)
+                .bind(followerId.toString()).to("followerId")
+                .bind(followedId.toString()).to("followedId")
+                .run();
+
+        var event = UserUnfollowedEvent.builder()
+                .id(UUID.randomUUID())
+                .correlationId(UUID.randomUUID())
+                .occurredAt(Instant.now())
+                .followerUserId(followerId)
+                .followedUserId(followedId)
+                .build();
+
+        followRabbitMQListener.onUserUnfollowed(event);
+
+        assertThat(processedEventsRepository.findById(event.id())).isPresent();
+        assertThat(countFollowRelationships(followerId, followedId)).isZero();
     }
 
     private void seedAcceptedUser(UUID userId, String username, String email) {

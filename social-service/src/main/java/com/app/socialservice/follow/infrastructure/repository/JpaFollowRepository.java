@@ -43,6 +43,16 @@ public interface JpaFollowRepository extends JpaRepository<FollowEntity, FollowE
     @Modifying
     @Query(
             value = """
+                    UPDATE follows SET status = 'REMOVED', updated_at = NOW()
+                    WHERE follower_id = :followerId AND followed_id = :followedId AND status = 'ACTIVE'
+                    """,
+            nativeQuery = true
+    )
+    int markAsRemovedIfActive(UUID followerId, UUID followedId);
+
+    @Modifying
+    @Query(
+            value = """
                     UPDATE follows SET status = 'BLOCKED', updated_at = NOW()
                     WHERE ((follower_id = :userId1 AND followed_id = :userId2)
                     OR (follower_id = :userId2 AND followed_id = :userId1))

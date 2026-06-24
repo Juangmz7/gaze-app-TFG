@@ -21,6 +21,7 @@ class RabbitMQConfigTest {
         properties.getQueue().getUser().setRegister("q.social-service.user.register");
         properties.getQueue().getUser().setDeleted("q.social-service.user.deleted");
         properties.getQueue().getUser().getFollow().setCreated("q.social-service.user.follow.created");
+        properties.getQueue().getUser().getFollow().setDeleted("q.social-service.user.follow.deleted");
         properties.getExchange().getAuth().setEvents("x.auth.events");
         properties.getExchange().getUser().setEvents("x.user.events");
         properties.getRk().getAuth().getUser().setRegister("auth.register");
@@ -29,6 +30,7 @@ class RabbitMQConfigTest {
         properties.getRk().getUser().getRegister().setCreated("rk.user.registered");
         properties.getRk().getUser().setDeleted("rk.user.deleted");
         properties.getRk().getUser().getFollow().setCreated("rk.user.follow.created");
+        properties.getRk().getUser().getFollow().setDeleted("rk.user.follow.deleted");
         properties.getQueue().getUser().getBlock().setCreated("q.social-service.user.block.created");
         properties.getRk().getUser().getBlock().setCreated("rk.user.block.created");
 
@@ -43,6 +45,8 @@ class RabbitMQConfigTest {
         assertThat(queuesByName).containsKeys(
                 "q.social-service.user.follow.created",
                 "q.social-service.user.follow.created.dlq",
+                "q.social-service.user.follow.deleted",
+                "q.social-service.user.follow.deleted.dlq",
                 "q.social-service.user.block.created",
                 "q.social-service.user.block.created.dlq"
         );
@@ -50,6 +54,11 @@ class RabbitMQConfigTest {
                 .containsAllEntriesOf(Map.of(
                         "x-dead-letter-exchange", "x.user.events.dlx",
                         "x-dead-letter-routing-key", "rk.user.follow.created.fall-back"
+                ));
+        assertThat(queuesByName.get("q.social-service.user.follow.deleted").getArguments())
+                .containsAllEntriesOf(Map.of(
+                        "x-dead-letter-exchange", "x.user.events.dlx",
+                        "x-dead-letter-routing-key", "rk.user.follow.deleted.fall-back"
                 ));
         assertThat(queuesByName.get("q.social-service.user.block.created").getArguments())
                 .containsAllEntriesOf(Map.of(
@@ -63,6 +72,14 @@ class RabbitMQConfigTest {
         assertThat(bindings).anySatisfy(binding -> {
             assertThat(binding.getDestination()).isEqualTo("q.social-service.user.follow.created.dlq");
             assertThat(binding.getRoutingKey()).isEqualTo("rk.user.follow.created.fall-back");
+        });
+        assertThat(bindings).anySatisfy(binding -> {
+            assertThat(binding.getDestination()).isEqualTo("q.social-service.user.follow.deleted");
+            assertThat(binding.getRoutingKey()).isEqualTo("rk.user.follow.deleted");
+        });
+        assertThat(bindings).anySatisfy(binding -> {
+            assertThat(binding.getDestination()).isEqualTo("q.social-service.user.follow.deleted.dlq");
+            assertThat(binding.getRoutingKey()).isEqualTo("rk.user.follow.deleted.fall-back");
         });
         assertThat(bindings).anySatisfy(binding -> {
             assertThat(binding.getDestination()).isEqualTo("q.social-service.user.block.created");

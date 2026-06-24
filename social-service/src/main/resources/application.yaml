@@ -10,6 +10,7 @@ rabbitmq:
       deleted: q.social-service.user.deleted
       follow:
         created: q.social-service.user.follow.created
+        deleted: q.social-service.user.follow.deleted
       block:
         created: q.social-service.user.block.created
   exchange:
@@ -30,7 +31,7 @@ rabbitmq:
         created: rk.user.registered
       follow:
         created: rk.user.follow.created
-        deleted: rk.user.followed.deleted
+        deleted: rk.user.follow.deleted
       block:
         created: rk.user.block.created
         deleted: rk.user.block.deleted

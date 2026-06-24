@@ -26,6 +26,7 @@ public class RabbitMQProperties {
             @Data
             public static class FollowQueues {
                 private String created;
+                private String deleted;
             }
 
             @Data

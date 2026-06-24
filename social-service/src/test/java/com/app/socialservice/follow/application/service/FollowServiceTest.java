@@ -6,13 +6,16 @@ import java.util.UUID;
 
 import com.app.socialservice.block.application.repository.BlockRepository;
 import com.app.socialservice.follow.application.commands.FollowUserCommand;
+import com.app.socialservice.follow.application.commands.UnfollowUserCommand;
 import com.app.socialservice.follow.application.repository.FollowRepository;
 import com.app.socialservice.follow.domain.events.UserFollowedDomainEvent;
 import com.app.socialservice.follow.domain.exception.FollowBlockedException;
 import com.app.socialservice.follow.domain.exception.SelfFollowNotAllowedException;
+import com.app.socialservice.follow.domain.exception.SelfUnfollowNotAllowedException;
 import com.app.socialservice.follow.domain.exception.UserNotFoundException;
 import com.app.socialservice.follow.domain.model.Follow;
 import com.app.socialservice.follow.infrastructure.events.UserFollowedEvent;
+import com.app.socialservice.follow.infrastructure.events.UserUnfollowedEvent;
 import com.app.socialservice.follow.infrastructure.mapper.FollowEventMapper;
 import com.app.socialservice.shared.infrastructure.entity.OutboxEvent;
 import com.app.socialservice.shared.infrastructure.enums.EventStatus;
@@ -178,6 +181,92 @@ class FollowServiceTest {
     }
 
     @Test
+    void shouldDeleteFollowsRelationshipWhenBothUsersExistAndAreDifferent() {
+        var followerId = UUID.randomUUID();
+        var followedId = UUID.randomUUID();
+        var existingFollow = new Follow(new UserId(followerId), new UserId(followedId), Instant.now().minusSeconds(30));
+        var command = new UnfollowUserCommand(followerId, followedId);
+        var mappedEvent = UserUnfollowedEvent.builder()
+                .id(UUID.randomUUID())
+                .correlationId(UUID.randomUUID())
+                .occurredAt(Instant.now())
+                .followerUserId(followerId)
+                .followedUserId(followedId)
+                .build();
+
+        when(userRepository.findById(followerId)).thenReturn(Optional.of(buildUser(followerId, "unfollow-follower")));
+        when(userRepository.findById(followedId)).thenReturn(Optional.of(buildUser(followedId, "unfollow-followed")));
+        when(followRepository.findActiveByUsers(followerId, followedId)).thenReturn(Optional.of(existingFollow));
+        when(followRepository.markAsRemoved(followerId, followedId)).thenReturn(true);
+        when(followEventMapper.toUserUnfollowedEvent(any(), any(), any(Follow.class), any())).thenReturn(mappedEvent);
+        when(jsonMapper.toJson(mappedEvent)).thenReturn("{\"type\":\"unfollowed\"}");
+        when(outboxEventRepository.save(any(OutboxEvent.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        var response = followService.unfollowUser(command);
+
+        assertThat(response.followerId()).isEqualTo(followerId);
+        assertThat(response.followedId()).isEqualTo(followedId);
+
+        var outboxCaptor = ArgumentCaptor.forClass(OutboxEvent.class);
+        verify(outboxEventRepository).save(outboxCaptor.capture());
+        assertThat(outboxCaptor.getValue().getStatus()).isEqualTo(EventStatus.PENDING);
+        assertThat(outboxCaptor.getValue().getEventType()).isEqualTo(UserUnfollowedEvent.class.getSimpleName());
+
+        verify(userStatsRepository).decrementFollowCounters(followerId, followedId);
+        verify(eventPublisher).publishEvent(any(com.app.socialservice.follow.domain.events.UserUnfollowedDomainEvent.class));
+    }
+
+    @Test
+    void shouldReturnWithoutErrorWhenFollowsRelationshipDoesNotExist() {
+        var followerId = UUID.randomUUID();
+        var followedId = UUID.randomUUID();
+        var command = new UnfollowUserCommand(followerId, followedId);
+
+        when(userRepository.findById(followerId)).thenReturn(Optional.of(buildUser(followerId, "missing-unfollow-follower")));
+        when(userRepository.findById(followedId)).thenReturn(Optional.of(buildUser(followedId, "missing-unfollow-followed")));
+        when(followRepository.findActiveByUsers(followerId, followedId)).thenReturn(Optional.empty());
+
+        var response = followService.unfollowUser(command);
+
+        assertThat(response.followerId()).isEqualTo(followerId);
+        assertThat(response.followedId()).isEqualTo(followedId);
+        verify(followRepository, never()).markAsRemoved(any(), any());
+        verify(userStatsRepository, never()).decrementFollowCounters(any(), any());
+        verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
+        verify(eventPublisher, never()).publishEvent(any());
+    }
+
+    @Test
+    void shouldThrowSelfUnfollowNotAllowedExceptionWhenUnfollowerEqualsUnfollowed() {
+        var userId = UUID.randomUUID();
+        var command = new UnfollowUserCommand(userId, userId);
+
+        assertThatThrownBy(() -> followService.unfollowUser(command))
+                .isInstanceOf(SelfUnfollowNotAllowedException.class)
+                .hasMessage("A user cannot unfollow themselves");
+
+        verifyNoInteractions(followRepository, userRepository, userStatsRepository, outboxEventRepository,
+                followEventMapper, jsonMapper, eventPublisher);
+    }
+
+    @Test
+    void shouldThrowUserNotFoundExceptionWhenUnfollowTargetUserDoesNotExist() {
+        var followerId = UUID.randomUUID();
+        var followedId = UUID.randomUUID();
+        var command = new UnfollowUserCommand(followerId, followedId);
+
+        when(userRepository.findById(followerId)).thenReturn(Optional.of(buildUser(followerId, "unfollow-follower-missing")));
+        when(userRepository.findById(followedId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> followService.unfollowUser(command))
+                .isInstanceOf(UserNotFoundException.class)
+                .hasMessage("User not found: " + followedId);
+
+        verifyNoInteractions(followRepository, userStatsRepository, outboxEventRepository, followEventMapper,
+                jsonMapper, eventPublisher);
+    }
+
+    @Test
     void shouldThrowSelfFollowNotAllowedExceptionWhenFollowerEqualsFollowed() {
         var userId = UUID.randomUUID();
         var command = new FollowUserCommand(userId, userId);
@@ -208,7 +297,7 @@ class FollowServiceTest {
     }
 
     @Test
-    void shouldThrowConflictWhenFollowRelationshipIsBlocked() {
+    void shouldRejectFollowWhenBlockExistsBetweenUsers() {
         var followerId = UUID.randomUUID();
         var followedId = UUID.randomUUID();
         var command = new FollowUserCommand(followerId, followedId);
@@ -221,27 +310,8 @@ class FollowServiceTest {
                 .isInstanceOf(FollowBlockedException.class)
                 .hasMessage("Follow relationship is blocked between " + followerId + " and " + followedId);
 
-        verify(userStatsRepository, never()).incrementFollowCounters(any(), any());
-        verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
-        verify(eventPublisher, never()).publishEvent(any());
-    }
-
-    @Test
-    void shouldRejectFollowWhenBlockExistsBeforeAnyFollowRow() {
-        var followerId = UUID.randomUUID();
-        var followedId = UUID.randomUUID();
-        var command = new FollowUserCommand(followerId, followedId);
-
-        when(userRepository.findById(followerId)).thenReturn(Optional.of(buildUser(followerId, "follower-block-first")));
-        when(userRepository.findById(followedId)).thenReturn(Optional.of(buildUser(followedId, "followed-block-first")));
-        when(blockRepository.existsByUsers(followerId, followedId)).thenReturn(true);
-
-        assertThatThrownBy(() -> followService.followUser(command))
-                .isInstanceOf(FollowBlockedException.class)
-                .hasMessage("Follow relationship is blocked between " + followerId + " and " + followedId);
-
-        verify(followRepository, never()).findRemovedByUsers(any(), any());
         verify(followRepository, never()).insertIfAbsent(any(Follow.class));
+        verify(followRepository, never()).findRemovedByUsers(any(), any());
         verify(userStatsRepository, never()).incrementFollowCounters(any(), any());
         verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
         verify(eventPublisher, never()).publishEvent(any());
@@ -269,6 +339,84 @@ class FollowServiceTest {
         verify(userStatsRepository, never()).incrementFollowCounters(any(), any());
         verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
         verify(eventPublisher, never()).publishEvent(any());
+    }
+
+    @Test
+    void shouldThrowIllegalArgumentWhenFollowCommandIsNull() {
+        assertThatThrownBy(() -> followService.followUser(null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("command must not be null");
+
+        verifyNoInteractions(followRepository, userRepository, userStatsRepository, outboxEventRepository,
+                followEventMapper, jsonMapper, eventPublisher, blockRepository);
+    }
+
+    @Test
+    void shouldThrowIllegalArgumentWhenUnfollowCommandIsNull() {
+        assertThatThrownBy(() -> followService.unfollowUser(null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("command must not be null");
+
+        verifyNoInteractions(followRepository, userRepository, userStatsRepository, outboxEventRepository,
+                followEventMapper, jsonMapper, eventPublisher, blockRepository);
+    }
+
+    @Test
+    void shouldReturnIdempotentSuccessWhenUnfollowingBlockedUser() {
+        var followerId = UUID.randomUUID();
+        var followedId = UUID.randomUUID();
+        var command = new UnfollowUserCommand(followerId, followedId);
+
+        when(userRepository.findById(followerId)).thenReturn(Optional.of(buildUser(followerId, "blocked-unfollower")));
+        when(userRepository.findById(followedId)).thenReturn(Optional.of(buildUser(followedId, "blocked-unfollowed")));
+        when(followRepository.findActiveByUsers(followerId, followedId)).thenReturn(Optional.empty());
+
+        var response = followService.unfollowUser(command);
+
+        assertThat(response.followerId()).isEqualTo(followerId);
+        assertThat(response.followedId()).isEqualTo(followedId);
+        verify(followRepository, never()).markAsRemoved(any(), any());
+        verify(userStatsRepository, never()).decrementFollowCounters(any(), any());
+        verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
+        verify(eventPublisher, never()).publishEvent(any());
+    }
+
+    @Test
+    void shouldReturnExistingFollowWhenMarkAsRemovedFailsDueToConcurrency() {
+        var followerId = UUID.randomUUID();
+        var followedId = UUID.randomUUID();
+        var existingFollow = new Follow(new UserId(followerId), new UserId(followedId), Instant.now().minusSeconds(30));
+        var command = new UnfollowUserCommand(followerId, followedId);
+
+        when(userRepository.findById(followerId)).thenReturn(Optional.of(buildUser(followerId, "concurrent-follower")));
+        when(userRepository.findById(followedId)).thenReturn(Optional.of(buildUser(followedId, "concurrent-followed")));
+        when(followRepository.findActiveByUsers(followerId, followedId)).thenReturn(Optional.of(existingFollow));
+        when(followRepository.markAsRemoved(followerId, followedId)).thenReturn(false);
+
+        var response = followService.unfollowUser(command);
+
+        assertThat(response.followerId()).isEqualTo(followerId);
+        assertThat(response.followedId()).isEqualTo(followedId);
+        assertThat(response.createdAt()).isEqualTo(existingFollow.getCreatedAt());
+        verify(userStatsRepository, never()).decrementFollowCounters(any(), any());
+        verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
+        verify(eventPublisher, never()).publishEvent(any());
+    }
+
+    @Test
+    void shouldThrowUserNotFoundWhenUnfollowFollowerUserDoesNotExist() {
+        var followerId = UUID.randomUUID();
+        var followedId = UUID.randomUUID();
+        var command = new UnfollowUserCommand(followerId, followedId);
+
+        when(userRepository.findById(followerId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> followService.unfollowUser(command))
+                .isInstanceOf(UserNotFoundException.class)
+                .hasMessage("User not found: " + followerId);
+
+        verifyNoInteractions(followRepository, userStatsRepository, outboxEventRepository, followEventMapper,
+                jsonMapper, eventPublisher);
     }
 
     private User buildUser(UUID userId, String username) {

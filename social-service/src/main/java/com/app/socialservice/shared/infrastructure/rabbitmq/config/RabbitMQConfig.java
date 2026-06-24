@@ -28,6 +28,8 @@ public class RabbitMQConfig {
         var userEventsExchangeName = props.getExchange().getUser().getEvents();
         var followCreatedQueueName = props.getQueue().getUser().getFollow().getCreated();
         var followCreatedRoutingKey = props.getRk().getUser().getFollow().getCreated();
+        var followDeletedQueueName = props.getQueue().getUser().getFollow().getDeleted();
+        var followDeletedRoutingKey = props.getRk().getUser().getFollow().getDeleted();
         var blockCreatedQueueName = props.getQueue().getUser().getBlock().getCreated();
         var blockCreatedRoutingKey = props.getRk().getUser().getBlock().getCreated();
 
@@ -91,6 +93,16 @@ public class RabbitMQConfig {
                         followCreatedRoutingKey + ".fall-back")
                 .build();
 
+        Queue userUnfollowedQueue = QueueBuilder
+                .durable(followDeletedQueueName)
+                .withArgument(
+                        "x-dead-letter-exchange",
+                        userEventsExchangeName + ".dlx")
+                .withArgument(
+                        "x-dead-letter-routing-key",
+                        followDeletedRoutingKey + ".fall-back")
+                .build();
+
         Queue userBlockedQueue = QueueBuilder
                 .durable(blockCreatedQueueName)
                 .withArgument(
@@ -125,6 +137,10 @@ public class RabbitMQConfig {
                 .durable(followCreatedQueueName + ".dlq")
                 .build();
 
+        Queue userUnfollowedDlq = QueueBuilder
+                .durable(followDeletedQueueName + ".dlq")
+                .build();
+
         Queue userBlockedDlq = QueueBuilder
                 .durable(blockCreatedQueueName + ".dlq")
                 .build();
@@ -153,6 +169,7 @@ public class RabbitMQConfig {
                 userRegisteredQueue,
                 userDeletedQueue,
                 userFollowedQueue,
+                userUnfollowedQueue,
                 userBlockedQueue,
                 userRegisterFromAuthDlq,
                 userUpdateFromAuthDlq,
@@ -160,6 +177,7 @@ public class RabbitMQConfig {
                 userRegisteredDlq,
                 userDeletedDlq,
                 userFollowedDlq,
+                userUnfollowedDlq,
                 userBlockedDlq,
 
                 BindingBuilder
@@ -186,6 +204,10 @@ public class RabbitMQConfig {
                         .bind(userFollowedQueue)
                         .to(userEventsExchange)
                         .with(followCreatedRoutingKey),
+                BindingBuilder
+                        .bind(userUnfollowedQueue)
+                        .to(userEventsExchange)
+                        .with(followDeletedRoutingKey),
                 BindingBuilder
                         .bind(userBlockedQueue)
                         .to(userEventsExchange)
@@ -215,6 +237,10 @@ public class RabbitMQConfig {
                         .bind(userFollowedDlq)
                         .to(userEventsDlx)
                         .with(followCreatedRoutingKey + ".fall-back"),
+                BindingBuilder
+                        .bind(userUnfollowedDlq)
+                        .to(userEventsDlx)
+                        .with(followDeletedRoutingKey + ".fall-back"),
                 BindingBuilder
                         .bind(userBlockedDlq)
                         .to(userEventsDlx)

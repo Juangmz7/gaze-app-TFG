@@ -69,4 +69,29 @@ public class FollowGraphNeo4jRepository implements FollowGraphRepository {
                 .bind(secondUserId.toString()).to("secondUserId")
                 .run();
     }
+
+    @Override
+    public void deleteFollowRelationship(UUID followerUserId, UUID followedUserId) {
+        if (followerUserId == null) {
+            throw new IllegalArgumentException("followerUserId must not be null");
+        }
+        if (followedUserId == null) {
+            throw new IllegalArgumentException("followedUserId must not be null");
+        }
+        if (followerUserId.equals(followedUserId)) {
+            throw new IllegalArgumentException("followerUserId must not equal followedUserId");
+        }
+
+        neo4jClient.query("""
+                OPTIONAL MATCH (follower:User {id: $followerUserId})
+                OPTIONAL MATCH (followed:User {id: $followedUserId})
+                OPTIONAL MATCH (follower)-[follow:FOLLOWS]->(followed)
+                FOREACH (_ IN CASE WHEN follow IS NOT NULL THEN [1] ELSE [] END |
+                    DELETE follow
+                )
+                """)
+                .bind(followerUserId.toString()).to("followerUserId")
+                .bind(followedUserId.toString()).to("followedUserId")
+                .run();
+    }
 }
