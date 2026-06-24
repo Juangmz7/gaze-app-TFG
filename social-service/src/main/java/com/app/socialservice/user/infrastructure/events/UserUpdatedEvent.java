@@ -15,6 +15,7 @@ public record UserUpdatedEvent(
         UUID userId,
         String username,
         String email,
+        UserBioEventPayload bio,
         String pictureUrl,
         String accountStatus,
         Instant createdAt,

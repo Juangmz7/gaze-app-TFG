@@ -28,6 +28,9 @@ public class UserEntity {
 
     private String pictureUrl;
 
+    @Embedded
+    private UserBioEmbeddable bio;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private UserAccountStatus accountStatus;
