@@ -28,8 +28,6 @@ spring:
       idle-timeout: 100
       auto-commit: false
 
-<<<<<<< Updated upstream
-=======
   data:
     redis:
       host: ${REDIS_HOST}
@@ -46,7 +44,6 @@ spring:
           max-wait: 200ms
         shutdown-timeout: 100ms
 
->>>>>>> Stashed changes
   # --- JPA / Hibernate ---
   jpa:
     open-in-view: false
