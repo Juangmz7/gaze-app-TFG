@@ -47,8 +47,8 @@ public class BlockService {
         validateCommandInput(command);
 
         var block = newBlock(command);
-        var insertedRows = blockRepository.insertIfAbsent(block);
-        if (insertedRows == 0) {
+        var inserted = blockRepository.insertIfAbsent(block);
+        if (!inserted) {
             log.info("Block already exists for blocker {} and blocked {}",
                     command.blockerUserId(), command.blockedUserId());
             return toResponse(blockRepository.findByUsers(command.blockerUserId(), command.blockedUserId())

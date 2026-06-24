@@ -19,13 +19,15 @@ public class UserRepositoryImpl implements UserRepository {
     private final UserMapper userMapper;
 
     @Override
-    public int updateAuthInfo(UUID id, String username, String email) {
-        return jpaUserRepository.updateAuthInfo(id, username, email);
+    public boolean updateAuthInfo(UUID id, String username, String email) {
+        int rows = jpaUserRepository.updateAuthInfo(id, username, email);
+        return rows > 0;
     }
 
     @Override
-    public int deleteAndObfuscate(UUID id) {
-        return jpaUserRepository.deleteAndObfuscate(id);
+    public boolean deleteAndObfuscate(UUID id) {
+        int rows = jpaUserRepository.deleteAndObfuscate(id);
+        return rows > 0;
     }
 
     @Override
@@ -40,13 +42,14 @@ public class UserRepositoryImpl implements UserRepository {
     }
 
     @Override
-    public int insertIfAbsent(User user) {
+    public boolean insertIfAbsent(User user) {
         UserEntity entity = userMapper.toEntity(user);
-        return jpaUserRepository.insertIfAbsent(
+        int rows = jpaUserRepository.insertIfAbsent(
                 entity.getId(),
                 entity.getUsername(),
                 entity.getEmail(),
                 entity.getAccountStatus().name()
         );
+        return rows > 0;
     }
 }

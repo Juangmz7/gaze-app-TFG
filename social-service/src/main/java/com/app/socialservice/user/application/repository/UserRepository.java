@@ -8,7 +8,7 @@ import java.util.UUID;
 public interface UserRepository {
     Optional<User> findById(UUID id);
     boolean existsById(UUID id);
-    int insertIfAbsent(User user);
-    int updateAuthInfo(UUID id, String username, String email);
-    int deleteAndObfuscate(UUID id);
+    boolean insertIfAbsent(User user);
+    boolean updateAuthInfo(UUID id, String username, String email);
+    boolean deleteAndObfuscate(UUID id);
 }

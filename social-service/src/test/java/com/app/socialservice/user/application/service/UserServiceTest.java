@@ -83,7 +83,7 @@ class UserServiceTest {
                 .email("registered@example.com")
                 .build();
 
-        when(userRepository.insertIfAbsent(any(User.class))).thenReturn(1);
+        when(userRepository.insertIfAbsent(any(User.class))).thenReturn(true);
         when(userRepository.findById(userId)).thenReturn(Optional.of(savedUser));
         when(userEventMapper.toUserRegisteredEvent(any(), any(), any(User.class), any())).thenReturn(mappedEvent);
         when(jsonMapper.toJson(mappedEvent)).thenReturn("{\"type\":\"registered\"}");
@@ -118,7 +118,7 @@ class UserServiceTest {
                 "UserRegisteredFromAuthEvent"
         );
 
-        when(userRepository.insertIfAbsent(any(User.class))).thenReturn(0);
+        when(userRepository.insertIfAbsent(any(User.class))).thenReturn(false);
 
         userService.registerUser(command);
 
@@ -152,7 +152,7 @@ class UserServiceTest {
                 .build();
 
         when(userRepository.findById(userId)).thenReturn(Optional.of(existingUser));
-        when(userRepository.updateAuthInfo(userId, "new-name", "new@example.com")).thenReturn(1);
+        when(userRepository.updateAuthInfo(userId, "new-name", "new@example.com")).thenReturn(true);
         when(userEventMapper.toUserUpdated(any(), any(), any(User.class), any())).thenReturn(mappedEvent);
         when(jsonMapper.toJson(mappedEvent)).thenReturn("{\"type\":\"updated\"}");
         when(outboxEventRepository.save(any(OutboxEvent.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -223,7 +223,7 @@ class UserServiceTest {
                 .build();
 
         when(userRepository.findById(userId)).thenReturn(Optional.of(existingUser));
-        when(userRepository.deleteAndObfuscate(userId)).thenReturn(1);
+        when(userRepository.deleteAndObfuscate(userId)).thenReturn(true);
         when(userEventMapper.toUserDeleted(any(), any(), any(UUID.class), any())).thenReturn(mappedEvent);
         when(jsonMapper.toJson(mappedEvent)).thenReturn("{\"type\":\"deleted\"}");
         when(outboxEventRepository.save(any(OutboxEvent.class))).thenAnswer(invocation -> invocation.getArgument(0));

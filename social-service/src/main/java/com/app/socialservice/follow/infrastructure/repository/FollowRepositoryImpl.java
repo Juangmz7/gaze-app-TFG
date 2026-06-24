@@ -38,18 +38,19 @@ public class FollowRepositoryImpl implements FollowRepository {
     }
 
     @Override
-    public int insertIfAbsent(Follow follow) {
+    public boolean insertIfAbsent(Follow follow) {
         if (follow == null) {
             throw new IllegalArgumentException("follow must not be null");
         }
 
-        return jpaFollowRepository.insertIfAbsent(
+        int rows = jpaFollowRepository.insertIfAbsent(
                 follow.getFollowerId().value(),
                 follow.getFollowedId().value(),
                 FollowStatus.ACTIVE.name(),
                 follow.getCreatedAt(),
                 follow.getCreatedAt()
         );
+        return rows > 0;
     }
 
     @Override
@@ -62,17 +63,19 @@ public class FollowRepositoryImpl implements FollowRepository {
     }
 
     @Override
-    public int reactivate(UUID followerUserId, UUID followedUserId) {
+    public boolean reactivate(UUID followerUserId, UUID followedUserId) {
         validateUserIds(followerUserId, followedUserId);
 
-        return jpaFollowRepository.reactivateIfRemoved(followerUserId, followedUserId);
+        int rows = jpaFollowRepository.reactivateIfRemoved(followerUserId, followedUserId);
+        return rows > 0;
     }
 
     @Override
-    public int markBidirectionalRelationshipsAsBlocked(UUID firstUserId, UUID secondUserId) {
+    public boolean markBidirectionalRelationshipsAsBlocked(UUID firstUserId, UUID secondUserId) {
         validateUserIds(firstUserId, secondUserId);
 
-        return jpaFollowRepository.markBidirectionalAsBlocked(firstUserId, secondUserId);
+        int rows = jpaFollowRepository.markBidirectionalAsBlocked(firstUserId, secondUserId);
+        return rows > 0;
     }
 
     private Follow toDomain(FollowEntity entity) {

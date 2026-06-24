@@ -50,8 +50,8 @@ public class UserService {
                 new Email(command.email())
         );
 
-        int inserted = userRepository.insertIfAbsent(user);
-        if (inserted == 0) {
+        boolean inserted = userRepository.insertIfAbsent(user);
+        if (!inserted) {
             log.warn("Detected user {} already exists for event: {} with correlationId: {}, discarding message...",
                     command.userId(), command.id(), command.correlationId());
             return;
@@ -111,8 +111,8 @@ public class UserService {
                     command.userId(), command.id(), command.correlationId());
             return;
         }
-        int updated = userRepository.updateAuthInfo(command.userId(), command.username(), command.email());
-        if (updated == 0) {
+        boolean updated = userRepository.updateAuthInfo(command.userId(), command.username(), command.email());
+        if (!updated) {
             log.warn("Concurrent modification or already updated for user {}, discarding update for event: {}", 
                     command.userId(), command.id());
             return;
@@ -164,8 +164,8 @@ public class UserService {
             return;
         }
 
-        int deleted = userRepository.deleteAndObfuscate(command.userId());
-        if (deleted == 0) {
+        boolean deleted = userRepository.deleteAndObfuscate(command.userId());
+        if (!deleted) {
             log.warn("Concurrent modification or already deleted for user {}, discarding delete for event: {}", 
                     command.userId(), command.id());
             return;

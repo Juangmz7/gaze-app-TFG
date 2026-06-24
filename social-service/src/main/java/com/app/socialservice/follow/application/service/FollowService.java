@@ -57,8 +57,8 @@ public class FollowService {
         }
 
         var attemptedFollow = newFollow(command);
-        var insertedRows = followRepository.insertIfAbsent(attemptedFollow);
-        if (insertedRows == 0) {
+        var inserted = followRepository.insertIfAbsent(attemptedFollow);
+        if (!inserted) {
             return handleExistingFollow(command, attemptedFollow);
         }
 
@@ -100,13 +100,13 @@ public class FollowService {
 
         var removedFollow = followRepository.findRemovedByUsers(command.followerUserId(), command.followedUserId());
         if (removedFollow.isPresent()) {
-            var affectedRows = followRepository.reactivate(command.followerUserId(), command.followedUserId());
-            if (affectedRows == 1) {
+            var reactivated = followRepository.reactivate(command.followerUserId(), command.followedUserId());
+            if (reactivated) {
                 return publishCreatedFollow(command, removedFollow.get());
             }
-            log.warn("Reactivation had no effect for follower {} and followed {} (affectedRows={}). " +
+            log.warn("Reactivation had no effect for follower {} and followed {}. " +
                             "Possible concurrent status change.",
-                    command.followerUserId(), command.followedUserId(), affectedRows);
+                    command.followerUserId(), command.followedUserId());
             return toResponse(attemptedFollow);
         }
 

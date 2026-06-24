@@ -90,7 +90,7 @@ class FollowServiceTest {
         when(userRepository.findById(followedId)).thenReturn(Optional.of(buildUser(followedId, "followed")));
         when(blockRepository.existsByUsers(followerId, followedId)).thenReturn(false);
         when(blockRepository.existsByUsers(followedId, followerId)).thenReturn(false);
-        when(followRepository.insertIfAbsent(any(Follow.class))).thenReturn(1);
+        when(followRepository.insertIfAbsent(any(Follow.class))).thenReturn(true);
         when(followRepository.findActiveByUsers(followerId, followedId)).thenReturn(Optional.of(savedFollow));
         when(followEventMapper.toUserFollowedEvent(any(), any(), any(Follow.class), any())).thenReturn(mappedEvent);
         when(jsonMapper.toJson(mappedEvent)).thenReturn("{\"type\":\"followed\"}");
@@ -130,7 +130,7 @@ class FollowServiceTest {
         when(userRepository.findById(followedId)).thenReturn(Optional.of(buildUser(followedId, "followed-repeat")));
         when(blockRepository.existsByUsers(followerId, followedId)).thenReturn(false);
         when(blockRepository.existsByUsers(followedId, followerId)).thenReturn(false);
-        when(followRepository.insertIfAbsent(any(Follow.class))).thenReturn(0);
+        when(followRepository.insertIfAbsent(any(Follow.class))).thenReturn(false);
         when(followRepository.findActiveByUsers(followerId, followedId)).thenReturn(Optional.of(existingFollow));
 
         var response = followService.followUser(command);
@@ -162,9 +162,9 @@ class FollowServiceTest {
         when(userRepository.findById(followedId)).thenReturn(Optional.of(buildUser(followedId, "followed-removed")));
         when(blockRepository.existsByUsers(followerId, followedId)).thenReturn(false);
         when(blockRepository.existsByUsers(followedId, followerId)).thenReturn(false);
-        when(followRepository.insertIfAbsent(any(Follow.class))).thenReturn(0);
+        when(followRepository.insertIfAbsent(any(Follow.class))).thenReturn(false);
         when(followRepository.findRemovedByUsers(followerId, followedId)).thenReturn(Optional.of(existingRemovedFollow));
-        when(followRepository.reactivate(followerId, followedId)).thenReturn(1);
+        when(followRepository.reactivate(followerId, followedId)).thenReturn(true);
         when(followEventMapper.toUserFollowedEvent(any(), any(), any(Follow.class), any())).thenReturn(mappedEvent);
         when(jsonMapper.toJson(mappedEvent)).thenReturn("{\"type\":\"followed\"}");
         when(outboxEventRepository.save(any(OutboxEvent.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -258,7 +258,7 @@ class FollowServiceTest {
         when(userRepository.findById(followedId)).thenReturn(Optional.of(buildUser(followedId, "followed-duplicate")));
         when(blockRepository.existsByUsers(followerId, followedId)).thenReturn(false);
         when(blockRepository.existsByUsers(followedId, followerId)).thenReturn(false);
-        when(followRepository.insertIfAbsent(any(Follow.class))).thenReturn(0);
+        when(followRepository.insertIfAbsent(any(Follow.class))).thenReturn(false);
         when(followRepository.findRemovedByUsers(followerId, followedId)).thenReturn(Optional.empty());
         when(followRepository.findActiveByUsers(followerId, followedId)).thenReturn(Optional.of(existingFollow));
 

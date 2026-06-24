@@ -83,7 +83,7 @@ class BlockServiceTest {
                 .build();
 
         when(userRepository.findById(blockedId)).thenReturn(Optional.of(buildUser(blockedId)));
-        when(blockRepository.insertIfAbsent(any(Block.class))).thenReturn(1);
+        when(blockRepository.insertIfAbsent(any(Block.class))).thenReturn(true);
         when(blockRepository.findByUsers(blockerId, blockedId)).thenReturn(Optional.of(savedBlock));
         when(blockEventMapper.toUserBlockedEvent(any(), any(), any(Block.class), any())).thenReturn(mappedEvent);
         when(jsonMapper.toJson(mappedEvent)).thenReturn("{\"type\":\"blocked\"}");
@@ -121,7 +121,7 @@ class BlockServiceTest {
         var command = new BlockUserCommand(blockerId, blockedId);
 
         when(userRepository.findById(blockedId)).thenReturn(Optional.of(buildUser(blockedId)));
-        when(blockRepository.insertIfAbsent(any(Block.class))).thenReturn(0);
+        when(blockRepository.insertIfAbsent(any(Block.class))).thenReturn(false);
         when(blockRepository.findByUsers(blockerId, blockedId)).thenReturn(Optional.of(existingBlock));
 
         var response = blockService.blockUser(command);
