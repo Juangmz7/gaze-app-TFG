@@ -88,11 +88,10 @@ class FollowServiceTest {
 
         when(userRepository.findById(followerId)).thenReturn(Optional.of(buildUser(followerId, "follower")));
         when(userRepository.findById(followedId)).thenReturn(Optional.of(buildUser(followedId, "followed")));
-        when(followRepository.findActiveByUsers(followerId, followedId)).thenReturn(Optional.empty());
         when(blockRepository.existsByUsers(followerId, followedId)).thenReturn(false);
         when(blockRepository.existsByUsers(followedId, followerId)).thenReturn(false);
-        when(followRepository.findRemovedByUsers(followerId, followedId)).thenReturn(Optional.empty());
-        when(followRepository.save(any(Follow.class))).thenReturn(savedFollow);
+        when(followRepository.insertIfAbsent(any(Follow.class))).thenReturn(true);
+        when(followRepository.findActiveByUsers(followerId, followedId)).thenReturn(Optional.of(savedFollow));
         when(followEventMapper.toUserFollowedEvent(any(), any(), any(Follow.class), any())).thenReturn(mappedEvent);
         when(jsonMapper.toJson(mappedEvent)).thenReturn("{\"type\":\"followed\"}");
         when(outboxEventRepository.save(any(OutboxEvent.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -114,7 +113,7 @@ class FollowServiceTest {
         assertThat(domainEventCaptor.getValue().followedUserId()).isEqualTo(followedId);
 
         InOrder inOrder = inOrder(followRepository, userStatsRepository, outboxEventRepository, eventPublisher);
-        inOrder.verify(followRepository).save(any(Follow.class));
+        inOrder.verify(followRepository).insertIfAbsent(any(Follow.class));
         inOrder.verify(userStatsRepository).incrementFollowCounters(followerId, followedId);
         inOrder.verify(outboxEventRepository).save(any(OutboxEvent.class));
         inOrder.verify(eventPublisher).publishEvent(any(UserFollowedDomainEvent.class));
@@ -129,13 +128,16 @@ class FollowServiceTest {
 
         when(userRepository.findById(followerId)).thenReturn(Optional.of(buildUser(followerId, "follower-repeat")));
         when(userRepository.findById(followedId)).thenReturn(Optional.of(buildUser(followedId, "followed-repeat")));
+        when(blockRepository.existsByUsers(followerId, followedId)).thenReturn(false);
+        when(blockRepository.existsByUsers(followedId, followerId)).thenReturn(false);
+        when(followRepository.insertIfAbsent(any(Follow.class))).thenReturn(false);
         when(followRepository.findActiveByUsers(followerId, followedId)).thenReturn(Optional.of(existingFollow));
 
         var response = followService.followUser(command);
 
         assertThat(response.followerId()).isEqualTo(followerId);
         assertThat(response.followedId()).isEqualTo(followedId);
-        verify(followRepository, never()).save(any(Follow.class));
+        verify(followRepository, never()).reactivate(any(), any());
         verify(userStatsRepository, never()).incrementFollowCounters(any(), any());
         verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
         verify(eventPublisher, never()).publishEvent(any());
@@ -158,11 +160,11 @@ class FollowServiceTest {
 
         when(userRepository.findById(followerId)).thenReturn(Optional.of(buildUser(followerId, "follower-removed")));
         when(userRepository.findById(followedId)).thenReturn(Optional.of(buildUser(followedId, "followed-removed")));
-        when(followRepository.findActiveByUsers(followerId, followedId)).thenReturn(Optional.empty());
         when(blockRepository.existsByUsers(followerId, followedId)).thenReturn(false);
         when(blockRepository.existsByUsers(followedId, followerId)).thenReturn(false);
+        when(followRepository.insertIfAbsent(any(Follow.class))).thenReturn(false);
         when(followRepository.findRemovedByUsers(followerId, followedId)).thenReturn(Optional.of(existingRemovedFollow));
-        when(followRepository.reactivate(followerId, followedId)).thenReturn(reactivatedFollow);
+        when(followRepository.reactivate(followerId, followedId)).thenReturn(true);
         when(followEventMapper.toUserFollowedEvent(any(), any(), any(Follow.class), any())).thenReturn(mappedEvent);
         when(jsonMapper.toJson(mappedEvent)).thenReturn("{\"type\":\"followed\"}");
         when(outboxEventRepository.save(any(OutboxEvent.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -213,7 +215,6 @@ class FollowServiceTest {
 
         when(userRepository.findById(followerId)).thenReturn(Optional.of(buildUser(followerId, "follower-blocked")));
         when(userRepository.findById(followedId)).thenReturn(Optional.of(buildUser(followedId, "followed-blocked")));
-        when(followRepository.findActiveByUsers(followerId, followedId)).thenReturn(Optional.empty());
         when(blockRepository.existsByUsers(followerId, followedId)).thenReturn(true);
 
         assertThatThrownBy(() -> followService.followUser(command))
@@ -233,7 +234,6 @@ class FollowServiceTest {
 
         when(userRepository.findById(followerId)).thenReturn(Optional.of(buildUser(followerId, "follower-block-first")));
         when(userRepository.findById(followedId)).thenReturn(Optional.of(buildUser(followedId, "followed-block-first")));
-        when(followRepository.findActiveByUsers(followerId, followedId)).thenReturn(Optional.empty());
         when(blockRepository.existsByUsers(followerId, followedId)).thenReturn(true);
 
         assertThatThrownBy(() -> followService.followUser(command))
@@ -241,7 +241,31 @@ class FollowServiceTest {
                 .hasMessage("Follow relationship is blocked between " + followerId + " and " + followedId);
 
         verify(followRepository, never()).findRemovedByUsers(any(), any());
-        verify(followRepository, never()).save(any(Follow.class));
+        verify(followRepository, never()).insertIfAbsent(any(Follow.class));
+        verify(userStatsRepository, never()).incrementFollowCounters(any(), any());
+        verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
+        verify(eventPublisher, never()).publishEvent(any());
+    }
+
+    @Test
+    void shouldNotPublishEventWhenInsertIsIgnoredAndFollowAlreadyExists() {
+        var followerId = UUID.randomUUID();
+        var followedId = UUID.randomUUID();
+        var existingFollow = new Follow(new UserId(followerId), new UserId(followedId), Instant.now().minusSeconds(30));
+        var command = new FollowUserCommand(followerId, followedId);
+
+        when(userRepository.findById(followerId)).thenReturn(Optional.of(buildUser(followerId, "follower-duplicate")));
+        when(userRepository.findById(followedId)).thenReturn(Optional.of(buildUser(followedId, "followed-duplicate")));
+        when(blockRepository.existsByUsers(followerId, followedId)).thenReturn(false);
+        when(blockRepository.existsByUsers(followedId, followerId)).thenReturn(false);
+        when(followRepository.insertIfAbsent(any(Follow.class))).thenReturn(false);
+        when(followRepository.findRemovedByUsers(followerId, followedId)).thenReturn(Optional.empty());
+        when(followRepository.findActiveByUsers(followerId, followedId)).thenReturn(Optional.of(existingFollow));
+
+        var response = followService.followUser(command);
+
+        assertThat(response.createdAt()).isEqualTo(existingFollow.getCreatedAt());
+        verify(followRepository).insertIfAbsent(any(Follow.class));
         verify(userStatsRepository, never()).incrementFollowCounters(any(), any());
         verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
         verify(eventPublisher, never()).publishEvent(any());

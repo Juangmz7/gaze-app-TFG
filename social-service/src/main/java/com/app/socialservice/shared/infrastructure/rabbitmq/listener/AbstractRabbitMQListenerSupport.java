@@ -33,11 +33,11 @@ abstract class AbstractRabbitMQListenerSupport {
     }
 
     protected final void setEventAsProcessed(UUID eventId, UUID correlationId, String eventType) {
-        processedEventsRepository.save(new ProcessedEvent(
+        processedEventsRepository.insertIfAbsent(
                 eventId,
                 correlationId,
                 eventType
-        ));
+        );
     }
 
     protected final void validateUserBlockedEvent(UserBlockedEvent event) {

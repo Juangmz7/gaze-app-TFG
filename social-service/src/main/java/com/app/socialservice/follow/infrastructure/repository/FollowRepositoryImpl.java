@@ -38,19 +38,19 @@ public class FollowRepositoryImpl implements FollowRepository {
     }
 
     @Override
-    public Follow save(Follow follow) {
+    public boolean insertIfAbsent(Follow follow) {
         if (follow == null) {
             throw new IllegalArgumentException("follow must not be null");
         }
 
-        var entity = new FollowEntity(
-                new FollowEntityId(follow.getFollowerId().value(), follow.getFollowedId().value()),
-                FollowStatus.ACTIVE,
+        int rows = jpaFollowRepository.insertIfAbsent(
+                follow.getFollowerId().value(),
+                follow.getFollowedId().value(),
+                FollowStatus.ACTIVE.name(),
                 follow.getCreatedAt(),
-                null
+                follow.getCreatedAt()
         );
-
-        return toDomain(jpaFollowRepository.save(entity));
+        return rows > 0;
     }
 
     @Override
@@ -63,32 +63,19 @@ public class FollowRepositoryImpl implements FollowRepository {
     }
 
     @Override
-    public Follow reactivate(UUID followerUserId, UUID followedUserId) {
+    public boolean reactivate(UUID followerUserId, UUID followedUserId) {
         validateUserIds(followerUserId, followedUserId);
 
-        var followEntity = jpaFollowRepository.findById(new FollowEntityId(followerUserId, followedUserId))
-                .orElseThrow(() -> new IllegalArgumentException("follow relationship must exist to reactivate"));
-
-        followEntity.setStatus(FollowStatus.ACTIVE);
-        return toDomain(jpaFollowRepository.save(followEntity));
+        int rows = jpaFollowRepository.reactivateIfRemoved(followerUserId, followedUserId);
+        return rows > 0;
     }
 
     @Override
-    public void markBidirectionalRelationshipsAsBlocked(UUID firstUserId, UUID secondUserId) {
+    public boolean markBidirectionalRelationshipsAsBlocked(UUID firstUserId, UUID secondUserId) {
         validateUserIds(firstUserId, secondUserId);
 
-        var followIds = List.of(
-                new FollowEntityId(firstUserId, secondUserId),
-                new FollowEntityId(secondUserId, firstUserId)
-        );
-
-        var follows = jpaFollowRepository.findAllById(followIds);
-        if (follows.isEmpty()) {
-            return;
-        }
-
-        follows.forEach(follow -> follow.setStatus(FollowStatus.BLOCKED));
-        jpaFollowRepository.saveAll(follows);
+        int rows = jpaFollowRepository.markBidirectionalAsBlocked(firstUserId, secondUserId);
+        return rows > 0;
     }
 
     private Follow toDomain(FollowEntity entity) {

@@ -46,14 +46,18 @@ public class BlockService {
 
         validateCommandInput(command);
 
-        var existingBlock = blockRepository.findByUsers(command.blockerUserId(), command.blockedUserId());
-        if (existingBlock.isPresent()) {
+        var block = newBlock(command);
+        var inserted = blockRepository.insertIfAbsent(block);
+        if (!inserted) {
             log.info("Block already exists for blocker {} and blocked {}",
                     command.blockerUserId(), command.blockedUserId());
-            return toResponse(existingBlock.get());
+            return toResponse(blockRepository.findByUsers(command.blockerUserId(), command.blockedUserId())
+                    .orElse(block));
         }
 
-        var savedBlock = createAndSaveBlock(command);
+        var savedBlock = blockRepository.findByUsers(command.blockerUserId(), command.blockedUserId())
+                .orElse(block);
+
         followRepository.markBidirectionalRelationshipsAsBlocked(command.blockerUserId(), command.blockedUserId());
 
         var occurredOn = Instant.now();
@@ -87,13 +91,12 @@ public class BlockService {
         }
     }
 
-    private Block createAndSaveBlock(BlockUserCommand command) {
-        var block = new Block(
+    private Block newBlock(BlockUserCommand command) {
+        return new Block(
                 new UserId(command.blockerUserId()),
                 new UserId(command.blockedUserId()),
                 Instant.now()
         );
-        return blockRepository.save(block);
     }
 
     private OutboxEvent createAndSaveOutboxEvent(Block block, Instant occurredOn) {

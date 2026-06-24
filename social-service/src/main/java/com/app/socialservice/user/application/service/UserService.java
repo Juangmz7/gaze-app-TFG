@@ -44,13 +44,20 @@ public class UserService {
     public void registerUser(UserRegisterCommand command) {
         validateRegisterCommand(command);
 
-        if (userRepository.existsById(command.userId())) {
+        var user = new User(
+                new UserId(command.userId()),
+                new Username(command.username()),
+                new Email(command.email())
+        );
+
+        boolean inserted = userRepository.insertIfAbsent(user);
+        if (!inserted) {
             log.warn("Detected user {} already exists for event: {} with correlationId: {}, discarding message...",
                     command.userId(), command.id(), command.correlationId());
             return;
         }
 
-        var savedUser = createAndSaveUser(command);
+        var savedUser = userRepository.findById(user.getId().value()).orElseThrow();
 
         var occurredOn = Instant.now();
         var outboxEvent = createAndSaveOutboxEvent(command, savedUser, occurredOn);
@@ -63,16 +70,6 @@ public class UserService {
                 savedUser.getId(),
                 occurredOn
         ));
-    }
-
-    private User createAndSaveUser(UserRegisterCommand command) {
-        log.debug("Starting user {} registration", command.userId());
-        var user = new User(
-                new UserId(command.userId()),
-                new Username(command.username()),
-                new Email(command.email())
-        );
-        return userRepository.save(user);
     }
 
     private OutboxEvent createAndSaveOutboxEvent(UserRegisterCommand command, User savedUser, Instant occurredOn) {
@@ -114,18 +111,24 @@ public class UserService {
                     command.userId(), command.id(), command.correlationId());
             return;
         }
-        user.get().updateAuthInfo(username, email);
-        var savedUser = userRepository.save(user.get());
+        boolean updated = userRepository.updateAuthInfo(command.userId(), command.username(), command.email());
+        if (!updated) {
+            log.warn("Concurrent modification or already updated for user {}, discarding update for event: {}", 
+                    command.userId(), command.id());
+            return;
+        }
 
+        user.get().updateAuthInfo(username, email);
+        
         var occurredOn = Instant.now();
-        var outboxEvent = createAndSaveOutboxEvent(command, savedUser, occurredOn);
+        var outboxEvent = createAndSaveOutboxEvent(command, user.get(), occurredOn);
 
         log.info("User {} auth info updated successfully for event: {} with correlationId: {}",
                 command.userId(), outboxEvent.getId(), command.correlationId());
 
         eventPublisher.publishEvent(new UserAuthInfoUpdatedDomainEvent(
                 outboxEvent.getId(),
-                savedUser.getId(),
+                user.get().getId(),
                 occurredOn
         ));
     }
@@ -161,27 +164,31 @@ public class UserService {
             return;
         }
 
-        user.get().delete();
-        var savedUser = userRepository.save(user.get());
-
+        boolean deleted = userRepository.deleteAndObfuscate(command.userId());
+        if (!deleted) {
+            log.warn("Concurrent modification or already deleted for user {}, discarding delete for event: {}", 
+                    command.userId(), command.id());
+            return;
+        }
+        
         var occurredOn = Instant.now();
-        var outboxEvent = createAndSaveOutboxEvent(command, savedUser, occurredOn);
+        var outboxEvent = createAndSaveOutboxEvent(command, command.userId(), occurredOn);
 
         log.info("User {} deleted successfully for event: {} with correlationId: {}",
                 command.userId(), outboxEvent.getId(), command.correlationId());
 
         eventPublisher.publishEvent(new UserDeletedDomainEvent(
                 outboxEvent.getId(),
-                savedUser.getId(),
+                new UserId(command.userId()),
                 occurredOn
         ));
     }
 
-    private OutboxEvent createAndSaveOutboxEvent(DeleteUserCommand command, User savedUser, Instant occurredOn) {
+    private OutboxEvent createAndSaveOutboxEvent(DeleteUserCommand command, UUID userId, Instant occurredOn) {
         var userDeletedEvent = userEventMapper.toUserDeleted(
                 UUID.randomUUID(),
                 command.correlationId(),
-                savedUser,
+                userId,
                 occurredOn
         );
         var payload = jsonMapper.toJson(userDeletedEvent);

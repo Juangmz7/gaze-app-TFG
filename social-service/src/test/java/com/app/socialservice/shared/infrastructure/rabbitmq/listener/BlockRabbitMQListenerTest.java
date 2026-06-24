@@ -62,11 +62,11 @@ class BlockRabbitMQListenerTest {
         blockRabbitMQListener.onUserBlocked(event);
 
         verify(blockNodeService).deleteBidirectionalFollowRelationship(blockerId, blockedId);
-        var processedEventCaptor = ArgumentCaptor.forClass(ProcessedEvent.class);
-        verify(processedEventsRepository).save(processedEventCaptor.capture());
-        assertThat(processedEventCaptor.getValue().getId()).isEqualTo(event.id());
-        assertThat(processedEventCaptor.getValue().getCorrelationId()).isEqualTo(event.correlationId());
-        assertThat(processedEventCaptor.getValue().getEventType()).isEqualTo(UserBlockedEvent.class.getSimpleName());
+        verify(processedEventsRepository).insertIfAbsent(
+                event.id(),
+                event.correlationId(),
+                UserBlockedEvent.class.getSimpleName()
+        );
     }
 
     @Test
@@ -83,7 +83,7 @@ class BlockRabbitMQListenerTest {
         blockRabbitMQListener.onUserBlocked(event);
 
         verify(blockNodeService, never()).deleteBidirectionalFollowRelationship(any(), any());
-        verify(processedEventsRepository, never()).save(any(ProcessedEvent.class));
+        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any());
     }
 
     @Test
@@ -106,6 +106,6 @@ class BlockRabbitMQListenerTest {
                 .isInstanceOf(RuntimeException.class)
                 .hasMessage("neo4j cleanup failed");
 
-        verify(processedEventsRepository, never()).save(any(ProcessedEvent.class));
+        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any());
     }
 }

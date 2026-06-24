@@ -10,6 +10,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
@@ -21,14 +22,12 @@ public class OutboxRetryWorker {
     private final OutboxEventRepository outboxRepository;
     private final List<EventPublisher> publishers;
 
+    @Transactional
     @Scheduled(fixedDelayString = "${outbox.retry.delay-ms:300000}")
     public void retry() {
         log.debug("Worker woke up for retry PENDING events...");
-        Pageable batchSize = PageRequest.of(
-                0, 100, Sort.by(Sort.Direction.ASC, "createdAt")
-        );
-        var pendingEvents = outboxRepository
-                .findOutboxEventByStatus(EventStatus.PENDING, batchSize);
+        
+        var pendingEvents = outboxRepository.findPendingForProcessing(100);
 
         if (pendingEvents.isEmpty()) {
             return;
@@ -43,8 +42,7 @@ public class OutboxRetryWorker {
                     .ifPresent(publisher -> {
                         try {
                             publisher.publish(outboxEvent);
-                            outboxEvent.setStatus(EventStatus.PROCESSED);
-                            outboxRepository.save(outboxEvent);
+                            outboxRepository.markAsProcessedIfPending(outboxEvent.getId());
                         } catch (Exception e) {
                             log.warn("Retry failed for event {}", outboxEvent.getCorrelationId());
                         }

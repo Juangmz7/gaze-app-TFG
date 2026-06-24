@@ -28,6 +28,12 @@ public class ImmediateOutboxSender {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void sendMessage(DomainEvent event) {
+        int claimed = outboxRepository.markAsProcessedIfPending(event.id());
+        if (claimed == 0) {
+            log.debug("Outbox event {} already processed or not pending", event.id());
+            return;
+        }
+
         var outboxEvent = outboxRepository
                 .findById(event.id())
                 .orElseThrow(() -> new OutboxEventNotFoundException("Outbox event not found"));
@@ -36,10 +42,9 @@ public class ImmediateOutboxSender {
 
         try {
             publisher.publish(outboxEvent);
-            outboxEvent.setStatus(EventStatus.PROCESSED);
-            outboxRepository.save(outboxEvent);
         } catch (Exception e) {
             log.warn("Message send failed for event {}, worker will retry", outboxEvent.getCorrelationId());
+            throw e; // throw so the transaction rolls back and the event stays PENDING
         }
     }
 

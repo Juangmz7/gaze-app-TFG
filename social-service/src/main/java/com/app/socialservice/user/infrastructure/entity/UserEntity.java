@@ -37,6 +37,9 @@ public class UserEntity {
 
     private Instant updatedAt;
 
+    @Version
+    private Long version;
+
     @PrePersist
     protected void onCreate() {
         this.createdAt = Instant.now();

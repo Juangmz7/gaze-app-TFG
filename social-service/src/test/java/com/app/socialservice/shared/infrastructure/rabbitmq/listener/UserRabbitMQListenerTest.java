@@ -148,7 +148,7 @@ class UserRabbitMQListenerTest {
 
         verify(userRegisterCommandMapper, never()).toCommand(any(), any(), any(), any());
         verify(userService, never()).registerUser(any());
-        verify(processedEventsRepository, never()).save(any(ProcessedEvent.class));
+        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any());
     }
 
     @Test
@@ -191,12 +191,11 @@ class UserRabbitMQListenerTest {
 
         verify(userService).registerUser(command);
 
-        var processedEventCaptor = ArgumentCaptor.forClass(ProcessedEvent.class);
-        verify(processedEventsRepository).save(processedEventCaptor.capture());
-        assertThat(processedEventCaptor.getValue().getId()).isEqualTo(expectedEventId);
-        assertThat(processedEventCaptor.getValue().getCorrelationId()).isEqualTo(expectedCorrelationId);
-        assertThat(processedEventCaptor.getValue().getEventType())
-                .isEqualTo(UserRegisteredFromAuthEvent.class.getSimpleName());
+        verify(processedEventsRepository).insertIfAbsent(
+                expectedEventId,
+                expectedCorrelationId,
+                UserRegisteredFromAuthEvent.class.getSimpleName()
+        );
     }
 
     @Test
@@ -230,12 +229,11 @@ class UserRabbitMQListenerTest {
         assertThat(commandCaptor.getValue().username()).isEqualTo(event.details().username());
         assertThat(commandCaptor.getValue().email()).isEqualTo(event.details().email());
 
-        var processedEventCaptor = ArgumentCaptor.forClass(ProcessedEvent.class);
-        verify(processedEventsRepository).save(processedEventCaptor.capture());
-        assertThat(processedEventCaptor.getValue().getId()).isEqualTo(expectedEventId);
-        assertThat(processedEventCaptor.getValue().getCorrelationId()).isEqualTo(expectedCorrelationId);
-        assertThat(processedEventCaptor.getValue().getEventType())
-                .isEqualTo(UserInfoFromAuthUpdatedEvent.class.getSimpleName());
+        verify(processedEventsRepository).insertIfAbsent(
+                expectedEventId,
+                expectedCorrelationId,
+                UserInfoFromAuthUpdatedEvent.class.getSimpleName()
+        );
     }
 
     @Test
@@ -262,7 +260,7 @@ class UserRabbitMQListenerTest {
         userRabbitMQListener.onUserInfoFromAuthUpdated(event);
 
         verify(userService, never()).updateUserAuthInfo(any(UpdateAuthUserInfoCommand.class));
-        verify(processedEventsRepository, never()).save(any(ProcessedEvent.class));
+        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any());
     }
 
     @Test
@@ -292,12 +290,11 @@ class UserRabbitMQListenerTest {
         assertThat(commandCaptor.getValue().correlationId()).isEqualTo(expectedCorrelationId);
         assertThat(commandCaptor.getValue().userId()).isEqualTo(UUID.fromString(event.userId()));
 
-        var processedEventCaptor = ArgumentCaptor.forClass(ProcessedEvent.class);
-        verify(processedEventsRepository).save(processedEventCaptor.capture());
-        assertThat(processedEventCaptor.getValue().getId()).isEqualTo(expectedEventId);
-        assertThat(processedEventCaptor.getValue().getCorrelationId()).isEqualTo(expectedCorrelationId);
-        assertThat(processedEventCaptor.getValue().getEventType())
-                .isEqualTo(UserDeletedFromAuthEvent.class.getSimpleName());
+        verify(processedEventsRepository).insertIfAbsent(
+                expectedEventId,
+                expectedCorrelationId,
+                UserDeletedFromAuthEvent.class.getSimpleName()
+        );
     }
 
     @Test
@@ -321,7 +318,7 @@ class UserRabbitMQListenerTest {
         userRabbitMQListener.onUserDeletedFromAuth(event);
 
         verify(userService, never()).deleteUser(any(DeleteUserCommand.class));
-        verify(processedEventsRepository, never()).save(any(ProcessedEvent.class));
+        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any());
         verify(processedEventsRepository, never()).existsByCorrelationId(expectedCorrelationId);
     }
 
@@ -425,7 +422,7 @@ class UserRabbitMQListenerTest {
         userRabbitMQListener.syncSecondaryDatabase(event);
 
         verify(userNodeService, never()).registerUserNode(any());
-        verify(processedEventsRepository, never()).save(any(ProcessedEvent.class));
+        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any());
     }
 
     @Test
@@ -446,12 +443,11 @@ class UserRabbitMQListenerTest {
         assertThat(commandCaptor.getValue().correlationId()).isEqualTo(correlationId);
         assertThat(commandCaptor.getValue().userId()).isEqualTo(userId);
 
-        var processedEventCaptor = ArgumentCaptor.forClass(ProcessedEvent.class);
-        verify(processedEventsRepository).save(processedEventCaptor.capture());
-        assertThat(processedEventCaptor.getValue().getId()).isEqualTo(eventId);
-        assertThat(processedEventCaptor.getValue().getCorrelationId()).isEqualTo(correlationId);
-        assertThat(processedEventCaptor.getValue().getEventType())
-                .isEqualTo(UserRegisteredEvent.class.getSimpleName());
+        verify(processedEventsRepository).insertIfAbsent(
+                eventId,
+                correlationId,
+                UserRegisteredEvent.class.getSimpleName()
+        );
     }
 
     @Test
@@ -465,7 +461,7 @@ class UserRabbitMQListenerTest {
         userRabbitMQListener.onUserDeleted(event);
 
         verify(userNodeService, never()).deleteUserNode(any());
-        verify(processedEventsRepository, never()).save(any(ProcessedEvent.class));
+        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any());
     }
 
     @Test
@@ -486,11 +482,10 @@ class UserRabbitMQListenerTest {
         assertThat(commandCaptor.getValue().correlationId()).isEqualTo(correlationId);
         assertThat(commandCaptor.getValue().userId()).isEqualTo(userId);
 
-        var processedEventCaptor = ArgumentCaptor.forClass(ProcessedEvent.class);
-        verify(processedEventsRepository).save(processedEventCaptor.capture());
-        assertThat(processedEventCaptor.getValue().getId()).isEqualTo(eventId);
-        assertThat(processedEventCaptor.getValue().getCorrelationId()).isEqualTo(correlationId);
-        assertThat(processedEventCaptor.getValue().getEventType())
-                .isEqualTo(UserDeletedEvent.class.getSimpleName());
+        verify(processedEventsRepository).insertIfAbsent(
+                eventId,
+                correlationId,
+                UserDeletedEvent.class.getSimpleName()
+        );
     }
 }

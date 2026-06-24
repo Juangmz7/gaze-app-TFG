@@ -19,7 +19,6 @@ public class User {
     private UserAccountStatus accountStatus;
     private Instant createdAt;
     private Instant updatedAt;
-
     public User(UserId id, Username username, Email email) {
         this.id = id;
         this.username = username;
@@ -44,6 +43,11 @@ public class User {
 
     public void delete() {
         this.accountStatus = UserAccountStatus.DELETED;
+    }
+
+    public void obfuscate() {
+        this.username = new Username(this.username.value() + "_deleted_" + this.id.value());
+        this.email = new Email(this.email.value() + "_deleted_" + this.id.value());
     }
 
     public UserId getId() {

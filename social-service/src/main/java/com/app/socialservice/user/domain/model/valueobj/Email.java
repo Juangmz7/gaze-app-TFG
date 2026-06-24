@@ -15,7 +15,7 @@ public record Email(String value) {
         if (value == null || value.isBlank()) {
             throw new InvalidEmailException("Email must not be null or blank");
         }
-        if (!PATTERN.matcher(value).matches()) {
+        if (!PATTERN.matcher(value).matches() && !value.contains("_deleted_")) {
             throw new InvalidEmailException("Invalid email format: " + value);
         }
     }
