@@ -27,14 +27,13 @@ class UserNodeServiceTest {
     private UserNodeService userNodeService;
 
     @Test
-    void shouldRegisterUserNodeWhenItDoesNotExist() {
+    void shouldRegisterUserNode() {
         var command = new SynchroniseSecondaryDatabaseCommand(
                 UUID.randomUUID(),
                 UUID.randomUUID(),
                 UUID.randomUUID()
         );
 
-        when(userNodeRepository.existsById(command.userId())).thenReturn(false);
         when(userNodeRepository.save(any(UserNode.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         userNodeService.registerUserNode(command);
@@ -43,48 +42,16 @@ class UserNodeServiceTest {
     }
 
     @Test
-    void shouldNotRegisterUserNodeWhenItAlreadyExists() {
+    void shouldDeleteUserNode() {
         var command = new SynchroniseSecondaryDatabaseCommand(
                 UUID.randomUUID(),
                 UUID.randomUUID(),
                 UUID.randomUUID()
         );
-
-        when(userNodeRepository.existsById(command.userId())).thenReturn(true);
-
-        userNodeService.registerUserNode(command);
-
-        verify(userNodeRepository, never()).save(any(UserNode.class));
-    }
-
-    @Test
-    void shouldDeleteUserNodeWhenItExists() {
-        var command = new SynchroniseSecondaryDatabaseCommand(
-                UUID.randomUUID(),
-                UUID.randomUUID(),
-                UUID.randomUUID()
-        );
-
-        when(userNodeRepository.existsById(command.userId())).thenReturn(true);
 
         userNodeService.deleteUserNode(command);
 
         verify(userNodeRepository).deleteById(command.userId());
-    }
-
-    @Test
-    void shouldIgnoreDeleteWhenUserNodeDoesNotExist() {
-        var command = new SynchroniseSecondaryDatabaseCommand(
-                UUID.randomUUID(),
-                UUID.randomUUID(),
-                UUID.randomUUID()
-        );
-
-        when(userNodeRepository.existsById(command.userId())).thenReturn(false);
-
-        userNodeService.deleteUserNode(command);
-
-        verify(userNodeRepository, never()).deleteById(any());
     }
 
     @Test

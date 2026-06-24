@@ -19,11 +19,6 @@ public class UserNodeService {
     public void registerUserNode(SynchroniseSecondaryDatabaseCommand command) {
         validateCommand(command);
 
-        if (userNodeRepository.existsById(command.userId())) {
-            log.warn("Detected event duplication correlationId: {} eventId: {}, discarding message...",
-                    command.correlationId(), command.eventId());
-            return;
-        }
         log.debug("Registering node for event: {} with correlationId: {}",
                 command.eventId(), command.correlationId());
 
@@ -41,11 +36,6 @@ public class UserNodeService {
     public void deleteUserNode(SynchroniseSecondaryDatabaseCommand command) {
         validateCommand(command);
 
-        if (!userNodeRepository.existsById(command.userId())) {
-            log.warn("UserNode {} does not exist for event: {} with correlationId: {}, discarding message...",
-                    command.userId(), command.eventId(), command.correlationId());
-            return;
-        }
         log.debug("Deleting node for event: {} with correlationId: {}",
                 command.eventId(), command.correlationId());
 

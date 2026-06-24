@@ -3,10 +3,11 @@ package com.app.socialservice.user.infrastructure.repository;
 import java.util.UUID;
 
 import com.app.socialservice.user.application.repository.UserStatsRepository;
-import com.app.socialservice.user.infrastructure.entity.UserStatsEntity;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Repository;
 
+@Slf4j
 @Repository
 @RequiredArgsConstructor
 public class UserStatsRepositoryImpl implements UserStatsRepository {
@@ -22,22 +23,39 @@ public class UserStatsRepositoryImpl implements UserStatsRepository {
             throw new IllegalArgumentException("followedUserId must not be null");
         }
 
-        var followerStats = getOrCreate(followerUserId);
-        var followedStats = getOrCreate(followedUserId);
+        jpaUserStatsRepository.ensureExists(followerUserId);
+        jpaUserStatsRepository.ensureExists(followedUserId);
 
-        followerStats.incrementFollowingCount();
-        followedStats.incrementFollowerCount();
+        int followingRows = jpaUserStatsRepository.incrementFollowingCount(followerUserId);
+        if (followingRows == 0) {
+            log.warn("Failed to increment following_count for user {}: no row affected", followerUserId);
+        }
 
-        jpaUserStatsRepository.save(followerStats);
-        jpaUserStatsRepository.save(followedStats);
+        int followerRows = jpaUserStatsRepository.incrementFollowerCount(followedUserId);
+        if (followerRows == 0) {
+            log.warn("Failed to increment follower_count for user {}: no row affected", followedUserId);
+        }
     }
 
-    private UserStatsEntity getOrCreate(UUID userId) {
-        return jpaUserStatsRepository.findById(userId)
-                .orElseGet(() -> UserStatsEntity.builder()
-                        .userId(userId)
-                        .followerCount(0L)
-                        .followingCount(0L)
-                        .build());
+    @Override
+    public void decrementFollowCounters(UUID followerUserId, UUID followedUserId) {
+        if (followerUserId == null) {
+            throw new IllegalArgumentException("followerUserId must not be null");
+        }
+        if (followedUserId == null) {
+            throw new IllegalArgumentException("followedUserId must not be null");
+        }
+
+        int followingRows = jpaUserStatsRepository.decrementFollowingCount(followerUserId);
+        if (followingRows == 0) {
+            log.warn("Failed to decrement following_count for user {}: no row affected or already zero",
+                    followerUserId);
+        }
+
+        int followerRows = jpaUserStatsRepository.decrementFollowerCount(followedUserId);
+        if (followerRows == 0) {
+            log.warn("Failed to decrement follower_count for user {}: no row affected or already zero",
+                    followedUserId);
+        }
     }
 }
