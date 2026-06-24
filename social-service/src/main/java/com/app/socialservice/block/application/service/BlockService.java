@@ -46,30 +46,31 @@ public class BlockService {
 
         validateCommandInput(command);
 
-        var existingBlock = blockRepository.findByUsers(command.blockerUserId(), command.blockedUserId());
-        if (existingBlock.isPresent()) {
+        var block = newBlock(command);
+        var savedBlock = blockRepository.insertIfAbsent(block);
+        if (savedBlock.isEmpty()) {
             log.info("Block already exists for blocker {} and blocked {}",
                     command.blockerUserId(), command.blockedUserId());
-            return toResponse(existingBlock.get());
+            return toResponse(blockRepository.findByUsers(command.blockerUserId(), command.blockedUserId())
+                    .orElse(block));
         }
 
-        var savedBlock = createAndSaveBlock(command);
         followRepository.markBidirectionalRelationshipsAsBlocked(command.blockerUserId(), command.blockedUserId());
 
         var occurredOn = Instant.now();
-        var outboxEvent = createAndSaveOutboxEvent(savedBlock, occurredOn);
+        var outboxEvent = createAndSaveOutboxEvent(savedBlock.get(), occurredOn);
 
         log.info("Block created for blocker {} and blocked {} with outbox id {}",
                 command.blockerUserId(), command.blockedUserId(), outboxEvent.getId());
 
         eventPublisher.publishEvent(new UserBlockedDomainEvent(
                 outboxEvent.getId(),
-                savedBlock.getBlockerId().value(),
-                savedBlock.getBlockedId().value(),
+                savedBlock.get().getBlockerId().value(),
+                savedBlock.get().getBlockedId().value(),
                 occurredOn
         ));
 
-        return toResponse(savedBlock);
+        return toResponse(savedBlock.get());
     }
 
     private void validateCommandInput(BlockUserCommand command) {
@@ -87,13 +88,12 @@ public class BlockService {
         }
     }
 
-    private Block createAndSaveBlock(BlockUserCommand command) {
-        var block = new Block(
+    private Block newBlock(BlockUserCommand command) {
+        return new Block(
                 new UserId(command.blockerUserId()),
                 new UserId(command.blockedUserId()),
                 Instant.now()
         );
-        return blockRepository.save(block);
     }
 
     private OutboxEvent createAndSaveOutboxEvent(Block block, Instant occurredOn) {

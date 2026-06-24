@@ -38,19 +38,24 @@ public class FollowRepositoryImpl implements FollowRepository {
     }
 
     @Override
-    public Follow save(Follow follow) {
+    public Optional<Follow> insertIfAbsent(Follow follow) {
         if (follow == null) {
             throw new IllegalArgumentException("follow must not be null");
         }
 
-        var entity = new FollowEntity(
-                new FollowEntityId(follow.getFollowerId().value(), follow.getFollowedId().value()),
-                FollowStatus.ACTIVE,
+        var insertedRows = jpaFollowRepository.insertIfAbsent(
+                follow.getFollowerId().value(),
+                follow.getFollowedId().value(),
+                FollowStatus.ACTIVE.name(),
                 follow.getCreatedAt(),
-                null
+                follow.getCreatedAt()
         );
 
-        return toDomain(jpaFollowRepository.save(entity));
+        if (insertedRows == 0) {
+            return Optional.empty();
+        }
+
+        return Optional.of(follow);
     }
 
     @Override

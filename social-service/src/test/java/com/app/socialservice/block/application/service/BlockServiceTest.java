@@ -83,8 +83,7 @@ class BlockServiceTest {
                 .build();
 
         when(userRepository.findById(blockedId)).thenReturn(Optional.of(buildUser(blockedId)));
-        when(blockRepository.findByUsers(blockerId, blockedId)).thenReturn(Optional.empty());
-        when(blockRepository.save(any(Block.class))).thenReturn(savedBlock);
+        when(blockRepository.insertIfAbsent(any(Block.class))).thenReturn(Optional.of(savedBlock));
         when(blockEventMapper.toUserBlockedEvent(any(), any(), any(Block.class), any())).thenReturn(mappedEvent);
         when(jsonMapper.toJson(mappedEvent)).thenReturn("{\"type\":\"blocked\"}");
         when(outboxEventRepository.save(any(OutboxEvent.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -107,7 +106,7 @@ class BlockServiceTest {
         assertThat(domainEventCaptor.getValue().blockedUserId()).isEqualTo(blockedId);
 
         InOrder inOrder = inOrder(blockRepository, followRepository, outboxEventRepository, eventPublisher);
-        inOrder.verify(blockRepository).save(any(Block.class));
+        inOrder.verify(blockRepository).insertIfAbsent(any(Block.class));
         inOrder.verify(followRepository).markBidirectionalRelationshipsAsBlocked(blockerId, blockedId);
         inOrder.verify(outboxEventRepository).save(any(OutboxEvent.class));
         inOrder.verify(eventPublisher).publishEvent(any(UserBlockedDomainEvent.class));
@@ -121,6 +120,7 @@ class BlockServiceTest {
         var command = new BlockUserCommand(blockerId, blockedId);
 
         when(userRepository.findById(blockedId)).thenReturn(Optional.of(buildUser(blockedId)));
+        when(blockRepository.insertIfAbsent(any(Block.class))).thenReturn(Optional.empty());
         when(blockRepository.findByUsers(blockerId, blockedId)).thenReturn(Optional.of(existingBlock));
 
         var response = blockService.blockUser(command);
@@ -128,7 +128,7 @@ class BlockServiceTest {
         assertThat(response.blockerId()).isEqualTo(blockerId);
         assertThat(response.blockedId()).isEqualTo(blockedId);
         verify(followRepository, never()).markBidirectionalRelationshipsAsBlocked(any(), any());
-        verify(blockRepository, never()).save(any(Block.class));
+        verify(blockRepository, never()).existsByUsers(any(), any());
         verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
         verify(eventPublisher, never()).publishEvent(any());
     }
@@ -158,7 +158,7 @@ class BlockServiceTest {
                 .isInstanceOf(UserNotFoundException.class)
                 .hasMessage("User not found: " + blockedId);
 
-        verify(blockRepository, never()).findByUsers(any(), any());
+        verify(blockRepository, never()).insertIfAbsent(any(Block.class));
         verifyNoInteractions(followRepository, outboxEventRepository, blockEventMapper, jsonMapper, eventPublisher);
     }
 

@@ -30,13 +30,22 @@ public class BlockRepositoryImpl implements BlockRepository {
     }
 
     @Override
-    public Block save(Block block) {
+    public Optional<Block> insertIfAbsent(Block block) {
         if (block == null) {
             throw new IllegalArgumentException("block must not be null");
         }
 
-        var savedEntity = jpaBlockRepository.save(toEntity(block));
-        return toDomain(savedEntity);
+        var insertedRows = jpaBlockRepository.insertIfAbsent(
+                block.getBlockerId().value(),
+                block.getBlockedId().value(),
+                block.getCreatedAt()
+        );
+
+        if (insertedRows == 0) {
+            return Optional.empty();
+        }
+
+        return Optional.of(block);
     }
 
     private Block toDomain(BlockEntity entity) {
@@ -44,13 +53,6 @@ public class BlockRepositoryImpl implements BlockRepository {
                 new UserId(entity.getId().getBlockerId()),
                 new UserId(entity.getId().getBlockedId()),
                 entity.getCreatedAt()
-        );
-    }
-
-    private BlockEntity toEntity(Block block) {
-        return new BlockEntity(
-                new BlockEntityId(block.getBlockerId().value(), block.getBlockedId().value()),
-                block.getCreatedAt()
         );
     }
 

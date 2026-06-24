@@ -48,13 +48,6 @@ public class FollowService {
 
         validateCommandInput(command);
 
-        var activeFollow = followRepository.findActiveByUsers(command.followerUserId(), command.followedUserId());
-        if (activeFollow.isPresent()) {
-            log.info("Follow already exists for follower {} and followed {}",
-                    command.followerUserId(), command.followedUserId());
-            return toResponse(activeFollow.get());
-        }
-
         if (isBlocked(command.followerUserId(), command.followedUserId())) {
             throw new FollowBlockedException(String.format(
                     "Follow relationship is blocked between %s and %s",
@@ -63,26 +56,13 @@ public class FollowService {
             ));
         }
 
-        var savedFollow = followRepository.findRemovedByUsers(command.followerUserId(), command.followedUserId())
-                .map(existingFollow -> followRepository.reactivate(command.followerUserId(), command.followedUserId()))
-                .orElseGet(() -> followRepository.save(newFollow(command)));
+        var attemptedFollow = newFollow(command);
+        var insertedFollow = followRepository.insertIfAbsent(attemptedFollow);
+        if (insertedFollow.isEmpty()) {
+            return handleExistingFollow(command, attemptedFollow);
+        }
 
-        userStatsRepository.incrementFollowCounters(command.followerUserId(), command.followedUserId());
-
-        var occurredOn = java.time.Instant.now();
-        var outboxEvent = createAndSaveOutboxEvent(savedFollow, occurredOn);
-
-        log.info("Follow created for follower {} and followed {} with outbox id {}",
-                command.followerUserId(), command.followedUserId(), outboxEvent.getId());
-
-        eventPublisher.publishEvent(new UserFollowedDomainEvent(
-                outboxEvent.getId(),
-                savedFollow.getFollowerId().value(),
-                savedFollow.getFollowedId().value(),
-                occurredOn
-        ));
-
-        return toResponse(savedFollow);
+        return publishCreatedFollow(command, insertedFollow.get());
     }
 
     private void validateCommandInput(FollowUserCommand command) {
@@ -104,6 +84,52 @@ public class FollowService {
                 new UserId(command.followedUserId()),
                 java.time.Instant.now()
         );
+    }
+
+    private FollowResponse handleExistingFollow(FollowUserCommand command, Follow attemptedFollow) {
+        if (followRepository.existsBlockedByUsers(command.followerUserId(), command.followedUserId())) {
+            throw new FollowBlockedException(String.format(
+                    "Follow relationship is blocked between %s and %s",
+                    command.followerUserId(),
+                    command.followedUserId()
+            ));
+        }
+
+        var removedFollow = followRepository.findRemovedByUsers(command.followerUserId(), command.followedUserId());
+        if (removedFollow.isPresent()) {
+            var reactivatedFollow = followRepository.reactivate(command.followerUserId(), command.followedUserId());
+            return publishCreatedFollow(command, reactivatedFollow);
+        }
+
+        var activeFollow = followRepository.findActiveByUsers(command.followerUserId(), command.followedUserId());
+        if (activeFollow.isPresent()) {
+            log.info("Follow already exists for follower {} and followed {}",
+                    command.followerUserId(), command.followedUserId());
+            return toResponse(activeFollow.get());
+        }
+
+        log.info("Follow insert was ignored for follower {} and followed {} without a resolvable persisted state",
+                command.followerUserId(), command.followedUserId());
+        return toResponse(attemptedFollow);
+    }
+
+    private FollowResponse publishCreatedFollow(FollowUserCommand command, Follow savedFollow) {
+        userStatsRepository.incrementFollowCounters(command.followerUserId(), command.followedUserId());
+
+        var occurredOn = java.time.Instant.now();
+        var outboxEvent = createAndSaveOutboxEvent(savedFollow, occurredOn);
+
+        log.info("Follow created for follower {} and followed {} with outbox id {}",
+                command.followerUserId(), command.followedUserId(), outboxEvent.getId());
+
+        eventPublisher.publishEvent(new UserFollowedDomainEvent(
+                outboxEvent.getId(),
+                savedFollow.getFollowerId().value(),
+                savedFollow.getFollowedId().value(),
+                occurredOn
+        ));
+
+        return toResponse(savedFollow);
     }
 
     private boolean isBlocked(UUID followerUserId, UUID followedUserId) {

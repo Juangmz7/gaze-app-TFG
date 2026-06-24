@@ -8,5 +8,5 @@ import java.util.UUID;
 public interface BlockRepository {
     Optional<Block> findByUsers(UUID blockerUserId, UUID blockedUserId);
     boolean existsByUsers(UUID blockerUserId, UUID blockedUserId);
-    Block save(Block block);
+    Optional<Block> insertIfAbsent(Block block);
 }

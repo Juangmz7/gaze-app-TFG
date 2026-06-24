@@ -155,6 +155,7 @@ class BlockControllerIntegrationTest {
                 .andExpect(jsonPath("$.blockedId").value(blockedId.toString()));
 
         assertThat(jpaBlockRepository.count()).isEqualTo(1);
+        assertThat(outboxEventRepository.count()).isEqualTo(1);
     }
 
     @Test
