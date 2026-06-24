@@ -268,12 +268,12 @@ class UserRabbitMQListenerIntegrationTest {
     }
 
     private void seedAcceptedUser(UUID userId, String username, String email) {
-        jpaUserRepository.save(UserEntity.builder()
-                .id(userId)
-                .username(username)
-                .email(email)
-                .accountStatus(UserAccountStatus.ACCEPTED)
-                .build());
+        jpaUserRepository.insertIfAbsent(
+                userId,
+                username,
+                email,
+                UserAccountStatus.ACCEPTED.name()
+        );
     }
 
     private UUID deterministicUuid(String namespace, String... components) {

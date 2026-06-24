@@ -62,11 +62,11 @@ class FollowRabbitMQListenerTest {
         followRabbitMQListener.onUserFollowed(event);
 
         verify(followNodeService).createFollowRelationship(followerId, followedId);
-        var processedEventCaptor = ArgumentCaptor.forClass(ProcessedEvent.class);
-        verify(processedEventsRepository).save(processedEventCaptor.capture());
-        assertThat(processedEventCaptor.getValue().getId()).isEqualTo(event.id());
-        assertThat(processedEventCaptor.getValue().getCorrelationId()).isEqualTo(event.correlationId());
-        assertThat(processedEventCaptor.getValue().getEventType()).isEqualTo(UserFollowedEvent.class.getSimpleName());
+        verify(processedEventsRepository).insertIfAbsent(
+                event.id(),
+                event.correlationId(),
+                UserFollowedEvent.class.getSimpleName()
+        );
     }
 
     @Test
@@ -85,7 +85,7 @@ class FollowRabbitMQListenerTest {
                 .hasMessage("event.occurredAt must not be null");
 
         verify(followNodeService, never()).createFollowRelationship(any(), any());
-        verify(processedEventsRepository, never()).save(any(ProcessedEvent.class));
+        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any());
     }
 
     @Test
@@ -102,7 +102,7 @@ class FollowRabbitMQListenerTest {
         followRabbitMQListener.onUserFollowed(event);
 
         verify(followNodeService, never()).createFollowRelationship(any(), any());
-        verify(processedEventsRepository, never()).save(any(ProcessedEvent.class));
+        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any());
     }
 
     @Test
@@ -125,6 +125,6 @@ class FollowRabbitMQListenerTest {
                 .isInstanceOf(RuntimeException.class)
                 .hasMessage("neo4j follow sync failed");
 
-        verify(processedEventsRepository, never()).save(any(ProcessedEvent.class));
+        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any());
     }
 }
