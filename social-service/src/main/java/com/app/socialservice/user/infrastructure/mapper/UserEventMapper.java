@@ -37,6 +37,6 @@ public interface UserEventMapper {
     @Mapping(target = "id", source = "id")
     @Mapping(target = "correlationId", source = "correlationId")
     @Mapping(target = "occurredAt", source = "occurredOn")
-    @Mapping(target = "userId", source = "user.id.value")
-    UserDeletedEvent toUserDeleted(UUID id, UUID correlationId, User user, Instant occurredOn);
+    @Mapping(target = "userId", source = "userId")
+    UserDeletedEvent toUserDeleted(UUID id, UUID correlationId, UUID userId, Instant occurredOn);
 }

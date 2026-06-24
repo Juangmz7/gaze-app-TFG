@@ -19,12 +19,14 @@ public class UserRepositoryImpl implements UserRepository {
     private final UserMapper userMapper;
 
     @Override
-    public User save(User user) {
-        UserEntity entity = userMapper.toEntity(user);
-        UserEntity savedEntity = jpaUserRepository.save(entity);
-        return userMapper.toDomain(savedEntity);
+    public int updateAuthInfo(UUID id, String username, String email) {
+        return jpaUserRepository.updateAuthInfo(id, username, email);
     }
 
+    @Override
+    public int deleteAndObfuscate(UUID id) {
+        return jpaUserRepository.deleteAndObfuscate(id);
+    }
 
     @Override
     public Optional<User> findById(UUID id) {
@@ -35,5 +37,16 @@ public class UserRepositoryImpl implements UserRepository {
     @Override
     public boolean existsById(UUID id) {
         return jpaUserRepository.existsById(id);
+    }
+
+    @Override
+    public int insertIfAbsent(User user) {
+        UserEntity entity = userMapper.toEntity(user);
+        return jpaUserRepository.insertIfAbsent(
+                entity.getId(),
+                entity.getUsername(),
+                entity.getEmail(),
+                entity.getAccountStatus().name()
+        );
     }
 }

@@ -83,15 +83,15 @@ class UserServiceTest {
                 .email("registered@example.com")
                 .build();
 
-        when(userRepository.existsById(userId)).thenReturn(false);
-        when(userRepository.save(any(User.class))).thenReturn(savedUser);
+        when(userRepository.insertIfAbsent(any(User.class))).thenReturn(1);
+        when(userRepository.findById(userId)).thenReturn(Optional.of(savedUser));
         when(userEventMapper.toUserRegisteredEvent(any(), any(), any(User.class), any())).thenReturn(mappedEvent);
         when(jsonMapper.toJson(mappedEvent)).thenReturn("{\"type\":\"registered\"}");
         when(outboxEventRepository.save(any(OutboxEvent.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         userService.registerUser(command);
 
-        verify(userRepository).save(any(User.class));
+        verify(userRepository).insertIfAbsent(any(User.class));
 
         var outboxCaptor = ArgumentCaptor.forClass(OutboxEvent.class);
         verify(outboxEventRepository).save(outboxCaptor.capture());
@@ -118,11 +118,12 @@ class UserServiceTest {
                 "UserRegisteredFromAuthEvent"
         );
 
-        when(userRepository.existsById(userId)).thenReturn(true);
+        when(userRepository.insertIfAbsent(any(User.class))).thenReturn(0);
 
         userService.registerUser(command);
 
-        verify(userRepository, never()).save(any(User.class));
+        verify(userRepository).insertIfAbsent(any(User.class));
+        verify(userRepository, never()).findById(any(UUID.class));
         verifyNoInteractions(outboxEventRepository, userEventMapper, jsonMapper, eventPublisher);
     }
 
@@ -151,14 +152,14 @@ class UserServiceTest {
                 .build();
 
         when(userRepository.findById(userId)).thenReturn(Optional.of(existingUser));
-        when(userRepository.save(existingUser)).thenReturn(existingUser);
+        when(userRepository.updateAuthInfo(userId, "new-name", "new@example.com")).thenReturn(1);
         when(userEventMapper.toUserUpdated(any(), any(), any(User.class), any())).thenReturn(mappedEvent);
         when(jsonMapper.toJson(mappedEvent)).thenReturn("{\"type\":\"updated\"}");
         when(outboxEventRepository.save(any(OutboxEvent.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         userService.updateUserAuthInfo(command);
 
-        verify(userRepository).save(existingUser);
+        verify(userRepository).updateAuthInfo(userId, "new-name", "new@example.com");
 
         var domainEventCaptor = ArgumentCaptor.forClass(UserAuthInfoUpdatedDomainEvent.class);
         verify(eventPublisher).publishEvent(domainEventCaptor.capture());
@@ -198,7 +199,7 @@ class UserServiceTest {
         userService.updateUserAuthInfo(missingCommand);
         userService.updateUserAuthInfo(unchangedCommand);
 
-        verify(userRepository, never()).save(any(User.class));
+        verify(userRepository, never()).updateAuthInfo(any(), any(), any());
         verifyNoInteractions(outboxEventRepository, userEventMapper, jsonMapper, eventPublisher);
     }
 
@@ -222,15 +223,14 @@ class UserServiceTest {
                 .build();
 
         when(userRepository.findById(userId)).thenReturn(Optional.of(existingUser));
-        when(userRepository.save(existingUser)).thenReturn(existingUser);
-        when(userEventMapper.toUserDeleted(any(), any(), any(User.class), any())).thenReturn(mappedEvent);
+        when(userRepository.deleteAndObfuscate(userId)).thenReturn(1);
+        when(userEventMapper.toUserDeleted(any(), any(), any(UUID.class), any())).thenReturn(mappedEvent);
         when(jsonMapper.toJson(mappedEvent)).thenReturn("{\"type\":\"deleted\"}");
         when(outboxEventRepository.save(any(OutboxEvent.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         userService.deleteUser(command);
 
-        verify(userRepository).save(existingUser);
-        assertThat(existingUser.getAccountStatus()).isEqualTo(UserAccountStatus.DELETED);
+        verify(userRepository).deleteAndObfuscate(userId);
 
         var domainEventCaptor = ArgumentCaptor.forClass(UserDeletedDomainEvent.class);
         verify(eventPublisher).publishEvent(domainEventCaptor.capture());
@@ -255,7 +255,7 @@ class UserServiceTest {
 
         userService.deleteUser(command);
 
-        verify(userRepository, never()).save(any(User.class));
+        verify(userRepository, never()).deleteAndObfuscate(any());
         verifyNoInteractions(outboxEventRepository, userEventMapper, jsonMapper, eventPublisher);
     }
 
