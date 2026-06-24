@@ -9,4 +9,5 @@ public interface BlockRepository {
     Optional<Block> findByUsers(UUID blockerUserId, UUID blockedUserId);
     boolean existsByUsers(UUID blockerUserId, UUID blockedUserId);
     boolean insertIfAbsent(Block block);
+    boolean deleteByUsers(UUID blockerUserId, UUID blockedUserId);
 }

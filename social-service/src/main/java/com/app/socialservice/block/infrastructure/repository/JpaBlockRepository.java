@@ -23,4 +23,14 @@ public interface JpaBlockRepository extends JpaRepository<BlockEntity, BlockEnti
             nativeQuery = true
     )
     int insertIfAbsent(UUID blockerUserId, UUID blockedUserId, Instant createdAt);
+
+    @Modifying
+    @Query(
+            value = """
+                    DELETE FROM blocks
+                    WHERE blocker_id = :blockerUserId AND blocked_id = :blockedUserId
+                    """,
+            nativeQuery = true
+    )
+    int deleteByUsers(UUID blockerUserId, UUID blockedUserId);
 }

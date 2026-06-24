@@ -39,6 +39,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -217,7 +218,8 @@ class BlockControllerIntegrationTest {
         var message = waitForMessage(queueName);
 
         assertThat(message).isNotNull();
-        assertThat(new String(message.getBody(), StandardCharsets.UTF_8)).contains(blockerId.toString(), blockedId.toString());
+        assertThat(new String(message.getBody(), StandardCharsets.UTF_8))
+                .contains(blockerId.toString(), blockedId.toString());
         assertThat(outboxEventRepository.findAll()).singleElement()
                 .extracting(event -> event.getStatus())
                 .isEqualTo(EventStatus.PROCESSED);
@@ -229,6 +231,122 @@ class BlockControllerIntegrationTest {
 
         assertThat(amqpAdmin.getQueueProperties(blockQueueName)).isNotNull();
         assertThat(amqpAdmin.getQueueProperties(blockQueueName + ".dlq")).isNotNull();
+    }
+
+    @Test
+    void deleteApiSocialBlockReturns200AndRemovesBlockAndBlockedFollows() throws Exception {
+        var unblockerId = UUID.randomUUID();
+        var unblockedId = UUID.randomUUID();
+
+        seedUser(unblockerId, "unblocker");
+        seedUser(unblockedId, "unblocked");
+        seedBlockedFollow(unblockerId, unblockedId);
+
+        mockMvc.perform(delete("/api/social/block")
+                        .with(jwt().jwt(jwt -> jwt.claim("userId", unblockerId.toString())))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(blockRequest(unblockedId)))
+                .andExpect(status().isOk());
+
+        assertThat(jpaBlockRepository.findById(new BlockEntityId(unblockerId, unblockedId))).isEmpty();
+        assertThat(jpaFollowRepository.findById(new FollowEntityId(unblockerId, unblockedId))).get()
+                .extracting(FollowEntity::getStatus)
+                .isEqualTo(FollowStatus.REMOVED);
+        assertThat(jpaFollowRepository.findById(new FollowEntityId(unblockedId, unblockerId))).get()
+                .extracting(FollowEntity::getStatus)
+                .isEqualTo(FollowStatus.REMOVED);
+        assertThat(outboxEventRepository.findAll()).singleElement()
+                .extracting(event -> event.getEventType(), event -> event.getStatus())
+                .containsExactly("UserUnblockedEvent", EventStatus.PROCESSED);
+    }
+
+    @Test
+    void deleteApiSocialBlockReturns200WhenRelationshipDoesNotExist() throws Exception {
+        var unblockerId = UUID.randomUUID();
+        var unblockedId = UUID.randomUUID();
+
+        seedUser(unblockerId, "unblocker-missing-block");
+        seedUser(unblockedId, "unblocked-missing-block");
+        seedFollow(unblockerId, unblockedId);
+
+        mockMvc.perform(delete("/api/social/block")
+                        .with(jwt().jwt(jwt -> jwt.claim("userId", unblockerId.toString())))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(blockRequest(unblockedId)))
+                .andExpect(status().isOk());
+
+        assertThat(jpaBlockRepository.count()).isZero();
+        assertThat(jpaFollowRepository.findById(new FollowEntityId(unblockerId, unblockedId))).get()
+                .extracting(FollowEntity::getStatus)
+                .isEqualTo(FollowStatus.ACTIVE);
+        assertThat(outboxEventRepository.count()).isZero();
+    }
+
+    @Test
+    void deleteApiSocialBlockReturns400WhenUnblockerIdEqualsUnblockedId() throws Exception {
+        var userId = UUID.randomUUID();
+
+        seedUser(userId, "self-unblock");
+
+        mockMvc.perform(delete("/api/social/block")
+                        .with(jwt().jwt(jwt -> jwt.claim("userId", userId.toString())))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(blockRequest(userId)))
+                .andExpect(status().isBadRequest());
+
+        assertThat(jpaBlockRepository.count()).isZero();
+        assertThat(outboxEventRepository.count()).isZero();
+    }
+
+    @Test
+    void deleteApiSocialBlockReturns404WhenTargetUserDoesNotExist() throws Exception {
+        var unblockerId = UUID.randomUUID();
+        var missingUserId = UUID.randomUUID();
+
+        seedUser(unblockerId, "unblocker-missing-target");
+
+        mockMvc.perform(delete("/api/social/block")
+                        .with(jwt().jwt(jwt -> jwt.claim("userId", unblockerId.toString())))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(blockRequest(missingUserId)))
+                .andExpect(status().isNotFound());
+
+        assertThat(jpaBlockRepository.count()).isZero();
+        assertThat(outboxEventRepository.count()).isZero();
+    }
+
+    @Test
+    void deleteApiSocialBlockPublishesMessageToRabbitMqVerifiableViaEmbeddedBroker() throws Exception {
+        var unblockerId = UUID.randomUUID();
+        var unblockedId = UUID.randomUUID();
+        var queueName = "q.social-service.test.unblock." + UUID.randomUUID();
+        var queue = QueueBuilder.nonDurable(queueName).exclusive().autoDelete().build();
+
+        seedUser(unblockerId, "publisher-unblocker");
+        seedUser(unblockedId, "publisher-unblocked");
+        seedBlockedFollow(unblockerId, unblockedId);
+
+        amqpAdmin.declareQueue(queue);
+        amqpAdmin.declareBinding(BindingBuilder.bind(queue)
+                .to(new TopicExchange(rabbitMQProperties.getExchange().getUser().getEvents()))
+                .with(rabbitMQProperties.getRk().getUser().getBlock().getDeleted()));
+
+        mockMvc.perform(delete("/api/social/block")
+                        .with(jwt().jwt(jwt -> jwt.claim("userId", unblockerId.toString())))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(blockRequest(unblockedId)))
+                .andExpect(status().isOk());
+
+        var message = waitForMessage(queueName);
+
+        assertThat(message).isNotNull();
+        assertThat(new String(message.getBody(), StandardCharsets.UTF_8)).contains(
+                unblockerId.toString(),
+                unblockedId.toString()
+        );
+        assertThat(outboxEventRepository.findAll()).singleElement()
+                .extracting(event -> event.getStatus())
+                .isEqualTo(EventStatus.PROCESSED);
     }
 
     private String blockRequest(UUID blockedId) {
@@ -256,6 +374,25 @@ class BlockControllerIntegrationTest {
                 FollowStatus.ACTIVE,
                 Instant.now(),
                 null
+        ));
+    }
+
+    private void seedBlockedFollow(UUID firstUserId, UUID secondUserId) {
+        jpaBlockRepository.save(new com.app.socialservice.block.infrastructure.entity.BlockEntity(
+                new BlockEntityId(firstUserId, secondUserId),
+                Instant.now().minusSeconds(120)
+        ));
+        jpaFollowRepository.save(new FollowEntity(
+                new FollowEntityId(firstUserId, secondUserId),
+                FollowStatus.BLOCKED,
+                Instant.now().minusSeconds(300),
+                Instant.now().minusSeconds(60)
+        ));
+        jpaFollowRepository.save(new FollowEntity(
+                new FollowEntityId(secondUserId, firstUserId),
+                FollowStatus.BLOCKED,
+                Instant.now().minusSeconds(300),
+                Instant.now().minusSeconds(60)
         ));
     }
 

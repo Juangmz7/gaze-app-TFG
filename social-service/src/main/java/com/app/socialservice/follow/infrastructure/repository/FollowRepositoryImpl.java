@@ -78,6 +78,14 @@ public class FollowRepositoryImpl implements FollowRepository {
         return rows > 0;
     }
 
+    @Override
+    public boolean markBidirectionalRelationshipsAsRemoved(UUID firstUserId, UUID secondUserId) {
+        validateUserIds(firstUserId, secondUserId);
+
+        int rows = jpaFollowRepository.markBidirectionalAsRemoved(firstUserId, secondUserId);
+        return rows > 0;
+    }
+
     private Follow toDomain(FollowEntity entity) {
         return new Follow(
                 new UserId(entity.getId().getFollowerId()),
