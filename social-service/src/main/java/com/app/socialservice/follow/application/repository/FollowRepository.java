@@ -9,7 +9,7 @@ public interface FollowRepository {
     Optional<Follow> findActiveByUsers(UUID followerUserId, UUID followedUserId);
     Optional<Follow> findRemovedByUsers(UUID followerUserId, UUID followedUserId);
     boolean existsBlockedByUsers(UUID followerUserId, UUID followedUserId);
-    Optional<Follow> insertIfAbsent(Follow follow);
-    Follow reactivate(UUID followerUserId, UUID followedUserId);
-    void markBidirectionalRelationshipsAsBlocked(UUID firstUserId, UUID secondUserId);
+    int insertIfAbsent(Follow follow);
+    int reactivate(UUID followerUserId, UUID followedUserId);
+    int markBidirectionalRelationshipsAsBlocked(UUID firstUserId, UUID secondUserId);
 }

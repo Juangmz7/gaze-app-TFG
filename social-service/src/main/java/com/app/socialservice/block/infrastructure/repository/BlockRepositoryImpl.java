@@ -30,22 +30,16 @@ public class BlockRepositoryImpl implements BlockRepository {
     }
 
     @Override
-    public Optional<Block> insertIfAbsent(Block block) {
+    public int insertIfAbsent(Block block) {
         if (block == null) {
             throw new IllegalArgumentException("block must not be null");
         }
 
-        var insertedRows = jpaBlockRepository.insertIfAbsent(
+        return jpaBlockRepository.insertIfAbsent(
                 block.getBlockerId().value(),
                 block.getBlockedId().value(),
                 block.getCreatedAt()
         );
-
-        if (insertedRows == 0) {
-            return Optional.empty();
-        }
-
-        return Optional.of(block);
     }
 
     private Block toDomain(BlockEntity entity) {

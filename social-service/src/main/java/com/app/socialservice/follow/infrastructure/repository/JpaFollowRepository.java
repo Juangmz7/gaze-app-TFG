@@ -29,4 +29,26 @@ public interface JpaFollowRepository extends JpaRepository<FollowEntity, FollowE
             Instant createdAt,
             Instant updatedAt
     );
+
+    @Modifying
+    @Query(
+            value = """
+                    UPDATE follows SET status = 'ACTIVE', updated_at = NOW()
+                    WHERE follower_id = :followerId AND followed_id = :followedId AND status = 'REMOVED'
+                    """,
+            nativeQuery = true
+    )
+    int reactivateIfRemoved(UUID followerId, UUID followedId);
+
+    @Modifying
+    @Query(
+            value = """
+                    UPDATE follows SET status = 'BLOCKED', updated_at = NOW()
+                    WHERE ((follower_id = :userId1 AND followed_id = :userId2)
+                    OR (follower_id = :userId2 AND followed_id = :userId1))
+                    AND status = 'ACTIVE'
+                    """,
+            nativeQuery = true
+    )
+    int markBidirectionalAsBlocked(UUID userId1, UUID userId2);
 }

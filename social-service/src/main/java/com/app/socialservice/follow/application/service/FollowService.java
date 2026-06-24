@@ -57,12 +57,15 @@ public class FollowService {
         }
 
         var attemptedFollow = newFollow(command);
-        var insertedFollow = followRepository.insertIfAbsent(attemptedFollow);
-        if (insertedFollow.isEmpty()) {
+        var insertedRows = followRepository.insertIfAbsent(attemptedFollow);
+        if (insertedRows == 0) {
             return handleExistingFollow(command, attemptedFollow);
         }
 
-        return publishCreatedFollow(command, insertedFollow.get());
+        var savedFollow = followRepository.findActiveByUsers(command.followerUserId(), command.followedUserId())
+                .orElse(attemptedFollow);
+
+        return publishCreatedFollow(command, savedFollow);
     }
 
     private void validateCommandInput(FollowUserCommand command) {
@@ -97,8 +100,14 @@ public class FollowService {
 
         var removedFollow = followRepository.findRemovedByUsers(command.followerUserId(), command.followedUserId());
         if (removedFollow.isPresent()) {
-            var reactivatedFollow = followRepository.reactivate(command.followerUserId(), command.followedUserId());
-            return publishCreatedFollow(command, reactivatedFollow);
+            var affectedRows = followRepository.reactivate(command.followerUserId(), command.followedUserId());
+            if (affectedRows == 1) {
+                return publishCreatedFollow(command, removedFollow.get());
+            }
+            log.warn("Reactivation had no effect for follower {} and followed {} (affectedRows={}). " +
+                            "Possible concurrent status change.",
+                    command.followerUserId(), command.followedUserId(), affectedRows);
+            return toResponse(attemptedFollow);
         }
 
         var activeFollow = followRepository.findActiveByUsers(command.followerUserId(), command.followedUserId());

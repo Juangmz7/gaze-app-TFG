@@ -47,30 +47,33 @@ public class BlockService {
         validateCommandInput(command);
 
         var block = newBlock(command);
-        var savedBlock = blockRepository.insertIfAbsent(block);
-        if (savedBlock.isEmpty()) {
+        var insertedRows = blockRepository.insertIfAbsent(block);
+        if (insertedRows == 0) {
             log.info("Block already exists for blocker {} and blocked {}",
                     command.blockerUserId(), command.blockedUserId());
             return toResponse(blockRepository.findByUsers(command.blockerUserId(), command.blockedUserId())
                     .orElse(block));
         }
 
+        var savedBlock = blockRepository.findByUsers(command.blockerUserId(), command.blockedUserId())
+                .orElse(block);
+
         followRepository.markBidirectionalRelationshipsAsBlocked(command.blockerUserId(), command.blockedUserId());
 
         var occurredOn = Instant.now();
-        var outboxEvent = createAndSaveOutboxEvent(savedBlock.get(), occurredOn);
+        var outboxEvent = createAndSaveOutboxEvent(savedBlock, occurredOn);
 
         log.info("Block created for blocker {} and blocked {} with outbox id {}",
                 command.blockerUserId(), command.blockedUserId(), outboxEvent.getId());
 
         eventPublisher.publishEvent(new UserBlockedDomainEvent(
                 outboxEvent.getId(),
-                savedBlock.get().getBlockerId().value(),
-                savedBlock.get().getBlockedId().value(),
+                savedBlock.getBlockerId().value(),
+                savedBlock.getBlockedId().value(),
                 occurredOn
         ));
 
-        return toResponse(savedBlock.get());
+        return toResponse(savedBlock);
     }
 
     private void validateCommandInput(BlockUserCommand command) {
