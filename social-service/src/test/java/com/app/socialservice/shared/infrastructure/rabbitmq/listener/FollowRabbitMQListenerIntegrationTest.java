@@ -20,6 +20,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.neo4j.core.Neo4jClient;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.dao.InvalidDataAccessApiUsageException;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.ActiveProfiles;
@@ -32,6 +33,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Import(TestcontainersConfiguration.class)
 @SpringBootTest
 class FollowRabbitMQListenerIntegrationTest {
+
+    private static final String USER_STATS_KEY_PATTERN = "user:stats:%s:%s";
 
     @MockitoBean
     private JwtDecoder jwtDecoder;
@@ -54,6 +57,9 @@ class FollowRabbitMQListenerIntegrationTest {
     @jakarta.annotation.Resource
     private ProcessedEventsRepository processedEventsRepository;
 
+    @jakarta.annotation.Resource
+    private StringRedisTemplate stringRedisTemplate;
+
     @BeforeEach
     void setUp() {
         processedEventsRepository.deleteAll();
@@ -62,6 +68,7 @@ class FollowRabbitMQListenerIntegrationTest {
         neo4jClient.query("MATCH (n) DELETE n").run();
         userNodeRepository.deleteAll();
         jpaUserRepository.deleteAll();
+        flushRedis();
     }
 
     @Test
@@ -91,6 +98,8 @@ class FollowRabbitMQListenerIntegrationTest {
 
         assertThat(processedEventsRepository.findById(event.id())).isPresent();
         assertThat(countFollowRelationships(followerId, followedId)).isEqualTo(1L);
+        assertThat(readCounter(followerId, "following")).isEqualTo(1L);
+        assertThat(readCounter(followedId, "followers")).isEqualTo(1L);
     }
 
     @Test
@@ -121,6 +130,8 @@ class FollowRabbitMQListenerIntegrationTest {
 
         assertThat(processedEventsRepository.findById(event.id())).isPresent();
         assertThat(countFollowRelationships(followerId, followedId)).isEqualTo(1L);
+        assertThat(readCounter(followerId, "following")).isEqualTo(1L);
+        assertThat(readCounter(followedId, "followers")).isEqualTo(1L);
     }
 
     @Test
@@ -158,6 +169,8 @@ class FollowRabbitMQListenerIntegrationTest {
 
         assertThat(processedEventsRepository.findById(event.id())).isPresent();
         assertThat(countFollowRelationships(followerId, followedId)).isEqualTo(1L);
+        assertThat(readCounter(followerId, "following")).isEqualTo(1L);
+        assertThat(readCounter(followedId, "followers")).isEqualTo(1L);
     }
 
     @Test
@@ -174,6 +187,8 @@ class FollowRabbitMQListenerIntegrationTest {
                 Instant.now().minusSeconds(60),
                 Instant.now()
         ));
+        stringRedisTemplate.opsForValue().set(buildCounterKey(followerId, "following"), "1");
+        stringRedisTemplate.opsForValue().set(buildCounterKey(followedId, "followers"), "1");
         neo4jClient.query("""
                 MATCH (follower:User {id: $followerId})
                 MATCH (followed:User {id: $followedId})
@@ -195,6 +210,8 @@ class FollowRabbitMQListenerIntegrationTest {
 
         assertThat(processedEventsRepository.findById(event.id())).isPresent();
         assertThat(countFollowRelationships(followerId, followedId)).isZero();
+        assertThat(readCounter(followerId, "following")).isZero();
+        assertThat(readCounter(followedId, "followers")).isZero();
     }
 
     private void seedAcceptedUser(UUID userId, String username, String email) {
@@ -222,5 +239,26 @@ class FollowRabbitMQListenerIntegrationTest {
         }
 
         return ((Number) result.get().get("relationships")).longValue();
+    }
+
+    private void flushRedis() {
+        var connection = stringRedisTemplate.getConnectionFactory().getConnection();
+        try {
+            connection.serverCommands().flushDb();
+        } finally {
+            connection.close();
+        }
+    }
+
+    private long readCounter(UUID userId, String counterName) {
+        var rawValue = stringRedisTemplate.opsForValue().get(buildCounterKey(userId, counterName));
+        if (rawValue == null) {
+            return 0L;
+        }
+        return Long.parseLong(rawValue);
+    }
+
+    private String buildCounterKey(UUID userId, String counterName) {
+        return String.format(USER_STATS_KEY_PATTERN, userId, counterName);
     }
 }

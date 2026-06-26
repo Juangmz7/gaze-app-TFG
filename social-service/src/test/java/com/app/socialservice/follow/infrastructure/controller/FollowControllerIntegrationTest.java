@@ -18,9 +18,7 @@ import com.app.socialservice.shared.infrastructure.repository.OutboxEventReposit
 import com.app.socialservice.user.domain.enums.UserAccountStatus;
 import com.app.socialservice.user.infrastructure.entity.UserEntity;
 import com.app.socialservice.user.infrastructure.entity.UserNode;
-import com.app.socialservice.user.infrastructure.entity.UserStatsEntity;
 import com.app.socialservice.user.infrastructure.repository.JpaUserRepository;
-import com.app.socialservice.user.infrastructure.repository.JpaUserStatsRepository;
 import com.app.socialservice.user.infrastructure.repository.UserNodeRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -35,6 +33,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.neo4j.core.Neo4jClient;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.MediaType;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.ActiveProfiles;
@@ -54,6 +53,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 class FollowControllerIntegrationTest {
 
+    private static final String USER_STATS_KEY_PATTERN = "user:stats:%s:%s";
+
     @Autowired
     private MockMvc mockMvc;
 
@@ -70,9 +71,6 @@ class FollowControllerIntegrationTest {
     private JpaBlockRepository jpaBlockRepository;
 
     @Autowired
-    private JpaUserStatsRepository jpaUserStatsRepository;
-
-    @Autowired
     private OutboxEventRepository outboxEventRepository;
 
     @Autowired
@@ -87,6 +85,9 @@ class FollowControllerIntegrationTest {
     @Autowired
     private RabbitMQProperties rabbitMQProperties;
 
+    @Autowired
+    private StringRedisTemplate stringRedisTemplate;
+
     @MockitoBean
     private JwtDecoder jwtDecoder;
 
@@ -95,11 +96,11 @@ class FollowControllerIntegrationTest {
         outboxEventRepository.deleteAll();
         jpaFollowRepository.deleteAll();
         jpaBlockRepository.deleteAll();
-        jpaUserStatsRepository.deleteAll();
         jpaUserRepository.deleteAll();
 
         neo4jClient.query("MATCH ()-[r]->() DELETE r").run();
         neo4jClient.query("MATCH (n) DELETE n").run();
+        flushRedis();
     }
 
     @Test
@@ -129,12 +130,10 @@ class FollowControllerIntegrationTest {
                 .isEqualTo("UserFollowedEvent");
         waitForFollowRelationshipCreation(followerId, followedId);
         assertThat(countFollowRelationships(followerId, followedId)).isEqualTo(1L);
-        assertThat(jpaUserStatsRepository.findById(followerId)).get()
-                .extracting(UserStatsEntity::getFollowingCount, UserStatsEntity::getFollowerCount)
-                .containsExactly(1L, 0L);
-        assertThat(jpaUserStatsRepository.findById(followedId)).get()
-                .extracting(UserStatsEntity::getFollowingCount, UserStatsEntity::getFollowerCount)
-                .containsExactly(0L, 1L);
+        waitForCounterValue(followerId, "following", 1L);
+        waitForCounterValue(followedId, "followers", 1L);
+        assertThat(readCounter(followerId, "followers")).isZero();
+        assertThat(readCounter(followedId, "following")).isZero();
     }
 
     @Test
@@ -165,12 +164,8 @@ class FollowControllerIntegrationTest {
         assertThat(outboxEventRepository.count()).isEqualTo(1);
         waitForFollowRelationshipCreation(followerId, followedId);
         assertThat(countFollowRelationships(followerId, followedId)).isEqualTo(1L);
-        assertThat(jpaUserStatsRepository.findById(followerId)).get()
-                .extracting(UserStatsEntity::getFollowingCount, UserStatsEntity::getFollowerCount)
-                .containsExactly(1L, 0L);
-        assertThat(jpaUserStatsRepository.findById(followedId)).get()
-                .extracting(UserStatsEntity::getFollowingCount, UserStatsEntity::getFollowerCount)
-                .containsExactly(0L, 1L);
+        waitForCounterValue(followerId, "following", 1L);
+        waitForCounterValue(followedId, "followers", 1L);
     }
 
     @Test
@@ -199,12 +194,8 @@ class FollowControllerIntegrationTest {
         assertThat(outboxEventRepository.count()).isEqualTo(1);
         waitForFollowRelationshipCreation(followerId, followedId);
         assertThat(countFollowRelationships(followerId, followedId)).isEqualTo(1L);
-        assertThat(jpaUserStatsRepository.findById(followerId)).get()
-                .extracting(UserStatsEntity::getFollowingCount)
-                .isEqualTo(1L);
-        assertThat(jpaUserStatsRepository.findById(followedId)).get()
-                .extracting(UserStatsEntity::getFollowerCount)
-                .isEqualTo(1L);
+        waitForCounterValue(followerId, "following", 1L);
+        waitForCounterValue(followedId, "followers", 1L);
     }
 
     @Test
@@ -229,7 +220,8 @@ class FollowControllerIntegrationTest {
                 .isEqualTo(FollowStatus.BLOCKED);
         assertThat(outboxEventRepository.count()).isZero();
         assertThat(countFollowRelationships(followerId, followedId)).isZero();
-        assertThat(jpaUserStatsRepository.count()).isZero();
+        assertThat(readCounter(followerId, "following")).isZero();
+        assertThat(readCounter(followedId, "followers")).isZero();
     }
 
     @Test
@@ -252,7 +244,8 @@ class FollowControllerIntegrationTest {
         assertThat(jpaFollowRepository.count()).isZero();
         assertThat(outboxEventRepository.count()).isZero();
         assertThat(countFollowRelationships(followerId, followedId)).isZero();
-        assertThat(jpaUserStatsRepository.count()).isZero();
+        assertThat(readCounter(followerId, "following")).isZero();
+        assertThat(readCounter(followedId, "followers")).isZero();
     }
 
     @Test
@@ -269,7 +262,7 @@ class FollowControllerIntegrationTest {
                 .andExpect(status().isBadRequest());
 
         assertThat(jpaFollowRepository.count()).isZero();
-        assertThat(jpaUserStatsRepository.count()).isZero();
+        assertThat(readCounter(userId, "following")).isZero();
     }
 
     @Test
@@ -287,7 +280,7 @@ class FollowControllerIntegrationTest {
                 .andExpect(status().isNotFound());
 
         assertThat(jpaFollowRepository.count()).isZero();
-        assertThat(jpaUserStatsRepository.count()).isZero();
+        assertThat(readCounter(followerId, "following")).isZero();
         assertThat(outboxEventRepository.count()).isZero();
     }
 
@@ -359,12 +352,8 @@ class FollowControllerIntegrationTest {
                 .isEqualTo("UserUnfollowedEvent");
         waitForFollowRelationshipDeletion(followerId, followedId);
         assertThat(countFollowRelationships(followerId, followedId)).isZero();
-        assertThat(jpaUserStatsRepository.findById(followerId)).get()
-                .extracting(UserStatsEntity::getFollowingCount, UserStatsEntity::getFollowerCount)
-                .containsExactly(0L, 0L);
-        assertThat(jpaUserStatsRepository.findById(followedId)).get()
-                .extracting(UserStatsEntity::getFollowingCount, UserStatsEntity::getFollowerCount)
-                .containsExactly(0L, 0L);
+        waitForCounterValue(followerId, "following", 0L);
+        waitForCounterValue(followedId, "followers", 0L);
     }
 
     @Test
@@ -532,14 +521,8 @@ class FollowControllerIntegrationTest {
     }
 
     private void seedUserStats(UUID userId, long followingCount, long followerCount) {
-        jpaUserStatsRepository.save(UserStatsEntity.builder()
-                .userId(userId)
-                .followingCount(followingCount)
-                .followerCount(followerCount)
-                .version(0L)
-                .createdAt(Instant.now().minusSeconds(300))
-                .updatedAt(Instant.now().minusSeconds(60))
-                .build());
+        stringRedisTemplate.opsForValue().set(buildCounterKey(userId, "following"), String.valueOf(followingCount));
+        stringRedisTemplate.opsForValue().set(buildCounterKey(userId, "followers"), String.valueOf(followerCount));
     }
 
     private long countFollowRelationships(UUID followerId, UUID followedId) {
@@ -590,5 +573,35 @@ class FollowControllerIntegrationTest {
             }
             Thread.sleep(200);
         }
+    }
+
+    private void waitForCounterValue(UUID userId, String counterName, long expectedValue) throws InterruptedException {
+        for (int attempt = 0; attempt < 20; attempt++) {
+            if (readCounter(userId, counterName) == expectedValue) {
+                return;
+            }
+            Thread.sleep(200);
+        }
+    }
+
+    private long readCounter(UUID userId, String counterName) {
+        var rawValue = stringRedisTemplate.opsForValue().get(buildCounterKey(userId, counterName));
+        if (rawValue == null) {
+            return 0L;
+        }
+        return Long.parseLong(rawValue);
+    }
+
+    private void flushRedis() {
+        var connection = stringRedisTemplate.getConnectionFactory().getConnection();
+        try {
+            connection.serverCommands().flushDb();
+        } finally {
+            connection.close();
+        }
+    }
+
+    private String buildCounterKey(UUID userId, String counterName) {
+        return String.format(USER_STATS_KEY_PATTERN, userId, counterName);
     }
 }
