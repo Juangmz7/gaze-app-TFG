@@ -22,7 +22,6 @@ import com.app.socialservice.shared.infrastructure.enums.EventStatus;
 import com.app.socialservice.shared.infrastructure.mapper.JsonMapper;
 import com.app.socialservice.shared.infrastructure.repository.OutboxEventRepository;
 import com.app.socialservice.user.application.repository.UserRepository;
-import com.app.socialservice.user.application.repository.UserStatsRepository;
 import com.app.socialservice.user.domain.model.valueobj.UserId;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -38,7 +37,6 @@ public class FollowService {
     private final BlockRepository blockRepository;
     private final FollowRepository followRepository;
     private final UserRepository userRepository;
-    private final UserStatsRepository userStatsRepository;
     private final ApplicationEventPublisher eventPublisher;
     private final OutboxEventRepository outboxEventRepository;
     private final FollowEventMapper followEventMapper;
@@ -93,8 +91,6 @@ public class FollowService {
                     command.followerUserId(), command.followedUserId());
             return toResponse(activeFollow.get());
         }
-
-        userStatsRepository.decrementFollowCounters(command.followerUserId(), command.followedUserId());
 
         var occurredOn = java.time.Instant.now();
         var outboxEvent = createAndSaveUnfollowOutboxEvent(activeFollow.get(), occurredOn);
@@ -175,8 +171,6 @@ public class FollowService {
     }
 
     private FollowResponse publishCreatedFollow(FollowUserCommand command, Follow savedFollow) {
-        userStatsRepository.incrementFollowCounters(command.followerUserId(), command.followedUserId());
-
         var occurredOn = java.time.Instant.now();
         var outboxEvent = createAndSaveOutboxEvent(savedFollow, occurredOn);
 

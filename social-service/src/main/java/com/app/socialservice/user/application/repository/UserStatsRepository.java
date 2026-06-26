@@ -3,7 +3,15 @@ package com.app.socialservice.user.application.repository;
 import java.util.UUID;
 
 public interface UserStatsRepository {
-    void incrementFollowCounters(UUID followerUserId, UUID followedUserId);
+    void incrementFollowersCount(UUID userId);
 
-    void decrementFollowCounters(UUID followerUserId, UUID followedUserId);
+    void decrementFollowersCount(UUID userId);
+
+    void incrementFollowingCount(UUID userId);
+
+    void decrementFollowingCount(UUID userId);
+
+    void incrementPostCount(UUID userId);
+
+    void decrementPostCount(UUID userId);
 }

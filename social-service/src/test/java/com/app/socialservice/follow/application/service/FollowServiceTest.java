@@ -22,7 +22,6 @@ import com.app.socialservice.shared.infrastructure.enums.EventStatus;
 import com.app.socialservice.shared.infrastructure.mapper.JsonMapper;
 import com.app.socialservice.shared.infrastructure.repository.OutboxEventRepository;
 import com.app.socialservice.user.application.repository.UserRepository;
-import com.app.socialservice.user.application.repository.UserStatsRepository;
 import com.app.socialservice.user.domain.model.User;
 import com.app.socialservice.user.domain.model.valueobj.Email;
 import com.app.socialservice.user.domain.model.valueobj.UserId;
@@ -56,9 +55,6 @@ class FollowServiceTest {
 
     @Mock
     private UserRepository userRepository;
-
-    @Mock
-    private UserStatsRepository userStatsRepository;
 
     @Mock
     private ApplicationEventPublisher eventPublisher;
@@ -115,9 +111,8 @@ class FollowServiceTest {
         assertThat(domainEventCaptor.getValue().followerUserId()).isEqualTo(followerId);
         assertThat(domainEventCaptor.getValue().followedUserId()).isEqualTo(followedId);
 
-        InOrder inOrder = inOrder(followRepository, userStatsRepository, outboxEventRepository, eventPublisher);
+        InOrder inOrder = inOrder(followRepository, outboxEventRepository, eventPublisher);
         inOrder.verify(followRepository).insertIfAbsent(any(Follow.class));
-        inOrder.verify(userStatsRepository).incrementFollowCounters(followerId, followedId);
         inOrder.verify(outboxEventRepository).save(any(OutboxEvent.class));
         inOrder.verify(eventPublisher).publishEvent(any(UserFollowedDomainEvent.class));
     }
@@ -141,7 +136,6 @@ class FollowServiceTest {
         assertThat(response.followerId()).isEqualTo(followerId);
         assertThat(response.followedId()).isEqualTo(followedId);
         verify(followRepository, never()).reactivate(any(), any());
-        verify(userStatsRepository, never()).incrementFollowCounters(any(), any());
         verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
         verify(eventPublisher, never()).publishEvent(any());
     }
@@ -176,7 +170,6 @@ class FollowServiceTest {
 
         assertThat(response.createdAt()).isEqualTo(existingRemovedFollow.getCreatedAt());
         verify(followRepository).reactivate(followerId, followedId);
-        verify(userStatsRepository).incrementFollowCounters(followerId, followedId);
         verify(eventPublisher).publishEvent(any(UserFollowedDomainEvent.class));
     }
 
@@ -212,7 +205,6 @@ class FollowServiceTest {
         assertThat(outboxCaptor.getValue().getStatus()).isEqualTo(EventStatus.PENDING);
         assertThat(outboxCaptor.getValue().getEventType()).isEqualTo(UserUnfollowedEvent.class.getSimpleName());
 
-        verify(userStatsRepository).decrementFollowCounters(followerId, followedId);
         verify(eventPublisher).publishEvent(any(com.app.socialservice.follow.domain.events.UserUnfollowedDomainEvent.class));
     }
 
@@ -231,7 +223,6 @@ class FollowServiceTest {
         assertThat(response.followerId()).isEqualTo(followerId);
         assertThat(response.followedId()).isEqualTo(followedId);
         verify(followRepository, never()).markAsRemoved(any(), any());
-        verify(userStatsRepository, never()).decrementFollowCounters(any(), any());
         verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
         verify(eventPublisher, never()).publishEvent(any());
     }
@@ -245,7 +236,7 @@ class FollowServiceTest {
                 .isInstanceOf(SelfUnfollowNotAllowedException.class)
                 .hasMessage("A user cannot unfollow themselves");
 
-        verifyNoInteractions(followRepository, userRepository, userStatsRepository, outboxEventRepository,
+        verifyNoInteractions(followRepository, userRepository, outboxEventRepository,
                 followEventMapper, jsonMapper, eventPublisher);
     }
 
@@ -262,7 +253,7 @@ class FollowServiceTest {
                 .isInstanceOf(UserNotFoundException.class)
                 .hasMessage("User not found: " + followedId);
 
-        verifyNoInteractions(followRepository, userStatsRepository, outboxEventRepository, followEventMapper,
+        verifyNoInteractions(followRepository, outboxEventRepository, followEventMapper,
                 jsonMapper, eventPublisher);
     }
 
@@ -275,7 +266,7 @@ class FollowServiceTest {
                 .isInstanceOf(SelfFollowNotAllowedException.class)
                 .hasMessage("A user cannot follow themselves");
 
-        verifyNoInteractions(followRepository, userRepository, userStatsRepository, outboxEventRepository,
+        verifyNoInteractions(followRepository, userRepository, outboxEventRepository,
                 followEventMapper, jsonMapper, eventPublisher);
     }
 
@@ -292,7 +283,7 @@ class FollowServiceTest {
                 .isInstanceOf(UserNotFoundException.class)
                 .hasMessage("User not found: " + followedId);
 
-        verifyNoInteractions(followRepository, userStatsRepository, outboxEventRepository, followEventMapper,
+        verifyNoInteractions(followRepository, outboxEventRepository, followEventMapper,
                 jsonMapper, eventPublisher);
     }
 
@@ -312,7 +303,6 @@ class FollowServiceTest {
 
         verify(followRepository, never()).insertIfAbsent(any(Follow.class));
         verify(followRepository, never()).findRemovedByUsers(any(), any());
-        verify(userStatsRepository, never()).incrementFollowCounters(any(), any());
         verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
         verify(eventPublisher, never()).publishEvent(any());
     }
@@ -336,7 +326,6 @@ class FollowServiceTest {
 
         assertThat(response.createdAt()).isEqualTo(existingFollow.getCreatedAt());
         verify(followRepository).insertIfAbsent(any(Follow.class));
-        verify(userStatsRepository, never()).incrementFollowCounters(any(), any());
         verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
         verify(eventPublisher, never()).publishEvent(any());
     }
@@ -347,7 +336,7 @@ class FollowServiceTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("command must not be null");
 
-        verifyNoInteractions(followRepository, userRepository, userStatsRepository, outboxEventRepository,
+        verifyNoInteractions(followRepository, userRepository, outboxEventRepository,
                 followEventMapper, jsonMapper, eventPublisher, blockRepository);
     }
 
@@ -357,7 +346,7 @@ class FollowServiceTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("command must not be null");
 
-        verifyNoInteractions(followRepository, userRepository, userStatsRepository, outboxEventRepository,
+        verifyNoInteractions(followRepository, userRepository, outboxEventRepository,
                 followEventMapper, jsonMapper, eventPublisher, blockRepository);
     }
 
@@ -376,7 +365,6 @@ class FollowServiceTest {
         assertThat(response.followerId()).isEqualTo(followerId);
         assertThat(response.followedId()).isEqualTo(followedId);
         verify(followRepository, never()).markAsRemoved(any(), any());
-        verify(userStatsRepository, never()).decrementFollowCounters(any(), any());
         verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
         verify(eventPublisher, never()).publishEvent(any());
     }
@@ -398,7 +386,6 @@ class FollowServiceTest {
         assertThat(response.followerId()).isEqualTo(followerId);
         assertThat(response.followedId()).isEqualTo(followedId);
         assertThat(response.createdAt()).isEqualTo(existingFollow.getCreatedAt());
-        verify(userStatsRepository, never()).decrementFollowCounters(any(), any());
         verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
         verify(eventPublisher, never()).publishEvent(any());
     }
@@ -415,7 +402,7 @@ class FollowServiceTest {
                 .isInstanceOf(UserNotFoundException.class)
                 .hasMessage("User not found: " + followerId);
 
-        verifyNoInteractions(followRepository, userStatsRepository, outboxEventRepository, followEventMapper,
+        verifyNoInteractions(followRepository, outboxEventRepository, followEventMapper,
                 jsonMapper, eventPublisher);
     }
 

@@ -6,6 +6,8 @@ import java.util.UUID;
 import com.app.socialservice.block.infrastructure.events.UserBlockedEvent;
 import com.app.socialservice.follow.infrastructure.events.UserFollowedEvent;
 import com.app.socialservice.follow.infrastructure.events.UserUnfollowedEvent;
+import com.app.socialservice.post.infrastructure.events.PostCreatedEvent;
+import com.app.socialservice.post.infrastructure.events.PostDeletedEvent;
 import com.app.socialservice.shared.infrastructure.entity.ProcessedEvent;
 import com.app.socialservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 import com.app.socialservice.shared.infrastructure.repository.ProcessedEventsRepository;
@@ -108,6 +110,55 @@ abstract class AbstractRabbitMQListenerSupport {
         }
         if (followerUserId.equals(followedUserId)) {
             throw new IllegalArgumentException("event follower and followed users must be different");
+        }
+    }
+
+    protected final void validatePostCreatedEvent(PostCreatedEvent event) {
+        validatePostEventEnvelope(
+                event,
+                event != null ? event.id() : null,
+                event != null ? event.correlationId() : null,
+                event != null ? event.occurredAt() : null,
+                event != null ? event.postId() : null,
+                event != null ? event.userId() : null
+        );
+    }
+
+    protected final void validatePostDeletedEvent(PostDeletedEvent event) {
+        validatePostEventEnvelope(
+                event,
+                event != null ? event.id() : null,
+                event != null ? event.correlationId() : null,
+                event != null ? event.occurredAt() : null,
+                event != null ? event.postId() : null,
+                event != null ? event.userId() : null
+        );
+    }
+
+    private void validatePostEventEnvelope(
+            Object event,
+            UUID eventId,
+            UUID correlationId,
+            java.time.Instant occurredAt,
+            UUID postId,
+            UUID userId) {
+        if (event == null) {
+            throw new IllegalArgumentException("event must not be null");
+        }
+        if (eventId == null) {
+            throw new IllegalArgumentException("event.id must not be null");
+        }
+        if (correlationId == null) {
+            throw new IllegalArgumentException("event.correlationId must not be null");
+        }
+        if (occurredAt == null) {
+            throw new IllegalArgumentException("event.occurredAt must not be null");
+        }
+        if (postId == null) {
+            throw new IllegalArgumentException("event.postId must not be null");
+        }
+        if (userId == null) {
+            throw new IllegalArgumentException("event.userId must not be null");
         }
     }
 

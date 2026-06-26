@@ -5,6 +5,7 @@ import com.app.socialservice.follow.infrastructure.events.UserFollowedEvent;
 import com.app.socialservice.follow.infrastructure.events.UserUnfollowedEvent;
 import com.app.socialservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 import com.app.socialservice.shared.infrastructure.repository.ProcessedEventsRepository;
+import com.app.socialservice.user.application.service.UserStatsService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.stereotype.Component;
@@ -14,13 +15,16 @@ import org.springframework.stereotype.Component;
 public class FollowRabbitMQListener extends AbstractRabbitMQListenerSupport {
 
     private final FollowNodeService followNodeService;
+    private final UserStatsService userStatsService;
 
     public FollowRabbitMQListener(
             FollowNodeService followNodeService,
+            UserStatsService userStatsService,
             ProcessedEventsRepository processedEventsRepository,
             RabbitMQProperties rabbitMQProperties) {
         super(processedEventsRepository, rabbitMQProperties);
         this.followNodeService = followNodeService;
+        this.userStatsService = userStatsService;
     }
 
     @RabbitListener(queues = "${rabbitmq.queue.user.follow.created}")
@@ -37,6 +41,10 @@ public class FollowRabbitMQListener extends AbstractRabbitMQListenerSupport {
 
         try {
             followNodeService.createFollowRelationship(
+                    event.followerUserId(),
+                    event.followedUserId()
+            );
+            userStatsService.incrementFollowCounters(
                     event.followerUserId(),
                     event.followedUserId()
             );
@@ -62,6 +70,10 @@ public class FollowRabbitMQListener extends AbstractRabbitMQListenerSupport {
 
         try {
             followNodeService.deleteFollowRelationship(
+                    event.followerUserId(),
+                    event.followedUserId()
+            );
+            userStatsService.decrementFollowCounters(
                     event.followerUserId(),
                     event.followedUserId()
             );

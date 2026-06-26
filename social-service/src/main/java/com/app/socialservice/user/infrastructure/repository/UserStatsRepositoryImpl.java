@@ -4,58 +4,67 @@ import java.util.UUID;
 
 import com.app.socialservice.user.application.repository.UserStatsRepository;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Repository;
+import org.springframework.data.redis.core.StringRedisTemplate;
 
-@Slf4j
 @Repository
 @RequiredArgsConstructor
 public class UserStatsRepositoryImpl implements UserStatsRepository {
 
-    private final JpaUserStatsRepository jpaUserStatsRepository;
+    private static final String FOLLOWERS_COUNTER = "followers";
+    private static final String FOLLOWING_COUNTER = "following";
+    private static final String POST_COUNT_COUNTER = "postCount";
+    private static final String KEY_PATTERN = "user:stats:%s:%s";
+
+    private final StringRedisTemplate stringRedisTemplate;
 
     @Override
-    public void incrementFollowCounters(UUID followerUserId, UUID followedUserId) {
-        if (followerUserId == null) {
-            throw new IllegalArgumentException("followerUserId must not be null");
-        }
-        if (followedUserId == null) {
-            throw new IllegalArgumentException("followedUserId must not be null");
-        }
-
-        jpaUserStatsRepository.ensureExists(followerUserId);
-        jpaUserStatsRepository.ensureExists(followedUserId);
-
-        int followingRows = jpaUserStatsRepository.incrementFollowingCount(followerUserId);
-        if (followingRows == 0) {
-            log.warn("Failed to increment following_count for user {}: no row affected", followerUserId);
-        }
-
-        int followerRows = jpaUserStatsRepository.incrementFollowerCount(followedUserId);
-        if (followerRows == 0) {
-            log.warn("Failed to increment follower_count for user {}: no row affected", followedUserId);
-        }
+    public void incrementFollowersCount(UUID userId) {
+        incrementCounter(userId, FOLLOWERS_COUNTER);
     }
 
     @Override
-    public void decrementFollowCounters(UUID followerUserId, UUID followedUserId) {
-        if (followerUserId == null) {
-            throw new IllegalArgumentException("followerUserId must not be null");
-        }
-        if (followedUserId == null) {
-            throw new IllegalArgumentException("followedUserId must not be null");
-        }
+    public void decrementFollowersCount(UUID userId) {
+        decrementCounter(userId, FOLLOWERS_COUNTER);
+    }
 
-        int followingRows = jpaUserStatsRepository.decrementFollowingCount(followerUserId);
-        if (followingRows == 0) {
-            log.warn("Failed to decrement following_count for user {}: no row affected or already zero",
-                    followerUserId);
-        }
+    @Override
+    public void incrementFollowingCount(UUID userId) {
+        incrementCounter(userId, FOLLOWING_COUNTER);
+    }
 
-        int followerRows = jpaUserStatsRepository.decrementFollowerCount(followedUserId);
-        if (followerRows == 0) {
-            log.warn("Failed to decrement follower_count for user {}: no row affected or already zero",
-                    followedUserId);
+    @Override
+    public void decrementFollowingCount(UUID userId) {
+        decrementCounter(userId, FOLLOWING_COUNTER);
+    }
+
+    @Override
+    public void incrementPostCount(UUID userId) {
+        incrementCounter(userId, POST_COUNT_COUNTER);
+    }
+
+    @Override
+    public void decrementPostCount(UUID userId) {
+        decrementCounter(userId, POST_COUNT_COUNTER);
+    }
+
+    private void incrementCounter(UUID userId, String counterName) {
+        validateUserId(userId);
+        stringRedisTemplate.opsForValue().increment(buildKey(userId, counterName));
+    }
+
+    private void decrementCounter(UUID userId, String counterName) {
+        validateUserId(userId);
+        stringRedisTemplate.opsForValue().decrement(buildKey(userId, counterName));
+    }
+
+    private void validateUserId(UUID userId) {
+        if (userId == null) {
+            throw new IllegalArgumentException("userId must not be null");
         }
+    }
+
+    private String buildKey(UUID userId, String counterName) {
+        return String.format(KEY_PATTERN, userId, counterName);
     }
 }

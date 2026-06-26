@@ -8,11 +8,12 @@ import com.app.socialservice.follow.infrastructure.events.UserFollowedEvent;
 import com.app.socialservice.follow.infrastructure.events.UserUnfollowedEvent;
 import com.app.socialservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 import com.app.socialservice.shared.infrastructure.repository.ProcessedEventsRepository;
+import com.app.socialservice.user.application.service.UserStatsService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -21,6 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -30,6 +32,9 @@ class FollowRabbitMQListenerTest {
 
     @Mock
     private FollowNodeService followNodeService;
+
+    @Mock
+    private UserStatsService userStatsService;
 
     @Mock
     private ProcessedEventsRepository processedEventsRepository;
@@ -62,8 +67,10 @@ class FollowRabbitMQListenerTest {
 
         followRabbitMQListener.onUserFollowed(event);
 
-        verify(followNodeService).createFollowRelationship(followerId, followedId);
-        verify(processedEventsRepository).insertIfAbsent(
+        InOrder inOrder = inOrder(followNodeService, userStatsService, processedEventsRepository);
+        inOrder.verify(followNodeService).createFollowRelationship(followerId, followedId);
+        inOrder.verify(userStatsService).incrementFollowCounters(followerId, followedId);
+        inOrder.verify(processedEventsRepository).insertIfAbsent(
                 event.id(),
                 event.correlationId(),
                 UserFollowedEvent.class.getSimpleName()
@@ -86,6 +93,7 @@ class FollowRabbitMQListenerTest {
                 .hasMessage("event.occurredAt must not be null");
 
         verify(followNodeService, never()).createFollowRelationship(any(), any());
+        verify(userStatsService, never()).incrementFollowCounters(any(), any());
         verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any());
     }
 
@@ -103,6 +111,7 @@ class FollowRabbitMQListenerTest {
         followRabbitMQListener.onUserFollowed(event);
 
         verify(followNodeService, never()).createFollowRelationship(any(), any());
+        verify(userStatsService, never()).incrementFollowCounters(any(), any());
         verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any());
     }
 
@@ -126,6 +135,7 @@ class FollowRabbitMQListenerTest {
                 .isInstanceOf(RuntimeException.class)
                 .hasMessage("neo4j follow sync failed");
 
+        verify(userStatsService, never()).incrementFollowCounters(any(), any());
         verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any());
     }
 
@@ -145,8 +155,10 @@ class FollowRabbitMQListenerTest {
 
         followRabbitMQListener.onUserUnfollowed(event);
 
-        verify(followNodeService).deleteFollowRelationship(followerId, followedId);
-        verify(processedEventsRepository).insertIfAbsent(
+        InOrder inOrder = inOrder(followNodeService, userStatsService, processedEventsRepository);
+        inOrder.verify(followNodeService).deleteFollowRelationship(followerId, followedId);
+        inOrder.verify(userStatsService).decrementFollowCounters(followerId, followedId);
+        inOrder.verify(processedEventsRepository).insertIfAbsent(
                 event.id(),
                 event.correlationId(),
                 UserUnfollowedEvent.class.getSimpleName()
@@ -169,6 +181,7 @@ class FollowRabbitMQListenerTest {
                 .hasMessage("event.occurredAt must not be null");
 
         verify(followNodeService, never()).deleteFollowRelationship(any(), any());
+        verify(userStatsService, never()).decrementFollowCounters(any(), any());
         verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any());
     }
 
@@ -186,6 +199,7 @@ class FollowRabbitMQListenerTest {
         followRabbitMQListener.onUserUnfollowed(event);
 
         verify(followNodeService, never()).deleteFollowRelationship(any(), any());
+        verify(userStatsService, never()).decrementFollowCounters(any(), any());
         verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any());
     }
 }
