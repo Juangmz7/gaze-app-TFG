@@ -13,11 +13,16 @@ rabbitmq:
         deleted: q.social-service.user.follow.deleted
       block:
         created: q.social-service.user.block.created
+    post:
+      created: q.social-service.post.created
+      deleted: q.social-service.post.deleted
   exchange:
     auth:
       events: x.auth.events
     user:
       events: x.user.events
+    post:
+      events: x.post.events
   rk:
     auth:
       user:
@@ -35,3 +40,6 @@ rabbitmq:
       block:
         created: rk.user.block.created
         deleted: rk.user.block.deleted
+    post:
+      created: rk.post.created
+      deleted: rk.post.deleted

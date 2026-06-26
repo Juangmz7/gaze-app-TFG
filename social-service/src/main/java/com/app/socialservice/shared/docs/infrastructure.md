@@ -127,14 +127,17 @@ Each module provides its own `EventPublisher` implementation. The outbox compone
 
 Declarative RabbitMQ topology:
 
-- **Queues**: `auth.register`, `auth.update`, `auth.delete`, `user.register`, `user.deleted`, `user.block.created`
-- **Dead Letter Queues (DLQ)**: Each queue has a `.dlq` counterpart, including `q.social-service.user.block.created.dlq`
-- **Exchanges**: `x.auth.events` (topic), `x.auth.events.dlx` (direct), `x.user.events` (topic), `x.user.events.dlx` (direct)
+- **Queues**: `auth.register`, `auth.update`, `auth.delete`, `user.register`, `user.deleted`, `follow.created`, `follow.deleted`, `user.block.created`, `post.created`, `post.deleted`
+- **Dead Letter Queues (DLQ)**: Each queue has a `.dlq` counterpart, including `q.social-service.follow.deleted.dlq` and `q.social-service.post.created.dlq`
+- **Exchanges**: `x.auth.events` (topic), `x.auth.events.dlx` (direct), `x.user.events` (topic), `x.user.events.dlx` (direct), `x.post.events` (topic), `x.post.events.dlx` (direct)
 - **Bindings**: Routes messages by routing key
 
-The block-created queue is declared from `RabbitMQProperties.queue.user.block.created` and bound to
-`RabbitMQProperties.rk.user.block.created`, so the topology stays aligned with the existing typed configuration
-pattern without requiring extra `application.yaml` changes.
+The follow queues are declared from `RabbitMQProperties.queue.user.follow.created` and
+`RabbitMQProperties.queue.user.follow.deleted`, the block-created queue from
+`RabbitMQProperties.queue.user.block.created`, and the post queues from
+`RabbitMQProperties.queue.post.created` and `RabbitMQProperties.queue.post.deleted`.
+Bindings use the matching typed routing keys from `RabbitMQProperties.rk.*`, so the topology stays aligned with
+the existing configuration-properties pattern instead of hardcoded Java constants.
 
 Also configures:
 - `SimpleRabbitListenerContainerFactory` with stateless retry (max 3 retries, exponential backoff)

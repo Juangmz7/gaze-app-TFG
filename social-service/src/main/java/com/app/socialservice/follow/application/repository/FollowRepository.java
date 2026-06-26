@@ -13,4 +13,5 @@ public interface FollowRepository {
     boolean reactivate(UUID followerUserId, UUID followedUserId);
     boolean markAsRemoved(UUID followerUserId, UUID followedUserId);
     boolean markBidirectionalRelationshipsAsBlocked(UUID firstUserId, UUID secondUserId);
+    boolean markBidirectionalRelationshipsAsRemoved(UUID firstUserId, UUID secondUserId);
 }

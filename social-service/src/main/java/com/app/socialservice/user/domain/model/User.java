@@ -3,6 +3,7 @@ package com.app.socialservice.user.domain.model;
 import com.app.socialservice.user.domain.enums.UserAccountStatus;
 import com.app.socialservice.user.domain.model.valueobj.Email;
 import com.app.socialservice.user.domain.model.valueobj.ProfilePictureUrl;
+import com.app.socialservice.user.domain.model.valueobj.UserBio;
 import com.app.socialservice.user.domain.model.valueobj.UserId;
 import com.app.socialservice.user.domain.model.valueobj.Username;
 import com.app.socialservice.user.domain.exception.InvalidUsernameException;
@@ -16,6 +17,7 @@ public class User {
     private Username username;
     private Email email;
     private ProfilePictureUrl pictureUrl;
+    private UserBio bio;
     private UserAccountStatus accountStatus;
     private Instant createdAt;
     private Instant updatedAt;
@@ -66,6 +68,10 @@ public class User {
         return pictureUrl;
     }
 
+    public UserBio getBio() {
+        return bio;
+    }
+
     public UserAccountStatus getAccountStatus() {
         return accountStatus;
     }
@@ -80,6 +86,10 @@ public class User {
 
     public void setPictureUrl(ProfilePictureUrl pictureUrl) {
         this.pictureUrl = pictureUrl;
+    }
+
+    public void setBio(UserBio bio) {
+        this.bio = bio;
     }
 
     public void setAccountStatus(UserAccountStatus accountStatus) {

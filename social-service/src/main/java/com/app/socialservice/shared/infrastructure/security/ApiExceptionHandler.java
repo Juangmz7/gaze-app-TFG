@@ -1,6 +1,7 @@
 package com.app.socialservice.shared.infrastructure.security;
 
 import com.app.socialservice.block.domain.exception.SelfBlockNotAllowedException;
+import com.app.socialservice.block.domain.exception.SelfUnblockNotAllowedException;
 import com.app.socialservice.block.domain.exception.UserNotFoundException;
 import com.app.socialservice.follow.domain.exception.FollowBlockedException;
 import com.app.socialservice.follow.domain.exception.SelfFollowNotAllowedException;
@@ -51,6 +52,22 @@ public class ApiExceptionHandler {
     @ExceptionHandler(SelfBlockNotAllowedException.class)
     public ResponseEntity<ApiErrorResponse> handleSelfBlockNotAllowedException(
             SelfBlockNotAllowedException exception,
+            HttpServletRequest request) {
+
+        var response = new ApiErrorResponse(
+                Instant.now(),
+                HttpStatus.BAD_REQUEST.value(),
+                HttpStatus.BAD_REQUEST.getReasonPhrase(),
+                exception.getMessage(),
+                request.getRequestURI()
+        );
+
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+    }
+
+    @ExceptionHandler(SelfUnblockNotAllowedException.class)
+    public ResponseEntity<ApiErrorResponse> handleSelfUnblockNotAllowedException(
+            SelfUnblockNotAllowedException exception,
             HttpServletRequest request) {
 
         var response = new ApiErrorResponse(

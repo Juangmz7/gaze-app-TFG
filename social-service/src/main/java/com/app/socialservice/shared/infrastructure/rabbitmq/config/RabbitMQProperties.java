@@ -15,6 +15,7 @@ public class RabbitMQProperties {
     public static class Queues {
         private UserQueues user = new UserQueues();
         private AuthQueues auth = new AuthQueues();
+        private PostQueues post = new PostQueues();
 
         @Data
         public static class UserQueues {
@@ -41,12 +42,19 @@ public class RabbitMQProperties {
             private String update;
             private String delete;
         }
+
+        @Data
+        public static class PostQueues {
+            private String created;
+            private String deleted;
+        }
     }
 
     @Data
     public static class Exchanges {
         private AuthExchange auth = new AuthExchange();
         private UserExchange user = new UserExchange();
+        private PostExchange post = new PostExchange();
 
         @Data
         public static class AuthExchange {
@@ -57,12 +65,18 @@ public class RabbitMQProperties {
         public static class UserExchange {
             private String events;
         }
+
+        @Data
+        public static class PostExchange {
+            private String events;
+        }
     }
 
     @Data
     public static class RoutingKeys {
         private AuthRk auth = new AuthRk();
         private UserRk user = new UserRk();
+        private PostRk post = new PostRk();
 
         @Data
         public static class AuthRk {
@@ -100,6 +114,12 @@ public class RabbitMQProperties {
                 private String created;
                 private String deleted;
             }
+        }
+
+        @Data
+        public static class PostRk {
+            private String created;
+            private String deleted;
         }
     }
 }

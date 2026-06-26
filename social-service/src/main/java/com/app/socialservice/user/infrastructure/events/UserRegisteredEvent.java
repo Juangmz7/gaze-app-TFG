@@ -14,5 +14,6 @@ public record UserRegisteredEvent (
 
         UUID userId,
         String username,
-        String email
+        String email,
+        UserBioEventPayload bio
 ) implements EventMessage {}
