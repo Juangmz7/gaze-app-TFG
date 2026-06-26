@@ -4,12 +4,16 @@ import java.time.Instant;
 import java.util.UUID;
 
 import com.app.socialservice.block.application.commands.BlockUserCommand;
+import com.app.socialservice.block.application.commands.UnblockUserCommand;
 import com.app.socialservice.block.application.dto.BlockResponse;
 import com.app.socialservice.block.domain.exception.SelfBlockNotAllowedException;
+import com.app.socialservice.block.domain.exception.SelfUnblockNotAllowedException;
 import com.app.socialservice.block.domain.exception.UserNotFoundException;
 import com.app.socialservice.block.domain.events.UserBlockedDomainEvent;
+import com.app.socialservice.block.domain.events.UserUnblockedDomainEvent;
 import com.app.socialservice.block.domain.model.Block;
 import com.app.socialservice.block.infrastructure.events.UserBlockedEvent;
+import com.app.socialservice.block.infrastructure.events.UserUnblockedEvent;
 import com.app.socialservice.block.infrastructure.mapper.BlockEventMapper;
 import com.app.socialservice.block.application.repository.BlockRepository;
 import com.app.socialservice.follow.application.repository.FollowRepository;
@@ -44,7 +48,7 @@ public class BlockService {
             throw new IllegalArgumentException("command must not be null");
         }
 
-        validateCommandInput(command);
+        validateBlockCommandInput(command);
 
         var block = newBlock(command);
         var inserted = blockRepository.insertIfAbsent(block);
@@ -76,26 +80,78 @@ public class BlockService {
         return toResponse(savedBlock);
     }
 
-    private void validateCommandInput(BlockUserCommand command) {
+    @Transactional
+    public void unblockUser(UnblockUserCommand command) {
+        if (command == null) {
+            throw new IllegalArgumentException("command must not be null");
+        }
+
+        validateUnblockCommandInput(command);
+
+        var block = blockRepository.findByUsers(command.unblockerUserId(), command.unblockedUserId())
+                .orElseGet(() -> newBlock(command.unblockerUserId(), command.unblockedUserId(), Instant.now()));
+
+        var deleted = blockRepository.deleteByUsers(command.unblockerUserId(), command.unblockedUserId());
+        if (!deleted) {
+            log.info("Block does not exist for unblocker {} and unblocked {}",
+                    command.unblockerUserId(), command.unblockedUserId());
+            return;
+        }
+
+        followRepository.markBidirectionalRelationshipsAsRemoved(command.unblockerUserId(), command.unblockedUserId());
+
+        var occurredOn = Instant.now();
+        var outboxEvent = createAndSaveUnblockOutboxEvent(block, occurredOn);
+
+        log.info("Block removed for unblocker {} and unblocked {} with outbox id {}",
+                command.unblockerUserId(), command.unblockedUserId(), outboxEvent.getId());
+
+        eventPublisher.publishEvent(new UserUnblockedDomainEvent(
+                outboxEvent.getId(),
+                block.getBlockerId().value(),
+                block.getBlockedId().value(),
+                occurredOn
+        ));
+    }
+
+    private void validateBlockCommandInput(BlockUserCommand command) {
         if (command.blockerUserId().equals(command.blockedUserId())) {
             throw new SelfBlockNotAllowedException(
                     "A user cannot block themselves"
             );
         }
 
-        var blockedUser = userRepository.findById(command.blockedUserId());
+        assertTargetUserExists(command.blockedUserId());
+    }
+
+    private void validateUnblockCommandInput(UnblockUserCommand command) {
+        if (command.unblockerUserId().equals(command.unblockedUserId())) {
+            throw new SelfUnblockNotAllowedException(
+                    "A user cannot unblock themselves"
+            );
+        }
+
+        assertTargetUserExists(command.unblockedUserId());
+    }
+
+    private void assertTargetUserExists(UUID targetUserId) {
+        var blockedUser = userRepository.findById(targetUserId);
         if (blockedUser.isEmpty()) {
             throw new UserNotFoundException(
-                    "User not found: " + command.blockedUserId()
+                    "User not found: " + targetUserId
             );
         }
     }
 
     private Block newBlock(BlockUserCommand command) {
+        return newBlock(command.blockerUserId(), command.blockedUserId(), Instant.now());
+    }
+
+    private Block newBlock(UUID blockerUserId, UUID blockedUserId, Instant createdAt) {
         return new Block(
-                new UserId(command.blockerUserId()),
-                new UserId(command.blockedUserId()),
-                Instant.now()
+                new UserId(blockerUserId),
+                new UserId(blockedUserId),
+                createdAt
         );
     }
 
@@ -114,6 +170,27 @@ public class BlockService {
                         .correlationId(correlationId)
                         .payload(payload)
                         .eventType(UserBlockedEvent.class.getSimpleName())
+                        .status(EventStatus.PENDING)
+                        .createdAt(occurredOn)
+                        .build()
+        );
+    }
+
+    private OutboxEvent createAndSaveUnblockOutboxEvent(Block block, Instant occurredOn) {
+        var correlationId = UUID.randomUUID();
+        var unblockedEvent = blockEventMapper.toUserUnblockedEvent(
+                UUID.randomUUID(),
+                correlationId,
+                block,
+                occurredOn
+        );
+        var payload = jsonMapper.toJson(unblockedEvent);
+        return outboxEventRepository.save(
+                OutboxEvent.builder()
+                        .id(UUID.randomUUID())
+                        .correlationId(correlationId)
+                        .payload(payload)
+                        .eventType(UserUnblockedEvent.class.getSimpleName())
                         .status(EventStatus.PENDING)
                         .createdAt(occurredOn)
                         .build()

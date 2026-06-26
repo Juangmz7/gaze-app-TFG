@@ -39,6 +39,13 @@ public class BlockRepositoryImpl implements BlockRepository {
         return rows > 0;
     }
 
+    @Override
+    public boolean deleteByUsers(UUID blockerUserId, UUID blockedUserId) {
+        validateUserIds(blockerUserId, blockedUserId);
+        int rows = jpaBlockRepository.deleteByUsers(blockerUserId, blockedUserId);
+        return rows > 0;
+    }
+
     private Block toDomain(BlockEntity entity) {
         return new Block(
                 new UserId(entity.getId().getBlockerId()),

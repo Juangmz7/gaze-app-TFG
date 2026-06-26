@@ -51,4 +51,16 @@ public interface JpaFollowRepository extends JpaRepository<FollowEntity, FollowE
             nativeQuery = true
     )
     int markBidirectionalAsBlocked(UUID userId1, UUID userId2);
+
+    @Modifying
+    @Query(
+            value = """
+                    UPDATE follows SET status = 'REMOVED', updated_at = NOW()
+                    WHERE ((follower_id = :userId1 AND followed_id = :userId2)
+                    OR (follower_id = :userId2 AND followed_id = :userId1))
+                    AND status = 'BLOCKED'
+                    """,
+            nativeQuery = true
+    )
+    int markBidirectionalAsRemoved(UUID userId1, UUID userId2);
 }
