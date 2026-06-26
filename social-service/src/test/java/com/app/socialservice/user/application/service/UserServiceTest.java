@@ -18,8 +18,10 @@ import com.app.socialservice.user.domain.events.UserRegisteredDomainEvent;
 import com.app.socialservice.user.domain.enums.UserAccountStatus;
 import com.app.socialservice.user.domain.model.User;
 import com.app.socialservice.user.domain.model.valueobj.Email;
+import com.app.socialservice.user.domain.model.valueobj.UserBio;
 import com.app.socialservice.user.domain.model.valueobj.UserId;
 import com.app.socialservice.user.domain.model.valueobj.Username;
+import com.app.socialservice.user.infrastructure.events.UserBioEventPayload;
 import com.app.socialservice.user.infrastructure.events.UserDeletedEvent;
 import com.app.socialservice.user.infrastructure.events.UserRegisteredEvent;
 import com.app.socialservice.user.infrastructure.events.UserUpdatedEvent;
@@ -81,6 +83,10 @@ class UserServiceTest {
                 .userId(userId)
                 .username("registered-user")
                 .email("registered@example.com")
+                .bio(UserBioEventPayload.builder()
+                        .description("Registered bio")
+                        .socialMedia(java.util.Map.of("github", "registered-user"))
+                        .build())
                 .build();
 
         when(userRepository.insertIfAbsent(any(User.class))).thenReturn(true);
@@ -148,6 +154,10 @@ class UserServiceTest {
                 .userId(userId)
                 .username("new-name")
                 .email("new@example.com")
+                .bio(UserBioEventPayload.builder()
+                        .description("Updated bio")
+                        .socialMedia(java.util.Map.of("github", "new-name"))
+                        .build())
                 .accountStatus(UserAccountStatus.ACCEPTED.name())
                 .build();
 
@@ -266,6 +276,7 @@ class UserServiceTest {
                 new Email(email)
         );
         user.setAccountStatus(status);
+        user.setBio(new UserBio("Persisted bio", java.util.Map.of("github", username)));
         return user;
     }
 }

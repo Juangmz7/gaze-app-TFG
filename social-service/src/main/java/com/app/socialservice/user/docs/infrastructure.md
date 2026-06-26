@@ -9,9 +9,11 @@ The infrastructure layer provides the concrete implementations and adapters that
 ```
 user/infrastructure/
 ├── entity/
+│   ├── UserBioEmbeddable.java
 │   ├── UserEntity.java
 │   └── UserNode.java
 ├── events/
+│   ├── UserBioEventPayload.java
 │   ├── UserRegisteredEvent.java
 │   └── UserRegisteredFromAuthEvent.java
 ├── mapper/
@@ -31,7 +33,16 @@ user/infrastructure/
 
 #### `UserEntity`
 
-A JPA `@Entity` mapped to the `users` table in PostgreSQL. Mirrors the data structure of the domain `User` model, using native Java types (`UUID`, `String`, `Instant`) and JPA annotations (`@Column`, `@Enumerated`, `@PrePersist`, `@PreUpdate`) for persistence.
+A JPA `@Entity` mapped to the `users` table in PostgreSQL. Mirrors the data structure of the domain `User` model, using native Java types (`UUID`, `String`, `Instant`) and JPA annotations (`@Column`, `@Enumerated`, `@PrePersist`, `@PreUpdate`) for persistence. It embeds `UserBioEmbeddable`, storing `socialMedia` as PostgreSQL `jsonb`.
+
+#### `UserBioEmbeddable`
+
+Embeds optional user profile metadata inside `UserEntity`:
+
+| Field | Type | Annotations | Description |
+|-------|------|-------------|-------------|
+| `description` | `String` | `@Column(name = "description")` | Free-text profile description |
+| `socialMedia` | `Map<String, String>` | `@JdbcTypeCode(SqlTypes.JSON)` + `@Column(columnDefinition = "jsonb")` | Social handles serialized as PostgreSQL `jsonb` |
 
 #### `UserNode`
 
@@ -57,6 +68,7 @@ The outgoing event published to RabbitMQ after a user is registered. Implements 
 | `userId` | `UUID` | Registered user's ID |
 | `username` | `String` | Username |
 | `email` | `String` | Email |
+| `bio` | `UserBioEventPayload` | Optional bio payload mirrored from PostgreSQL |
 
 #### `UserRegisteredFromAuthEvent`
 
@@ -74,7 +86,7 @@ The incoming event from the **auth-service** via Keycloak. Matches the Keycloak 
 
 #### `UserEventMapper`
 
-Maps domain `User` + metadata → `UserRegisteredEvent`. Extracts value object inner values (e.g. `user.id.value`, `user.username.value`).
+Maps domain `User` + metadata → user events. Extracts value object inner values (e.g. `user.id.value`, `user.username.value`) and maps `UserBio` into the nested `UserBioEventPayload`.
 
 #### `UserRegisterCommandMapper`
 

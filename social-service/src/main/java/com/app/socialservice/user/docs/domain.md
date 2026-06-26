@@ -22,6 +22,7 @@ user/domain/
     └── valueobj/
         ├── Email.java
         ├── ProfilePictureUrl.java
+        ├── UserBio.java
         ├── UserId.java
         └── Username.java
 ```
@@ -38,6 +39,7 @@ The main domain entity. It encapsulates user identity and profile data using val
 | `username` | `Username` | No | 3–30 chars, non-blank |
 | `email` | `Email` | No | RFC 5322 simplified regex |
 | `pictureUrl` | `ProfilePictureUrl` | Yes | HTTP/HTTPS URL, optional |
+| `bio` | `UserBio` | Yes | Optional profile description + social links |
 | `accountStatus` | `UserAccountStatus` | No | Defaults to `ACCEPTED` |
 | `createdAt` | `Instant` | No | Set externally |
 | `updatedAt` | `Instant` | Yes | Set on updates |
@@ -52,6 +54,7 @@ All value objects are Java `record`s with **compact constructors** that enforce 
 - **`Username`** — Wraps `String`. Rejects null/blank and enforces length between 3 and 30 characters.
 - **`Email`** — Wraps `String`. Rejects null/blank and validates against a simplified RFC 5322 regex pattern.
 - **`ProfilePictureUrl`** — Wraps `String`. Rejects null/blank and ensures the URL uses `http` or `https` scheme via `URI.create()`.
+- **`UserBio`** — Wraps an optional description and a `Map<String, String>` of social links. Defensive copies keep the value immutable after construction.
 
 ### `UserAccountStatus` (Enum)
 

@@ -414,7 +414,15 @@ class UserRabbitMQListenerTest {
     void shouldDiscardSyncSecondaryDatabaseMessageIfAlreadyProcessedInUserRabbitMqListener() {
         var eventId = UUID.randomUUID();
         var correlationId = UUID.randomUUID();
-        var event = new UserRegisteredEvent(eventId, correlationId, Instant.now(), UUID.randomUUID(), "user", "test@test.com");
+        var event = new UserRegisteredEvent(
+                eventId,
+                correlationId,
+                Instant.now(),
+                UUID.randomUUID(),
+                "user",
+                "test@test.com",
+                null
+        );
 
         when(processedEventsRepository.existsById(eventId)).thenReturn(false);
         when(processedEventsRepository.existsByCorrelationId(correlationId)).thenReturn(true);
@@ -430,7 +438,15 @@ class UserRabbitMQListenerTest {
         var eventId = UUID.randomUUID();
         var correlationId = UUID.randomUUID();
         var userId = UUID.randomUUID();
-        var event = new UserRegisteredEvent(eventId, correlationId, Instant.now(), userId, "user", "test@test.com");
+        var event = new UserRegisteredEvent(
+                eventId,
+                correlationId,
+                Instant.now(),
+                userId,
+                "user",
+                "test@test.com",
+                null
+        );
 
         when(processedEventsRepository.existsById(eventId)).thenReturn(false);
         when(processedEventsRepository.existsByCorrelationId(correlationId)).thenReturn(false);
