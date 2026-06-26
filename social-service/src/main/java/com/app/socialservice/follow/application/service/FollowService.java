@@ -4,14 +4,18 @@ import java.util.UUID;
 
 import com.app.socialservice.block.application.repository.BlockRepository;
 import com.app.socialservice.follow.application.commands.FollowUserCommand;
+import com.app.socialservice.follow.application.commands.UnfollowUserCommand;
 import com.app.socialservice.follow.application.dto.FollowResponse;
 import com.app.socialservice.follow.application.repository.FollowRepository;
 import com.app.socialservice.follow.domain.events.UserFollowedDomainEvent;
+import com.app.socialservice.follow.domain.events.UserUnfollowedDomainEvent;
 import com.app.socialservice.follow.domain.exception.FollowBlockedException;
 import com.app.socialservice.follow.domain.exception.SelfFollowNotAllowedException;
+import com.app.socialservice.follow.domain.exception.SelfUnfollowNotAllowedException;
 import com.app.socialservice.follow.domain.exception.UserNotFoundException;
 import com.app.socialservice.follow.domain.model.Follow;
 import com.app.socialservice.follow.infrastructure.events.UserFollowedEvent;
+import com.app.socialservice.follow.infrastructure.events.UserUnfollowedEvent;
 import com.app.socialservice.follow.infrastructure.mapper.FollowEventMapper;
 import com.app.socialservice.shared.infrastructure.entity.OutboxEvent;
 import com.app.socialservice.shared.infrastructure.enums.EventStatus;
@@ -68,6 +72,46 @@ public class FollowService {
         return publishCreatedFollow(command, savedFollow);
     }
 
+    @Transactional
+    public FollowResponse unfollowUser(UnfollowUserCommand command) {
+        if (command == null) {
+            throw new IllegalArgumentException("command must not be null");
+        }
+
+        validateUnfollowCommandInput(command);
+
+        var activeFollow = followRepository.findActiveByUsers(command.followerUserId(), command.followedUserId());
+        if (activeFollow.isEmpty()) {
+            log.info("No active follow found for follower {} and followed {}. Returning idempotent success.",
+                    command.followerUserId(), command.followedUserId());
+            return toResponse(newFollow(command.followerUserId(), command.followedUserId()));
+        }
+
+        var removed = followRepository.markAsRemoved(command.followerUserId(), command.followedUserId());
+        if (!removed) {
+            log.warn("Mark as removed had no effect for follower {} and followed {}. Possible concurrent status change.",
+                    command.followerUserId(), command.followedUserId());
+            return toResponse(activeFollow.get());
+        }
+
+        userStatsRepository.decrementFollowCounters(command.followerUserId(), command.followedUserId());
+
+        var occurredOn = java.time.Instant.now();
+        var outboxEvent = createAndSaveUnfollowOutboxEvent(activeFollow.get(), occurredOn);
+
+        log.info("Follow removed for follower {} and followed {} with outbox id {}",
+                command.followerUserId(), command.followedUserId(), outboxEvent.getId());
+
+        eventPublisher.publishEvent(new UserUnfollowedDomainEvent(
+                outboxEvent.getId(),
+                activeFollow.get().getFollowerId().value(),
+                activeFollow.get().getFollowedId().value(),
+                occurredOn
+        ));
+
+        return toResponse(activeFollow.get());
+    }
+
     private void validateCommandInput(FollowUserCommand command) {
         if (command.followerUserId().equals(command.followedUserId())) {
             throw new SelfFollowNotAllowedException("A user cannot follow themselves");
@@ -85,6 +129,14 @@ public class FollowService {
         return new Follow(
                 new UserId(command.followerUserId()),
                 new UserId(command.followedUserId()),
+                java.time.Instant.now()
+        );
+    }
+
+    static Follow newFollow(UUID followerUserId, UUID followedUserId) {
+        return new Follow(
+                new UserId(followerUserId),
+                new UserId(followedUserId),
                 java.time.Instant.now()
         );
     }
@@ -141,6 +193,19 @@ public class FollowService {
         return toResponse(savedFollow);
     }
 
+    private void validateUnfollowCommandInput(UnfollowUserCommand command) {
+        if (command.followerUserId().equals(command.followedUserId())) {
+            throw new SelfUnfollowNotAllowedException("A user cannot unfollow themselves");
+        }
+
+        if (userRepository.findById(command.followerUserId()).isEmpty()) {
+            throw new UserNotFoundException("User not found: " + command.followerUserId());
+        }
+        if (userRepository.findById(command.followedUserId()).isEmpty()) {
+            throw new UserNotFoundException("User not found: " + command.followedUserId());
+        }
+    }
+
     private boolean isBlocked(UUID followerUserId, UUID followedUserId) {
         return blockRepository.existsByUsers(followerUserId, followedUserId)
                 || blockRepository.existsByUsers(followedUserId, followerUserId);
@@ -161,6 +226,27 @@ public class FollowService {
                         .correlationId(correlationId)
                         .payload(payload)
                         .eventType(UserFollowedEvent.class.getSimpleName())
+                        .status(EventStatus.PENDING)
+                        .createdAt(occurredOn)
+                        .build()
+        );
+    }
+
+    private OutboxEvent createAndSaveUnfollowOutboxEvent(Follow follow, java.time.Instant occurredOn) {
+        var correlationId = UUID.randomUUID();
+        var unfollowedEvent = followEventMapper.toUserUnfollowedEvent(
+                UUID.randomUUID(),
+                correlationId,
+                follow,
+                occurredOn
+        );
+        var payload = jsonMapper.toJson(unfollowedEvent);
+        return outboxEventRepository.save(
+                OutboxEvent.builder()
+                        .id(UUID.randomUUID())
+                        .correlationId(correlationId)
+                        .payload(payload)
+                        .eventType(UserUnfollowedEvent.class.getSimpleName())
                         .status(EventStatus.PENDING)
                         .createdAt(occurredOn)
                         .build()

@@ -5,7 +5,7 @@ import java.util.UUID;
 
 import com.app.socialservice.follow.application.service.FollowNodeService;
 import com.app.socialservice.follow.infrastructure.events.UserFollowedEvent;
-import com.app.socialservice.shared.infrastructure.entity.ProcessedEvent;
+import com.app.socialservice.follow.infrastructure.events.UserUnfollowedEvent;
 import com.app.socialservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 import com.app.socialservice.shared.infrastructure.repository.ProcessedEventsRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -43,6 +43,7 @@ class FollowRabbitMQListenerTest {
     @BeforeEach
     void setUp() {
         rabbitMQProperties.getQueue().getUser().getFollow().setCreated("q.social-service.user.follow.created");
+        rabbitMQProperties.getQueue().getUser().getFollow().setDeleted("q.social-service.user.follow.deleted");
     }
 
     @Test
@@ -125,6 +126,66 @@ class FollowRabbitMQListenerTest {
                 .isInstanceOf(RuntimeException.class)
                 .hasMessage("neo4j follow sync failed");
 
+        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any());
+    }
+
+    @Test
+    void shouldDelegateUserUnfollowedEventToFollowNodeServiceAndRecordProcessedEvent() {
+        var followerId = UUID.randomUUID();
+        var followedId = UUID.randomUUID();
+        var event = UserUnfollowedEvent.builder()
+                .id(UUID.randomUUID())
+                .correlationId(UUID.randomUUID())
+                .occurredAt(Instant.now())
+                .followerUserId(followerId)
+                .followedUserId(followedId)
+                .build();
+        when(processedEventsRepository.existsById(event.id())).thenReturn(false);
+        when(processedEventsRepository.existsByCorrelationId(event.correlationId())).thenReturn(false);
+
+        followRabbitMQListener.onUserUnfollowed(event);
+
+        verify(followNodeService).deleteFollowRelationship(followerId, followedId);
+        verify(processedEventsRepository).insertIfAbsent(
+                event.id(),
+                event.correlationId(),
+                UserUnfollowedEvent.class.getSimpleName()
+        );
+    }
+
+    @Test
+    void shouldRejectInvalidUserUnfollowedEventPayload() {
+        var duplicatedUserId = UUID.randomUUID();
+        var event = UserUnfollowedEvent.builder()
+                .id(UUID.randomUUID())
+                .correlationId(UUID.randomUUID())
+                .occurredAt(null)
+                .followerUserId(duplicatedUserId)
+                .followedUserId(duplicatedUserId)
+                .build();
+
+        assertThatThrownBy(() -> followRabbitMQListener.onUserUnfollowed(event))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("event.occurredAt must not be null");
+
+        verify(followNodeService, never()).deleteFollowRelationship(any(), any());
+        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any());
+    }
+
+    @Test
+    void shouldSkipFollowNodeDeletionWhenUnfollowEventWasAlreadyProcessed() {
+        var event = UserUnfollowedEvent.builder()
+                .id(UUID.randomUUID())
+                .correlationId(UUID.randomUUID())
+                .occurredAt(Instant.now())
+                .followerUserId(UUID.randomUUID())
+                .followedUserId(UUID.randomUUID())
+                .build();
+        when(processedEventsRepository.existsById(event.id())).thenReturn(true);
+
+        followRabbitMQListener.onUserUnfollowed(event);
+
+        verify(followNodeService, never()).deleteFollowRelationship(any(), any());
         verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any());
     }
 }

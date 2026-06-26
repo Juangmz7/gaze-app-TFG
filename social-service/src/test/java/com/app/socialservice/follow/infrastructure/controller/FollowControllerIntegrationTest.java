@@ -43,6 +43,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -327,6 +328,144 @@ class FollowControllerIntegrationTest {
         assertThat(countFollowRelationships(followerId, followedId)).isEqualTo(1L);
     }
 
+    @Test
+    void deleteApiSocialFollowReturns200WithUnfollowBodyWhenRelationshipIsDeleted() throws Exception {
+        var followerId = UUID.randomUUID();
+        var followedId = UUID.randomUUID();
+
+        seedUser(followerId, "unfollow-follower");
+        seedUser(followedId, "unfollow-followed");
+        seedNode(followerId);
+        seedNode(followedId);
+        seedActiveFollow(followerId, followedId);
+        seedFollowRelationship(followerId, followedId);
+        seedUserStats(followerId, 1L, 0L);
+        seedUserStats(followedId, 0L, 1L);
+
+        mockMvc.perform(delete("/api/social/follow")
+                        .with(jwt().jwt(jwt -> jwt.claim("userId", followerId.toString())))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(followRequest(followedId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.followerId").value(followerId.toString()))
+                .andExpect(jsonPath("$.followedId").value(followedId.toString()))
+                .andExpect(jsonPath("$.createdAt").exists());
+
+        assertThat(jpaFollowRepository.findById(new FollowEntityId(followerId, followedId))).get()
+                .extracting(FollowEntity::getStatus)
+                .isEqualTo(FollowStatus.REMOVED);
+        assertThat(outboxEventRepository.findAll()).singleElement()
+                .extracting(event -> event.getEventType())
+                .isEqualTo("UserUnfollowedEvent");
+        waitForFollowRelationshipDeletion(followerId, followedId);
+        assertThat(countFollowRelationships(followerId, followedId)).isZero();
+        assertThat(jpaUserStatsRepository.findById(followerId)).get()
+                .extracting(UserStatsEntity::getFollowingCount, UserStatsEntity::getFollowerCount)
+                .containsExactly(0L, 0L);
+        assertThat(jpaUserStatsRepository.findById(followedId)).get()
+                .extracting(UserStatsEntity::getFollowingCount, UserStatsEntity::getFollowerCount)
+                .containsExactly(0L, 0L);
+    }
+
+    @Test
+    void deleteApiSocialFollowReturns200WhenCalledOnANonExistingRelationship() throws Exception {
+        var followerId = UUID.randomUUID();
+        var followedId = UUID.randomUUID();
+
+        seedUser(followerId, "missing-unfollow-follower");
+        seedUser(followedId, "missing-unfollow-followed");
+        seedNode(followerId);
+        seedNode(followedId);
+
+        mockMvc.perform(delete("/api/social/follow")
+                        .with(jwt().jwt(jwt -> jwt.claim("userId", followerId.toString())))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(followRequest(followedId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.followerId").value(followerId.toString()))
+                .andExpect(jsonPath("$.followedId").value(followedId.toString()));
+
+        assertThat(jpaFollowRepository.count()).isZero();
+        assertThat(outboxEventRepository.count()).isZero();
+        assertThat(countFollowRelationships(followerId, followedId)).isZero();
+    }
+
+    @Test
+    void deleteApiSocialFollowReturns400WhenFollowerIdEqualsFollowedId() throws Exception {
+        var userId = UUID.randomUUID();
+
+        seedUser(userId, "self-unfollow");
+        seedNode(userId);
+
+        mockMvc.perform(delete("/api/social/follow")
+                        .with(jwt().jwt(jwt -> jwt.claim("userId", userId.toString())))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(followRequest(userId)))
+                .andExpect(status().isBadRequest());
+
+        assertThat(jpaFollowRepository.count()).isZero();
+        assertThat(outboxEventRepository.count()).isZero();
+    }
+
+    @Test
+    void deleteApiSocialFollowReturns404WhenTargetUserDoesNotExist() throws Exception {
+        var followerId = UUID.randomUUID();
+        var missingUserId = UUID.randomUUID();
+
+        seedUser(followerId, "missing-unfollow-target-follower");
+        seedNode(followerId);
+
+        mockMvc.perform(delete("/api/social/follow")
+                        .with(jwt().jwt(jwt -> jwt.claim("userId", followerId.toString())))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(followRequest(missingUserId)))
+                .andExpect(status().isNotFound());
+
+        assertThat(jpaFollowRepository.count()).isZero();
+        assertThat(outboxEventRepository.count()).isZero();
+    }
+
+    @Test
+    void deleteApiSocialFollowPublishesUnfollowMessageToRabbitMqVerifiableViaEmbeddedBroker() throws Exception {
+        var followerId = UUID.randomUUID();
+        var followedId = UUID.randomUUID();
+        var queueName = "q.social-service.test.unfollow." + UUID.randomUUID();
+        var queue = QueueBuilder.nonDurable(queueName).exclusive().autoDelete().build();
+
+        seedUser(followerId, "unfollow-publisher-follower");
+        seedUser(followedId, "unfollow-publisher-followed");
+        seedNode(followerId);
+        seedNode(followedId);
+        seedActiveFollow(followerId, followedId);
+        seedFollowRelationship(followerId, followedId);
+        seedUserStats(followerId, 1L, 0L);
+        seedUserStats(followedId, 0L, 1L);
+
+        amqpAdmin.declareQueue(queue);
+        amqpAdmin.declareBinding(BindingBuilder.bind(queue)
+                .to(new TopicExchange(rabbitMQProperties.getExchange().getUser().getEvents()))
+                .with(rabbitMQProperties.getRk().getUser().getFollow().getDeleted()));
+
+        mockMvc.perform(delete("/api/social/follow")
+                        .with(jwt().jwt(jwt -> jwt.claim("userId", followerId.toString())))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(followRequest(followedId)))
+                .andExpect(status().isOk());
+
+        var message = waitForMessage(queueName);
+
+        assertThat(message).isNotNull();
+        assertThat(new String(message.getBody(), StandardCharsets.UTF_8)).contains(
+                followerId.toString(),
+                followedId.toString()
+        );
+        assertThat(outboxEventRepository.findAll()).singleElement()
+                .extracting(event -> event.getStatus())
+                .isEqualTo(EventStatus.PROCESSED);
+        waitForFollowRelationshipDeletion(followerId, followedId);
+        assertThat(countFollowRelationships(followerId, followedId)).isZero();
+    }
+
     private String followRequest(UUID followedId) {
         return """
                 {"followedUserId":"%s"}
@@ -355,6 +494,15 @@ class FollowControllerIntegrationTest {
         ));
     }
 
+    private void seedActiveFollow(UUID followerId, UUID followedId) {
+        jpaFollowRepository.save(new FollowEntity(
+                new FollowEntityId(followerId, followedId),
+                FollowStatus.ACTIVE,
+                Instant.now().minusSeconds(300),
+                Instant.now().minusSeconds(60)
+        ));
+    }
+
     private void seedBlockedFollow(UUID followerId, UUID followedId) {
         seedBlock(followerId, followedId);
         jpaFollowRepository.save(new FollowEntity(
@@ -370,6 +518,28 @@ class FollowControllerIntegrationTest {
                 new BlockEntityId(blockerId, blockedId),
                 Instant.now().minusSeconds(60)
         ));
+    }
+
+    private void seedFollowRelationship(UUID followerId, UUID followedId) {
+        neo4jClient.query("""
+                MATCH (follower:User {id: $followerId})
+                MATCH (followed:User {id: $followedId})
+                MERGE (follower)-[:FOLLOWS]->(followed)
+                """)
+                .bind(followerId.toString()).to("followerId")
+                .bind(followedId.toString()).to("followedId")
+                .run();
+    }
+
+    private void seedUserStats(UUID userId, long followingCount, long followerCount) {
+        jpaUserStatsRepository.save(UserStatsEntity.builder()
+                .userId(userId)
+                .followingCount(followingCount)
+                .followerCount(followerCount)
+                .version(0L)
+                .createdAt(Instant.now().minusSeconds(300))
+                .updatedAt(Instant.now().minusSeconds(60))
+                .build());
     }
 
     private long countFollowRelationships(UUID followerId, UUID followedId) {
@@ -407,6 +577,15 @@ class FollowControllerIntegrationTest {
     private void waitForFollowRelationshipCreation(UUID followerId, UUID followedId) throws InterruptedException {
         for (int attempt = 0; attempt < 20; attempt++) {
             if (countFollowRelationships(followerId, followedId) == 1L) {
+                return;
+            }
+            Thread.sleep(200);
+        }
+    }
+
+    private void waitForFollowRelationshipDeletion(UUID followerId, UUID followedId) throws InterruptedException {
+        for (int attempt = 0; attempt < 20; attempt++) {
+            if (countFollowRelationships(followerId, followedId) == 0L) {
                 return;
             }
             Thread.sleep(200);

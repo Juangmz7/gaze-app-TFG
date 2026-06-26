@@ -230,6 +230,10 @@ public class RabbitMQConfig {
                         .to(userEventsDlx)
                         .with(deadLetterRoutingKey(followDeletedRoutingKey)),
                 BindingBuilder
+                        .bind(userUnfollowedDlq)
+                        .to(userEventsDlx)
+                        .with(followDeletedRoutingKey + ".fall-back"),
+                BindingBuilder
                         .bind(userBlockedDlq)
                         .to(userEventsDlx)
                         .with(deadLetterRoutingKey(blockCreatedRoutingKey)),

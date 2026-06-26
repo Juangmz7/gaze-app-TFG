@@ -9,8 +9,8 @@ rabbitmq:
       register: q.social-service.user.register
       deleted: q.social-service.user.deleted
       follow:
-        created: q.social-service.follow.created
-        deleted: q.social-service.follow.deleted
+        created: q.social-service.user.follow.created
+        deleted: q.social-service.user.follow.deleted
       block:
         created: q.social-service.user.block.created
     post:

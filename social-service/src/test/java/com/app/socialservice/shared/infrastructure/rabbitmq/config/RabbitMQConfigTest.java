@@ -21,9 +21,8 @@ class RabbitMQConfigTest {
         properties.getQueue().getAuth().setDelete("q.social-service.auth.delete");
         properties.getQueue().getUser().setRegister("q.social-service.user.register");
         properties.getQueue().getUser().setDeleted("q.social-service.user.deleted");
-        properties.getQueue().getUser().getFollow().setCreated("q.social-service.follow.created");
-        properties.getQueue().getUser().getFollow().setDeleted("q.social-service.follow.deleted");
-        properties.getQueue().getUser().getBlock().setCreated("q.social-service.user.block.created");
+        properties.getQueue().getUser().getFollow().setCreated("q.social-service.user.follow.created");
+        properties.getQueue().getUser().getFollow().setDeleted("q.social-service.user.follow.deleted");
         properties.getQueue().getPost().setCreated("q.social-service.post.created");
         properties.getQueue().getPost().setDeleted("q.social-service.post.deleted");
         properties.getExchange().getAuth().setEvents("x.auth.events");
@@ -36,6 +35,7 @@ class RabbitMQConfigTest {
         properties.getRk().getUser().setDeleted("rk.user.deleted");
         properties.getRk().getUser().getFollow().setCreated("rk.user.follow.created");
         properties.getRk().getUser().getFollow().setDeleted("rk.user.follow.deleted");
+        properties.getQueue().getUser().getBlock().setCreated("q.social-service.user.block.created");
         properties.getRk().getUser().getBlock().setCreated("rk.user.block.created");
         properties.getRk().getPost().setCreated("rk.post.created");
         properties.getRk().getPost().setDeleted("rk.post.deleted");
@@ -59,10 +59,10 @@ class RabbitMQConfigTest {
                 "x.post.events.dlx"
         );
         assertThat(queuesByName).containsKeys(
-                "q.social-service.follow.created",
-                "q.social-service.follow.created.dlq",
-                "q.social-service.follow.deleted",
-                "q.social-service.follow.deleted.dlq",
+                "q.social-service.user.follow.created",
+                "q.social-service.user.follow.created.dlq",
+                "q.social-service.user.follow.deleted",
+                "q.social-service.user.follow.deleted.dlq",
                 "q.social-service.user.block.created",
                 "q.social-service.user.block.created.dlq",
                 "q.social-service.post.created",
@@ -75,7 +75,7 @@ class RabbitMQConfigTest {
                         "x-dead-letter-exchange", "x.user.events.dlx",
                         "x-dead-letter-routing-key", "rk.user.follow.created.fall-back"
                 ));
-        assertThat(queuesByName.get("q.social-service.follow.deleted").getArguments())
+        assertThat(queuesByName.get("q.social-service.user.follow.deleted").getArguments())
                 .containsAllEntriesOf(Map.of(
                         "x-dead-letter-exchange", "x.user.events.dlx",
                         "x-dead-letter-routing-key", "rk.user.follow.deleted.fall-back"
@@ -104,11 +104,11 @@ class RabbitMQConfigTest {
             assertThat(binding.getRoutingKey()).isEqualTo("rk.user.follow.created.fall-back");
         });
         assertThat(bindings).anySatisfy(binding -> {
-            assertThat(binding.getDestination()).isEqualTo("q.social-service.follow.deleted");
+            assertThat(binding.getDestination()).isEqualTo("q.social-service.user.follow.deleted");
             assertThat(binding.getRoutingKey()).isEqualTo("rk.user.follow.deleted");
         });
         assertThat(bindings).anySatisfy(binding -> {
-            assertThat(binding.getDestination()).isEqualTo("q.social-service.follow.deleted.dlq");
+            assertThat(binding.getDestination()).isEqualTo("q.social-service.user.follow.deleted.dlq");
             assertThat(binding.getRoutingKey()).isEqualTo("rk.user.follow.deleted.fall-back");
         });
         assertThat(bindings).anySatisfy(binding -> {

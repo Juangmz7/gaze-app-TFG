@@ -5,6 +5,7 @@ import com.app.socialservice.block.domain.exception.SelfUnblockNotAllowedExcepti
 import com.app.socialservice.block.domain.exception.UserNotFoundException;
 import com.app.socialservice.follow.domain.exception.FollowBlockedException;
 import com.app.socialservice.follow.domain.exception.SelfFollowNotAllowedException;
+import com.app.socialservice.follow.domain.exception.SelfUnfollowNotAllowedException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -83,6 +84,22 @@ public class ApiExceptionHandler {
     @ExceptionHandler(SelfFollowNotAllowedException.class)
     public ResponseEntity<ApiErrorResponse> handleSelfFollowNotAllowedException(
             SelfFollowNotAllowedException exception,
+            HttpServletRequest request) {
+
+        var response = new ApiErrorResponse(
+                Instant.now(),
+                HttpStatus.BAD_REQUEST.value(),
+                HttpStatus.BAD_REQUEST.getReasonPhrase(),
+                exception.getMessage(),
+                request.getRequestURI()
+        );
+
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+    }
+
+    @ExceptionHandler(SelfUnfollowNotAllowedException.class)
+    public ResponseEntity<ApiErrorResponse> handleSelfUnfollowNotAllowedException(
+            SelfUnfollowNotAllowedException exception,
             HttpServletRequest request) {
 
         var response = new ApiErrorResponse(

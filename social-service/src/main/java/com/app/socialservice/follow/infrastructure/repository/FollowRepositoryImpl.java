@@ -71,6 +71,14 @@ public class FollowRepositoryImpl implements FollowRepository {
     }
 
     @Override
+    public boolean markAsRemoved(UUID followerUserId, UUID followedUserId) {
+        validateUserIds(followerUserId, followedUserId);
+
+        int rows = jpaFollowRepository.markAsRemovedIfActive(followerUserId, followedUserId);
+        return rows > 0;
+    }
+
+    @Override
     public boolean markBidirectionalRelationshipsAsBlocked(UUID firstUserId, UUID secondUserId) {
         validateUserIds(firstUserId, secondUserId);
 

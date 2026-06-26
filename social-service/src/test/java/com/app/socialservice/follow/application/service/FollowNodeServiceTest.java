@@ -32,10 +32,29 @@ class FollowNodeServiceTest {
     }
 
     @Test
+    void shouldDeleteFollowRelationship() {
+        var followerId = UUID.randomUUID();
+        var followedId = UUID.randomUUID();
+
+        followNodeService.deleteFollowRelationship(followerId, followedId);
+
+        verify(followGraphRepository).deleteFollowRelationship(followerId, followedId);
+    }
+
+    @Test
     void shouldThrowWhenFollowerAndFollowedUsersMatch() {
         var userId = UUID.randomUUID();
 
         assertThatThrownBy(() -> followNodeService.createFollowRelationship(userId, userId))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("followerUserId must not equal followedUserId");
+    }
+
+    @Test
+    void shouldThrowWhenDeletingAndFollowerAndFollowedUsersMatch() {
+        var userId = UUID.randomUUID();
+
+        assertThatThrownBy(() -> followNodeService.deleteFollowRelationship(userId, userId))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("followerUserId must not equal followedUserId");
     }
