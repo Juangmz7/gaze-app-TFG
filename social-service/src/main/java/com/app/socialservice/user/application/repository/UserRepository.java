@@ -1,12 +1,14 @@
 package com.app.socialservice.user.application.repository;
 
-import com.app.socialservice.user.domain.model.User;
-
 import java.util.Optional;
 import java.util.UUID;
 
+import com.app.socialservice.user.application.dto.UserProfileDetails;
+import com.app.socialservice.user.domain.model.User;
+
 public interface UserRepository {
     Optional<User> findById(UUID id);
+    Optional<UserProfileDetails> findProfileDetails(UUID requesterUserId, UUID targetUserId);
     boolean existsById(UUID id);
     boolean insertIfAbsent(User user);
     boolean updateAuthInfo(UUID id, String username, String email);

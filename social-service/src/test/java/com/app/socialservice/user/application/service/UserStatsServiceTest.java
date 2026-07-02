@@ -10,10 +10,12 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class UserStatsServiceTest {
@@ -23,6 +25,42 @@ class UserStatsServiceTest {
 
     @InjectMocks
     private UserStatsService userStatsService;
+
+    @Test
+    void shouldGetFollowersCountUsingRepositoryCounter() {
+        var userId = UUID.randomUUID();
+
+        when(userStatsRepository.getFollowersCount(userId)).thenReturn(11L);
+
+        var count = userStatsService.getFollowersCount(userId);
+
+        assertThat(count).isEqualTo(11L);
+        verify(userStatsRepository).getFollowersCount(userId);
+    }
+
+    @Test
+    void shouldGetFollowingCountUsingRepositoryCounter() {
+        var userId = UUID.randomUUID();
+
+        when(userStatsRepository.getFollowingCount(userId)).thenReturn(7L);
+
+        var count = userStatsService.getFollowingCount(userId);
+
+        assertThat(count).isEqualTo(7L);
+        verify(userStatsRepository).getFollowingCount(userId);
+    }
+
+    @Test
+    void shouldGetPostCountUsingRepositoryCounter() {
+        var userId = UUID.randomUUID();
+
+        when(userStatsRepository.getPostCount(userId)).thenReturn(19L);
+
+        var count = userStatsService.getPostCount(userId);
+
+        assertThat(count).isEqualTo(19L);
+        verify(userStatsRepository).getPostCount(userId);
+    }
 
     @Test
     void shouldIncrementFollowCountersUsingRepositoryCounters() {

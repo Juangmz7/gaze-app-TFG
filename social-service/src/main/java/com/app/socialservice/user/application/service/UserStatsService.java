@@ -12,6 +12,21 @@ public class UserStatsService {
 
     private final UserStatsRepository userStatsRepository;
 
+    public long getFollowersCount(UUID userId) {
+        validateUserId(userId, "userId");
+        return userStatsRepository.getFollowersCount(userId);
+    }
+
+    public long getFollowingCount(UUID userId) {
+        validateUserId(userId, "userId");
+        return userStatsRepository.getFollowingCount(userId);
+    }
+
+    public long getPostCount(UUID userId) {
+        validateUserId(userId, "userId");
+        return userStatsRepository.getPostCount(userId);
+    }
+
     public void incrementFollowCounters(UUID followerUserId, UUID followedUserId) {
         validateDistinctUserIds(followerUserId, followedUserId);
 

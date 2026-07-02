@@ -1,5 +1,12 @@
 package com.app.socialservice.user.infrastructure.repository;
 
+import java.util.Optional;
+import java.util.UUID;
+
+import com.app.socialservice.block.infrastructure.entity.BlockEntity;
+import com.app.socialservice.follow.infrastructure.entity.FollowEntity;
+import com.app.socialservice.user.application.dto.UserProfileDetails;
+import com.app.socialservice.user.domain.enums.UserAccountStatus;
 import com.app.socialservice.user.infrastructure.entity.UserEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
@@ -8,14 +15,42 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.UUID;
-import java.util.Optional;
-import com.app.socialservice.user.domain.enums.UserAccountStatus;
-
 @Repository
 public interface JpaUserRepository extends JpaRepository<UserEntity, UUID> {
 
     Optional<UserEntity> findByIdAndAccountStatus(UUID id, UserAccountStatus accountStatus);
+
+    @Query("""
+            select new com.app.socialservice.user.application.dto.UserProfileDetails(
+                user.id,
+                user.username,
+                user.bio.description,
+                user.bio.socialMedia,
+                user.pictureUrl,
+                case when activeFollow.id.followerId is not null then true else false end,
+                case when requesterBlock.id.blockerId is not null or targetBlock.id.blockerId is not null
+                    then true else false end,
+                case when user.accountStatus = com.app.socialservice.user.domain.enums.UserAccountStatus.BANNED
+                    then true else false end
+            )
+            from UserEntity user
+            left join BlockEntity requesterBlock
+                on requesterBlock.id.blockerId = :requesterUserId
+                and requesterBlock.id.blockedId = :targetUserId
+            left join BlockEntity targetBlock
+                on targetBlock.id.blockerId = :targetUserId
+                and targetBlock.id.blockedId = :requesterUserId
+            left join FollowEntity activeFollow
+                on activeFollow.id.followerId = :requesterUserId
+                and activeFollow.id.followedId = :targetUserId
+                and activeFollow.status = com.app.socialservice.follow.infrastructure.enums.FollowStatus.ACTIVE
+            where user.id = :targetUserId
+                and user.accountStatus <> com.app.socialservice.user.domain.enums.UserAccountStatus.DELETED
+            """)
+    Optional<UserProfileDetails> findProfileDetails(
+            @Param("requesterUserId") UUID requesterUserId,
+            @Param("targetUserId") UUID targetUserId
+    );
 
     @Modifying
     @Transactional

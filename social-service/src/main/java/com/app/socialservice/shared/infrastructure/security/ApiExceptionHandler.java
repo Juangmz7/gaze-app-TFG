@@ -6,6 +6,9 @@ import com.app.socialservice.block.domain.exception.UserNotFoundException;
 import com.app.socialservice.follow.domain.exception.FollowBlockedException;
 import com.app.socialservice.follow.domain.exception.SelfFollowNotAllowedException;
 import com.app.socialservice.follow.domain.exception.SelfUnfollowNotAllowedException;
+import com.app.socialservice.user.domain.exception.SelfProfileRequestNotAllowedException;
+import com.app.socialservice.user.domain.exception.UserProfileBlockedException;
+import com.app.socialservice.user.domain.exception.UserProfileNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -36,6 +39,22 @@ public class ApiExceptionHandler {
     @ExceptionHandler(com.app.socialservice.follow.domain.exception.UserNotFoundException.class)
     public ResponseEntity<ApiErrorResponse> handleFollowUserNotFoundException(
             com.app.socialservice.follow.domain.exception.UserNotFoundException exception,
+            HttpServletRequest request) {
+
+        var response = new ApiErrorResponse(
+                Instant.now(),
+                HttpStatus.NOT_FOUND.value(),
+                HttpStatus.NOT_FOUND.getReasonPhrase(),
+                exception.getMessage(),
+                request.getRequestURI()
+        );
+
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+    }
+
+    @ExceptionHandler(UserProfileNotFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handleUserProfileNotFoundException(
+            UserProfileNotFoundException exception,
             HttpServletRequest request) {
 
         var response = new ApiErrorResponse(
@@ -113,9 +132,41 @@ public class ApiExceptionHandler {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
     }
 
+    @ExceptionHandler(SelfProfileRequestNotAllowedException.class)
+    public ResponseEntity<ApiErrorResponse> handleSelfProfileRequestNotAllowedException(
+            SelfProfileRequestNotAllowedException exception,
+            HttpServletRequest request) {
+
+        var response = new ApiErrorResponse(
+                Instant.now(),
+                HttpStatus.BAD_REQUEST.value(),
+                HttpStatus.BAD_REQUEST.getReasonPhrase(),
+                exception.getMessage(),
+                request.getRequestURI()
+        );
+
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+    }
+
     @ExceptionHandler(FollowBlockedException.class)
     public ResponseEntity<ApiErrorResponse> handleFollowBlockedException(
             FollowBlockedException exception,
+            HttpServletRequest request) {
+
+        var response = new ApiErrorResponse(
+                Instant.now(),
+                HttpStatus.FORBIDDEN.value(),
+                HttpStatus.FORBIDDEN.getReasonPhrase(),
+                exception.getMessage(),
+                request.getRequestURI()
+        );
+
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
+    }
+
+    @ExceptionHandler(UserProfileBlockedException.class)
+    public ResponseEntity<ApiErrorResponse> handleUserProfileBlockedException(
+            UserProfileBlockedException exception,
             HttpServletRequest request) {
 
         var response = new ApiErrorResponse(
