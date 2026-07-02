@@ -71,6 +71,19 @@ class UserStatsRepositoryImplIntegrationTest {
         userStatsRepository.decrementFollowersCount(userId);
 
         assertThat(readCounter(userId, "followers")).isEqualTo(198L);
+        assertThat(userStatsRepository.getFollowersCount(userId)).isEqualTo(198L);
+    }
+
+    @Test
+    void shouldReturnZeroForMissingCountersAndReadStoredFollowingCounter() {
+        var userId = UUID.randomUUID();
+
+        assertThat(userStatsRepository.getFollowersCount(userId)).isZero();
+        assertThat(userStatsRepository.getFollowingCount(userId)).isZero();
+
+        stringRedisTemplate.opsForValue().set(buildCounterKey(userId, "following"), "9");
+
+        assertThat(userStatsRepository.getFollowingCount(userId)).isEqualTo(9L);
     }
 
     @Test

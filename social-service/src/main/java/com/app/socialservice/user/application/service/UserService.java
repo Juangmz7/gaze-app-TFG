@@ -11,7 +11,10 @@ import com.app.socialservice.shared.infrastructure.repository.OutboxEventReposit
 import com.app.socialservice.user.application.commands.DeleteUserCommand;
 import com.app.socialservice.user.application.commands.UpdateAuthUserInfoCommand;
 import com.app.socialservice.user.application.commands.UserRegisterCommand;
+import com.app.socialservice.user.application.dto.OwnUserProfileResponse;
 import com.app.socialservice.user.application.repository.UserRepository;
+import com.app.socialservice.user.application.repository.UserStatsRepository;
+import com.app.socialservice.user.domain.exception.UserNotFoundException;
 import com.app.socialservice.user.domain.events.UserAuthInfoUpdatedDomainEvent;
 import com.app.socialservice.user.domain.events.UserDeletedDomainEvent;
 import com.app.socialservice.user.domain.events.UserRegisteredDomainEvent;
@@ -39,6 +42,30 @@ public class UserService {
     private final OutboxEventRepository outboxEventRepository;
     private final UserEventMapper userEventMapper;
     private final JsonMapper jsonMapper;
+    private final UserStatsRepository userStatsRepository;
+
+    @Transactional(readOnly = true)
+    public OwnUserProfileResponse getOwnProfile(UUID userId) {
+        validateUserId(userId);
+        log.info("Retrieving own profile for user {}", userId);
+
+        var userProfile = userRepository.findOwnProfileById(userId)
+                .orElseThrow(() -> new UserNotFoundException(userId));
+
+        var response = new OwnUserProfileResponse(
+                userProfile.username(),
+                userProfile.description(),
+                userProfile.socialMedia(),
+                userStatsRepository.getFollowersCount(userId),
+                userStatsRepository.getFollowingCount(userId),
+                userProfile.postCount(),
+                userProfile.profilePic(),
+                userProfile.banned()
+        );
+
+        log.info("Own profile retrieved for user {}", userId);
+        return response;
+    }
 
     @Transactional
     public void registerUser(UserRegisterCommand command) {
@@ -271,6 +298,12 @@ public class UserService {
         }
         if (command.eventType() == null) {
             throw new IllegalArgumentException("command.eventType must not be null");
+        }
+    }
+
+    private void validateUserId(UUID userId) {
+        if (userId == null) {
+            throw new IllegalArgumentException("userId must not be null");
         }
     }
 }

@@ -11,7 +11,10 @@ import com.app.socialservice.shared.infrastructure.repository.OutboxEventReposit
 import com.app.socialservice.user.application.commands.DeleteUserCommand;
 import com.app.socialservice.user.application.commands.UpdateAuthUserInfoCommand;
 import com.app.socialservice.user.application.commands.UserRegisterCommand;
+import com.app.socialservice.user.application.dto.OwnUserProfileData;
+import com.app.socialservice.user.application.repository.UserStatsRepository;
 import com.app.socialservice.user.application.repository.UserRepository;
+import com.app.socialservice.user.domain.exception.UserNotFoundException;
 import com.app.socialservice.user.domain.events.UserAuthInfoUpdatedDomainEvent;
 import com.app.socialservice.user.domain.events.UserDeletedDomainEvent;
 import com.app.socialservice.user.domain.events.UserRegisteredDomainEvent;
@@ -35,6 +38,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -59,8 +63,61 @@ class UserServiceTest {
     @Mock
     private JsonMapper jsonMapper;
 
+    @Mock
+    private UserStatsRepository userStatsRepository;
+
     @InjectMocks
     private UserService userService;
+
+    @Test
+    void shouldReturnOwnProfileUsingRedisCountersAndPostgresFields() {
+        var userId = UUID.randomUUID();
+        var ownProfileData = new OwnUserProfileData(
+                "profile-user",
+                "Persisted bio",
+                java.util.Map.of("github", "profile-user"),
+                7L,
+                "https://example.com/avatar.png",
+                true
+        );
+
+        when(userRepository.findOwnProfileById(userId)).thenReturn(Optional.of(ownProfileData));
+        when(userStatsRepository.getFollowersCount(userId)).thenReturn(11L);
+        when(userStatsRepository.getFollowingCount(userId)).thenReturn(13L);
+
+        var response = userService.getOwnProfile(userId);
+
+        assertThat(response.username()).isEqualTo("profile-user");
+        assertThat(response.description()).isEqualTo("Persisted bio");
+        assertThat(response.socialMedia()).containsEntry("github", "profile-user");
+        assertThat(response.followersCount()).isEqualTo(11L);
+        assertThat(response.followingCount()).isEqualTo(13L);
+        assertThat(response.postCount()).isEqualTo(7L);
+        assertThat(response.profilePic()).isEqualTo("https://example.com/avatar.png");
+        assertThat(response.isBanned()).isTrue();
+    }
+
+    @Test
+    void shouldThrowWhenOwnProfileUserDoesNotExist() {
+        var userId = UUID.randomUUID();
+
+        when(userRepository.findOwnProfileById(userId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> userService.getOwnProfile(userId))
+                .isInstanceOf(UserNotFoundException.class)
+                .hasMessage("User not found: " + userId);
+
+        verifyNoInteractions(userStatsRepository);
+    }
+
+    @Test
+    void shouldRejectNullUserIdWhenGettingOwnProfile() {
+        assertThatThrownBy(() -> userService.getOwnProfile(null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("userId must not be null");
+
+        verifyNoInteractions(userRepository, userStatsRepository);
+    }
 
     @Test
     void shouldRegisterUserSuccessfullyAndPublishDomainEventWhenUserDoesNotExist() {
