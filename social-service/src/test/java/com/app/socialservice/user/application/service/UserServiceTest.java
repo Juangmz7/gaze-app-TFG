@@ -1,6 +1,7 @@
 package com.app.socialservice.user.application.service;
 
 import java.time.Instant;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -9,7 +10,9 @@ import com.app.socialservice.shared.infrastructure.enums.EventStatus;
 import com.app.socialservice.shared.infrastructure.mapper.JsonMapper;
 import com.app.socialservice.shared.infrastructure.repository.OutboxEventRepository;
 import com.app.socialservice.user.application.commands.DeleteUserCommand;
+import com.app.socialservice.user.application.commands.UpdateOwnUserProfileCommand;
 import com.app.socialservice.user.application.commands.UpdateAuthUserInfoCommand;
+import com.app.socialservice.user.application.dto.OwnUserProfileResponse;
 import com.app.socialservice.user.application.commands.UserRegisterCommand;
 import com.app.socialservice.user.application.repository.UserRepository;
 import com.app.socialservice.user.domain.events.UserAuthInfoUpdatedDomainEvent;
@@ -18,6 +21,7 @@ import com.app.socialservice.user.domain.events.UserRegisteredDomainEvent;
 import com.app.socialservice.user.domain.enums.UserAccountStatus;
 import com.app.socialservice.user.domain.model.User;
 import com.app.socialservice.user.domain.model.valueobj.Email;
+import com.app.socialservice.user.domain.model.valueobj.ProfilePictureUrl;
 import com.app.socialservice.user.domain.model.valueobj.UserBio;
 import com.app.socialservice.user.domain.model.valueobj.UserId;
 import com.app.socialservice.user.domain.model.valueobj.Username;
@@ -35,6 +39,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -61,6 +66,123 @@ class UserServiceTest {
 
     @InjectMocks
     private UserService userService;
+
+    @Test
+    void shouldUpdateOwnProfileWhenDataChanges() {
+        var userId = UUID.randomUUID();
+        var existingUser = buildUser(userId, "profile-user", "profile@example.com", UserAccountStatus.ACCEPTED);
+        existingUser.setPictureUrl(new ProfilePictureUrl("https://cdn.example.com/old.png"));
+        existingUser.setBio(new UserBio("Old bio", Map.of("github", "old-user")));
+        var command = new UpdateOwnUserProfileCommand(
+                userId,
+                "New bio",
+                "https://cdn.example.com/new.png",
+                Map.of("github", "new-user", "linkedin", "profile-user")
+        );
+        var savedUser = buildUser(userId, "profile-user", "profile@example.com", UserAccountStatus.ACCEPTED);
+        savedUser.setPictureUrl(new ProfilePictureUrl("https://cdn.example.com/new.png"));
+        savedUser.setBio(new UserBio("New bio", Map.of(
+                "github", "new-user",
+                "linkedin", "profile-user"
+        )));
+
+        when(userRepository.findById(userId)).thenReturn(Optional.of(existingUser));
+        when(userRepository.updateProfile(any(User.class))).thenReturn(savedUser);
+
+        var response = userService.updateOwnUserProfile(command);
+
+        verify(userRepository).updateProfile(existingUser);
+        assertThat(response).isEqualTo(new OwnUserProfileResponse(
+                userId,
+                "New bio",
+                "https://cdn.example.com/new.png",
+                Map.of(
+                        "github", "new-user",
+                        "linkedin", "profile-user"
+                )
+        ));
+    }
+
+    @Test
+    void shouldNotUpdateOwnProfileWhenDataIsUnchanged() {
+        var userId = UUID.randomUUID();
+        var existingUser = buildUser(userId, "same-user", "same@example.com", UserAccountStatus.ACCEPTED);
+        existingUser.setPictureUrl(new ProfilePictureUrl("https://cdn.example.com/same.png"));
+        existingUser.setBio(new UserBio("Same bio", Map.of("github", "same-user")));
+        var command = new UpdateOwnUserProfileCommand(
+                userId,
+                "Same bio",
+                "https://cdn.example.com/same.png",
+                Map.of("github", "same-user")
+        );
+
+        when(userRepository.findById(userId)).thenReturn(Optional.of(existingUser));
+
+        var response = userService.updateOwnUserProfile(command);
+
+        verify(userRepository, never()).updateProfile(any(User.class));
+        assertThat(response).isEqualTo(new OwnUserProfileResponse(
+                userId,
+                "Same bio",
+                "https://cdn.example.com/same.png",
+                Map.of("github", "same-user")
+        ));
+        verifyNoInteractions(outboxEventRepository, userEventMapper, jsonMapper, eventPublisher);
+    }
+
+    @Test
+    void shouldThrowValidationErrorForInvalidOwnProfileInputs() {
+        var blankDescriptionCommand = new UpdateOwnUserProfileCommand(
+                UUID.randomUUID(),
+                "   ",
+                null,
+                Map.of()
+        );
+        var overlongDescriptionCommand = new UpdateOwnUserProfileCommand(
+                UUID.randomUUID(),
+                "a".repeat(UserBio.MAX_DESCRIPTION_LENGTH + 1),
+                null,
+                Map.of()
+        );
+        var overlongProfilePictureCommand = new UpdateOwnUserProfileCommand(
+                UUID.randomUUID(),
+                "Valid bio",
+                "https://%s".formatted("a".repeat(ProfilePictureUrl.MAX_LENGTH)),
+                Map.of("github", "valid-user")
+        );
+        var invalidUrlCommand = new UpdateOwnUserProfileCommand(
+                UUID.randomUUID(),
+                "Valid bio",
+                "ftp://cdn.example.com/profile.png",
+                Map.of("github", "valid-user")
+        );
+
+        assertThatThrownBy(() -> userService.updateOwnUserProfile(blankDescriptionCommand))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("command.description must not be blank");
+
+        assertThatThrownBy(() -> userService.updateOwnUserProfile(overlongDescriptionCommand))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("command.description must not exceed 255 characters");
+
+        assertThatThrownBy(() -> userService.updateOwnUserProfile(overlongProfilePictureCommand))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("command.profilePicture must not exceed 255 characters");
+
+        when(userRepository.findById(invalidUrlCommand.userId()))
+                .thenReturn(Optional.of(buildUser(
+                        invalidUrlCommand.userId(),
+                        "valid-user",
+                        "valid@example.com",
+                        UserAccountStatus.ACCEPTED
+                )));
+
+        assertThatThrownBy(() -> userService.updateOwnUserProfile(invalidUrlCommand))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("Profile picture URL");
+
+        verify(userRepository, never()).updateProfile(any(User.class));
+    }
 
     @Test
     void shouldRegisterUserSuccessfullyAndPublishDomainEventWhenUserDoesNotExist() {
@@ -276,7 +398,7 @@ class UserServiceTest {
                 new Email(email)
         );
         user.setAccountStatus(status);
-        user.setBio(new UserBio("Persisted bio", java.util.Map.of("github", username)));
+        user.setBio(new UserBio("Persisted bio", Map.of("github", username)));
         return user;
     }
 }

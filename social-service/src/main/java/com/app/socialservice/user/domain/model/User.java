@@ -6,10 +6,11 @@ import com.app.socialservice.user.domain.model.valueobj.ProfilePictureUrl;
 import com.app.socialservice.user.domain.model.valueobj.UserBio;
 import com.app.socialservice.user.domain.model.valueobj.UserId;
 import com.app.socialservice.user.domain.model.valueobj.Username;
-import com.app.socialservice.user.domain.exception.InvalidUsernameException;
 import com.app.socialservice.user.domain.exception.InvalidEmailException;
+import com.app.socialservice.user.domain.exception.InvalidUsernameException;
 
 import java.time.Instant;
+import java.util.Objects;
 
 public class User {
 
@@ -41,6 +42,15 @@ public class User {
         }
         this.username = username;
         this.email = email;
+    }
+
+    public boolean hasProfileChanges(ProfilePictureUrl pictureUrl, UserBio bio) {
+        return !Objects.equals(this.pictureUrl, pictureUrl) || !Objects.equals(this.bio, bio);
+    }
+
+    public void updateProfile(ProfilePictureUrl pictureUrl, UserBio bio) {
+        this.pictureUrl = pictureUrl;
+        this.bio = bio;
     }
 
     public void delete() {

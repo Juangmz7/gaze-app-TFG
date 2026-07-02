@@ -2,9 +2,9 @@ package com.app.socialservice.user.infrastructure.repository;
 
 import com.app.socialservice.user.application.mapper.UserMapper;
 import com.app.socialservice.user.application.repository.UserRepository;
+import com.app.socialservice.user.domain.exception.UserNotFoundException;
 import com.app.socialservice.user.domain.model.User;
 import com.app.socialservice.user.domain.enums.UserAccountStatus;
-import com.app.socialservice.user.infrastructure.entity.UserEntity;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
@@ -17,6 +17,17 @@ public class UserRepositoryImpl implements UserRepository {
 
     private final JpaUserRepository jpaUserRepository;
     private final UserMapper userMapper;
+
+    @Override
+    public User updateProfile(User user) {
+        var entity = jpaUserRepository.findByIdAndAccountStatus(user.getId().value(), UserAccountStatus.ACCEPTED)
+                .orElseThrow(() -> new UserNotFoundException(user.getId().value()));
+
+        entity.setPictureUrl(user.getPictureUrl() == null ? null : user.getPictureUrl().value());
+        entity.setBio(userMapper.toUserBioEmbeddable(user.getBio()));
+
+        return userMapper.toDomain(entity);
+    }
 
     @Override
     public boolean updateAuthInfo(UUID id, String username, String email) {
@@ -43,7 +54,7 @@ public class UserRepositoryImpl implements UserRepository {
 
     @Override
     public boolean insertIfAbsent(User user) {
-        UserEntity entity = userMapper.toEntity(user);
+        var entity = userMapper.toEntity(user);
         int rows = jpaUserRepository.insertIfAbsent(
                 entity.getId(),
                 entity.getUsername(),
