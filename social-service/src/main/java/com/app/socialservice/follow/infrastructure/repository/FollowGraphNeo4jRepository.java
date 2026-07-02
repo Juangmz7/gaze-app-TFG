@@ -1,7 +1,11 @@
 package com.app.socialservice.follow.infrastructure.repository;
 
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
+import com.app.socialservice.follow.application.dto.RecommendedFollowCandidate;
 import com.app.socialservice.follow.application.repository.FollowGraphRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.neo4j.core.Neo4jClient;
@@ -93,5 +97,57 @@ public class FollowGraphNeo4jRepository implements FollowGraphRepository {
                 .bind(followerUserId.toString()).to("followerUserId")
                 .bind(followedUserId.toString()).to("followedUserId")
                 .run();
+    }
+
+    @Override
+    public List<RecommendedFollowCandidate> findRecommendedUsers(UUID requesterUserId, Set<UUID> blockedUserIds, int limit) {
+        if (requesterUserId == null) {
+            throw new IllegalArgumentException("requesterUserId must not be null");
+        }
+        if (blockedUserIds == null) {
+            throw new IllegalArgumentException("blockedUserIds must not be null");
+        }
+        if (limit <= 0) {
+            throw new IllegalArgumentException("limit must be greater than zero");
+        }
+
+        var excludedUserIds = blockedUserIds.stream()
+                .map(UUID::toString)
+                .toList();
+
+        return neo4jClient.query("""
+                MATCH (requester:User {id: $requesterUserId})-[:FOLLOWS]->(mutual:User)-[:FOLLOWS]->(candidate:User)
+                WHERE candidate.id <> $requesterUserId
+                  AND NOT (requester)-[:FOLLOWS]->(candidate)
+                  AND NOT candidate.id IN $excludedUserIds
+                WITH candidate, count(DISTINCT mutual) AS commonConnections
+                ORDER BY commonConnections DESC, candidate.id ASC
+                RETURN candidate.id AS userId, commonConnections AS commonConnections
+                LIMIT $limit
+                """)
+                .bind(requesterUserId.toString()).to("requesterUserId")
+                .bind(excludedUserIds).to("excludedUserIds")
+                .bind(limit).to("limit")
+                .fetch()
+                .all()
+                .stream()
+                .map(this::toRecommendedFollowCandidate)
+                .toList();
+    }
+
+    private RecommendedFollowCandidate toRecommendedFollowCandidate(Map<String, Object> row) {
+        var userIdValue = row.get("userId");
+        var commonConnectionsValue = row.get("commonConnections");
+        if (userIdValue == null) {
+            throw new IllegalStateException("Neo4j recommended user query returned a null userId");
+        }
+        if (!(commonConnectionsValue instanceof Number commonConnections)) {
+            throw new IllegalStateException("Neo4j recommended user query returned an invalid commonConnections value");
+        }
+
+        return new RecommendedFollowCandidate(
+                UUID.fromString(userIdValue.toString()),
+                commonConnections.longValue()
+        );
     }
 }

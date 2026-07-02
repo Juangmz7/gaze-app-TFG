@@ -9,6 +9,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 @Repository
@@ -21,6 +22,15 @@ public class BlockRepositoryImpl implements BlockRepository {
     public Optional<Block> findByUsers(UUID blockerUserId, UUID blockedUserId) {
         return jpaBlockRepository.findById(new BlockEntityId(blockerUserId, blockedUserId))
                 .map(this::toDomain);
+    }
+
+    @Override
+    public Set<UUID> findBlockedUserIds(UUID userId) {
+        if (userId == null) {
+            throw new IllegalArgumentException("userId must not be null");
+        }
+
+        return Set.copyOf(jpaBlockRepository.findBlockedUserIds(userId));
     }
 
     @Override
