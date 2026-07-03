@@ -11,6 +11,7 @@ import com.app.socialservice.user.domain.enums.UserAccountStatus;
 import com.app.socialservice.user.domain.model.User;
 import com.app.socialservice.user.domain.exception.UserNotFoundException;
 import com.app.socialservice.user.application.dto.OwnUserProfileData;
+import com.app.socialservice.user.application.dto.RecommendedUserDetails;
 
 
 import com.app.socialservice.user.infrastructure.entity.UserEntity;

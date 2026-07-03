@@ -9,6 +9,7 @@ import com.app.socialservice.shared.infrastructure.security.SecurityUtils;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -16,29 +17,29 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/social")
+@RequestMapping("/api/social/follow")
 @RequiredArgsConstructor
 public class FollowController {
 
     private final FollowService followService;
     private final SecurityUtils securityUtils;
 
-    @PostMapping("/follow")
+    @PostMapping
     public ResponseEntity<FollowResponse> followUser(@Valid @RequestBody FollowUserRequest request) {
         var followerUserId = securityUtils.getUserId();
         if (followerUserId == null) {
-            throw new IllegalArgumentException("Authenticated user id cannot be found");
+            throw new AuthenticationCredentialsNotFoundException("User authentication failed");
         }
 
         var response = followService.followUser(new FollowUserCommand(followerUserId, request.followedUserId()));
         return ResponseEntity.ok(response);
     }
 
-    @DeleteMapping("/follow")
+    @DeleteMapping
     public ResponseEntity<FollowResponse> unfollowUser(@Valid @RequestBody FollowUserRequest request) {
         var followerUserId = securityUtils.getUserId();
         if (followerUserId == null) {
-            throw new IllegalArgumentException("Authenticated user id cannot be found");
+            throw new AuthenticationCredentialsNotFoundException("User authentication failed");
         }
 
         var response = followService.unfollowUser(new UnfollowUserCommand(followerUserId, request.followedUserId()));

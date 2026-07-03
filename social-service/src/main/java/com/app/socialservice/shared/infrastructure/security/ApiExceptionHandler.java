@@ -20,6 +20,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.validation.BindException;
 import org.springframework.validation.BindingResult;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -62,9 +63,12 @@ public class ApiExceptionHandler {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
     }
 
-    @ExceptionHandler(com.app.socialservice.user.domain.exception.UserNotFoundException.class)
+    @ExceptionHandler({
+            com.app.socialservice.user.domain.exception.UserNotFoundException.class,
+            UserProfileNotFoundException.class
+    })
     public ResponseEntity<ApiErrorResponse> handleDomainUserNotFoundException(
-            com.app.socialservice.user.domain.exception.UserNotFoundException exception,
+            RuntimeException exception,
             HttpServletRequest request) {
 
         var response = new ApiErrorResponse(
@@ -176,7 +180,7 @@ public class ApiExceptionHandler {
 
     @ExceptionHandler(UserProfileBlockedException.class)
     public ResponseEntity<ApiErrorResponse> handleUserProfileBlockedException(
-            UserProfileBlockedException exception
+            UserProfileBlockedException exception,
             HttpServletRequest request) {
 
         var response = new ApiErrorResponse(
@@ -225,6 +229,22 @@ public class ApiExceptionHandler {
         );
 
         return ResponseEntity.badRequest().body(response);
+    }
+
+    @ExceptionHandler(AuthenticationCredentialsNotFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handleAuthenticationCredentialsNotFoundException(
+            AuthenticationCredentialsNotFoundException exception,
+            HttpServletRequest request) {
+
+        var response = new ApiErrorResponse(
+                Instant.now(),
+                HttpStatus.UNAUTHORIZED.value(),
+                HttpStatus.UNAUTHORIZED.getReasonPhrase(),
+                exception.getMessage(),
+                request.getRequestURI()
+        );
+
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
     }
 
     @ExceptionHandler({

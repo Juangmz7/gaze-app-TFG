@@ -234,6 +234,9 @@ class UserProfileControllerIntegrationTest {
         stringRedisTemplate.opsForValue().set(buildCounterKey(userId, "followers"), String.valueOf(followerCount));
         stringRedisTemplate.opsForValue().set(buildCounterKey(userId, "following"), String.valueOf(followingCount));
         stringRedisTemplate.opsForValue().set(buildCounterKey(userId, "postCount"), String.valueOf(postCount));
+    }
+
+    @Test
     void getApiSocialProfileMeReturnsNullableFieldsAndBannedFlag() throws Exception {
         var userId = UUID.randomUUID();
 
@@ -270,10 +273,10 @@ class UserProfileControllerIntegrationTest {
     }
 
     @Test
-    void getApiSocialProfileMeReturns400WhenJwtDoesNotContainUserIdClaim() throws Exception {
+    void getApiSocialProfileMeReturns401WhenJwtDoesNotContainUserIdClaim() throws Exception {
         mockMvc.perform(get("/api/social/profile/me")
                         .with(jwt()))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isUnauthorized());
     }
 
     private void seedUser(UserEntity userEntity) {

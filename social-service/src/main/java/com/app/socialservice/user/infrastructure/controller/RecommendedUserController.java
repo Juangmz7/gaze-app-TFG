@@ -12,18 +12,18 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/social")
+@RequestMapping("/api/social/recommended")
 @RequiredArgsConstructor
 public class RecommendedUserController {
 
     private final RecommendedUserService recommendedUserService;
     private final SecurityUtils securityUtils;
 
-    @GetMapping("/recommended-users")
+    @GetMapping("/users")
     public ResponseEntity<List<RecommendedUserResponse>> getRecommendedUsers() {
         var requesterUserId = securityUtils.getUserId();
         if (requesterUserId == null) {
-            throw new IllegalArgumentException("Authenticated user id cannot be found");
+            throw new org.springframework.security.authentication.AuthenticationCredentialsNotFoundException("User authentication failed");
         }
 
         return ResponseEntity.ok(recommendedUserService.getRecommendedUsers(requesterUserId));

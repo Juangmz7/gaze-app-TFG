@@ -67,7 +67,7 @@ public interface JpaUserRepository extends JpaRepository<UserEntity, UUID> {
     Optional<UserProfileDetails> findProfileDetails(
             @Param("requesterUserId") UUID requesterUserId,
             @Param("targetUserId") UUID targetUserId
-    )
+    );
            
     Optional<UserEntity> findByIdAndAccountStatusIn(UUID id, Collection<UserAccountStatus> accountStatuses);
            

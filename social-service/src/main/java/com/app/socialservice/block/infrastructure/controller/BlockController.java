@@ -9,6 +9,7 @@ import com.app.socialservice.shared.infrastructure.security.SecurityUtils;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -27,7 +28,7 @@ public class BlockController {
     public ResponseEntity<BlockResponse> blockUser(@Valid @RequestBody BlockUserRequest request) {
         var blockerUserId = securityUtils.getUserId();
         if (blockerUserId == null) {
-            throw new IllegalArgumentException("Authenticated user id cannot be found");
+            throw new AuthenticationCredentialsNotFoundException("User authentication failed");
         }
 
         var response = blockService.blockUser(new BlockUserCommand(blockerUserId, request.blockedUserId()));
@@ -38,7 +39,7 @@ public class BlockController {
     public ResponseEntity<Void> unblockUser(@Valid @RequestBody BlockUserRequest request) {
         var unblockerUserId = securityUtils.getUserId();
         if (unblockerUserId == null) {
-            throw new IllegalArgumentException("Authenticated user id cannot be found");
+            throw new AuthenticationCredentialsNotFoundException("User authentication failed");
         }
 
         blockService.unblockUser(new UnblockUserCommand(unblockerUserId, request.blockedUserId()));
