@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 import com.app.socialservice.follow.application.service.FollowNodeService;
+import com.app.socialservice.follow.domain.exception.FollowBlockedException;
 import com.app.socialservice.follow.infrastructure.events.UserFollowedEvent;
 import com.app.socialservice.follow.infrastructure.events.UserUnfollowedEvent;
 import com.app.socialservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
@@ -12,13 +13,13 @@ import com.app.socialservice.user.application.service.UserStatsService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.amqp.AmqpRejectAndDontRequeueException;
 import org.mockito.InjectMocks;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
@@ -134,6 +135,31 @@ class FollowRabbitMQListenerTest {
         assertThatThrownBy(() -> followRabbitMQListener.onUserFollowed(event))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessage("neo4j follow sync failed");
+
+        verify(userStatsService, never()).incrementFollowCounters(any(), any());
+        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any());
+    }
+
+    @Test
+    void shouldRejectUserFollowedEventToDlqWhenDomainRuleFails() {
+        var event = UserFollowedEvent.builder()
+                .id(UUID.randomUUID())
+                .correlationId(UUID.randomUUID())
+                .occurredAt(Instant.now())
+                .followerUserId(UUID.randomUUID())
+                .followedUserId(UUID.randomUUID())
+                .build();
+        when(processedEventsRepository.existsById(event.id())).thenReturn(false);
+        when(processedEventsRepository.existsByCorrelationId(event.correlationId())).thenReturn(false);
+
+        doThrow(new FollowBlockedException("follow relationship is blocked"))
+                .when(followNodeService)
+                .createFollowRelationship(event.followerUserId(), event.followedUserId());
+
+        assertThatThrownBy(() -> followRabbitMQListener.onUserFollowed(event))
+                .isInstanceOf(AmqpRejectAndDontRequeueException.class)
+                .hasCauseInstanceOf(FollowBlockedException.class)
+                .hasMessage("follow relationship is blocked");
 
         verify(userStatsService, never()).incrementFollowCounters(any(), any());
         verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any());

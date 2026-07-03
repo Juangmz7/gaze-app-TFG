@@ -5,19 +5,16 @@ import java.util.UUID;
 
 import com.app.socialservice.block.application.service.BlockNodeService;
 import com.app.socialservice.block.infrastructure.events.UserBlockedEvent;
-import com.app.socialservice.shared.infrastructure.entity.ProcessedEvent;
 import com.app.socialservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 import com.app.socialservice.shared.infrastructure.repository.ProcessedEventsRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
@@ -81,6 +78,25 @@ class BlockRabbitMQListenerTest {
         when(processedEventsRepository.existsById(event.id())).thenReturn(true);
 
         blockRabbitMQListener.onUserBlocked(event);
+
+        verify(blockNodeService, never()).deleteBidirectionalFollowRelationship(any(), any());
+        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any());
+    }
+
+    @Test
+    void shouldRejectInvalidUserBlockedEventPayloadToDlq() {
+        var userId = UUID.randomUUID();
+        var event = UserBlockedEvent.builder()
+                .id(UUID.randomUUID())
+                .correlationId(UUID.randomUUID())
+                .occurredAt(Instant.now())
+                .blockerUserId(userId)
+                .blockedUserId(userId)
+                .build();
+
+        assertThatThrownBy(() -> blockRabbitMQListener.onUserBlocked(event))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("event blocker and blocked users must be different");
 
         verify(blockNodeService, never()).deleteBidirectionalFollowRelationship(any(), any());
         verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any());

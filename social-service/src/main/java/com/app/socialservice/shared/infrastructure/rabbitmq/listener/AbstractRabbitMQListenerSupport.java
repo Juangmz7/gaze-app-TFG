@@ -16,6 +16,7 @@ import com.app.socialservice.user.infrastructure.events.UserDeletedFromAuthEvent
 import com.app.socialservice.user.infrastructure.events.UserInfoFromAuthUpdatedEvent;
 import com.app.socialservice.user.infrastructure.events.UserRegisteredEvent;
 import com.app.socialservice.user.infrastructure.events.UserRegisteredFromAuthEvent;
+import org.springframework.amqp.AmqpRejectAndDontRequeueException;
 import org.springframework.util.StringUtils;
 
 abstract class AbstractRabbitMQListenerSupport {
@@ -43,6 +44,10 @@ abstract class AbstractRabbitMQListenerSupport {
         );
     }
 
+    protected final AmqpRejectAndDontRequeueException rejectToDlq(RuntimeException exception) {
+        return new AmqpRejectAndDontRequeueException(exception.getMessage(), exception);
+    }
+
     protected final void validateUserBlockedEvent(UserBlockedEvent event) {
         if (event == null) {
             throw new IllegalArgumentException("event must not be null");
@@ -53,11 +58,17 @@ abstract class AbstractRabbitMQListenerSupport {
         if (event.correlationId() == null) {
             throw new IllegalArgumentException("event.correlationId must not be null");
         }
+        if (event.occurredAt() == null) {
+            throw new IllegalArgumentException("event.occurredAt must not be null");
+        }
         if (event.blockerUserId() == null) {
             throw new IllegalArgumentException("event.blockerUserId must not be null");
         }
         if (event.blockedUserId() == null) {
             throw new IllegalArgumentException("event.blockedUserId must not be null");
+        }
+        if (event.blockerUserId().equals(event.blockedUserId())) {
+            throw new IllegalArgumentException("event blocker and blocked users must be different");
         }
     }
 
@@ -164,6 +175,9 @@ abstract class AbstractRabbitMQListenerSupport {
 
     protected final void validateUserRegisteredFromAuthEvent(UserRegisteredFromAuthEvent event) {
         validateAuthEventEnvelope(event, event != null ? event.userId() : null, event != null ? event.type() : null);
+        if (event.time() == null) {
+            throw new IllegalArgumentException("event.time must not be null");
+        }
         if (event.details() == null) {
             throw new IllegalArgumentException("event.details must not be null");
         }
@@ -177,6 +191,9 @@ abstract class AbstractRabbitMQListenerSupport {
 
     protected final void validateUserInfoFromAuthUpdatedEvent(UserInfoFromAuthUpdatedEvent event) {
         validateAuthEventEnvelope(event, event != null ? event.userId() : null, event != null ? event.type() : null);
+        if (event.time() == null) {
+            throw new IllegalArgumentException("event.time must not be null");
+        }
         if (event.details() == null) {
             throw new IllegalArgumentException("event.details must not be null");
         }
@@ -190,6 +207,9 @@ abstract class AbstractRabbitMQListenerSupport {
 
     protected final void validateUserDeletedFromAuthEvent(UserDeletedFromAuthEvent event) {
         validateAuthEventEnvelope(event, event != null ? event.userId() : null, event != null ? event.type() : null);
+        if (event.time() == null) {
+            throw new IllegalArgumentException("event.time must not be null");
+        }
     }
 
     protected final void validateUserRegisteredEvent(UserRegisteredEvent event) {
@@ -201,6 +221,9 @@ abstract class AbstractRabbitMQListenerSupport {
         }
         if (event.correlationId() == null) {
             throw new IllegalArgumentException("event.correlationId must not be null");
+        }
+        if (event.occurredAt() == null) {
+            throw new IllegalArgumentException("event.occurredAt must not be null");
         }
         if (event.userId() == null) {
             throw new IllegalArgumentException("event.userId must not be null");
@@ -216,6 +239,9 @@ abstract class AbstractRabbitMQListenerSupport {
         }
         if (event.correlationId() == null) {
             throw new IllegalArgumentException("event.correlationId must not be null");
+        }
+        if (event.occurredAt() == null) {
+            throw new IllegalArgumentException("event.occurredAt must not be null");
         }
         if (event.userId() == null) {
             throw new IllegalArgumentException("event.userId must not be null");
