@@ -1,14 +1,21 @@
 # Social Service
 
-## What it does
-The `social-service` handles social interactions and user profile management. Currently, it implements the `User` domain, allowing user registration, authentication information updates, and user deletion. It listens to domain events from other systems (like authentication) to keep its local state in sync.
+## Overview
+Welcome to the `social-service`! If you are new to the codebase, this is the best place to start.
+This service handles social interactions and user profile management. It uses a **Domain-Driven Design (DDD)** approach with a strict **Hexagonal Architecture** (Domain, Application, Infrastructure layers).
 
-## Packages used
-- `spring-boot-starter-data-jpa`: For database persistence of the `UserEntity`.
-- `mapstruct`: Used for mapping domain events to infrastructure events (`UserEventMapper`).
-- Shared common packages (`com.app.socialservice.shared`) for Outbox pattern events and JSON processing.
+## Domains
+The service is divided into distinct bounded contexts (domains):
+- **User**: Core user profile and identity management.
+- **Follow**: Manages the directed follow graph between users.
+- **Block**: Handles user blocking mechanisms to prevent unwanted interactions.
+- **Post**: Listens to post-related events from other services.
+- **Shared**: Common infrastructure, cross-cutting concerns, and outbox pattern implementation.
 
-## Why
-- **Outbox Pattern**: The service uses an outbox pattern (`OutboxEvent`, `ProcessedEvent`) to ensure reliable message delivery to the message broker after a local transaction succeeds. This guarantees at-least-once delivery of domain events without using distributed transactions.
-- **Idempotency**: It tracks processed correlation IDs in `ProcessedEventsRepository` to safely discard duplicate events and handle retries effectively.
-- **Event-Driven**: By relying on `UpdateAuthUserInfoCommand` and `DeleteUserCommand`, the service keeps its local state decoupled from the source of truth for auth data, achieving high cohesion and loose coupling.
+## Key Design Choices (For New Developers)
+1. **Clean Architecture**: Dependencies always point inwards. Infrastructure depends on Application; Application depends on Domain. The Domain has zero external dependencies (no Spring or DB annotations).
+2. **Polyglot Persistence**: We use PostgreSQL as our primary source of truth (ACID guarantees), and Neo4j as a secondary graph database (for traversing social connections like friends-of-friends).
+3. **Transactional Outbox Pattern**: To reliably publish events to RabbitMQ without distributed transactions, we save events to an `outbox` table in the *same transaction* as the domain changes. A separate process then relays them to RabbitMQ.
+4. **Event-Driven**: We avoid synchronous HTTP calls between microservices where possible. State changes are communicated via RabbitMQ events.
+
+Explore the `docs` folder inside each domain package for detailed layer-specific documentation.
