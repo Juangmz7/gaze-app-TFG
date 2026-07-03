@@ -25,6 +25,7 @@ import static org.hamcrest.Matchers.nullValue;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -83,7 +84,7 @@ class UserProfileControllerIntegrationTest {
                 .andExpect(jsonPath("$.followersCount").value(8))
                 .andExpect(jsonPath("$.followingCount").value(3))
                 .andExpect(jsonPath("$.postCount").value(5))
-                .andExpect(jsonPath("$.profilePic").value("https://example.com/profile-user.png"))
+                .andExpect(jsonPath("$.profilePicture").value("https://example.com/profile-user.png"))
                 .andExpect(jsonPath("$.isBanned").value(false));
     }
 
@@ -108,7 +109,7 @@ class UserProfileControllerIntegrationTest {
                 .andExpect(jsonPath("$.followersCount").value(0))
                 .andExpect(jsonPath("$.followingCount").value(0))
                 .andExpect(jsonPath("$.postCount").value(0))
-                .andExpect(jsonPath("$.profilePic").value(nullValue()))
+                .andExpect(jsonPath("$.profilePicture").value(nullValue()))
                 .andExpect(jsonPath("$.isBanned").value(true));
     }
 

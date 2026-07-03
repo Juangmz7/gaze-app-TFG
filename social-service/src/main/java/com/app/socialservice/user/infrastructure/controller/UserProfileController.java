@@ -8,10 +8,7 @@ import com.app.socialservice.user.infrastructure.request.UpdateOwnUserProfileReq
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PutMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/social/profile")
@@ -29,7 +26,9 @@ public class UserProfileController {
         }
 
         return ResponseEntity.ok(userService.getOwnProfile(userId));
-    @PutMapping("/profile")
+    }
+
+    @PutMapping
     public ResponseEntity<OwnUserProfileResponse> updateOwnProfile(
             @Valid @RequestBody UpdateOwnUserProfileRequest request) {
 

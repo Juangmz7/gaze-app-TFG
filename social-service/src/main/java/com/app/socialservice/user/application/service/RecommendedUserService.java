@@ -70,7 +70,7 @@ public class RecommendedUserService {
 
     private void assertRequesterExists(UUID requesterUserId) {
         if (userRepository.findById(requesterUserId).isEmpty()) {
-            throw new UserNotFoundException("User not found: " + requesterUserId);
+            throw new UserNotFoundException(requesterUserId);
         }
     }
 

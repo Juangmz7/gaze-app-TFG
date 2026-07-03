@@ -16,6 +16,7 @@ import com.app.socialservice.user.application.commands.UserRegisterCommand;
 import com.app.socialservice.user.application.dto.OwnUserProfileResponse;
 import com.app.socialservice.user.application.repository.UserRepository;
 import com.app.socialservice.user.application.repository.UserStatsRepository;
+import com.app.socialservice.user.domain.enums.UserAccountStatus;
 import com.app.socialservice.user.domain.exception.UserNotFoundException;
 import com.app.socialservice.user.domain.events.UserAuthInfoUpdatedDomainEvent;
 import com.app.socialservice.user.domain.events.UserDeletedDomainEvent;
@@ -58,6 +59,7 @@ public class UserService {
                 .orElseThrow(() -> new UserNotFoundException(userId));
 
         var response = new OwnUserProfileResponse(
+                userId,
                 userProfile.username(),
                 userProfile.description(),
                 userProfile.socialMedia(),
@@ -263,9 +265,14 @@ public class UserService {
         var bio = user.getBio();
         return new OwnUserProfileResponse(
                 user.getId().value(),
+                user.getUsername().value(),
                 bio == null ? null : bio.description(),
+                bio == null ? Map.of() : bio.socialMedia(),
+                0L,
+                0L,
+                0L,
                 user.getPictureUrl() == null ? null : user.getPictureUrl().value(),
-                bio == null ? Map.of() : bio.socialMedia()
+                user.getAccountStatus().equals(UserAccountStatus.BANNED)
         );
     }
 

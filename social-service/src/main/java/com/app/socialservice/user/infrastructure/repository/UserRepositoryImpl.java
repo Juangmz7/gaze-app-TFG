@@ -12,6 +12,7 @@ import com.app.socialservice.user.domain.model.User;
 import com.app.socialservice.user.domain.enums.UserAccountStatus;
 import com.app.socialservice.user.application.dto.OwnUserProfileData;
 
+import com.app.socialservice.user.infrastructure.entity.UserEntity;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 

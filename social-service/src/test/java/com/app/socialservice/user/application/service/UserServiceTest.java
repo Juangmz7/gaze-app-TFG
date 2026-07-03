@@ -97,7 +97,7 @@ class UserServiceTest {
         assertThat(response.followersCount()).isEqualTo(11L);
         assertThat(response.followingCount()).isEqualTo(13L);
         assertThat(response.postCount()).isEqualTo(7L);
-        assertThat(response.profilePic()).isEqualTo("https://example.com/avatar.png");
+        assertThat(response.profilePicture()).isEqualTo("https://example.com/avatar.png");
         assertThat(response.isBanned()).isTrue();
     }
 
@@ -121,6 +121,9 @@ class UserServiceTest {
                 .hasMessage("userId must not be null");
 
         verifyNoInteractions(userRepository, userStatsRepository);
+    }
+
+    @Test
     void shouldUpdateOwnProfileWhenDataChanges() {
         var userId = UUID.randomUUID();
         var existingUser = buildUser(userId, "profile-user", "profile@example.com", UserAccountStatus.ACCEPTED);
@@ -147,12 +150,17 @@ class UserServiceTest {
         verify(userRepository).updateProfile(existingUser);
         assertThat(response).isEqualTo(new OwnUserProfileResponse(
                 userId,
+                "profile-user",
                 "New bio",
-                "https://cdn.example.com/new.png",
                 Map.of(
                         "github", "new-user",
                         "linkedin", "profile-user"
-                )
+                ),
+                0L,
+                0L,
+                0L,
+                "https://cdn.example.com/new.png",
+                false
         ));
     }
 
@@ -176,9 +184,14 @@ class UserServiceTest {
         verify(userRepository, never()).updateProfile(any(User.class));
         assertThat(response).isEqualTo(new OwnUserProfileResponse(
                 userId,
+                "same-user",
                 "Same bio",
+                Map.of("github", "same-user"),
+                0L,
+                0L,
+                0L,
                 "https://cdn.example.com/same.png",
-                Map.of("github", "same-user")
+                false
         ));
         verifyNoInteractions(outboxEventRepository, userEventMapper, jsonMapper, eventPublisher);
     }

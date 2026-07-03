@@ -155,21 +155,6 @@ public class ApiExceptionHandler {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
     }
 
-    @ExceptionHandler(com.app.socialservice.user.domain.exception.UserNotFoundException.class)
-    public ResponseEntity<ApiErrorResponse> handleUserProfileUserNotFoundException(
-            com.app.socialservice.user.domain.exception.UserNotFoundException exception,
-            HttpServletRequest request) {
-
-        var response = new ApiErrorResponse(
-                Instant.now(),
-                HttpStatus.NOT_FOUND.value(),
-                HttpStatus.NOT_FOUND.getReasonPhrase(),
-                exception.getMessage(),
-                request.getRequestURI()
-        );
-
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
-    }
 
     @ExceptionHandler({
             InvalidEmailException.class,
