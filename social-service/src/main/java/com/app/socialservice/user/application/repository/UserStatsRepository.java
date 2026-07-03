@@ -7,6 +7,8 @@ public interface UserStatsRepository {
 
     long getFollowingCount(UUID userId);
 
+    long getPostCount(UUID userId);
+
     void incrementFollowersCount(UUID userId);
 
     void decrementFollowersCount(UUID userId);

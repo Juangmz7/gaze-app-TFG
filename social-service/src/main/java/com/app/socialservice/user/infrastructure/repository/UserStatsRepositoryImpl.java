@@ -29,6 +29,11 @@ public class UserStatsRepositoryImpl implements UserStatsRepository {
     }
 
     @Override
+    public long getPostCount(UUID userId) {
+        return getCounterValue(userId, POST_COUNT_COUNTER);
+    }
+
+    @Override
     public void incrementFollowersCount(UUID userId) {
         incrementCounter(userId, FOLLOWERS_COUNTER);
     }

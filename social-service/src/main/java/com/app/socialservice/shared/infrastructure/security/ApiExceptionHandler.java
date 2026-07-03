@@ -9,6 +9,9 @@ import com.app.socialservice.block.domain.exception.UserNotFoundException;
 import com.app.socialservice.follow.domain.exception.FollowBlockedException;
 import com.app.socialservice.follow.domain.exception.SelfFollowNotAllowedException;
 import com.app.socialservice.follow.domain.exception.SelfUnfollowNotAllowedException;
+import com.app.socialservice.user.domain.exception.SelfProfileRequestNotAllowedException;
+import com.app.socialservice.user.domain.exception.UserProfileBlockedException;
+import com.app.socialservice.user.domain.exception.UserProfileNotFoundException;
 import com.app.socialservice.user.domain.exception.InvalidEmailException;
 import com.app.socialservice.user.domain.exception.InvalidProfilePictureUrlException;
 import com.app.socialservice.user.domain.exception.InvalidUserIdException;
@@ -139,6 +142,22 @@ public class ApiExceptionHandler {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
     }
 
+    @ExceptionHandler(SelfProfileRequestNotAllowedException.class)
+    public ResponseEntity<ApiErrorResponse> handleSelfProfileRequestNotAllowedException(
+            SelfProfileRequestNotAllowedException exception,
+            HttpServletRequest request) {
+
+        var response = new ApiErrorResponse(
+                Instant.now(),
+                HttpStatus.BAD_REQUEST.value(),
+                HttpStatus.BAD_REQUEST.getReasonPhrase(),
+                exception.getMessage(),
+                request.getRequestURI()
+        );
+
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+    }
+
     @ExceptionHandler(FollowBlockedException.class)
     public ResponseEntity<ApiErrorResponse> handleFollowBlockedException(
             FollowBlockedException exception,
@@ -155,6 +174,21 @@ public class ApiExceptionHandler {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
     }
 
+    @ExceptionHandler(UserProfileBlockedException.class)
+    public ResponseEntity<ApiErrorResponse> handleUserProfileBlockedException(
+            UserProfileBlockedException exception
+            HttpServletRequest request) {
+
+        var response = new ApiErrorResponse(
+                Instant.now(),
+                HttpStatus.FORBIDDEN.value(),
+                HttpStatus.FORBIDDEN.getReasonPhrase(),
+                exception.getMessage(),
+                request.getRequestURI()
+        );
+
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
+    }
 
     @ExceptionHandler({
             InvalidEmailException.class,

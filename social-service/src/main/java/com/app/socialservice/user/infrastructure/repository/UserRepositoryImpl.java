@@ -1,16 +1,17 @@
 package com.app.socialservice.user.infrastructure.repository;
 
-import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.List;
 
-import com.app.socialservice.user.application.dto.RecommendedUserDetails;
+import com.app.socialservice.user.application.dto.UserProfileDetails;
 import com.app.socialservice.user.application.mapper.UserMapper;
 import com.app.socialservice.user.application.repository.UserRepository;
-import com.app.socialservice.user.domain.exception.UserNotFoundException;
-import com.app.socialservice.user.domain.model.User;
 import com.app.socialservice.user.domain.enums.UserAccountStatus;
+import com.app.socialservice.user.domain.model.User;
+import com.app.socialservice.user.domain.exception.UserNotFoundException;
 import com.app.socialservice.user.application.dto.OwnUserProfileData;
+
 
 import com.app.socialservice.user.infrastructure.entity.UserEntity;
 import lombok.RequiredArgsConstructor;
@@ -53,6 +54,13 @@ public class UserRepositoryImpl implements UserRepository {
     }
 
     @Override
+    public Optional<UserProfileDetails> findProfileDetails(UUID requesterUserId, UUID targetUserId) {
+        validateUserId(requesterUserId, "requesterUserId");
+        validateUserId(targetUserId, "targetUserId");
+
+        return jpaUserRepository.findProfileDetails(requesterUserId, targetUserId);
+    }
+  
     public Optional<OwnUserProfileData> findOwnProfileById(UUID id) {
         return jpaUserRepository.findByIdAndAccountStatusIn(
                         id,
@@ -102,6 +110,12 @@ public class UserRepositoryImpl implements UserRepository {
         return rows > 0;
     }
 
+    private void validateUserId(UUID userId, String fieldName) {
+        if (userId == null) {
+            throw new IllegalArgumentException(fieldName + " must not be null");
+        }
+    }
+  
     private OwnUserProfileData toOwnUserProfileData(UserEntity userEntity) {
         var bio = userEntity.getBio();
         return new OwnUserProfileData(
