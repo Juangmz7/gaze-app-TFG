@@ -6,9 +6,16 @@ import java.net.URI;
 
 public record ProfilePictureUrl(String value) {
 
+    public static final int MAX_LENGTH = 255;
+
     public ProfilePictureUrl {
         if (value == null || value.isBlank()) {
             throw new InvalidProfilePictureUrlException("Profile picture URL must not be null or blank");
+        }
+        if (value.length() > MAX_LENGTH) {
+            throw new InvalidProfilePictureUrlException(
+                    "Profile picture URL must not exceed %d characters".formatted(MAX_LENGTH)
+            );
         }
         try {
             URI uri = URI.create(value);

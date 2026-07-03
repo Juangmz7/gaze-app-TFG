@@ -1,12 +1,12 @@
 package com.app.socialservice.user.application.dto;
 
-import java.util.Map;
 import java.util.UUID;
 
-public record OwnUserProfileResponse(
+public record RecommendedUserResponse(
         UUID userId,
+        String username,
         String description,
-        String profilePicture,
-        Map<String, String> socialMedia
+        String profilePic,
+        boolean followsYou
 ) {
 }
