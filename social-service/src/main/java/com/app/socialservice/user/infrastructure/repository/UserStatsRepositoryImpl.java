@@ -19,6 +19,16 @@ public class UserStatsRepositoryImpl implements UserStatsRepository {
     private final StringRedisTemplate stringRedisTemplate;
 
     @Override
+    public long getFollowersCount(UUID userId) {
+        return getCounterValue(userId, FOLLOWERS_COUNTER);
+    }
+
+    @Override
+    public long getFollowingCount(UUID userId) {
+        return getCounterValue(userId, FOLLOWING_COUNTER);
+    }
+
+    @Override
     public void incrementFollowersCount(UUID userId) {
         incrementCounter(userId, FOLLOWERS_COUNTER);
     }
@@ -56,6 +66,17 @@ public class UserStatsRepositoryImpl implements UserStatsRepository {
     private void decrementCounter(UUID userId, String counterName) {
         validateUserId(userId);
         stringRedisTemplate.opsForValue().decrement(buildKey(userId, counterName));
+    }
+
+    private long getCounterValue(UUID userId, String counterName) {
+        validateUserId(userId);
+
+        var value = stringRedisTemplate.opsForValue().get(buildKey(userId, counterName));
+        if (value == null) {
+            return 0L;
+        }
+
+        return Long.parseLong(value);
     }
 
     private void validateUserId(UUID userId) {

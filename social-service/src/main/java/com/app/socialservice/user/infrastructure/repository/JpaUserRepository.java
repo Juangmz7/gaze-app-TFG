@@ -14,6 +14,11 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collection;
+import java.util.UUID;
+import java.util.Optional;
+import com.app.socialservice.user.domain.enums.UserAccountStatus;
+
 @Repository
 public interface JpaUserRepository extends JpaRepository<UserEntity, UUID> {
 
@@ -28,6 +33,7 @@ public interface JpaUserRepository extends JpaRepository<UserEntity, UUID> {
 
     Optional<UserEntity> findByIdAndAccountStatus(UUID id, UserAccountStatus accountStatus);
 
+    Optional<UserEntity> findByIdAndAccountStatusIn(UUID id, Collection<UserAccountStatus> accountStatuses);
     @Query(
             value = """
                     SELECT u.id AS id,

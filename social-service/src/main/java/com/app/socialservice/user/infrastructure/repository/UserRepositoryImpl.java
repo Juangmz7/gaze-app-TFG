@@ -10,6 +10,8 @@ import com.app.socialservice.user.application.repository.UserRepository;
 import com.app.socialservice.user.domain.exception.UserNotFoundException;
 import com.app.socialservice.user.domain.model.User;
 import com.app.socialservice.user.domain.enums.UserAccountStatus;
+import com.app.socialservice.user.application.dto.OwnUserProfileData;
+
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
@@ -47,6 +49,15 @@ public class UserRepositoryImpl implements UserRepository {
     public Optional<User> findById(UUID id) {
         return jpaUserRepository.findByIdAndAccountStatus(id, UserAccountStatus.ACCEPTED)
                 .map(userMapper::toDomain);
+    }
+
+    @Override
+    public Optional<OwnUserProfileData> findOwnProfileById(UUID id) {
+        return jpaUserRepository.findByIdAndAccountStatusIn(
+                        id,
+                        List.of(UserAccountStatus.ACCEPTED, UserAccountStatus.BANNED)
+                )
+                .map(this::toOwnUserProfileData);
     }
 
     @Override
@@ -88,5 +99,17 @@ public class UserRepositoryImpl implements UserRepository {
                 entity.getAccountStatus().name()
         );
         return rows > 0;
+    }
+
+    private OwnUserProfileData toOwnUserProfileData(UserEntity userEntity) {
+        var bio = userEntity.getBio();
+        return new OwnUserProfileData(
+                userEntity.getUsername(),
+                bio == null ? null : bio.getDescription(),
+                bio == null ? null : bio.getSocialMedia(),
+                userEntity.getPostCount(),
+                userEntity.getPictureUrl(),
+                userEntity.getAccountStatus() == UserAccountStatus.BANNED
+        );
     }
 }

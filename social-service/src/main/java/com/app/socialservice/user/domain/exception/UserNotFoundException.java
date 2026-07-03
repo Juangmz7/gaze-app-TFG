@@ -1,8 +1,10 @@
 package com.app.socialservice.user.domain.exception;
 
+import java.util.UUID;
+
 public class UserNotFoundException extends DomainException {
 
-    public UserNotFoundException(String message) {
-        super(message);
+    public UserNotFoundException(UUID userId) {
+        super("User not found: " + userId);
     }
 }

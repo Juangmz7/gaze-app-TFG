@@ -14,13 +14,21 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/social")
+@RequestMapping("/api/social/profile")
 @RequiredArgsConstructor
 public class UserProfileController {
 
     private final UserService userService;
     private final SecurityUtils securityUtils;
 
+    @GetMapping("/me")
+    public ResponseEntity<OwnUserProfileResponse> getOwnProfile() {
+        var userId = securityUtils.getUserId();
+        if (userId == null) {
+            throw new IllegalArgumentException("Authenticated user id cannot be found");
+        }
+
+        return ResponseEntity.ok(userService.getOwnProfile(userId));
     @PutMapping("/profile")
     public ResponseEntity<OwnUserProfileResponse> updateOwnProfile(
             @Valid @RequestBody UpdateOwnUserProfileRequest request) {
