@@ -22,6 +22,7 @@ public interface UserMapper {
     @Mapping(target = "email", source = "email.value")
     @Mapping(target = "pictureUrl", source = "pictureUrl.value")
     @Mapping(target = "bio", source = "bio")
+    @Mapping(target = "postCount", ignore = true)
     @Mapping(target = "version", ignore = true)
     UserEntity toEntity(User domain);
 

@@ -31,6 +31,9 @@ public class UserEntity {
     @Embedded
     private UserBioEmbeddable bio;
 
+    @Column(nullable = false, columnDefinition = "bigint default 0")
+    private long postCount;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private UserAccountStatus accountStatus;

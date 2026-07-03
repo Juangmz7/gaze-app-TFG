@@ -1,6 +1,7 @@
 package com.app.socialservice.block.infrastructure.repository;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 import com.app.socialservice.block.infrastructure.entity.BlockEntity;
@@ -12,6 +13,19 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface JpaBlockRepository extends JpaRepository<BlockEntity, BlockEntityId> {
+
+    @Query(
+            value = """
+                    SELECT CASE
+                        WHEN blocker_id = :userId THEN blocked_id
+                        ELSE blocker_id
+                    END
+                    FROM blocks
+                    WHERE blocker_id = :userId OR blocked_id = :userId
+                    """,
+            nativeQuery = true
+    )
+    List<UUID> findBlockedUserIds(UUID userId);
 
     @Modifying
     @Query(

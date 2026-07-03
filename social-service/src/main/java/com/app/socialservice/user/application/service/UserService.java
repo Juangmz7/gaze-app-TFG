@@ -1,6 +1,7 @@
 package com.app.socialservice.user.application.service;
 
 import java.time.Instant;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -9,16 +10,24 @@ import com.app.socialservice.shared.infrastructure.enums.EventStatus;
 import com.app.socialservice.shared.infrastructure.mapper.JsonMapper;
 import com.app.socialservice.shared.infrastructure.repository.OutboxEventRepository;
 import com.app.socialservice.user.application.commands.DeleteUserCommand;
+import com.app.socialservice.user.application.commands.UpdateOwnUserProfileCommand;
 import com.app.socialservice.user.application.commands.UpdateAuthUserInfoCommand;
 import com.app.socialservice.user.application.commands.UserRegisterCommand;
+import com.app.socialservice.user.application.dto.OwnUserProfileResponse;
 import com.app.socialservice.user.application.repository.UserRepository;
+import com.app.socialservice.user.application.repository.UserStatsRepository;
+import com.app.socialservice.user.domain.enums.UserAccountStatus;
+import com.app.socialservice.user.domain.exception.UserNotFoundException;
 import com.app.socialservice.user.domain.events.UserAuthInfoUpdatedDomainEvent;
 import com.app.socialservice.user.domain.events.UserDeletedDomainEvent;
 import com.app.socialservice.user.domain.events.UserRegisteredDomainEvent;
 import com.app.socialservice.user.domain.model.User;
 import com.app.socialservice.user.domain.model.valueobj.Email;
+import com.app.socialservice.user.domain.model.valueobj.ProfilePictureUrl;
+import com.app.socialservice.user.domain.model.valueobj.UserBio;
 import com.app.socialservice.user.domain.model.valueobj.UserId;
 import com.app.socialservice.user.domain.model.valueobj.Username;
+import com.app.socialservice.user.domain.exception.UserNotFoundException;
 import com.app.socialservice.user.infrastructure.events.UserDeletedEvent;
 import com.app.socialservice.user.infrastructure.events.UserRegisteredEvent;
 import com.app.socialservice.user.infrastructure.events.UserUpdatedEvent;
@@ -39,6 +48,50 @@ public class UserService {
     private final OutboxEventRepository outboxEventRepository;
     private final UserEventMapper userEventMapper;
     private final JsonMapper jsonMapper;
+    private final UserStatsRepository userStatsRepository;
+
+    @Transactional(readOnly = true)
+    public OwnUserProfileResponse getOwnProfile(UUID userId) {
+        validateUserId(userId);
+        log.info("Retrieving own profile for user {}", userId);
+
+        var userProfile = userRepository.findOwnProfileById(userId)
+                .orElseThrow(() -> new UserNotFoundException(userId));
+
+        var response = new OwnUserProfileResponse(
+                userId,
+                userProfile.username(),
+                userProfile.description(),
+                userProfile.socialMedia(),
+                userStatsRepository.getFollowersCount(userId),
+                userStatsRepository.getFollowingCount(userId),
+                userProfile.postCount(),
+                userProfile.profilePic(),
+                userProfile.banned()
+        );
+
+        log.info("Own profile retrieved for user {}", userId);
+        return response;
+    }
+
+    @Transactional
+    public OwnUserProfileResponse updateOwnUserProfile(UpdateOwnUserProfileCommand command) {
+        validateUpdateOwnProfileCommand(command);
+
+        var user = getUserById(command.userId())
+                .orElseThrow(() -> new UserNotFoundException(command.userId()));
+        var requestedPictureUrl = toProfilePictureUrl(command.profilePicture());
+        var requestedBio = toUserBio(command.description(), command.socialMedia());
+
+        if (!user.hasProfileChanges(requestedPictureUrl, requestedBio)) {
+            return toOwnUserProfileResponse(user);
+        }
+
+        user.updateProfile(requestedPictureUrl, requestedBio);
+
+        var savedUser = userRepository.updateProfile(user);
+        return toOwnUserProfileResponse(savedUser);
+    }
 
     @Transactional
     public void registerUser(UserRegisterCommand command) {
@@ -208,6 +261,36 @@ public class UserService {
         return userRepository.findById(id);
     }
 
+    private OwnUserProfileResponse toOwnUserProfileResponse(User user) {
+        var bio = user.getBio();
+        return new OwnUserProfileResponse(
+                user.getId().value(),
+                user.getUsername().value(),
+                bio == null ? null : bio.description(),
+                bio == null ? Map.of() : bio.socialMedia(),
+                0L,
+                0L,
+                0L,
+                user.getPictureUrl() == null ? null : user.getPictureUrl().value(),
+                user.getAccountStatus().equals(UserAccountStatus.BANNED)
+        );
+    }
+
+    private ProfilePictureUrl toProfilePictureUrl(String profilePicture) {
+        if (profilePicture == null) {
+            return null;
+        }
+        return new ProfilePictureUrl(profilePicture);
+    }
+
+    private UserBio toUserBio(String description, Map<String, String> socialMedia) {
+        var normalizedSocialMedia = socialMedia == null ? Map.<String, String>of() : Map.copyOf(socialMedia);
+        if (description == null && normalizedSocialMedia.isEmpty()) {
+            return null;
+        }
+        return new UserBio(description, normalizedSocialMedia);
+    }
+
     private void validateRegisterCommand(UserRegisterCommand command) {
         if (command == null) {
             throw new IllegalArgumentException("command must not be null");
@@ -229,6 +312,38 @@ public class UserService {
         }
         if (command.eventType() == null) {
             throw new IllegalArgumentException("command.eventType must not be null");
+        }
+    }
+
+    private void validateUpdateOwnProfileCommand(UpdateOwnUserProfileCommand command) {
+        if (command == null) {
+            throw new IllegalArgumentException("command must not be null");
+        }
+        if (command.userId() == null) {
+            throw new IllegalArgumentException("command.userId must not be null");
+        }
+        if (command.description() != null && command.description().isBlank()) {
+            throw new IllegalArgumentException("command.description must not be blank");
+        }
+        if (command.description() != null && command.description().length() > UserBio.MAX_DESCRIPTION_LENGTH) {
+            throw new IllegalArgumentException(
+                    "command.description must not exceed %d characters".formatted(UserBio.MAX_DESCRIPTION_LENGTH)
+            );
+        }
+        if (command.profilePicture() != null && command.profilePicture().length() > ProfilePictureUrl.MAX_LENGTH) {
+            throw new IllegalArgumentException(
+                    "command.profilePicture must not exceed %d characters".formatted(ProfilePictureUrl.MAX_LENGTH)
+            );
+        }
+        if (command.socialMedia() != null) {
+            command.socialMedia().forEach((platform, handle) -> {
+                if (platform == null || platform.isBlank()) {
+                    throw new IllegalArgumentException("command.socialMedia keys must not be null or blank");
+                }
+                if (handle == null || handle.isBlank()) {
+                    throw new IllegalArgumentException("command.socialMedia values must not be null or blank");
+                }
+            });
         }
     }
 
@@ -271,6 +386,12 @@ public class UserService {
         }
         if (command.eventType() == null) {
             throw new IllegalArgumentException("command.eventType must not be null");
+        }
+    }
+
+    private void validateUserId(UUID userId) {
+        if (userId == null) {
+            throw new IllegalArgumentException("userId must not be null");
         }
     }
 }

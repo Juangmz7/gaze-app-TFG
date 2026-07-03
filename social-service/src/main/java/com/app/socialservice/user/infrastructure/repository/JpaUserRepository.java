@@ -6,6 +6,11 @@ import java.util.UUID;
 import com.app.socialservice.block.infrastructure.entity.BlockEntity;
 import com.app.socialservice.follow.infrastructure.entity.FollowEntity;
 import com.app.socialservice.user.application.dto.UserProfileDetails;
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
 import com.app.socialservice.user.domain.enums.UserAccountStatus;
 import com.app.socialservice.user.infrastructure.entity.UserEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -15,8 +20,20 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collection;
+import com.app.socialservice.user.domain.enums.UserAccountStatus;
+
 @Repository
 public interface JpaUserRepository extends JpaRepository<UserEntity, UUID> {
+
+    interface RecommendedUserProjection {
+        UUID getId();
+        String getUsername();
+        String getDescription();
+        String getProfilePic();
+        boolean getFollowsYou();
+        Instant getCreatedAt();
+    }
 
     Optional<UserEntity> findByIdAndAccountStatus(UUID id, UserAccountStatus accountStatus);
 
@@ -50,6 +67,33 @@ public interface JpaUserRepository extends JpaRepository<UserEntity, UUID> {
     Optional<UserProfileDetails> findProfileDetails(
             @Param("requesterUserId") UUID requesterUserId,
             @Param("targetUserId") UUID targetUserId
+    )
+           
+    Optional<UserEntity> findByIdAndAccountStatusIn(UUID id, Collection<UserAccountStatus> accountStatuses);
+           
+    @Query(
+            value = """
+                    SELECT u.id AS id,
+                           u.username AS username,
+                           u.description AS description,
+                           u.picture_url AS "profilePic",
+                           EXISTS (
+                               SELECT 1
+                               FROM follows f
+                               WHERE f.follower_id = u.id
+                                 AND f.followed_id = :requesterUserId
+                                 AND f.status = 'ACTIVE'
+                           ) AS "followsYou",
+                           u.created_at AS "createdAt"
+                    FROM users u
+                    WHERE u.id IN (:userIds)
+                      AND u.account_status = 'ACCEPTED'
+                    """,
+            nativeQuery = true
+    )
+    List<RecommendedUserProjection> findRecommendedUsersByIds(
+            @Param("userIds") List<UUID> userIds,
+            @Param("requesterUserId") UUID requesterUserId
     );
 
     @Modifying

@@ -29,8 +29,11 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import static org.hamcrest.Matchers.nullValue;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -98,6 +101,39 @@ class UserProfileControllerIntegrationTest {
                 .andExpect(jsonPath("$.postCount").value(33))
                 .andExpect(jsonPath("$.profilePic").value("https://cdn.example.com/target.png"))
                 .andExpect(jsonPath("$.following").value(true))
+                .andExpect(jsonPath("$.isBanned").value(false));
+    }
+    
+    @Test
+    void getApiSocialProfileMeReturnsAuthenticatedUserProfileUsingRedisCounters() throws Exception {
+        var userId = UUID.randomUUID();
+
+        seedUser(UserEntity.builder()
+                .id(userId)
+                .username("profile-user")
+                .email("profile-user@example.com")
+                .pictureUrl("https://example.com/profile-user.png")
+                .bio(UserBioEmbeddable.builder()
+                        .description("Own bio")
+                        .socialMedia(Map.of("github", "profile-user"))
+                        .build())
+                .postCount(5L)
+                .accountStatus(UserAccountStatus.ACCEPTED)
+                .build());
+        seedCounter(userId, "followers", 8L);
+        seedCounter(userId, "following", 3L);
+
+        mockMvc.perform(get("/api/social/profile/me")
+                        .with(jwt().jwt(jwt -> jwt.claim("userId", userId.toString())))
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.username").value("profile-user"))
+                .andExpect(jsonPath("$.description").value("Own bio"))
+                .andExpect(jsonPath("$.socialMedia.github").value("profile-user"))
+                .andExpect(jsonPath("$.followersCount").value(8))
+                .andExpect(jsonPath("$.followingCount").value(3))
+                .andExpect(jsonPath("$.postCount").value(5))
+                .andExpect(jsonPath("$.profilePicture").value("https://example.com/profile-user.png"))
                 .andExpect(jsonPath("$.isBanned").value(false));
     }
 
@@ -198,6 +234,54 @@ class UserProfileControllerIntegrationTest {
         stringRedisTemplate.opsForValue().set(buildCounterKey(userId, "followers"), String.valueOf(followerCount));
         stringRedisTemplate.opsForValue().set(buildCounterKey(userId, "following"), String.valueOf(followingCount));
         stringRedisTemplate.opsForValue().set(buildCounterKey(userId, "postCount"), String.valueOf(postCount));
+    void getApiSocialProfileMeReturnsNullableFieldsAndBannedFlag() throws Exception {
+        var userId = UUID.randomUUID();
+
+        seedUser(UserEntity.builder()
+                .id(userId)
+                .username("banned-user")
+                .email("banned-user@example.com")
+                .postCount(0L)
+                .accountStatus(UserAccountStatus.BANNED)
+                .build());
+
+        mockMvc.perform(get("/api/social/profile/me")
+                        .with(jwt().jwt(jwt -> jwt.claim("userId", userId.toString()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.username").value("banned-user"))
+                .andExpect(jsonPath("$.description").value(nullValue()))
+                .andExpect(jsonPath("$.socialMedia").value(nullValue()))
+                .andExpect(jsonPath("$.followersCount").value(0))
+                .andExpect(jsonPath("$.followingCount").value(0))
+                .andExpect(jsonPath("$.postCount").value(0))
+                .andExpect(jsonPath("$.profilePicture").value(nullValue()))
+                .andExpect(jsonPath("$.isBanned").value(true));
+    }
+
+    @Test
+    void getApiSocialProfileMeReturns404WhenAuthenticatedUserDoesNotExist() throws Exception {
+        var userId = UUID.randomUUID();
+
+        mockMvc.perform(get("/api/social/profile/me")
+                        .with(jwt().jwt(jwt -> jwt.claim("userId", userId.toString()))))
+                .andExpect(status().isNotFound());
+
+        assertThat(jpaUserRepository.count()).isZero();
+    }
+
+    @Test
+    void getApiSocialProfileMeReturns400WhenJwtDoesNotContainUserIdClaim() throws Exception {
+        mockMvc.perform(get("/api/social/profile/me")
+                        .with(jwt()))
+                .andExpect(status().isBadRequest());
+    }
+
+    private void seedUser(UserEntity userEntity) {
+        jpaUserRepository.save(userEntity);
+    }
+
+    private void seedCounter(UUID userId, String counterName, long value) {
+        stringRedisTemplate.opsForValue().set(buildCounterKey(userId, counterName), String.valueOf(value));
     }
 
     private void flushRedis() {
@@ -211,5 +295,192 @@ class UserProfileControllerIntegrationTest {
 
     private String buildCounterKey(UUID userId, String counterName) {
         return String.format(USER_STATS_KEY_PATTERN, userId, counterName);
+    }
+
+    @Test
+    void putApiSocialProfileUpdatesAuthenticatedUsersOwnProfile() throws Exception {
+        var authenticatedUserId = UUID.randomUUID();
+        var otherUserId = UUID.randomUUID();
+
+        seedUser(authenticatedUserId, "profile-owner", "Owner bio", "https://cdn.example.com/owner-old.png");
+        seedUser(otherUserId, "other-user", "Other bio", "https://cdn.example.com/other.png");
+
+        mockMvc.perform(put("/api/social/profile")
+                        .with(jwt().jwt(jwt -> jwt.claim("userId", authenticatedUserId.toString())))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "description": "Updated owner bio",
+                                  "profilePicture": "https://cdn.example.com/owner-new.png",
+                                  "socialMedia": {
+                                    "github": "owner-new"
+                                  }
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.userId").value(authenticatedUserId.toString()))
+                .andExpect(jsonPath("$.description").value("Updated owner bio"))
+                .andExpect(jsonPath("$.profilePicture").value("https://cdn.example.com/owner-new.png"))
+                .andExpect(jsonPath("$.socialMedia.github").value("owner-new"));
+
+        assertThat(jpaUserRepository.findById(authenticatedUserId)).get()
+                .extracting(UserEntity::getPictureUrl)
+                .isEqualTo("https://cdn.example.com/owner-new.png");
+        assertThat(jpaUserRepository.findById(authenticatedUserId)).get()
+                .extracting(entity -> entity.getBio().getDescription())
+                .isEqualTo("Updated owner bio");
+        assertThat(jpaUserRepository.findById(authenticatedUserId)).get()
+                .extracting(entity -> entity.getBio().getSocialMedia())
+                .isEqualTo(Map.of("github", "owner-new"));
+
+        assertThat(jpaUserRepository.findById(otherUserId)).get()
+                .extracting(UserEntity::getPictureUrl)
+                .isEqualTo("https://cdn.example.com/other.png");
+        assertThat(jpaUserRepository.findById(otherUserId)).get()
+                .extracting(entity -> entity.getBio().getDescription())
+                .isEqualTo("Other bio");
+    }
+
+    @Test
+    void putApiSocialProfileReturnsCurrentDataWithoutPersistingWhenPayloadIsUnchanged() throws Exception {
+        var authenticatedUserId = UUID.randomUUID();
+
+        var seededUser = seedUser(
+                authenticatedUserId,
+                "same-user",
+                "Same bio",
+                "https://cdn.example.com/same.png"
+        );
+        var versionBefore = jpaUserRepository.findById(authenticatedUserId).orElseThrow().getVersion();
+
+        mockMvc.perform(put("/api/social/profile")
+                        .with(jwt().jwt(jwt -> jwt.claim("userId", authenticatedUserId.toString())))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "description": "Same bio",
+                                  "profilePicture": "https://cdn.example.com/same.png",
+                                  "socialMedia": {
+                                    "github": "same-user"
+                                  }
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.userId").value(authenticatedUserId.toString()))
+                .andExpect(jsonPath("$.description").value("Same bio"))
+                .andExpect(jsonPath("$.profilePicture").value("https://cdn.example.com/same.png"))
+                .andExpect(jsonPath("$.socialMedia.github").value("same-user"));
+
+        var userAfter = jpaUserRepository.findById(authenticatedUserId).orElseThrow();
+        assertThat(userAfter.getVersion()).isEqualTo(versionBefore);
+        assertThat(userAfter.getUpdatedAt()).isEqualTo(seededUser.getUpdatedAt());
+    }
+
+    @Test
+    void putApiSocialProfileReturnsBadRequestWhenDescriptionExceedsPersistenceLimit() throws Exception {
+        var authenticatedUserId = UUID.randomUUID();
+
+        seedUser(
+                authenticatedUserId,
+                "invalid-user",
+                "Existing bio",
+                "https://cdn.example.com/existing.png"
+        );
+
+        mockMvc.perform(put("/api/social/profile")
+                        .with(jwt().jwt(jwt -> jwt.claim("userId", authenticatedUserId.toString())))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "description": "%s"
+                                }
+                                """.formatted("a".repeat(256))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.error").value("Bad Request"))
+                .andExpect(jsonPath("$.path").value("/api/social/profile"))
+                .andExpect(jsonPath("$.message").isNotEmpty());
+    }
+
+    @Test
+    void putApiSocialProfileReturnsBadRequestWhenProfilePictureExceedsPersistenceLimit() throws Exception {
+        var authenticatedUserId = UUID.randomUUID();
+
+        seedUser(
+                authenticatedUserId,
+                "invalid-user",
+                "Existing bio",
+                "https://cdn.example.com/existing.png"
+        );
+
+        mockMvc.perform(put("/api/social/profile")
+                        .with(jwt().jwt(jwt -> jwt.claim("userId", authenticatedUserId.toString())))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "profilePicture": "%s"
+                                }
+                                """.formatted("https://%s".formatted("a".repeat(248)))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.error").value("Bad Request"))
+                .andExpect(jsonPath("$.path").value("/api/social/profile"))
+                .andExpect(jsonPath("$.message").isNotEmpty());
+    }
+
+    @Test
+    void putApiSocialProfileIgnoresSpoofedBodyUserIdAndUpdatesAuthenticatedUserOnly() throws Exception {
+        var authenticatedUserId = UUID.randomUUID();
+        var spoofedUserId = UUID.randomUUID();
+
+        seedUser(authenticatedUserId, "profile-owner", "Owner bio", "https://cdn.example.com/owner-old.png");
+        seedUser(spoofedUserId, "spoof-target", "Spoof target bio", "https://cdn.example.com/spoof-old.png");
+
+        mockMvc.perform(put("/api/social/profile")
+                        .with(jwt().jwt(jwt -> jwt.claim("userId", authenticatedUserId.toString())))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "userId": "%s",
+                                  "description": "Updated owner bio",
+                                  "profilePicture": "https://cdn.example.com/owner-new.png",
+                                  "socialMedia": {
+                                    "github": "owner-new"
+                                  }
+                                }
+                                """.formatted(spoofedUserId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.userId").value(authenticatedUserId.toString()))
+                .andExpect(jsonPath("$.description").value("Updated owner bio"))
+                .andExpect(jsonPath("$.profilePicture").value("https://cdn.example.com/owner-new.png"))
+                .andExpect(jsonPath("$.socialMedia.github").value("owner-new"));
+
+        assertThat(jpaUserRepository.findById(authenticatedUserId)).get()
+                .extracting(UserEntity::getPictureUrl)
+                .isEqualTo("https://cdn.example.com/owner-new.png");
+        assertThat(jpaUserRepository.findById(authenticatedUserId)).get()
+                .extracting(entity -> entity.getBio().getDescription())
+                .isEqualTo("Updated owner bio");
+
+        assertThat(jpaUserRepository.findById(spoofedUserId)).get()
+                .extracting(UserEntity::getPictureUrl)
+                .isEqualTo("https://cdn.example.com/spoof-old.png");
+        assertThat(jpaUserRepository.findById(spoofedUserId)).get()
+                .extracting(entity -> entity.getBio().getDescription())
+                .isEqualTo("Spoof target bio");
+    }
+
+    private UserEntity seedUser(UUID userId, String username, String description, String pictureUrl) {
+        return jpaUserRepository.save(UserEntity.builder()
+                .id(userId)
+                .username(username)
+                .email(username + "@example.com")
+                .pictureUrl(pictureUrl)
+                .bio(UserBioEmbeddable.builder()
+                        .description(description)
+                        .socialMedia(Map.of("github", username))
+                        .build())
+                .accountStatus(UserAccountStatus.ACCEPTED)
+                .build());
     }
 }
