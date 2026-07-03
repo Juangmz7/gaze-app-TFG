@@ -15,10 +15,12 @@ import com.app.socialservice.user.application.dto.RecommendedUserResponse;
 import com.app.socialservice.user.application.repository.UserRepository;
 import com.app.socialservice.user.domain.exception.UserNotFoundException;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class RecommendedUserService {
 
@@ -49,6 +51,8 @@ public class RecommendedUserService {
         if (profilesById.isEmpty()) {
             return List.of();
         }
+
+        log.info("Retrieving recommended user for user {}", requesterUserId);
 
         return rankedCandidates.stream()
                 .filter(candidate -> profilesById.containsKey(candidate.userId()))
@@ -136,6 +140,7 @@ public class RecommendedUserService {
 
     private RecommendedUserResponse toResponse(RecommendedUserDetails profile) {
         return new RecommendedUserResponse(
+                profile.id(),
                 profile.username(),
                 profile.description(),
                 profile.profilePic(),
