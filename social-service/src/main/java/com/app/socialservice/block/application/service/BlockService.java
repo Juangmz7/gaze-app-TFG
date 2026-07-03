@@ -8,7 +8,7 @@ import com.app.socialservice.block.application.commands.UnblockUserCommand;
 import com.app.socialservice.block.application.dto.BlockResponse;
 import com.app.socialservice.block.domain.exception.SelfBlockNotAllowedException;
 import com.app.socialservice.block.domain.exception.SelfUnblockNotAllowedException;
-import com.app.socialservice.block.domain.exception.UserNotFoundException;
+import com.app.socialservice.shared.domain.exception.UserNotFoundException;
 import com.app.socialservice.block.domain.events.UserBlockedDomainEvent;
 import com.app.socialservice.block.domain.events.UserUnblockedDomainEvent;
 import com.app.socialservice.block.domain.model.Block;

@@ -1,4 +1,4 @@
-package com.app.socialservice.follow.domain.exception;
+package com.app.socialservice.shared.domain.exception;
 
 public class DomainException extends RuntimeException {
 

@@ -12,7 +12,7 @@ import com.app.socialservice.follow.application.dto.RecommendedFollowCandidate;
 import com.app.socialservice.follow.application.repository.FollowGraphRepository;
 import com.app.socialservice.user.application.dto.RecommendedUserDetails;
 import com.app.socialservice.user.application.repository.UserRepository;
-import com.app.socialservice.user.domain.exception.UserNotFoundException;
+import com.app.socialservice.shared.domain.exception.UserNotFoundException;
 import com.app.socialservice.user.domain.model.User;
 import com.app.socialservice.user.domain.model.valueobj.Email;
 import com.app.socialservice.user.domain.model.valueobj.UserId;

@@ -1,6 +1,8 @@
 package com.app.socialservice.user.domain.exception;
 
-public class InvalidProfilePictureUrlException extends RuntimeException {
+import com.app.socialservice.shared.domain.exception.DomainException;
+
+public class InvalidProfilePictureUrlException extends DomainException {
 
     public InvalidProfilePictureUrlException(String message) {
         super(message);

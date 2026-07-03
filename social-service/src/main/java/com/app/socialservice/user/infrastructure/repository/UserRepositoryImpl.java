@@ -9,7 +9,7 @@ import com.app.socialservice.user.application.mapper.UserMapper;
 import com.app.socialservice.user.application.repository.UserRepository;
 import com.app.socialservice.user.domain.enums.UserAccountStatus;
 import com.app.socialservice.user.domain.model.User;
-import com.app.socialservice.user.domain.exception.UserNotFoundException;
+import com.app.socialservice.shared.domain.exception.UserNotFoundException;
 import com.app.socialservice.user.application.dto.OwnUserProfileData;
 import com.app.socialservice.user.application.dto.RecommendedUserDetails;
 

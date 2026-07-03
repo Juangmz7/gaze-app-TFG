@@ -12,7 +12,7 @@ import com.app.socialservice.follow.domain.events.UserFollowedDomainEvent;
 import com.app.socialservice.follow.domain.exception.FollowBlockedException;
 import com.app.socialservice.follow.domain.exception.SelfFollowNotAllowedException;
 import com.app.socialservice.follow.domain.exception.SelfUnfollowNotAllowedException;
-import com.app.socialservice.follow.domain.exception.UserNotFoundException;
+import com.app.socialservice.shared.domain.exception.UserNotFoundException;
 import com.app.socialservice.follow.domain.model.Follow;
 import com.app.socialservice.follow.infrastructure.events.UserFollowedEvent;
 import com.app.socialservice.follow.infrastructure.events.UserUnfollowedEvent;
