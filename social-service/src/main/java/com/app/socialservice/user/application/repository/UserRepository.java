@@ -8,6 +8,7 @@ import com.app.socialservice.user.application.dto.RecommendedUserDetails;
 import com.app.socialservice.user.domain.model.User;
 
 public interface UserRepository {
+    User updateProfile(User user);
     Optional<User> findById(UUID id);
     boolean existsById(UUID id);
     List<RecommendedUserDetails> findRecommendedUsersByIds(List<UUID> userIds, UUID requesterUserId);
