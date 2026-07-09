@@ -20,11 +20,15 @@ public class SecurityUtils {
     }
 
     public UUID getUserId() {
-        var userIdClaim = getClaim("userId");
+        var userIdClaim = getClaim("sub");
         if (userIdClaim == null) {
             return null;
         }
-        return UUID.fromString(userIdClaim);
+        try {
+            return UUID.fromString(userIdClaim);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 
     public String getClaim(String claimName) {
