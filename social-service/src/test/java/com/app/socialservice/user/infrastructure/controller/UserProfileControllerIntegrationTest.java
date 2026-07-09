@@ -92,6 +92,7 @@ class UserProfileControllerIntegrationTest {
                         .with(jwt().jwt(jwt -> jwt.subject(requesterUserId.toString())))
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(targetUserId.toString()))
                 .andExpect(jsonPath("$.username").value("target-user"))
                 .andExpect(jsonPath("$.description").value("Target description"))
                 .andExpect(jsonPath("$.socialMedia.github").value("target-user"))
@@ -101,6 +102,7 @@ class UserProfileControllerIntegrationTest {
                 .andExpect(jsonPath("$.postCount").value(33))
                 .andExpect(jsonPath("$.profilePic").value("https://cdn.example.com/target.png"))
                 .andExpect(jsonPath("$.following").value(true))
+                .andExpect(jsonPath("$.followsMe").value(false))
                 .andExpect(jsonPath("$.isBanned").value(false));
     }
     

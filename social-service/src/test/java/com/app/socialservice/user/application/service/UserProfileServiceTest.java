@@ -117,6 +117,7 @@ class UserProfileServiceTest {
                         "https://cdn.example.com/profile.png",
                         true,
                         false,
+                        false,
                         false
                 )));
         when(userStatsService.getFollowersCount(targetUserId)).thenReturn(17L);
@@ -126,6 +127,7 @@ class UserProfileServiceTest {
         var response = userProfileService.getUserProfile(requesterUserId, targetUserId);
 
         assertThat(response.username()).isEqualTo("target-user");
+        assertThat(response.id()).isEqualTo(targetUserId);
         assertThat(response.description()).isEqualTo("Target description");
         assertThat(response.socialMedia()).containsAllEntriesOf(socialMedia);
         assertThat(response.followerCount()).isEqualTo(17L);
@@ -133,6 +135,7 @@ class UserProfileServiceTest {
         assertThat(response.postCount()).isEqualTo(23L);
         assertThat(response.profilePic()).isEqualTo("https://cdn.example.com/profile.png");
         assertThat(response.following()).isTrue();
+        assertThat(response.followsMe()).isFalse();
         assertThat(response.isBanned()).isFalse();
     }
 
@@ -319,6 +322,7 @@ class UserProfileServiceTest {
                 "Blocked description",
                 Map.of("github", "blocked-user"),
                 "https://cdn.example.com/blocked.png",
+                false,
                 false,
                 blocked,
                 banned
