@@ -107,13 +107,20 @@ public interface JpaUserRepository extends JpaRepository<UserEntity, UUID> {
 
     @Modifying
     @Transactional
-    @Query(value = "UPDATE users SET username = :username, email = :email, updated_at = NOW(), version = version + 1 " +
-                   "WHERE id = :id AND account_status = 'ACCEPTED'", nativeQuery = true)
-    int updateAuthInfo(@Param("id") UUID id, @Param("username") String username, @Param("email") String email);
+    @Query(value = """
+            UPDATE users 
+            SET description = :description, 
+                picture_url = :profilePicture,
+                social_media = CAST(:socialMedia AS jsonb),
+                updated_at = NOW(),
+                version = COALESCE(version, 0) + 1
+            WHERE id = :id AND account_status = 'ACCEPTED'
+        """, nativeQuery = true)
+    int updateProfileInfo(
+            @Param("id") UUID id,
+            @Param("description") String description,
+            @Param("profilePicture") String profilePicture,
+            @Param("socialMedia") String socialMedia
+    );
 
-    @Modifying
-    @Transactional
-    @Query(value = "UPDATE users SET account_status = 'DELETED', username = CONCAT(username, '_deleted_', CAST(:id AS text)), email = CONCAT(email, '_deleted_', CAST(:id AS text)), updated_at = NOW(), version = version + 1 " +
-                   "WHERE id = :id AND account_status = 'ACCEPTED'", nativeQuery = true)
-    int deleteAndObfuscate(@Param("id") UUID id);
 }

@@ -7,9 +7,9 @@ import java.util.List;
 import com.app.socialservice.user.application.dto.UserProfileDetails;
 import com.app.socialservice.user.application.mapper.UserMapper;
 import com.app.socialservice.user.application.repository.UserRepository;
+import com.app.socialservice.shared.domain.exception.UserNotFoundException;
 import com.app.socialservice.user.domain.enums.UserAccountStatus;
 import com.app.socialservice.user.domain.model.User;
-import com.app.socialservice.shared.domain.exception.UserNotFoundException;
 import com.app.socialservice.user.application.dto.OwnUserProfileData;
 import com.app.socialservice.user.application.dto.RecommendedUserDetails;
 
@@ -17,6 +17,7 @@ import com.app.socialservice.user.application.dto.RecommendedUserDetails;
 import com.app.socialservice.user.infrastructure.entity.UserEntity;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 @RequiredArgsConstructor
 @Repository
@@ -26,6 +27,7 @@ public class UserRepositoryImpl implements UserRepository {
     private final UserMapper userMapper;
 
     @Override
+    @Transactional
     public User updateProfile(User user) {
         var entity = jpaUserRepository.findByIdAndAccountStatus(user.getId().value(), UserAccountStatus.ACCEPTED)
                 .orElseThrow(() -> new UserNotFoundException(user.getId().value()));
@@ -37,15 +39,28 @@ public class UserRepositoryImpl implements UserRepository {
     }
 
     @Override
+    @Transactional
     public boolean updateAuthInfo(UUID id, String username, String email) {
-        int rows = jpaUserRepository.updateAuthInfo(id, username, email);
-        return rows > 0;
+        return jpaUserRepository.findByIdAndAccountStatus(id, UserAccountStatus.ACCEPTED)
+                .map(entity -> {
+                    entity.setUsername(username);
+                    entity.setEmail(email);
+                    return true;
+                })
+                .orElse(false);
     }
 
     @Override
+    @Transactional
     public boolean deleteAndObfuscate(UUID id) {
-        int rows = jpaUserRepository.deleteAndObfuscate(id);
-        return rows > 0;
+        return jpaUserRepository.findByIdAndAccountStatus(id, UserAccountStatus.ACCEPTED)
+                .map(entity -> {
+                    entity.setAccountStatus(UserAccountStatus.DELETED);
+                    entity.setUsername(entity.getUsername() + "_deleted_" + id);
+                    entity.setEmail(entity.getEmail() + "_deleted_" + id);
+                    return true;
+                })
+                .orElse(false);
     }
 
     @Override
