@@ -17,14 +17,14 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/social")
+@RequestMapping("/api/social/block")
 @RequiredArgsConstructor
 public class BlockController {
 
     private final BlockService blockService;
     private final SecurityUtils securityUtils;
 
-    @PostMapping("/block")
+    @PostMapping
     public ResponseEntity<BlockResponse> blockUser(@Valid @RequestBody BlockUserRequest request) {
         var blockerUserId = securityUtils.getUserId();
         if (blockerUserId == null) {
@@ -35,7 +35,7 @@ public class BlockController {
         return ResponseEntity.ok(response);
     }
 
-    @DeleteMapping("/block")
+    @DeleteMapping
     public ResponseEntity<Void> unblockUser(@Valid @RequestBody BlockUserRequest request) {
         var unblockerUserId = securityUtils.getUserId();
         if (unblockerUserId == null) {
