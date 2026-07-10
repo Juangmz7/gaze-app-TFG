@@ -32,6 +32,7 @@ public class CustomAuthenticationEntryPoint implements AuthenticationEntryPoint 
         errorResponse.setTimestamp(Instant.now());
         errorResponse.setStatus(HttpStatus.UNAUTHORIZED.value());
         errorResponse.setError("Unauthorized");
+        errorResponse.setErrorCode(ApiErrorCode.INVALID_JWT);
         errorResponse.setMessage("Authentication failed: " + authException.getMessage());
         errorResponse.setPath(request.getRequestURI());
 

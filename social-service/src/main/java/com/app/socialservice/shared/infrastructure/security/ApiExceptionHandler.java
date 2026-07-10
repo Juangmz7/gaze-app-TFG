@@ -42,7 +42,7 @@ public class ApiExceptionHandler {
             RuntimeException exception,
             HttpServletRequest request) {
 
-        return buildErrorResponse(HttpStatus.NOT_FOUND, exception.getMessage(), request);
+        return buildErrorResponse(HttpStatus.NOT_FOUND, ApiErrorCode.NOT_FOUND, exception.getMessage(), request);
     }
 
     @ExceptionHandler({
@@ -61,7 +61,7 @@ public class ApiExceptionHandler {
             RuntimeException exception,
             HttpServletRequest request) {
 
-        return buildErrorResponse(HttpStatus.BAD_REQUEST, exception.getMessage(), request);
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, ApiErrorCode.BAD_REQUEST, exception.getMessage(), request);
     }
 
     @ExceptionHandler({
@@ -72,7 +72,7 @@ public class ApiExceptionHandler {
             RuntimeException exception,
             HttpServletRequest request) {
 
-        return buildErrorResponse(HttpStatus.FORBIDDEN, exception.getMessage(), request);
+        return buildErrorResponse(HttpStatus.FORBIDDEN, ApiErrorCode.BLOCKED, exception.getMessage(), request);
     }
 
     @ExceptionHandler(AuthenticationCredentialsNotFoundException.class)
@@ -80,7 +80,7 @@ public class ApiExceptionHandler {
             AuthenticationCredentialsNotFoundException exception,
             HttpServletRequest request) {
 
-        return buildErrorResponse(HttpStatus.UNAUTHORIZED, exception.getMessage(), request);
+        return buildErrorResponse(HttpStatus.UNAUTHORIZED, ApiErrorCode.INVALID_JWT, exception.getMessage(), request);
     }
 
     @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
@@ -90,6 +90,7 @@ public class ApiExceptionHandler {
 
         return buildErrorResponse(
                 HttpStatus.CONFLICT,
+                ApiErrorCode.CONFLICT,
                 "The resource was modified concurrently. Please retry the request.",
                 request
         );
@@ -105,7 +106,12 @@ public class ApiExceptionHandler {
             Exception exception,
             HttpServletRequest request) {
 
-        return buildErrorResponse(HttpStatus.BAD_REQUEST, resolveValidationMessage(exception), request);
+        return buildErrorResponse(
+                HttpStatus.BAD_REQUEST,
+                ApiErrorCode.VALIDATION_ERROR,
+                resolveValidationMessage(exception),
+                request
+        );
     }
 
     @ExceptionHandler(Exception.class)
@@ -113,11 +119,17 @@ public class ApiExceptionHandler {
             Exception exception,
             HttpServletRequest request) {
         log.error("Unexpected error on {}: {}", request.getRequestURI(), exception.getMessage(), exception);
-        return buildErrorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "An unexpected error occurred", request);
+        return buildErrorResponse(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                ApiErrorCode.INTERNAL_ERROR,
+                "An unexpected error occurred",
+                request
+        );
     }
 
     private ResponseEntity<ApiErrorResponse> buildErrorResponse(
             HttpStatus status,
+            ApiErrorCode errorCode,
             String message,
             HttpServletRequest request
     ) {
@@ -125,6 +137,7 @@ public class ApiExceptionHandler {
                 Instant.now(),
                 status.value(),
                 status.getReasonPhrase(),
+                errorCode,
                 message,
                 request.getRequestURI()
         );
