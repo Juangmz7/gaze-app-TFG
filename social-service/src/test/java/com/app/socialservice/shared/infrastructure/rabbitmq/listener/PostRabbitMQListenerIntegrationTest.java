@@ -6,6 +6,7 @@ import java.util.UUID;
 import com.app.socialservice.TestcontainersConfiguration;
 import com.app.socialservice.post.infrastructure.events.PostCreatedEvent;
 import com.app.socialservice.post.infrastructure.events.PostDeletedEvent;
+import com.app.socialservice.shared.infrastructure.entity.TargetDatabase;
 import com.app.socialservice.shared.infrastructure.repository.ProcessedEventsRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -56,7 +57,7 @@ class PostRabbitMQListenerIntegrationTest {
 
         postRabbitMQListener.onPostCreated(event);
 
-        assertThat(processedEventsRepository.findById(event.id())).isPresent();
+        assertThat(processedEventsRepository.findByIdAndTargetDatabase(event.id(), TargetDatabase.POSTGRES)).isPresent();
         assertThat(readCounter(userId, "postCount")).isEqualTo(1L);
     }
 
@@ -74,7 +75,7 @@ class PostRabbitMQListenerIntegrationTest {
         postRabbitMQListener.onPostCreated(event);
         postRabbitMQListener.onPostCreated(event);
 
-        assertThat(processedEventsRepository.findById(event.id())).isPresent();
+        assertThat(processedEventsRepository.findByIdAndTargetDatabase(event.id(), TargetDatabase.POSTGRES)).isPresent();
         assertThat(readCounter(userId, "postCount")).isEqualTo(1L);
     }
 
@@ -92,7 +93,7 @@ class PostRabbitMQListenerIntegrationTest {
 
         postRabbitMQListener.onPostDeleted(event);
 
-        assertThat(processedEventsRepository.findById(event.id())).isPresent();
+        assertThat(processedEventsRepository.findByIdAndTargetDatabase(event.id(), TargetDatabase.POSTGRES)).isPresent();
         assertThat(readCounter(userId, "postCount")).isZero();
     }
 

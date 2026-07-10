@@ -25,6 +25,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.validation.BindException;
 import org.springframework.validation.BindingResult;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -55,7 +56,8 @@ public class ApiExceptionHandler {
             InvalidProfilePictureUrlException.class,
             InvalidUserIdException.class,
             InvalidUsernameException.class,
-            IllegalArgumentException.class
+            IllegalArgumentException.class,
+            HttpRequestMethodNotSupportedException.class
     })
     public ResponseEntity<ApiErrorResponse> handleBadRequestException(
             RuntimeException exception,

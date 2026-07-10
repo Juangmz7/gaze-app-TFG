@@ -5,6 +5,7 @@ import java.util.UUID;
 
 import com.app.socialservice.post.infrastructure.events.PostCreatedEvent;
 import com.app.socialservice.post.infrastructure.events.PostDeletedEvent;
+import com.app.socialservice.shared.infrastructure.entity.TargetDatabase;
 import com.app.socialservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 import com.app.socialservice.shared.infrastructure.repository.ProcessedEventsRepository;
 import com.app.socialservice.user.application.service.UserStatsService;
@@ -54,14 +55,18 @@ class PostRabbitMQListenerTest {
                 .postId(UUID.randomUUID())
                 .userId(userId)
                 .build();
-        when(processedEventsRepository.existsById(event.id())).thenReturn(false);
-        when(processedEventsRepository.existsByCorrelationId(event.correlationId())).thenReturn(false);
+        when(processedEventsRepository.existsByIdAndTargetDatabase(event.id(), TargetDatabase.POSTGRES)).thenReturn(false);
+        when(processedEventsRepository.existsByCorrelationIdAndTargetDatabase(
+                event.correlationId(),
+                TargetDatabase.POSTGRES
+        )).thenReturn(false);
 
         postRabbitMQListener.onPostCreated(event);
 
         verify(userStatsService).incrementPostCount(userId);
         verify(processedEventsRepository).insertIfAbsent(
                 event.id(),
+                TargetDatabase.POSTGRES.name(),
                 event.correlationId(),
                 PostCreatedEvent.class.getSimpleName()
         );
@@ -77,14 +82,18 @@ class PostRabbitMQListenerTest {
                 .postId(UUID.randomUUID())
                 .userId(userId)
                 .build();
-        when(processedEventsRepository.existsById(event.id())).thenReturn(false);
-        when(processedEventsRepository.existsByCorrelationId(event.correlationId())).thenReturn(false);
+        when(processedEventsRepository.existsByIdAndTargetDatabase(event.id(), TargetDatabase.POSTGRES)).thenReturn(false);
+        when(processedEventsRepository.existsByCorrelationIdAndTargetDatabase(
+                event.correlationId(),
+                TargetDatabase.POSTGRES
+        )).thenReturn(false);
 
         postRabbitMQListener.onPostDeleted(event);
 
         verify(userStatsService).decrementPostCount(userId);
         verify(processedEventsRepository).insertIfAbsent(
                 event.id(),
+                TargetDatabase.POSTGRES.name(),
                 event.correlationId(),
                 PostDeletedEvent.class.getSimpleName()
         );
@@ -105,7 +114,7 @@ class PostRabbitMQListenerTest {
                 .hasMessage("event.occurredAt must not be null");
 
         verify(userStatsService, never()).incrementPostCount(any());
-        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any());
+        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any(), any());
     }
 
     @Test
@@ -117,12 +126,12 @@ class PostRabbitMQListenerTest {
                 .postId(UUID.randomUUID())
                 .userId(UUID.randomUUID())
                 .build();
-        when(processedEventsRepository.existsById(event.id())).thenReturn(true);
+        when(processedEventsRepository.existsByIdAndTargetDatabase(event.id(), TargetDatabase.POSTGRES)).thenReturn(true);
 
         postRabbitMQListener.onPostCreated(event);
 
         verify(userStatsService, never()).incrementPostCount(any());
-        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any());
+        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any(), any());
     }
 
     @Test
@@ -134,8 +143,11 @@ class PostRabbitMQListenerTest {
                 .postId(UUID.randomUUID())
                 .userId(UUID.randomUUID())
                 .build();
-        when(processedEventsRepository.existsById(event.id())).thenReturn(false);
-        when(processedEventsRepository.existsByCorrelationId(event.correlationId())).thenReturn(false);
+        when(processedEventsRepository.existsByIdAndTargetDatabase(event.id(), TargetDatabase.POSTGRES)).thenReturn(false);
+        when(processedEventsRepository.existsByCorrelationIdAndTargetDatabase(
+                event.correlationId(),
+                TargetDatabase.POSTGRES
+        )).thenReturn(false);
 
         doThrow(new RuntimeException("redis increment failed"))
                 .when(userStatsService)
@@ -145,6 +157,6 @@ class PostRabbitMQListenerTest {
                 .isInstanceOf(RuntimeException.class)
                 .hasMessage("redis increment failed");
 
-        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any());
+        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any(), any());
     }
 }

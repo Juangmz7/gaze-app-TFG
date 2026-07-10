@@ -6,6 +6,7 @@ import com.app.socialservice.block.domain.exception.SelfUnblockNotAllowedExcepti
 import com.app.socialservice.block.infrastructure.events.UserBlockedEvent;
 import com.app.socialservice.shared.domain.exception.DomainException;
 import com.app.socialservice.shared.domain.exception.UserNotFoundException;
+import com.app.socialservice.shared.infrastructure.entity.TargetDatabase;
 import com.app.socialservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 import com.app.socialservice.shared.infrastructure.repository.ProcessedEventsRepository;
 import lombok.extern.slf4j.Slf4j;
@@ -33,7 +34,7 @@ public class BlockRabbitMQListener extends AbstractRabbitMQListenerSupport {
             log.info("UserBlocked event: {} with correlationId: {} received from {}",
                     event.id(), event.correlationId(), rabbitMQProperties.getQueue().getUser().getBlock().getCreated());
 
-            if (isEventAlreadyProcessed(event.id(), event.correlationId())) {
+            if (isEventAlreadyProcessed(event.id(), event.correlationId(), TargetDatabase.NEO4J)) {
                 log.warn("Detected block event {} with correlationId {} duplication, discarding message...",
                         event.id(), event.correlationId());
                 return;
@@ -43,7 +44,12 @@ public class BlockRabbitMQListener extends AbstractRabbitMQListenerSupport {
                     event.blockerUserId(),
                     event.blockedUserId()
             );
-            setEventAsProcessed(event.id(), event.correlationId(), event.getClass().getSimpleName());
+            setEventAsProcessed(
+                    event.id(),
+                    event.correlationId(),
+                    event.getClass().getSimpleName(),
+                    TargetDatabase.NEO4J
+            );
         } catch (IllegalArgumentException exception) {
             log.error("Invalid user blocked event", exception);
             throw exception;

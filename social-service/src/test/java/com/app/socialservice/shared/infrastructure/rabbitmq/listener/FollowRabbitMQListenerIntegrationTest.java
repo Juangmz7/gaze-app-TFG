@@ -10,6 +10,7 @@ import com.app.socialservice.follow.infrastructure.enums.FollowStatus;
 import com.app.socialservice.follow.infrastructure.events.UserFollowedEvent;
 import com.app.socialservice.follow.infrastructure.events.UserUnfollowedEvent;
 import com.app.socialservice.follow.infrastructure.repository.JpaFollowRepository;
+import com.app.socialservice.shared.infrastructure.entity.TargetDatabase;
 import com.app.socialservice.shared.infrastructure.repository.ProcessedEventsRepository;
 import com.app.socialservice.user.domain.enums.UserAccountStatus;
 import com.app.socialservice.user.infrastructure.entity.UserEntity;
@@ -96,7 +97,8 @@ class FollowRabbitMQListenerIntegrationTest {
 
         followRabbitMQListener.onUserFollowed(event);
 
-        assertThat(processedEventsRepository.findById(event.id())).isPresent();
+        assertThat(processedEventsRepository.findByIdAndTargetDatabase(event.id(), TargetDatabase.NEO4J)).isPresent();
+        assertThat(processedEventsRepository.findByIdAndTargetDatabase(event.id(), TargetDatabase.POSTGRES)).isPresent();
         assertThat(countFollowRelationships(followerId, followedId)).isEqualTo(1L);
         assertThat(readCounter(followerId, "following")).isEqualTo(1L);
         assertThat(readCounter(followedId, "followers")).isEqualTo(1L);
@@ -128,7 +130,61 @@ class FollowRabbitMQListenerIntegrationTest {
         followRabbitMQListener.onUserFollowed(event);
         followRabbitMQListener.onUserFollowed(event);
 
-        assertThat(processedEventsRepository.findById(event.id())).isPresent();
+        assertThat(processedEventsRepository.findByIdAndTargetDatabase(event.id(), TargetDatabase.NEO4J)).isPresent();
+        assertThat(processedEventsRepository.findByIdAndTargetDatabase(event.id(), TargetDatabase.POSTGRES)).isPresent();
+        assertThat(countFollowRelationships(followerId, followedId)).isEqualTo(1L);
+        assertThat(readCounter(followerId, "following")).isEqualTo(1L);
+        assertThat(readCounter(followedId, "followers")).isEqualTo(1L);
+    }
+
+    @Test
+    void followRabbitMqListenerIgnoresDuplicateCorrelationIdsFromDifferentEventIds() {
+        var followerId = UUID.randomUUID();
+        var followedId = UUID.randomUUID();
+        var correlationId = UUID.randomUUID();
+        seedAcceptedUser(followerId, "correlation-follow-follower", "correlation-follow-follower@example.com");
+        seedAcceptedUser(followedId, "correlation-follow-followed", "correlation-follow-followed@example.com");
+        userNodeRepository.save(com.app.socialservice.user.infrastructure.entity.UserNode.builder().id(followerId).build());
+        userNodeRepository.save(com.app.socialservice.user.infrastructure.entity.UserNode.builder().id(followedId).build());
+        jpaFollowRepository.save(new FollowEntity(
+                new FollowEntityId(followerId, followedId),
+                FollowStatus.ACTIVE,
+                Instant.now(),
+                null
+        ));
+
+        var firstEvent = UserFollowedEvent.builder()
+                .id(UUID.randomUUID())
+                .correlationId(correlationId)
+                .occurredAt(Instant.now())
+                .followerUserId(followerId)
+                .followedUserId(followedId)
+                .build();
+        var duplicateCorrelationEvent = UserFollowedEvent.builder()
+                .id(UUID.randomUUID())
+                .correlationId(correlationId)
+                .occurredAt(Instant.now())
+                .followerUserId(followerId)
+                .followedUserId(followedId)
+                .build();
+
+        followRabbitMQListener.onUserFollowed(firstEvent);
+        followRabbitMQListener.onUserFollowed(duplicateCorrelationEvent);
+
+        assertThat(processedEventsRepository.findByCorrelationIdAndTargetDatabase(correlationId, TargetDatabase.NEO4J))
+                .get()
+                .extracting(com.app.socialservice.shared.infrastructure.entity.ProcessedEvent::getId)
+                .isEqualTo(firstEvent.id());
+        assertThat(processedEventsRepository.findByCorrelationIdAndTargetDatabase(correlationId, TargetDatabase.POSTGRES))
+                .get()
+                .extracting(com.app.socialservice.shared.infrastructure.entity.ProcessedEvent::getId)
+                .isEqualTo(firstEvent.id());
+        assertThat(processedEventsRepository.findByIdAndTargetDatabase(duplicateCorrelationEvent.id(), TargetDatabase.NEO4J))
+                .isEmpty();
+        assertThat(processedEventsRepository.findByIdAndTargetDatabase(
+                duplicateCorrelationEvent.id(),
+                TargetDatabase.POSTGRES
+        )).isEmpty();
         assertThat(countFollowRelationships(followerId, followedId)).isEqualTo(1L);
         assertThat(readCounter(followerId, "following")).isEqualTo(1L);
         assertThat(readCounter(followedId, "followers")).isEqualTo(1L);
@@ -159,15 +215,19 @@ class FollowRabbitMQListenerIntegrationTest {
                 .isInstanceOf(InvalidDataAccessApiUsageException.class)
                 .hasMessageContaining("Neo4j user nodes are missing");
 
-        assertThat(processedEventsRepository.findById(event.id())).isEmpty();
+        assertThat(processedEventsRepository.findByIdAndTargetDatabase(event.id(), TargetDatabase.NEO4J)).isEmpty();
+        assertThat(processedEventsRepository.findByIdAndTargetDatabase(event.id(), TargetDatabase.POSTGRES)).isPresent();
         assertThat(countFollowRelationships(followerId, followedId)).isZero();
+        assertThat(readCounter(followerId, "following")).isEqualTo(1L);
+        assertThat(readCounter(followedId, "followers")).isEqualTo(1L);
 
         userNodeRepository.save(com.app.socialservice.user.infrastructure.entity.UserNode.builder().id(followerId).build());
         userNodeRepository.save(com.app.socialservice.user.infrastructure.entity.UserNode.builder().id(followedId).build());
 
         followRabbitMQListener.onUserFollowed(event);
 
-        assertThat(processedEventsRepository.findById(event.id())).isPresent();
+        assertThat(processedEventsRepository.findByIdAndTargetDatabase(event.id(), TargetDatabase.NEO4J)).isPresent();
+        assertThat(processedEventsRepository.findByIdAndTargetDatabase(event.id(), TargetDatabase.POSTGRES)).isPresent();
         assertThat(countFollowRelationships(followerId, followedId)).isEqualTo(1L);
         assertThat(readCounter(followerId, "following")).isEqualTo(1L);
         assertThat(readCounter(followedId, "followers")).isEqualTo(1L);
@@ -208,7 +268,8 @@ class FollowRabbitMQListenerIntegrationTest {
 
         followRabbitMQListener.onUserUnfollowed(event);
 
-        assertThat(processedEventsRepository.findById(event.id())).isPresent();
+        assertThat(processedEventsRepository.findByIdAndTargetDatabase(event.id(), TargetDatabase.NEO4J)).isPresent();
+        assertThat(processedEventsRepository.findByIdAndTargetDatabase(event.id(), TargetDatabase.POSTGRES)).isPresent();
         assertThat(countFollowRelationships(followerId, followedId)).isZero();
         assertThat(readCounter(followerId, "following")).isZero();
         assertThat(readCounter(followedId, "followers")).isZero();

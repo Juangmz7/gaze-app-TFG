@@ -4,6 +4,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
 import com.app.socialservice.TestcontainersConfiguration;
+import com.app.socialservice.shared.infrastructure.entity.TargetDatabase;
 import com.app.socialservice.shared.infrastructure.repository.OutboxEventRepository;
 import com.app.socialservice.shared.infrastructure.repository.ProcessedEventsRepository;
 import com.app.socialservice.user.domain.enums.UserAccountStatus;
@@ -75,7 +76,8 @@ class UserRabbitMQListenerIntegrationTest {
         userRabbitMQListener.onUserRegisteredFromAuth(event);
 
         assertThat(jpaUserRepository.findById(UUID.fromString(event.userId()))).isPresent();
-        assertThat(processedEventsRepository.findById(expectedEventId)).isPresent();
+        assertThat(processedEventsRepository.findByIdAndTargetDatabase(expectedEventId, TargetDatabase.POSTGRES))
+                .isPresent();
         assertThat(outboxEventRepository.findAll()).hasSize(1);
     }
 
@@ -99,7 +101,8 @@ class UserRabbitMQListenerIntegrationTest {
 
         assertThat(jpaUserRepository.count()).isEqualTo(1);
         assertThat(outboxEventRepository.count()).isEqualTo(outboxCountAfterFirstMessage);
-        assertThat(processedEventsRepository.findById(expectedEventId)).isPresent();
+        assertThat(processedEventsRepository.findByIdAndTargetDatabase(expectedEventId, TargetDatabase.POSTGRES))
+                .isPresent();
     }
 
     @Test
@@ -121,7 +124,8 @@ class UserRabbitMQListenerIntegrationTest {
         assertThat(jpaUserRepository.findById(userId)).get()
                 .extracting(UserEntity::getUsername, UserEntity::getEmail)
                 .containsExactly("after-update", "after-update@example.com");
-        assertThat(processedEventsRepository.findById(expectedEventId)).isPresent();
+        assertThat(processedEventsRepository.findByIdAndTargetDatabase(expectedEventId, TargetDatabase.POSTGRES))
+                .isPresent();
         assertThat(outboxEventRepository.findAll()).hasSize(1);
     }
 
@@ -149,7 +153,8 @@ class UserRabbitMQListenerIntegrationTest {
                 .extracting(UserEntity::getUsername, UserEntity::getEmail)
                 .containsExactly("after-duplicate-update", "after-duplicate-update@example.com");
         assertThat(outboxEventRepository.count()).isEqualTo(outboxCountAfterFirstMessage);
-        assertThat(processedEventsRepository.findById(expectedEventId)).isPresent();
+        assertThat(processedEventsRepository.findByIdAndTargetDatabase(expectedEventId, TargetDatabase.POSTGRES))
+                .isPresent();
     }
 
     @Test
@@ -169,7 +174,8 @@ class UserRabbitMQListenerIntegrationTest {
         assertThat(jpaUserRepository.findById(userId)).get()
                 .extracting(UserEntity::getAccountStatus)
                 .isEqualTo(UserAccountStatus.DELETED);
-        assertThat(processedEventsRepository.findById(expectedEventId)).isPresent();
+        assertThat(processedEventsRepository.findByIdAndTargetDatabase(expectedEventId, TargetDatabase.POSTGRES))
+                .isPresent();
         assertThat(outboxEventRepository.findAll()).hasSize(1);
     }
 
@@ -195,7 +201,8 @@ class UserRabbitMQListenerIntegrationTest {
                 .extracting(UserEntity::getAccountStatus)
                 .isEqualTo(UserAccountStatus.DELETED);
         assertThat(outboxEventRepository.count()).isEqualTo(outboxCountAfterFirstMessage);
-        assertThat(processedEventsRepository.findById(expectedEventId)).isPresent();
+        assertThat(processedEventsRepository.findByIdAndTargetDatabase(expectedEventId, TargetDatabase.POSTGRES))
+                .isPresent();
     }
 
     private UserRegisteredFromAuthEvent userRegisteredFromAuthEvent() {
