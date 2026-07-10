@@ -36,13 +36,13 @@ public class FollowController {
     }
 
     @DeleteMapping
-    public ResponseEntity<FollowResponse> unfollowUser(@Valid @RequestBody FollowUserRequest request) {
+    public ResponseEntity<Void> unfollowUser(@Valid @RequestBody FollowUserRequest request) {
         var followerUserId = securityUtils.getUserId();
         if (followerUserId == null) {
             throw new AuthenticationCredentialsNotFoundException("User authentication failed");
         }
 
-        var response = followService.unfollowUser(new UnfollowUserCommand(followerUserId, request.followedUserId()));
-        return ResponseEntity.ok(response);
+        followService.unfollowUser(new UnfollowUserCommand(followerUserId, request.followedUserId()));
+        return ResponseEntity.noContent().build();
     }
 }

@@ -26,6 +26,7 @@ import com.app.socialservice.user.domain.model.valueobj.UserId;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -71,7 +72,7 @@ public class FollowService {
     }
 
     @Transactional
-    public FollowResponse unfollowUser(UnfollowUserCommand command) {
+    public void unfollowUser(UnfollowUserCommand command) {
         if (command == null) {
             throw new IllegalArgumentException("command must not be null");
         }
@@ -82,14 +83,14 @@ public class FollowService {
         if (activeFollow.isEmpty()) {
             log.info("No active follow found for follower {} and followed {}. Returning idempotent success.",
                     command.followerUserId(), command.followedUserId());
-            return toResponse(newFollow(command.followerUserId(), command.followedUserId()));
+            return;
         }
 
         var removed = followRepository.markAsRemoved(command.followerUserId(), command.followedUserId());
         if (!removed) {
             log.warn("Mark as removed had no effect for follower {} and followed {}. Possible concurrent status change.",
                     command.followerUserId(), command.followedUserId());
-            return toResponse(activeFollow.get());
+            return;
         }
 
         var occurredOn = java.time.Instant.now();
@@ -104,8 +105,6 @@ public class FollowService {
                 activeFollow.get().getFollowedId().value(),
                 occurredOn
         ));
-
-        return toResponse(activeFollow.get());
     }
 
     private void validateCommandInput(FollowUserCommand command) {
@@ -155,7 +154,7 @@ public class FollowService {
             log.warn("Reactivation had no effect for follower {} and followed {}. " +
                             "Possible concurrent status change.",
                     command.followerUserId(), command.followedUserId());
-            return toResponse(attemptedFollow);
+            return resolveConcurrentReactivation(command);
         }
 
         var activeFollow = followRepository.findActiveByUsers(command.followerUserId(), command.followedUserId());
@@ -168,6 +167,26 @@ public class FollowService {
         log.info("Follow insert was ignored for follower {} and followed {} without a resolvable persisted state",
                 command.followerUserId(), command.followedUserId());
         return toResponse(attemptedFollow);
+    }
+
+    private FollowResponse resolveConcurrentReactivation(FollowUserCommand command) {
+        var followerId = command.followerUserId();
+        var followedId = command.followedUserId();
+
+        var activeFollow = followRepository.findActiveByUsers(followerId, followedId);
+        if (activeFollow.isPresent()) {
+            return toResponse(activeFollow.get());
+        }
+
+        if (followRepository.existsBlockedByUsers(followerId, followedId)) {
+            throw new FollowBlockedException(String.format(
+                    "Follow relationship is blocked between %s and %s",
+                    followerId,
+                    followedId
+            ));
+        }
+
+        throw new ObjectOptimisticLockingFailureException(Follow.class, followerId + ":" + followedId);
     }
 
     private FollowResponse publishCreatedFollow(FollowUserCommand command, Follow savedFollow) {
