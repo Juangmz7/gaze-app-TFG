@@ -19,6 +19,7 @@ import com.app.socialservice.user.domain.exception.UserProfileNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
@@ -80,6 +81,18 @@ public class ApiExceptionHandler {
             HttpServletRequest request) {
 
         return buildErrorResponse(HttpStatus.UNAUTHORIZED, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+    public ResponseEntity<ApiErrorResponse> handleOptimisticLockingFailureException(
+            ObjectOptimisticLockingFailureException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(
+                HttpStatus.CONFLICT,
+                "The resource was modified concurrently. Please retry the request.",
+                request
+        );
     }
 
     @ExceptionHandler({

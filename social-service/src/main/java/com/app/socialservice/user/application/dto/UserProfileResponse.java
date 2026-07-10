@@ -1,8 +1,10 @@
 package com.app.socialservice.user.application.dto;
 
 import java.util.Map;
+import java.util.UUID;
 
 public record UserProfileResponse(
+        UUID id,
         String username,
         String description,
         Map<String, String> socialMedia,
@@ -11,6 +13,7 @@ public record UserProfileResponse(
         long postCount,
         String profilePic,
         boolean following,
+        boolean followsMe,
         boolean isBanned
 ) {
 

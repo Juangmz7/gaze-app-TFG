@@ -10,6 +10,7 @@ public record UserProfileDetails(
         Map<String, String> socialMedia,
         String profilePic,
         boolean following,
+        boolean followsMe,
         boolean blocked,
         boolean banned
 ) {

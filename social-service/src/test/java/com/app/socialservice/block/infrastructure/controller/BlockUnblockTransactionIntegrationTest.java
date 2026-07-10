@@ -82,7 +82,7 @@ class BlockUnblockTransactionIntegrationTest {
         when(jsonMapper.toJson(any())).thenThrow(new RuntimeException("serialization failed"));
 
         mockMvc.perform(delete("/api/social/block")
-                        .with(jwt().jwt(jwt -> jwt.claim("userId", unblockerId.toString())))
+                        .with(jwt().jwt(jwt -> jwt.subject(unblockerId.toString())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"blockedUserId":"%s"}

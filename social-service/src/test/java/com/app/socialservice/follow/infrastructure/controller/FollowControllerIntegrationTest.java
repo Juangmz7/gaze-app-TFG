@@ -114,7 +114,7 @@ class FollowControllerIntegrationTest {
         seedNode(followedId);
 
         mockMvc.perform(post("/api/social/follow")
-                        .with(jwt().jwt(jwt -> jwt.claim("userId", followerId.toString())))
+                        .with(jwt().jwt(jwt -> jwt.subject(followerId.toString())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(followRequest(followedId)))
                 .andExpect(status().isOk())
@@ -147,13 +147,13 @@ class FollowControllerIntegrationTest {
         seedNode(followedId);
 
         mockMvc.perform(post("/api/social/follow")
-                        .with(jwt().jwt(jwt -> jwt.claim("userId", followerId.toString())))
+                        .with(jwt().jwt(jwt -> jwt.subject(followerId.toString())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(followRequest(followedId)))
                 .andExpect(status().isOk());
 
         mockMvc.perform(post("/api/social/follow")
-                        .with(jwt().jwt(jwt -> jwt.claim("userId", followerId.toString())))
+                        .with(jwt().jwt(jwt -> jwt.subject(followerId.toString())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(followRequest(followedId)))
                 .andExpect(status().isOk())
@@ -180,7 +180,7 @@ class FollowControllerIntegrationTest {
         seedRemovedFollow(followerId, followedId);
 
         mockMvc.perform(post("/api/social/follow")
-                        .with(jwt().jwt(jwt -> jwt.claim("userId", followerId.toString())))
+                        .with(jwt().jwt(jwt -> jwt.subject(followerId.toString())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(followRequest(followedId)))
                 .andExpect(status().isOk())
@@ -210,7 +210,7 @@ class FollowControllerIntegrationTest {
         seedBlockedFollow(followerId, followedId);
 
         mockMvc.perform(post("/api/social/follow")
-                        .with(jwt().jwt(jwt -> jwt.claim("userId", followerId.toString())))
+                        .with(jwt().jwt(jwt -> jwt.subject(followerId.toString())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(followRequest(followedId)))
                 .andExpect(status().isForbidden());
@@ -236,7 +236,7 @@ class FollowControllerIntegrationTest {
         seedBlock(followerId, followedId);
 
         mockMvc.perform(post("/api/social/follow")
-                        .with(jwt().jwt(jwt -> jwt.claim("userId", followerId.toString())))
+                        .with(jwt().jwt(jwt -> jwt.subject(followerId.toString())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(followRequest(followedId)))
                 .andExpect(status().isForbidden());
@@ -256,7 +256,7 @@ class FollowControllerIntegrationTest {
         seedNode(userId);
 
         mockMvc.perform(post("/api/social/follow")
-                        .with(jwt().jwt(jwt -> jwt.claim("userId", userId.toString())))
+                        .with(jwt().jwt(jwt -> jwt.subject(userId.toString())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(followRequest(userId)))
                 .andExpect(status().isBadRequest());
@@ -274,7 +274,7 @@ class FollowControllerIntegrationTest {
         seedNode(followerId);
 
         mockMvc.perform(post("/api/social/follow")
-                        .with(jwt().jwt(jwt -> jwt.claim("userId", followerId.toString())))
+                        .with(jwt().jwt(jwt -> jwt.subject(followerId.toString())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(followRequest(missingUserId)))
                 .andExpect(status().isNotFound());
@@ -302,7 +302,7 @@ class FollowControllerIntegrationTest {
                 .with(rabbitMQProperties.getRk().getUser().getFollow().getCreated()));
 
         mockMvc.perform(post("/api/social/follow")
-                        .with(jwt().jwt(jwt -> jwt.claim("userId", followerId.toString())))
+                        .with(jwt().jwt(jwt -> jwt.subject(followerId.toString())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(followRequest(followedId)))
                 .andExpect(status().isOk());
@@ -336,7 +336,7 @@ class FollowControllerIntegrationTest {
         seedUserStats(followedId, 0L, 1L);
 
         mockMvc.perform(delete("/api/social/follow")
-                        .with(jwt().jwt(jwt -> jwt.claim("userId", followerId.toString())))
+                        .with(jwt().jwt(jwt -> jwt.subject(followerId.toString())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(followRequest(followedId)))
                 .andExpect(status().isOk())
@@ -367,7 +367,7 @@ class FollowControllerIntegrationTest {
         seedNode(followedId);
 
         mockMvc.perform(delete("/api/social/follow")
-                        .with(jwt().jwt(jwt -> jwt.claim("userId", followerId.toString())))
+                        .with(jwt().jwt(jwt -> jwt.subject(followerId.toString())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(followRequest(followedId)))
                 .andExpect(status().isOk())
@@ -387,7 +387,7 @@ class FollowControllerIntegrationTest {
         seedNode(userId);
 
         mockMvc.perform(delete("/api/social/follow")
-                        .with(jwt().jwt(jwt -> jwt.claim("userId", userId.toString())))
+                        .with(jwt().jwt(jwt -> jwt.subject(userId.toString())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(followRequest(userId)))
                 .andExpect(status().isBadRequest());
@@ -405,7 +405,7 @@ class FollowControllerIntegrationTest {
         seedNode(followerId);
 
         mockMvc.perform(delete("/api/social/follow")
-                        .with(jwt().jwt(jwt -> jwt.claim("userId", followerId.toString())))
+                        .with(jwt().jwt(jwt -> jwt.subject(followerId.toString())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(followRequest(missingUserId)))
                 .andExpect(status().isNotFound());
@@ -436,7 +436,7 @@ class FollowControllerIntegrationTest {
                 .with(rabbitMQProperties.getRk().getUser().getFollow().getDeleted()));
 
         mockMvc.perform(delete("/api/social/follow")
-                        .with(jwt().jwt(jwt -> jwt.claim("userId", followerId.toString())))
+                        .with(jwt().jwt(jwt -> jwt.subject(followerId.toString())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(followRequest(followedId)))
                 .andExpect(status().isOk());

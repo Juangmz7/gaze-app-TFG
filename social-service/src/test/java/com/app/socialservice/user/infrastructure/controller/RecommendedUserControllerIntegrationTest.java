@@ -136,7 +136,7 @@ class RecommendedUserControllerIntegrationTest {
         seedActiveFollow(newerTieCandidateId, requesterId);
 
         mockMvc.perform(get("/api/social/recommended/users")
-                        .with(jwt().jwt(jwt -> jwt.claim("userId", requesterId.toString()))))
+                        .with(jwt().jwt(jwt -> jwt.subject(requesterId.toString()))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(3))
                 .andExpect(jsonPath("$[0].username").value("high-rank"))
@@ -176,7 +176,7 @@ class RecommendedUserControllerIntegrationTest {
         }
 
         mockMvc.perform(get("/api/social/recommended/users")
-                        .with(jwt().jwt(jwt -> jwt.claim("userId", requesterId.toString()))))
+                        .with(jwt().jwt(jwt -> jwt.subject(requesterId.toString()))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(20));
     }
@@ -186,7 +186,7 @@ class RecommendedUserControllerIntegrationTest {
         var missingRequesterId = UUID.randomUUID();
 
         mockMvc.perform(get("/api/social/recommended/users")
-                        .with(jwt().jwt(jwt -> jwt.claim("userId", missingRequesterId.toString()))))
+                        .with(jwt().jwt(jwt -> jwt.subject(missingRequesterId.toString()))))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.message").value("User not found: " + missingRequesterId))
                 .andExpect(jsonPath("$.path").value("/api/social/recommended/users"));

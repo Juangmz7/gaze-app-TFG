@@ -109,7 +109,7 @@ class BlockControllerIntegrationTest {
         seedGraphFollow(blockerId, blockedId);
 
         mockMvc.perform(post("/api/social/block")
-                        .with(jwt().jwt(jwt -> jwt.claim("userId", blockerId.toString())))
+                        .with(jwt().jwt(jwt -> jwt.subject(blockerId.toString())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(blockRequest(blockedId)))
                 .andExpect(status().isOk())
@@ -142,13 +142,13 @@ class BlockControllerIntegrationTest {
         seedNode(blockedId);
 
         mockMvc.perform(post("/api/social/block")
-                        .with(jwt().jwt(jwt -> jwt.claim("userId", blockerId.toString())))
+                        .with(jwt().jwt(jwt -> jwt.subject(blockerId.toString())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(blockRequest(blockedId)))
                 .andExpect(status().isOk());
 
         mockMvc.perform(post("/api/social/block")
-                        .with(jwt().jwt(jwt -> jwt.claim("userId", blockerId.toString())))
+                        .with(jwt().jwt(jwt -> jwt.subject(blockerId.toString())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(blockRequest(blockedId)))
                 .andExpect(status().isOk())
@@ -167,7 +167,7 @@ class BlockControllerIntegrationTest {
         seedNode(userId);
 
         mockMvc.perform(post("/api/social/block")
-                        .with(jwt().jwt(jwt -> jwt.claim("userId", userId.toString())))
+                        .with(jwt().jwt(jwt -> jwt.subject(userId.toString())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(blockRequest(userId)))
                 .andExpect(status().isBadRequest());
@@ -184,7 +184,7 @@ class BlockControllerIntegrationTest {
         seedNode(blockerId);
 
         mockMvc.perform(post("/api/social/block")
-                        .with(jwt().jwt(jwt -> jwt.claim("userId", blockerId.toString())))
+                        .with(jwt().jwt(jwt -> jwt.subject(blockerId.toString())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(blockRequest(missingUserId)))
                 .andExpect(status().isNotFound());
@@ -210,7 +210,7 @@ class BlockControllerIntegrationTest {
                 .with(rabbitMQProperties.getRk().getUser().getBlock().getCreated()));
 
         mockMvc.perform(post("/api/social/block")
-                        .with(jwt().jwt(jwt -> jwt.claim("userId", blockerId.toString())))
+                        .with(jwt().jwt(jwt -> jwt.subject(blockerId.toString())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(blockRequest(blockedId)))
                 .andExpect(status().isOk());
@@ -243,7 +243,7 @@ class BlockControllerIntegrationTest {
         seedBlockedFollow(unblockerId, unblockedId);
 
         mockMvc.perform(delete("/api/social/block")
-                        .with(jwt().jwt(jwt -> jwt.claim("userId", unblockerId.toString())))
+                        .with(jwt().jwt(jwt -> jwt.subject(unblockerId.toString())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(blockRequest(unblockedId)))
                 .andExpect(status().isOk());
@@ -270,7 +270,7 @@ class BlockControllerIntegrationTest {
         seedFollow(unblockerId, unblockedId);
 
         mockMvc.perform(delete("/api/social/block")
-                        .with(jwt().jwt(jwt -> jwt.claim("userId", unblockerId.toString())))
+                        .with(jwt().jwt(jwt -> jwt.subject(unblockerId.toString())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(blockRequest(unblockedId)))
                 .andExpect(status().isOk());
@@ -289,7 +289,7 @@ class BlockControllerIntegrationTest {
         seedUser(userId, "self-unblock");
 
         mockMvc.perform(delete("/api/social/block")
-                        .with(jwt().jwt(jwt -> jwt.claim("userId", userId.toString())))
+                        .with(jwt().jwt(jwt -> jwt.subject(userId.toString())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(blockRequest(userId)))
                 .andExpect(status().isBadRequest());
@@ -306,7 +306,7 @@ class BlockControllerIntegrationTest {
         seedUser(unblockerId, "unblocker-missing-target");
 
         mockMvc.perform(delete("/api/social/block")
-                        .with(jwt().jwt(jwt -> jwt.claim("userId", unblockerId.toString())))
+                        .with(jwt().jwt(jwt -> jwt.subject(unblockerId.toString())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(blockRequest(missingUserId)))
                 .andExpect(status().isNotFound());
@@ -332,7 +332,7 @@ class BlockControllerIntegrationTest {
                 .with(rabbitMQProperties.getRk().getUser().getBlock().getDeleted()));
 
         mockMvc.perform(delete("/api/social/block")
-                        .with(jwt().jwt(jwt -> jwt.claim("userId", unblockerId.toString())))
+                        .with(jwt().jwt(jwt -> jwt.subject(unblockerId.toString())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(blockRequest(unblockedId)))
                 .andExpect(status().isOk());

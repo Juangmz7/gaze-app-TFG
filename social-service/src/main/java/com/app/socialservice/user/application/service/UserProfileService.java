@@ -68,11 +68,11 @@ public class UserProfileService {
 
         user.updateProfile(requestedPictureUrl, requestedBio);
 
-        var savedUser = userRepository.updateProfile(user);
+        var updated = userRepository.updateProfile(user);
 
         log.info("Updated profile for user {}", command.userId());
 
-        return toOwnUserProfileResponse(savedUser);
+        return toOwnUserProfileResponse(updated);
     }
 
     @Transactional(readOnly = true)
@@ -97,6 +97,7 @@ public class UserProfileService {
         log.info("Retrieving user {} profile requested from user {}", targetUserId, requesterUserId);
 
         return new UserProfileResponse(
+                profileDetails.userId(),
                 profileDetails.username(),
                 profileDetails.description(),
                 profileDetails.socialMedia(),
@@ -105,6 +106,7 @@ public class UserProfileService {
                 userStatsService.getPostCount(profileDetails.userId()),
                 profileDetails.profilePic(),
                 profileDetails.following(),
+                profileDetails.followsMe(),
                 profileDetails.banned()
         );
     }

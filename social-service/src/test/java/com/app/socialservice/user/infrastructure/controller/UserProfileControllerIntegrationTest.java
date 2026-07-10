@@ -89,9 +89,10 @@ class UserProfileControllerIntegrationTest {
         seedUserStats(targetUserId, 12L, 7L, 33L);
 
         mockMvc.perform(get("/api/social/profile/{userId}", targetUserId)
-                        .with(jwt().jwt(jwt -> jwt.claim("userId", requesterUserId.toString())))
+                        .with(jwt().jwt(jwt -> jwt.subject(requesterUserId.toString())))
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(targetUserId.toString()))
                 .andExpect(jsonPath("$.username").value("target-user"))
                 .andExpect(jsonPath("$.description").value("Target description"))
                 .andExpect(jsonPath("$.socialMedia.github").value("target-user"))
@@ -101,6 +102,7 @@ class UserProfileControllerIntegrationTest {
                 .andExpect(jsonPath("$.postCount").value(33))
                 .andExpect(jsonPath("$.profilePic").value("https://cdn.example.com/target.png"))
                 .andExpect(jsonPath("$.following").value(true))
+                .andExpect(jsonPath("$.followsMe").value(false))
                 .andExpect(jsonPath("$.isBanned").value(false));
     }
     
@@ -124,7 +126,7 @@ class UserProfileControllerIntegrationTest {
         seedCounter(userId, "following", 3L);
 
         mockMvc.perform(get("/api/social/profile/me")
-                        .with(jwt().jwt(jwt -> jwt.claim("userId", userId.toString())))
+                        .with(jwt().jwt(jwt -> jwt.subject(userId.toString())))
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.username").value("profile-user"))
@@ -147,7 +149,7 @@ class UserProfileControllerIntegrationTest {
         seedBlock(requesterUserId, targetUserId);
 
         mockMvc.perform(get("/api/social/profile/{userId}", targetUserId)
-                        .with(jwt().jwt(jwt -> jwt.claim("userId", requesterUserId.toString()))))
+                        .with(jwt().jwt(jwt -> jwt.subject(requesterUserId.toString()))))
                 .andExpect(status().isForbidden());
     }
 
@@ -161,7 +163,7 @@ class UserProfileControllerIntegrationTest {
         seedBlock(targetUserId, requesterUserId);
 
         mockMvc.perform(get("/api/social/profile/{userId}", targetUserId)
-                        .with(jwt().jwt(jwt -> jwt.claim("userId", requesterUserId.toString()))))
+                        .with(jwt().jwt(jwt -> jwt.subject(requesterUserId.toString()))))
                 .andExpect(status().isForbidden());
     }
 
@@ -173,7 +175,7 @@ class UserProfileControllerIntegrationTest {
         seedUser(requesterUserId, "requester-user", UserAccountStatus.ACCEPTED, null, null, null);
 
         mockMvc.perform(get("/api/social/profile/{userId}", targetUserId)
-                        .with(jwt().jwt(jwt -> jwt.claim("userId", requesterUserId.toString()))))
+                        .with(jwt().jwt(jwt -> jwt.subject(requesterUserId.toString()))))
                 .andExpect(status().isNotFound());
     }
 
@@ -184,7 +186,7 @@ class UserProfileControllerIntegrationTest {
         seedUser(requesterUserId, "self-user", UserAccountStatus.ACCEPTED, null, null, null);
 
         mockMvc.perform(get("/api/social/profile/{userId}", requesterUserId)
-                        .with(jwt().jwt(jwt -> jwt.claim("userId", requesterUserId.toString()))))
+                        .with(jwt().jwt(jwt -> jwt.subject(requesterUserId.toString()))))
                 .andExpect(status().isBadRequest());
     }
 
@@ -249,7 +251,7 @@ class UserProfileControllerIntegrationTest {
                 .build());
 
         mockMvc.perform(get("/api/social/profile/me")
-                        .with(jwt().jwt(jwt -> jwt.claim("userId", userId.toString()))))
+                        .with(jwt().jwt(jwt -> jwt.subject(userId.toString()))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.username").value("banned-user"))
                 .andExpect(jsonPath("$.description").value(nullValue()))
@@ -266,7 +268,7 @@ class UserProfileControllerIntegrationTest {
         var userId = UUID.randomUUID();
 
         mockMvc.perform(get("/api/social/profile/me")
-                        .with(jwt().jwt(jwt -> jwt.claim("userId", userId.toString()))))
+                        .with(jwt().jwt(jwt -> jwt.subject(userId.toString()))))
                 .andExpect(status().isNotFound());
 
         assertThat(jpaUserRepository.count()).isZero();
@@ -309,7 +311,7 @@ class UserProfileControllerIntegrationTest {
         seedUser(otherUserId, "other-user", "Other bio", "https://cdn.example.com/other.png");
 
         mockMvc.perform(put("/api/social/profile")
-                        .with(jwt().jwt(jwt -> jwt.claim("userId", authenticatedUserId.toString())))
+                        .with(jwt().jwt(jwt -> jwt.subject(authenticatedUserId.toString())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -357,7 +359,7 @@ class UserProfileControllerIntegrationTest {
         var versionBefore = jpaUserRepository.findById(authenticatedUserId).orElseThrow().getVersion();
 
         mockMvc.perform(put("/api/social/profile")
-                        .with(jwt().jwt(jwt -> jwt.claim("userId", authenticatedUserId.toString())))
+                        .with(jwt().jwt(jwt -> jwt.subject(authenticatedUserId.toString())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -391,7 +393,7 @@ class UserProfileControllerIntegrationTest {
         );
 
         mockMvc.perform(put("/api/social/profile")
-                        .with(jwt().jwt(jwt -> jwt.claim("userId", authenticatedUserId.toString())))
+                        .with(jwt().jwt(jwt -> jwt.subject(authenticatedUserId.toString())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -417,7 +419,7 @@ class UserProfileControllerIntegrationTest {
         );
 
         mockMvc.perform(put("/api/social/profile")
-                        .with(jwt().jwt(jwt -> jwt.claim("userId", authenticatedUserId.toString())))
+                        .with(jwt().jwt(jwt -> jwt.subject(authenticatedUserId.toString())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -440,7 +442,7 @@ class UserProfileControllerIntegrationTest {
         seedUser(spoofedUserId, "spoof-target", "Spoof target bio", "https://cdn.example.com/spoof-old.png");
 
         mockMvc.perform(put("/api/social/profile")
-                        .with(jwt().jwt(jwt -> jwt.claim("userId", authenticatedUserId.toString())))
+                        .with(jwt().jwt(jwt -> jwt.subject(authenticatedUserId.toString())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
