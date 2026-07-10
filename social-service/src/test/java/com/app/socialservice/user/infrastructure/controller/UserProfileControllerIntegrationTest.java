@@ -150,7 +150,8 @@ class UserProfileControllerIntegrationTest {
 
         mockMvc.perform(get("/api/social/profile/{userId}", targetUserId)
                         .with(jwt().jwt(jwt -> jwt.subject(requesterUserId.toString()))))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("BLOCKED"));
     }
 
     @Test
@@ -164,7 +165,8 @@ class UserProfileControllerIntegrationTest {
 
         mockMvc.perform(get("/api/social/profile/{userId}", targetUserId)
                         .with(jwt().jwt(jwt -> jwt.subject(requesterUserId.toString()))))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("BLOCKED"));
     }
 
     @Test
@@ -278,7 +280,8 @@ class UserProfileControllerIntegrationTest {
     void getApiSocialProfileMeReturns401WhenJwtDoesNotContainUserIdClaim() throws Exception {
         mockMvc.perform(get("/api/social/profile/me")
                         .with(jwt()))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.errorCode").value("INVALID_JWT"));
     }
 
     private void seedUser(UserEntity userEntity) {
@@ -403,6 +406,7 @@ class UserProfileControllerIntegrationTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))
                 .andExpect(jsonPath("$.error").value("Bad Request"))
+                .andExpect(jsonPath("$.errorCode").value("VALIDATION_ERROR"))
                 .andExpect(jsonPath("$.path").value("/api/social/profile"))
                 .andExpect(jsonPath("$.message").isNotEmpty());
     }
@@ -429,6 +433,7 @@ class UserProfileControllerIntegrationTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))
                 .andExpect(jsonPath("$.error").value("Bad Request"))
+                .andExpect(jsonPath("$.errorCode").value("VALIDATION_ERROR"))
                 .andExpect(jsonPath("$.path").value("/api/social/profile"))
                 .andExpect(jsonPath("$.message").isNotEmpty());
     }

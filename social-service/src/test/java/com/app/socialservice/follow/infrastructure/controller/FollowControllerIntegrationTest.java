@@ -213,7 +213,8 @@ class FollowControllerIntegrationTest {
                         .with(jwt().jwt(jwt -> jwt.subject(followerId.toString())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(followRequest(followedId)))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("BLOCKED"));
 
         assertThat(jpaFollowRepository.findById(new FollowEntityId(followerId, followedId))).get()
                 .extracting(FollowEntity::getStatus)
@@ -239,7 +240,8 @@ class FollowControllerIntegrationTest {
                         .with(jwt().jwt(jwt -> jwt.subject(followerId.toString())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(followRequest(followedId)))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("BLOCKED"));
 
         assertThat(jpaFollowRepository.count()).isZero();
         assertThat(outboxEventRepository.count()).isZero();
@@ -322,7 +324,7 @@ class FollowControllerIntegrationTest {
     }
 
     @Test
-    void deleteApiSocialFollowReturns200WithUnfollowBodyWhenRelationshipIsDeleted() throws Exception {
+    void deleteApiSocialFollowReturns204WhenRelationshipIsDeleted() throws Exception {
         var followerId = UUID.randomUUID();
         var followedId = UUID.randomUUID();
 
@@ -339,10 +341,7 @@ class FollowControllerIntegrationTest {
                         .with(jwt().jwt(jwt -> jwt.subject(followerId.toString())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(followRequest(followedId)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.followerId").value(followerId.toString()))
-                .andExpect(jsonPath("$.followedId").value(followedId.toString()))
-                .andExpect(jsonPath("$.createdAt").exists());
+                .andExpect(status().isNoContent());
 
         assertThat(jpaFollowRepository.findById(new FollowEntityId(followerId, followedId))).get()
                 .extracting(FollowEntity::getStatus)
@@ -357,7 +356,7 @@ class FollowControllerIntegrationTest {
     }
 
     @Test
-    void deleteApiSocialFollowReturns200WhenCalledOnANonExistingRelationship() throws Exception {
+    void deleteApiSocialFollowReturns204WhenCalledOnANonExistingRelationship() throws Exception {
         var followerId = UUID.randomUUID();
         var followedId = UUID.randomUUID();
 
@@ -370,9 +369,7 @@ class FollowControllerIntegrationTest {
                         .with(jwt().jwt(jwt -> jwt.subject(followerId.toString())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(followRequest(followedId)))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.followerId").value(followerId.toString()))
-                .andExpect(jsonPath("$.followedId").value(followedId.toString()));
+                .andExpect(status().isNoContent());
 
         assertThat(jpaFollowRepository.count()).isZero();
         assertThat(outboxEventRepository.count()).isZero();
@@ -439,7 +436,7 @@ class FollowControllerIntegrationTest {
                         .with(jwt().jwt(jwt -> jwt.subject(followerId.toString())))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(followRequest(followedId)))
-                .andExpect(status().isOk());
+                .andExpect(status().isNoContent());
 
         var message = waitForMessage(queueName);
 

@@ -186,8 +186,9 @@ class RecommendedUserControllerIntegrationTest {
         var missingRequesterId = UUID.randomUUID();
 
         mockMvc.perform(get("/api/social/recommended/users")
-                        .with(jwt().jwt(jwt -> jwt.subject(missingRequesterId.toString()))))
+                .with(jwt().jwt(jwt -> jwt.subject(missingRequesterId.toString()))))
                 .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("NOT_FOUND"))
                 .andExpect(jsonPath("$.message").value("User not found: " + missingRequesterId))
                 .andExpect(jsonPath("$.path").value("/api/social/recommended/users"));
     }

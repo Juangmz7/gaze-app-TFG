@@ -34,6 +34,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -145,7 +146,6 @@ class FollowServiceTest {
         var followerId = UUID.randomUUID();
         var followedId = UUID.randomUUID();
         var existingRemovedFollow = new Follow(new UserId(followerId), new UserId(followedId), Instant.now().minusSeconds(10));
-        var reactivatedFollow = new Follow(new UserId(followerId), new UserId(followedId), existingRemovedFollow.getCreatedAt());
         var command = new FollowUserCommand(followerId, followedId);
         var mappedEvent = UserFollowedEvent.builder()
                 .id(UUID.randomUUID())
@@ -174,6 +174,76 @@ class FollowServiceTest {
     }
 
     @Test
+    void shouldReturnActiveFollowWhenRemovedFollowWasConcurrentlyReactivated() {
+        var followerId = UUID.randomUUID();
+        var followedId = UUID.randomUUID();
+        var removedFollow = new Follow(new UserId(followerId), new UserId(followedId), Instant.now().minusSeconds(20));
+        var activeFollow = new Follow(new UserId(followerId), new UserId(followedId), removedFollow.getCreatedAt());
+        var command = new FollowUserCommand(followerId, followedId);
+
+        givenUsersExist(followerId, followedId, "reactivated");
+        givenUsersAreNotBlocked(followerId, followedId);
+        when(followRepository.insertIfAbsent(any(Follow.class))).thenReturn(false);
+        when(followRepository.existsBlockedByUsers(followerId, followedId)).thenReturn(false);
+        when(followRepository.findRemovedByUsers(followerId, followedId)).thenReturn(Optional.of(removedFollow));
+        when(followRepository.reactivate(followerId, followedId)).thenReturn(false);
+        when(followRepository.findActiveByUsers(followerId, followedId)).thenReturn(Optional.of(activeFollow));
+
+        var response = followService.followUser(command);
+
+        assertThat(response.followerId()).isEqualTo(followerId);
+        assertThat(response.followedId()).isEqualTo(followedId);
+        assertThat(response.createdAt()).isEqualTo(activeFollow.getCreatedAt());
+        verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
+        verify(eventPublisher, never()).publishEvent(any());
+    }
+
+    @Test
+    void shouldRejectFollowWhenRemovedFollowWasConcurrentlyBlocked() {
+        var followerId = UUID.randomUUID();
+        var followedId = UUID.randomUUID();
+        var removedFollow = new Follow(new UserId(followerId), new UserId(followedId), Instant.now().minusSeconds(20));
+        var command = new FollowUserCommand(followerId, followedId);
+
+        givenUsersExist(followerId, followedId, "blocked");
+        givenUsersAreNotBlocked(followerId, followedId);
+        when(followRepository.insertIfAbsent(any(Follow.class))).thenReturn(false);
+        when(followRepository.existsBlockedByUsers(followerId, followedId)).thenReturn(false, true);
+        when(followRepository.findRemovedByUsers(followerId, followedId)).thenReturn(Optional.of(removedFollow));
+        when(followRepository.reactivate(followerId, followedId)).thenReturn(false);
+        when(followRepository.findActiveByUsers(followerId, followedId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> followService.followUser(command))
+                .isInstanceOf(FollowBlockedException.class)
+                .hasMessage("Follow relationship is blocked between " + followerId + " and " + followedId);
+
+        verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
+        verify(eventPublisher, never()).publishEvent(any());
+    }
+
+    @Test
+    void shouldThrowConflictWhenRemovedFollowConcurrentStateCannotBeResolved() {
+        var followerId = UUID.randomUUID();
+        var followedId = UUID.randomUUID();
+        var removedFollow = new Follow(new UserId(followerId), new UserId(followedId), Instant.now().minusSeconds(20));
+        var command = new FollowUserCommand(followerId, followedId);
+
+        givenUsersExist(followerId, followedId, "conflict");
+        givenUsersAreNotBlocked(followerId, followedId);
+        when(followRepository.insertIfAbsent(any(Follow.class))).thenReturn(false);
+        when(followRepository.existsBlockedByUsers(followerId, followedId)).thenReturn(false, false);
+        when(followRepository.findRemovedByUsers(followerId, followedId)).thenReturn(Optional.of(removedFollow));
+        when(followRepository.reactivate(followerId, followedId)).thenReturn(false);
+        when(followRepository.findActiveByUsers(followerId, followedId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> followService.followUser(command))
+                .isInstanceOf(ObjectOptimisticLockingFailureException.class);
+
+        verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
+        verify(eventPublisher, never()).publishEvent(any());
+    }
+
+    @Test
     void shouldDeleteFollowsRelationshipWhenBothUsersExistAndAreDifferent() {
         var followerId = UUID.randomUUID();
         var followedId = UUID.randomUUID();
@@ -195,10 +265,7 @@ class FollowServiceTest {
         when(jsonMapper.toJson(mappedEvent)).thenReturn("{\"type\":\"unfollowed\"}");
         when(outboxEventRepository.save(any(OutboxEvent.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        var response = followService.unfollowUser(command);
-
-        assertThat(response.followerId()).isEqualTo(followerId);
-        assertThat(response.followedId()).isEqualTo(followedId);
+        followService.unfollowUser(command);
 
         var outboxCaptor = ArgumentCaptor.forClass(OutboxEvent.class);
         verify(outboxEventRepository).save(outboxCaptor.capture());
@@ -218,10 +285,8 @@ class FollowServiceTest {
         when(userRepository.findById(followedId)).thenReturn(Optional.of(buildUser(followedId, "missing-unfollow-followed")));
         when(followRepository.findActiveByUsers(followerId, followedId)).thenReturn(Optional.empty());
 
-        var response = followService.unfollowUser(command);
+        followService.unfollowUser(command);
 
-        assertThat(response.followerId()).isEqualTo(followerId);
-        assertThat(response.followedId()).isEqualTo(followedId);
         verify(followRepository, never()).markAsRemoved(any(), any());
         verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
         verify(eventPublisher, never()).publishEvent(any());
@@ -360,17 +425,15 @@ class FollowServiceTest {
         when(userRepository.findById(followedId)).thenReturn(Optional.of(buildUser(followedId, "blocked-unfollowed")));
         when(followRepository.findActiveByUsers(followerId, followedId)).thenReturn(Optional.empty());
 
-        var response = followService.unfollowUser(command);
+        followService.unfollowUser(command);
 
-        assertThat(response.followerId()).isEqualTo(followerId);
-        assertThat(response.followedId()).isEqualTo(followedId);
         verify(followRepository, never()).markAsRemoved(any(), any());
         verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
         verify(eventPublisher, never()).publishEvent(any());
     }
 
     @Test
-    void shouldReturnExistingFollowWhenMarkAsRemovedFailsDueToConcurrency() {
+    void shouldReturnWithoutErrorWhenMarkAsRemovedFailsDueToConcurrency() {
         var followerId = UUID.randomUUID();
         var followedId = UUID.randomUUID();
         var existingFollow = new Follow(new UserId(followerId), new UserId(followedId), Instant.now().minusSeconds(30));
@@ -381,11 +444,8 @@ class FollowServiceTest {
         when(followRepository.findActiveByUsers(followerId, followedId)).thenReturn(Optional.of(existingFollow));
         when(followRepository.markAsRemoved(followerId, followedId)).thenReturn(false);
 
-        var response = followService.unfollowUser(command);
+        followService.unfollowUser(command);
 
-        assertThat(response.followerId()).isEqualTo(followerId);
-        assertThat(response.followedId()).isEqualTo(followedId);
-        assertThat(response.createdAt()).isEqualTo(existingFollow.getCreatedAt());
         verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
         verify(eventPublisher, never()).publishEvent(any());
     }
@@ -412,5 +472,17 @@ class FollowServiceTest {
                 new Username(username),
                 new Email(username + "@example.com")
         );
+    }
+
+    private void givenUsersExist(UUID followerId, UUID followedId, String usernamePrefix) {
+        when(userRepository.findById(followerId))
+                .thenReturn(Optional.of(buildUser(followerId, usernamePrefix + "-follower")));
+        when(userRepository.findById(followedId))
+                .thenReturn(Optional.of(buildUser(followedId, usernamePrefix + "-followed")));
+    }
+
+    private void givenUsersAreNotBlocked(UUID followerId, UUID followedId) {
+        when(blockRepository.existsByUsers(followerId, followedId)).thenReturn(false);
+        when(blockRepository.existsByUsers(followedId, followerId)).thenReturn(false);
     }
 }
