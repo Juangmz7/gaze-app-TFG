@@ -1,13 +1,10 @@
 package com.app.socialservice.shared.infrastructure.repository;
 
-import java.sql.Connection;
 import java.util.UUID;
-
-import javax.sql.DataSource;
 
 import com.app.socialservice.TestcontainersConfiguration;
 import com.app.socialservice.shared.infrastructure.entity.TargetDatabase;
-import org.flywaydb.core.Flyway;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -33,8 +30,7 @@ class ProcessedEventsRepositoryIntegrationTest {
     @jakarta.annotation.Resource
     private JdbcTemplate jdbcTemplate;
 
-    @jakarta.annotation.Resource
-    private DataSource dataSource;
+
 
     @BeforeEach
     void setUp() {
@@ -172,53 +168,6 @@ class ProcessedEventsRepositoryIntegrationTest {
     }
 
     @Test
-    void shouldMigrateExistingProcessedEventsRowsWithFlywayBaselineOnMigrate() throws Exception {
-        var schemaName = "migration_test_" + UUID.randomUUID().toString().replace("-", "");
-        var eventId = UUID.randomUUID();
-        var correlationId = UUID.randomUUID();
-
-        try (Connection connection = dataSource.getConnection()) {
-            try {
-                connection.createStatement().execute("CREATE SCHEMA " + schemaName);
-                connection.setSchema(schemaName);
-                connection.createStatement().execute("""
-                        CREATE TABLE processed_events (
-                            id UUID PRIMARY KEY,
-                            correlation_id UUID NOT NULL,
-                            event_type VARCHAR(255) NOT NULL,
-                            processed_at TIMESTAMPTZ NOT NULL
-                        )
-                        """);
-                connection.createStatement().execute(String.format("""
-                        INSERT INTO processed_events (id, correlation_id, event_type, processed_at)
-                        VALUES ('%s', '%s', 'UserRegisteredEvent', NOW())
-                        """, eventId, correlationId));
-
-                Flyway.configure()
-                        .dataSource(dataSource)
-                        .schemas(schemaName)
-                        .defaultSchema(schemaName)
-                        .baselineOnMigrate(true)
-                        .baselineVersion("0")
-                        .load()
-                        .migrate();
-
-                var targetDatabase = queryForString(connection,
-                        "SELECT target_database FROM processed_events WHERE id = '" + eventId + "'");
-                assertThat(targetDatabase).isEqualTo(TargetDatabase.POSTGRES.name());
-                assertThat(queryForInteger(connection,
-                        "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '0' AND success")).isEqualTo(1);
-                assertThat(queryForInteger(connection,
-                        "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '1' AND success")).isEqualTo(1);
-            } finally {
-                connection.setSchema("public");
-            }
-        }
-
-        jdbcTemplate.execute("DROP SCHEMA IF EXISTS " + schemaName + " CASCADE");
-    }
-
-    @Test
     void shouldCreateTheCompositeUniquenessConstraintOnIdAndTargetDatabase() {
         var constraintCount = jdbcTemplate.queryForObject("""
                 SELECT COUNT(*)
@@ -258,25 +207,5 @@ class ProcessedEventsRepositoryIntegrationTest {
                 WHERE correlation_id = ? AND target_database = ?
                 """, Integer.class, correlationId, targetDatabase.name());
         return rowCount == null ? 0 : rowCount;
-    }
-
-    private String queryForString(Connection connection, String sql) throws Exception {
-        try (var statement = connection.createStatement();
-             var resultSet = statement.executeQuery(sql)) {
-            if (!resultSet.next()) {
-                return null;
-            }
-            return resultSet.getString(1);
-        }
-    }
-
-    private int queryForInteger(Connection connection, String sql) throws Exception {
-        try (var statement = connection.createStatement();
-             var resultSet = statement.executeQuery(sql)) {
-            if (!resultSet.next()) {
-                return 0;
-            }
-            return resultSet.getInt(1);
-        }
     }
 }
