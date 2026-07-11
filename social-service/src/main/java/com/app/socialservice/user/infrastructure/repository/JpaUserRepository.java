@@ -31,6 +31,12 @@ public interface JpaUserRepository extends JpaRepository<UserEntity, UUID> {
         Instant getCreatedAt();
     }
 
+    interface BlockedUserProjection {
+        UUID getUserId();
+        String getUsername();
+        String getProfilePic();
+    }
+
     Optional<UserEntity> findByIdAndAccountStatus(UUID id, UserAccountStatus accountStatus);
 
     @Query("""
@@ -96,6 +102,18 @@ public interface JpaUserRepository extends JpaRepository<UserEntity, UUID> {
             @Param("userIds") List<UUID> userIds,
             @Param("requesterUserId") UUID requesterUserId
     );
+
+    @Query(
+            value = """
+                    SELECT u.id AS "userId",
+                           u.username AS username,
+                           u.picture_url AS "profilePic"
+                    FROM users u
+                    WHERE u.id IN (:userIds)
+                    """,
+            nativeQuery = true
+    )
+    List<BlockedUserProjection> findBlockedUsersByIds(@Param("userIds") List<UUID> userIds);
 
     @Modifying
     @Transactional
