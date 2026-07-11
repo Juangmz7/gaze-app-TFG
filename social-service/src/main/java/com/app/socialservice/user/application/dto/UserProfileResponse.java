@@ -13,8 +13,7 @@ public record UserProfileResponse(
         long postCount,
         String profilePic,
         boolean following,
-        boolean followsMe,
-        boolean isBanned
+        boolean followsMe
 ) {
 
     public UserProfileResponse {

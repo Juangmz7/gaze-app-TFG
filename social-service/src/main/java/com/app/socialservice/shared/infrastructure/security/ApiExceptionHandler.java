@@ -14,6 +14,7 @@ import com.app.socialservice.user.domain.exception.InvalidProfilePictureUrlExcep
 import com.app.socialservice.user.domain.exception.InvalidUserIdException;
 import com.app.socialservice.user.domain.exception.InvalidUsernameException;
 import com.app.socialservice.user.domain.exception.SelfProfileRequestNotAllowedException;
+import com.app.socialservice.user.domain.exception.UserBannedException;
 import com.app.socialservice.user.domain.exception.UserProfileBlockedException;
 import com.app.socialservice.user.domain.exception.UserProfileNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -75,6 +76,14 @@ public class ApiExceptionHandler {
             HttpServletRequest request) {
 
         return buildErrorResponse(HttpStatus.FORBIDDEN, ApiErrorCode.BLOCKED, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(UserBannedException.class)
+    public ResponseEntity<ApiErrorResponse> handleUserBannedException(
+            UserBannedException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(HttpStatus.FORBIDDEN, ApiErrorCode.USER_BANNED, exception.getMessage(), request);
     }
 
     @ExceptionHandler(AuthenticationCredentialsNotFoundException.class)
