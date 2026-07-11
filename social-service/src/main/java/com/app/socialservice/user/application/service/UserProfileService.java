@@ -18,6 +18,7 @@ import com.app.socialservice.user.domain.model.valueobj.ProfilePictureUrl;
 import com.app.socialservice.user.domain.model.valueobj.UserBio;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,6 +31,7 @@ public class UserProfileService {
     private final UserStatsService userStatsService;
 
     @Transactional(readOnly = true)
+    @Cacheable()
     public OwnUserProfileResponse getOwnProfile(UUID userId) {
         validateUserId(userId);
         log.info("Retrieving own profile for user {}", userId);
@@ -122,9 +124,9 @@ public class UserProfileService {
                 user.getUsername().value(),
                 bio == null ? null : bio.description(),
                 bio == null ? Map.of() : bio.socialMedia(),
-                0L,
-                0L,
-                0L,
+                userStatsService.getFollowersCount(user.getId().value()),
+                userStatsService.getFollowingCount(user.getId().value()),
+                userStatsService.getPostCount(user.getId().value()),
                 user.getPictureUrl() == null ? null : user.getPictureUrl().value(),
                 user.getAccountStatus().equals(UserAccountStatus.BANNED)
         );
