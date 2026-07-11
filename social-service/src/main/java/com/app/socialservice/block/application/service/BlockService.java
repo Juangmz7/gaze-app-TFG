@@ -1,11 +1,15 @@
 package com.app.socialservice.block.application.service;
 
 import java.time.Instant;
+import java.util.HashMap;
+import java.util.List;
 import java.util.UUID;
 
 import com.app.socialservice.block.application.commands.BlockUserCommand;
 import com.app.socialservice.block.application.commands.UnblockUserCommand;
 import com.app.socialservice.block.application.dto.BlockResponse;
+import com.app.socialservice.block.application.dto.BlockedUserDetails;
+import com.app.socialservice.block.application.dto.BlockedUserResponse;
 import com.app.socialservice.block.domain.exception.SelfBlockNotAllowedException;
 import com.app.socialservice.block.domain.exception.SelfUnblockNotAllowedException;
 import com.app.socialservice.shared.domain.exception.UserNotFoundException;
@@ -34,6 +38,8 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class BlockService {
 
+    static final int BLOCKED_USERS_PAGE_SIZE = 20;
+
     private final BlockRepository blockRepository;
     private final UserRepository userRepository;
     private final FollowRepository followRepository;
@@ -41,6 +47,31 @@ public class BlockService {
     private final OutboxEventRepository outboxEventRepository;
     private final BlockEventMapper blockEventMapper;
     private final JsonMapper jsonMapper;
+
+    @Transactional(readOnly = true)
+    public List<BlockedUserResponse> getBlockedUsers(UUID requesterUserId, int page) {
+        validateBlockedUsersRequest(requesterUserId, page);
+
+        var blockedUserIds = blockRepository.findBlockedUserIdsByBlockerId(
+                requesterUserId,
+                page,
+                BLOCKED_USERS_PAGE_SIZE
+        );
+        if (blockedUserIds.isEmpty()) {
+            return List.of();
+        }
+
+        var blockedUsersById = loadBlockedUsersById(blockedUserIds);
+        if (blockedUsersById.isEmpty()) {
+            return List.of();
+        }
+
+        return blockedUserIds.stream()
+                .map(blockedUsersById::get)
+                .filter(java.util.Objects::nonNull)
+                .map(this::toBlockedUserResponse)
+                .toList();
+    }
 
     @Transactional
     public BlockResponse blockUser(BlockUserCommand command) {
@@ -134,6 +165,15 @@ public class BlockService {
         assertTargetUserExists(command.unblockedUserId());
     }
 
+    private void validateBlockedUsersRequest(UUID requesterUserId, int page) {
+        if (requesterUserId == null) {
+            throw new IllegalArgumentException("requesterUserId must not be null");
+        }
+        if (page < 0) {
+            throw new IllegalArgumentException("page must not be negative");
+        }
+    }
+
     private void assertTargetUserExists(UUID targetUserId) {
         var blockedUser = userRepository.findById(targetUserId);
         if (blockedUser.isEmpty()) {
@@ -153,6 +193,27 @@ public class BlockService {
                 new UserId(blockedUserId),
                 createdAt
         );
+    }
+
+    private HashMap<UUID, BlockedUserDetails> loadBlockedUsersById(List<UUID> blockedUserIds) {
+        var blockedUsersById = new HashMap<UUID, BlockedUserDetails>();
+        for (var blockedUser : userRepository.findBlockedUsersByIds(blockedUserIds)) {
+            validateBlockedUser(blockedUser);
+            blockedUsersById.put(blockedUser.userId(), blockedUser);
+        }
+        return blockedUsersById;
+    }
+
+    private void validateBlockedUser(BlockedUserDetails blockedUser) {
+        if (blockedUser == null) {
+            throw new IllegalArgumentException("blockedUser must not be null");
+        }
+        if (blockedUser.userId() == null) {
+            throw new IllegalArgumentException("blockedUser.userId must not be null");
+        }
+        if (blockedUser.username() == null) {
+            throw new IllegalArgumentException("blockedUser.username must not be null");
+        }
     }
 
     private OutboxEvent createAndSaveOutboxEvent(Block block, Instant occurredOn) {
@@ -202,6 +263,14 @@ public class BlockService {
                 block.getBlockerId().value(),
                 block.getBlockedId().value(),
                 block.getCreatedAt()
+        );
+    }
+
+    private BlockedUserResponse toBlockedUserResponse(BlockedUserDetails blockedUser) {
+        return new BlockedUserResponse(
+                blockedUser.userId(),
+                blockedUser.username(),
+                blockedUser.profilePic()
         );
     }
 }

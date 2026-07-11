@@ -8,6 +8,7 @@ import com.app.socialservice.user.domain.model.valueobj.UserId;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -31,6 +32,22 @@ public class BlockRepositoryImpl implements BlockRepository {
         }
 
         return Set.copyOf(jpaBlockRepository.findBlockedUserIds(userId));
+    }
+
+    @Override
+    public List<UUID> findBlockedUserIdsByBlockerId(UUID blockerUserId, int page, int limit) {
+        if (blockerUserId == null) {
+            throw new IllegalArgumentException("blockerUserId must not be null");
+        }
+        if (page < 0) {
+            throw new IllegalArgumentException("page must not be negative");
+        }
+        if (limit <= 0) {
+            throw new IllegalArgumentException("limit must be greater than zero");
+        }
+
+        long offset = (long) page * limit;
+        return List.copyOf(jpaBlockRepository.findBlockedUserIdsByBlockerId(blockerUserId, limit, offset));
     }
 
     @Override

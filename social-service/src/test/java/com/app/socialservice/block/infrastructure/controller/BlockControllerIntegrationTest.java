@@ -39,6 +39,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -349,6 +350,113 @@ class BlockControllerIntegrationTest {
                 .isEqualTo(EventStatus.PROCESSED);
     }
 
+    @Test
+    void getApiSocialBlocksUsersReturnsBlockedUsersWithUserIdUsernameAndProfilePic() throws Exception {
+        var requesterUserId = UUID.randomUUID();
+        var firstBlockedUserId = UUID.randomUUID();
+        var secondBlockedUserId = UUID.randomUUID();
+
+        seedUser(requesterUserId, "blocked-users-requester");
+        seedUser(firstBlockedUserId, "blocked-users-first");
+        seedUser(secondBlockedUserId, "blocked-users-second");
+        seedBlock(requesterUserId, firstBlockedUserId, Instant.now().minusSeconds(30));
+        seedBlock(requesterUserId, secondBlockedUserId, Instant.now().minusSeconds(10));
+
+        mockMvc.perform(get("/api/social/blocks/users")
+                        .with(jwt().jwt(jwt -> jwt.subject(requesterUserId.toString()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].userId").value(secondBlockedUserId.toString()))
+                .andExpect(jsonPath("$[0].username").value("blocked-users-second"))
+                .andExpect(jsonPath("$[0].profilePic").doesNotExist())
+                .andExpect(jsonPath("$[1].userId").value(firstBlockedUserId.toString()))
+                .andExpect(jsonPath("$[1].username").value("blocked-users-first"))
+                .andExpect(jsonPath("$[1].profilePic").doesNotExist());
+    }
+
+    @Test
+    void getApiSocialBlocksUsersReturnsOnlyUsersBlockedByTheRequester() throws Exception {
+        var requesterUserId = UUID.randomUUID();
+        var blockedUserId = UUID.randomUUID();
+        var blockerUserId = UUID.randomUUID();
+
+        seedUser(requesterUserId, "direction-requester");
+        seedUser(blockedUserId, "direction-blocked");
+        seedUser(blockerUserId, "direction-blocker");
+        seedBlock(requesterUserId, blockedUserId, Instant.now().minusSeconds(20));
+        seedBlock(blockerUserId, requesterUserId, Instant.now().minusSeconds(10));
+
+        mockMvc.perform(get("/api/social/blocks/users")
+                        .with(jwt().jwt(jwt -> jwt.subject(requesterUserId.toString()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].userId").value(blockedUserId.toString()))
+                .andExpect(jsonPath("$[0].username").value("direction-blocked"));
+    }
+
+    @Test
+    void getApiSocialBlocksUsersReturnsBlockedUsersEvenWhenTheirAccountStatusIsNotAccepted() throws Exception {
+        var requesterUserId = UUID.randomUUID();
+        var bannedBlockedUserId = UUID.randomUUID();
+
+        seedUser(requesterUserId, "status-requester");
+        seedUser(bannedBlockedUserId, "status-banned-user", UserAccountStatus.BANNED);
+        seedBlock(requesterUserId, bannedBlockedUserId, Instant.now().minusSeconds(10));
+
+        mockMvc.perform(get("/api/social/blocks/users")
+                        .with(jwt().jwt(jwt -> jwt.subject(requesterUserId.toString()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].userId").value(bannedBlockedUserId.toString()))
+                .andExpect(jsonPath("$[0].username").value("status-banned-user"));
+    }
+
+    @Test
+    void getApiSocialBlocksUsersReturnsAnEmptyListWhenThereAreNoBlockedUsers() throws Exception {
+        var requesterUserId = UUID.randomUUID();
+
+        seedUser(requesterUserId, "empty-block-list");
+
+        mockMvc.perform(get("/api/social/blocks/users")
+                        .with(jwt().jwt(jwt -> jwt.subject(requesterUserId.toString()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+    }
+
+    @Test
+    void getApiSocialBlocksUsersImplementsPaginationWithLimitTwentyPerPage() throws Exception {
+        var requesterUserId = UUID.randomUUID();
+
+        seedUser(requesterUserId, "paged-requester");
+
+        for (int index = 0; index < 21; index++) {
+            var blockedUserId = UUID.randomUUID();
+            seedUser(blockedUserId, "paged-blocked-" + index);
+            seedBlock(requesterUserId, blockedUserId, Instant.now().minusSeconds(index));
+        }
+
+        mockMvc.perform(get("/api/social/blocks/users")
+                        .with(jwt().jwt(jwt -> jwt.subject(requesterUserId.toString()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(20));
+
+        mockMvc.perform(get("/api/social/blocks/users")
+                        .param("page", "1")
+                        .with(jwt().jwt(jwt -> jwt.subject(requesterUserId.toString()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1));
+    }
+
+    @Test
+    void getApiSocialBlocksUsersReturnsUnauthorizedWhenRequesterIsNotAuthenticated() throws Exception {
+        mockMvc.perform(get("/api/social/blocks/users"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.status").value(401))
+                .andExpect(jsonPath("$.errorCode").value("INVALID_JWT"))
+                .andExpect(jsonPath("$.message")
+                        .value("Authentication failed: Full authentication is required to access this resource"))
+                .andExpect(jsonPath("$.path").value("/api/social/blocks/users"));
+    }
+
     private String blockRequest(UUID blockedId) {
         return """
                 {"blockedUserId":"%s"}
@@ -356,12 +464,23 @@ class BlockControllerIntegrationTest {
     }
 
     private void seedUser(UUID userId, String username) {
+        seedUser(userId, username, UserAccountStatus.ACCEPTED);
+    }
+
+    private void seedUser(UUID userId, String username, UserAccountStatus accountStatus) {
         jpaUserRepository.save(UserEntity.builder()
                 .id(userId)
                 .username(username)
                 .email(username + "@example.com")
-                .accountStatus(UserAccountStatus.ACCEPTED)
+                .accountStatus(accountStatus)
                 .build());
+    }
+
+    private void seedBlock(UUID blockerId, UUID blockedId, Instant createdAt) {
+        jpaBlockRepository.save(new com.app.socialservice.block.infrastructure.entity.BlockEntity(
+                new BlockEntityId(blockerId, blockedId),
+                createdAt
+        ));
     }
 
     private void seedNode(UUID userId) {
