@@ -5,6 +5,7 @@ import java.util.UUID;
 
 import com.app.socialservice.TestcontainersConfiguration;
 import com.app.socialservice.block.infrastructure.events.UserBlockedEvent;
+import com.app.socialservice.shared.infrastructure.entity.TargetDatabase;
 import com.app.socialservice.shared.infrastructure.repository.ProcessedEventsRepository;
 import com.app.socialservice.user.domain.enums.UserAccountStatus;
 import com.app.socialservice.user.infrastructure.entity.UserEntity;
@@ -85,7 +86,7 @@ class BlockRabbitMQListenerIntegrationTest {
 
         blockRabbitMQListener.onUserBlocked(event);
 
-        assertThat(processedEventsRepository.findById(event.id())).isPresent();
+        assertThat(processedEventsRepository.findByIdAndTargetDatabase(event.id(), TargetDatabase.NEO4J)).isPresent();
         assertThat(countFollowRelationships(blockerId, blockedId)).isZero();
         assertThat(countFollowRelationships(blockedId, blockerId)).isZero();
     }
@@ -122,7 +123,7 @@ class BlockRabbitMQListenerIntegrationTest {
         // Try to run again
         blockRabbitMQListener.onUserBlocked(event);
 
-        assertThat(processedEventsRepository.findById(event.id())).isPresent();
+        assertThat(processedEventsRepository.findByIdAndTargetDatabase(event.id(), TargetDatabase.NEO4J)).isPresent();
         assertThat(countFollowRelationships(blockerId, blockedId)).isZero();
         assertThat(countFollowRelationships(blockedId, blockerId)).isZero();
     }

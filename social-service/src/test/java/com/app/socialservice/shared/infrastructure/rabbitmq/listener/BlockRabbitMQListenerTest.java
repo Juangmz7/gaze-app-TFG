@@ -5,6 +5,7 @@ import java.util.UUID;
 
 import com.app.socialservice.block.application.service.BlockNodeService;
 import com.app.socialservice.block.infrastructure.events.UserBlockedEvent;
+import com.app.socialservice.shared.infrastructure.entity.TargetDatabase;
 import com.app.socialservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 import com.app.socialservice.shared.infrastructure.repository.ProcessedEventsRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -53,14 +54,18 @@ class BlockRabbitMQListenerTest {
                 .blockerUserId(blockerId)
                 .blockedUserId(blockedId)
                 .build();
-        when(processedEventsRepository.existsById(event.id())).thenReturn(false);
-        when(processedEventsRepository.existsByCorrelationId(event.correlationId())).thenReturn(false);
+        when(processedEventsRepository.existsByIdAndTargetDatabase(event.id(), TargetDatabase.NEO4J)).thenReturn(false);
+        when(processedEventsRepository.existsByCorrelationIdAndTargetDatabase(
+                event.correlationId(),
+                TargetDatabase.NEO4J
+        )).thenReturn(false);
 
         blockRabbitMQListener.onUserBlocked(event);
 
         verify(blockNodeService).deleteBidirectionalFollowRelationship(blockerId, blockedId);
         verify(processedEventsRepository).insertIfAbsent(
                 event.id(),
+                TargetDatabase.NEO4J.name(),
                 event.correlationId(),
                 UserBlockedEvent.class.getSimpleName()
         );
@@ -75,12 +80,12 @@ class BlockRabbitMQListenerTest {
                 .blockerUserId(UUID.randomUUID())
                 .blockedUserId(UUID.randomUUID())
                 .build();
-        when(processedEventsRepository.existsById(event.id())).thenReturn(true);
+        when(processedEventsRepository.existsByIdAndTargetDatabase(event.id(), TargetDatabase.NEO4J)).thenReturn(true);
 
         blockRabbitMQListener.onUserBlocked(event);
 
         verify(blockNodeService, never()).deleteBidirectionalFollowRelationship(any(), any());
-        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any());
+        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any(), any());
     }
 
     @Test
@@ -99,7 +104,7 @@ class BlockRabbitMQListenerTest {
                 .hasMessage("event blocker and blocked users must be different");
 
         verify(blockNodeService, never()).deleteBidirectionalFollowRelationship(any(), any());
-        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any());
+        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any(), any());
     }
 
     @Test
@@ -111,8 +116,11 @@ class BlockRabbitMQListenerTest {
                 .blockerUserId(UUID.randomUUID())
                 .blockedUserId(UUID.randomUUID())
                 .build();
-        when(processedEventsRepository.existsById(event.id())).thenReturn(false);
-        when(processedEventsRepository.existsByCorrelationId(event.correlationId())).thenReturn(false);
+        when(processedEventsRepository.existsByIdAndTargetDatabase(event.id(), TargetDatabase.NEO4J)).thenReturn(false);
+        when(processedEventsRepository.existsByCorrelationIdAndTargetDatabase(
+                event.correlationId(),
+                TargetDatabase.NEO4J
+        )).thenReturn(false);
 
         doThrow(new RuntimeException("neo4j cleanup failed"))
                 .when(blockNodeService)
@@ -122,6 +130,6 @@ class BlockRabbitMQListenerTest {
                 .isInstanceOf(RuntimeException.class)
                 .hasMessage("neo4j cleanup failed");
 
-        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any());
+        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any(), any());
     }
 }

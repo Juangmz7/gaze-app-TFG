@@ -4,6 +4,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.UUID;
 
+import com.app.socialservice.shared.infrastructure.entity.TargetDatabase;
 import com.app.socialservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 import com.app.socialservice.shared.infrastructure.repository.ProcessedEventsRepository;
 import com.app.socialservice.user.application.commands.DeleteUserCommand;
@@ -140,14 +141,18 @@ class UserRabbitMQListenerTest {
                 String.valueOf(event.time())
         );
 
-        when(processedEventsRepository.existsById(expectedEventId)).thenReturn(false);
-        when(processedEventsRepository.existsByCorrelationId(expectedCorrelationId)).thenReturn(true);
+        when(processedEventsRepository.existsByIdAndTargetDatabase(expectedEventId, TargetDatabase.POSTGRES))
+                .thenReturn(false);
+        when(processedEventsRepository.existsByCorrelationIdAndTargetDatabase(
+                expectedCorrelationId,
+                TargetDatabase.POSTGRES
+        )).thenReturn(true);
 
         userRabbitMQListener.onUserRegisteredFromAuth(event);
 
         verify(userRegisterCommandMapper, never()).toCommand(any(), any(), any(), any());
         verify(userService, never()).registerUser(any());
-        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any());
+        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any(), any());
     }
 
     @Test
@@ -177,8 +182,12 @@ class UserRabbitMQListenerTest {
                 UserRegisteredFromAuthEvent.class.getSimpleName()
         );
 
-        when(processedEventsRepository.existsById(expectedEventId)).thenReturn(false);
-        when(processedEventsRepository.existsByCorrelationId(expectedCorrelationId)).thenReturn(false);
+        when(processedEventsRepository.existsByIdAndTargetDatabase(expectedEventId, TargetDatabase.POSTGRES))
+                .thenReturn(false);
+        when(processedEventsRepository.existsByCorrelationIdAndTargetDatabase(
+                expectedCorrelationId,
+                TargetDatabase.POSTGRES
+        )).thenReturn(false);
         when(userRegisterCommandMapper.toCommand(
                 expectedEventId,
                 expectedCorrelationId,
@@ -192,6 +201,7 @@ class UserRabbitMQListenerTest {
 
         verify(processedEventsRepository).insertIfAbsent(
                 expectedEventId,
+                TargetDatabase.POSTGRES.name(),
                 expectedCorrelationId,
                 UserRegisteredFromAuthEvent.class.getSimpleName()
         );
@@ -215,8 +225,12 @@ class UserRabbitMQListenerTest {
                 String.valueOf(event.time())
         );
 
-        when(processedEventsRepository.existsById(expectedEventId)).thenReturn(false);
-        when(processedEventsRepository.existsByCorrelationId(expectedCorrelationId)).thenReturn(false);
+        when(processedEventsRepository.existsByIdAndTargetDatabase(expectedEventId, TargetDatabase.POSTGRES))
+                .thenReturn(false);
+        when(processedEventsRepository.existsByCorrelationIdAndTargetDatabase(
+                expectedCorrelationId,
+                TargetDatabase.POSTGRES
+        )).thenReturn(false);
 
         userRabbitMQListener.onUserInfoFromAuthUpdated(event);
 
@@ -230,6 +244,7 @@ class UserRabbitMQListenerTest {
 
         verify(processedEventsRepository).insertIfAbsent(
                 expectedEventId,
+                TargetDatabase.POSTGRES.name(),
                 expectedCorrelationId,
                 UserInfoFromAuthUpdatedEvent.class.getSimpleName()
         );
@@ -253,13 +268,17 @@ class UserRabbitMQListenerTest {
                 String.valueOf(event.time())
         );
 
-        when(processedEventsRepository.existsById(expectedEventId)).thenReturn(false);
-        when(processedEventsRepository.existsByCorrelationId(expectedCorrelationId)).thenReturn(true);
+        when(processedEventsRepository.existsByIdAndTargetDatabase(expectedEventId, TargetDatabase.POSTGRES))
+                .thenReturn(false);
+        when(processedEventsRepository.existsByCorrelationIdAndTargetDatabase(
+                expectedCorrelationId,
+                TargetDatabase.POSTGRES
+        )).thenReturn(true);
 
         userRabbitMQListener.onUserInfoFromAuthUpdated(event);
 
         verify(userService, never()).updateUserAuthInfo(any(UpdateAuthUserInfoCommand.class));
-        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any());
+        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any(), any());
     }
 
     @Test
@@ -278,8 +297,12 @@ class UserRabbitMQListenerTest {
                 String.valueOf(event.time())
         );
 
-        when(processedEventsRepository.existsById(expectedEventId)).thenReturn(false);
-        when(processedEventsRepository.existsByCorrelationId(expectedCorrelationId)).thenReturn(false);
+        when(processedEventsRepository.existsByIdAndTargetDatabase(expectedEventId, TargetDatabase.POSTGRES))
+                .thenReturn(false);
+        when(processedEventsRepository.existsByCorrelationIdAndTargetDatabase(
+                expectedCorrelationId,
+                TargetDatabase.POSTGRES
+        )).thenReturn(false);
 
         userRabbitMQListener.onUserDeletedFromAuth(event);
 
@@ -291,6 +314,7 @@ class UserRabbitMQListenerTest {
 
         verify(processedEventsRepository).insertIfAbsent(
                 expectedEventId,
+                TargetDatabase.POSTGRES.name(),
                 expectedCorrelationId,
                 UserDeletedFromAuthEvent.class.getSimpleName()
         );
@@ -312,13 +336,17 @@ class UserRabbitMQListenerTest {
                 String.valueOf(event.time())
         );
 
-        when(processedEventsRepository.existsById(expectedEventId)).thenReturn(true);
+        when(processedEventsRepository.existsByIdAndTargetDatabase(expectedEventId, TargetDatabase.POSTGRES))
+                .thenReturn(true);
 
         userRabbitMQListener.onUserDeletedFromAuth(event);
 
         verify(userService, never()).deleteUser(any(DeleteUserCommand.class));
-        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any());
-        verify(processedEventsRepository, never()).existsByCorrelationId(expectedCorrelationId);
+        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any(), any());
+        verify(processedEventsRepository, never()).existsByCorrelationIdAndTargetDatabase(
+                expectedCorrelationId,
+                TargetDatabase.POSTGRES
+        );
     }
 
     private UserRegisteredFromAuthEvent userRegisteredFromAuthEvent() {
@@ -423,13 +451,16 @@ class UserRabbitMQListenerTest {
                 null
         );
 
-        when(processedEventsRepository.existsById(eventId)).thenReturn(false);
-        when(processedEventsRepository.existsByCorrelationId(correlationId)).thenReturn(true);
+        when(processedEventsRepository.existsByIdAndTargetDatabase(eventId, TargetDatabase.NEO4J)).thenReturn(false);
+        when(processedEventsRepository.existsByCorrelationIdAndTargetDatabase(
+                correlationId,
+                TargetDatabase.NEO4J
+        )).thenReturn(true);
 
         userRabbitMQListener.syncSecondaryDatabase(event);
 
         verify(userNodeService, never()).registerUserNode(any());
-        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any());
+        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any(), any());
     }
 
     @Test
@@ -447,8 +478,11 @@ class UserRabbitMQListenerTest {
                 null
         );
 
-        when(processedEventsRepository.existsById(eventId)).thenReturn(false);
-        when(processedEventsRepository.existsByCorrelationId(correlationId)).thenReturn(false);
+        when(processedEventsRepository.existsByIdAndTargetDatabase(eventId, TargetDatabase.NEO4J)).thenReturn(false);
+        when(processedEventsRepository.existsByCorrelationIdAndTargetDatabase(
+                correlationId,
+                TargetDatabase.NEO4J
+        )).thenReturn(false);
 
         userRabbitMQListener.syncSecondaryDatabase(event);
 
@@ -460,6 +494,7 @@ class UserRabbitMQListenerTest {
 
         verify(processedEventsRepository).insertIfAbsent(
                 eventId,
+                TargetDatabase.NEO4J.name(),
                 correlationId,
                 UserRegisteredEvent.class.getSimpleName()
         );
@@ -471,12 +506,12 @@ class UserRabbitMQListenerTest {
         var correlationId = UUID.randomUUID();
         var event = new UserDeletedEvent(eventId, correlationId, Instant.now(), UUID.randomUUID());
 
-        when(processedEventsRepository.existsById(eventId)).thenReturn(true);
+        when(processedEventsRepository.existsByIdAndTargetDatabase(eventId, TargetDatabase.NEO4J)).thenReturn(true);
 
         userRabbitMQListener.onUserDeleted(event);
 
         verify(userNodeService, never()).deleteUserNode(any());
-        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any());
+        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any(), any());
     }
 
     @Test
@@ -486,8 +521,11 @@ class UserRabbitMQListenerTest {
         var userId = UUID.randomUUID();
         var event = new UserDeletedEvent(eventId, correlationId, Instant.now(), userId);
 
-        when(processedEventsRepository.existsById(eventId)).thenReturn(false);
-        when(processedEventsRepository.existsByCorrelationId(correlationId)).thenReturn(false);
+        when(processedEventsRepository.existsByIdAndTargetDatabase(eventId, TargetDatabase.NEO4J)).thenReturn(false);
+        when(processedEventsRepository.existsByCorrelationIdAndTargetDatabase(
+                correlationId,
+                TargetDatabase.NEO4J
+        )).thenReturn(false);
 
         userRabbitMQListener.onUserDeleted(event);
 
@@ -499,6 +537,7 @@ class UserRabbitMQListenerTest {
 
         verify(processedEventsRepository).insertIfAbsent(
                 eventId,
+                TargetDatabase.NEO4J.name(),
                 correlationId,
                 UserDeletedEvent.class.getSimpleName()
         );

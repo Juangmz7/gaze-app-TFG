@@ -2,6 +2,7 @@ package com.app.socialservice.shared.infrastructure.rabbitmq.listener;
 
 import com.app.socialservice.shared.domain.exception.DomainException;
 import com.app.socialservice.shared.domain.exception.UserNotFoundException;
+import com.app.socialservice.shared.infrastructure.entity.TargetDatabase;
 import com.app.socialservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 import com.app.socialservice.shared.infrastructure.repository.ProcessedEventsRepository;
 import com.app.socialservice.user.application.commands.DeleteUserCommand;
@@ -66,7 +67,7 @@ public class UserRabbitMQListener extends AbstractRabbitMQListenerSupport {
             log.info("UserRegistered event: {} with correlationId: {} received from {}",
                     eventId, correlationId, rabbitMQProperties.getQueue().getAuth().getRegister());
 
-            if (isEventAlreadyProcessed(eventId, correlationId)) {
+            if (isEventAlreadyProcessed(eventId, correlationId, TargetDatabase.POSTGRES)) {
                 log.warn("Detected auth register event {} with correlationId {} duplication, discarding message...",
                         eventId, correlationId);
                 return;
@@ -74,7 +75,7 @@ public class UserRabbitMQListener extends AbstractRabbitMQListenerSupport {
 
             var command = userRegisterCommandMapper.toCommand(eventId, correlationId, event, eventType);
             userService.registerUser(command);
-            setEventAsProcessed(eventId, correlationId, eventType);
+            setEventAsProcessed(eventId, correlationId, eventType, TargetDatabase.POSTGRES);
         } catch (IllegalArgumentException exception) {
             log.error("Invalid auth register event", exception);
             throw exception;
@@ -124,14 +125,14 @@ public class UserRabbitMQListener extends AbstractRabbitMQListenerSupport {
                     eventType
             );
 
-            if (isEventAlreadyProcessed(command.id(), command.correlationId())) {
+            if (isEventAlreadyProcessed(command.id(), command.correlationId(), TargetDatabase.POSTGRES)) {
                 log.warn("Detected auth update event {} with correlationId {} duplication, discarding message...",
                         command.id(), command.correlationId());
                 return;
             }
 
             userService.updateUserAuthInfo(command);
-            setEventAsProcessed(command.id(), command.correlationId(), eventType);
+            setEventAsProcessed(command.id(), command.correlationId(), eventType, TargetDatabase.POSTGRES);
         } catch (IllegalArgumentException exception) {
             log.error("Invalid auth update event", exception);
             throw exception;
@@ -177,14 +178,14 @@ public class UserRabbitMQListener extends AbstractRabbitMQListenerSupport {
                     eventType
             );
 
-            if (isEventAlreadyProcessed(command.id(), command.correlationId())) {
+            if (isEventAlreadyProcessed(command.id(), command.correlationId(), TargetDatabase.POSTGRES)) {
                 log.warn("Detected auth delete event {} with correlationId {} duplication, discarding message...",
                         command.id(), command.correlationId());
                 return;
             }
 
             userService.deleteUser(command);
-            setEventAsProcessed(command.id(), command.correlationId(), eventType);
+            setEventAsProcessed(command.id(), command.correlationId(), eventType, TargetDatabase.POSTGRES);
         } catch (IllegalArgumentException exception) {
             log.error("Invalid auth delete event", exception);
             throw exception;
@@ -207,7 +208,7 @@ public class UserRabbitMQListener extends AbstractRabbitMQListenerSupport {
             log.info("UserRegistered event: {} with correlationId: {} received from {}",
                     event.id(), event.correlationId(), rabbitMQProperties.getQueue().getUser().getRegister());
 
-            if (isEventAlreadyProcessed(event.id(), event.correlationId())) {
+            if (isEventAlreadyProcessed(event.id(), event.correlationId(), TargetDatabase.NEO4J)) {
                 log.warn("Detected user registered event {} with correlationId {} duplication, discarding message...",
                         event.id(), event.correlationId());
                 return;
@@ -220,7 +221,12 @@ public class UserRabbitMQListener extends AbstractRabbitMQListenerSupport {
             );
 
             userNodeService.registerUserNode(command);
-            setEventAsProcessed(event.id(), event.correlationId(), event.getClass().getSimpleName());
+            setEventAsProcessed(
+                    event.id(),
+                    event.correlationId(),
+                    event.getClass().getSimpleName(),
+                    TargetDatabase.NEO4J
+            );
         } catch (IllegalArgumentException exception) {
             log.error("Invalid user registered event", exception);
             throw exception;
@@ -244,7 +250,7 @@ public class UserRabbitMQListener extends AbstractRabbitMQListenerSupport {
             log.info("UserDeleted event: {} with correlationId: {} received from {}",
                     event.id(), event.correlationId(), rabbitMQProperties.getQueue().getUser().getDeleted());
 
-            if (isEventAlreadyProcessed(event.id(), event.correlationId())) {
+            if (isEventAlreadyProcessed(event.id(), event.correlationId(), TargetDatabase.NEO4J)) {
                 log.warn("Detected user deleted event {} with correlationId {} duplication, discarding message...",
                         event.id(), event.correlationId());
                 return;
@@ -257,7 +263,12 @@ public class UserRabbitMQListener extends AbstractRabbitMQListenerSupport {
             );
 
             userNodeService.deleteUserNode(command);
-            setEventAsProcessed(event.id(), event.correlationId(), event.getClass().getSimpleName());
+            setEventAsProcessed(
+                    event.id(),
+                    event.correlationId(),
+                    event.getClass().getSimpleName(),
+                    TargetDatabase.NEO4J
+            );
         } catch (IllegalArgumentException exception) {
             log.error("Invalid user deleted event", exception);
             throw exception;

@@ -8,6 +8,7 @@ import com.app.socialservice.follow.infrastructure.events.UserFollowedEvent;
 import com.app.socialservice.follow.infrastructure.events.UserUnfollowedEvent;
 import com.app.socialservice.shared.domain.exception.DomainException;
 import com.app.socialservice.shared.domain.exception.UserNotFoundException;
+import com.app.socialservice.shared.infrastructure.entity.TargetDatabase;
 import com.app.socialservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 import com.app.socialservice.shared.infrastructure.repository.ProcessedEventsRepository;
 import com.app.socialservice.user.application.service.UserStatsService;
@@ -39,21 +40,18 @@ public class FollowRabbitMQListener extends AbstractRabbitMQListenerSupport {
             log.info("UserFollowed event: {} with correlationId: {} received from {}",
                     event.id(), event.correlationId(), rabbitMQProperties.getQueue().getUser().getFollow().getCreated());
 
-            if (isEventAlreadyProcessed(event.id(), event.correlationId())) {
-                log.warn("Detected follow event {} with correlationId {} duplication, discarding message...",
+            var neo4jProcessed = isEventAlreadyProcessed(event.id(), event.correlationId(), TargetDatabase.NEO4J);
+            var postgresProcessed = isEventAlreadyProcessed(event.id(), event.correlationId(), TargetDatabase.POSTGRES);
+            if (neo4jProcessed && postgresProcessed) {
+                log.warn("Detected follow event {} with correlationId {} duplication for every target, discarding message...",
                         event.id(), event.correlationId());
                 return;
             }
 
-            followNodeService.createFollowRelationship(
-                    event.followerUserId(),
-                    event.followedUserId()
-            );
-            userStatsService.incrementFollowCounters(
-                    event.followerUserId(),
-                    event.followedUserId()
-            );
-            setEventAsProcessed(event.id(), event.correlationId(), event.getClass().getSimpleName());
+            var deferredFailure = syncFollowTargets(event, neo4jProcessed, postgresProcessed);
+            if (deferredFailure != null) {
+                throw deferredFailure;
+            }
         } catch (IllegalArgumentException exception) {
             log.error("Invalid user followed event", exception);
             throw exception;
@@ -77,21 +75,18 @@ public class FollowRabbitMQListener extends AbstractRabbitMQListenerSupport {
             log.info("UserUnfollowed event: {} with correlationId: {} received from {}",
                     event.id(), event.correlationId(), rabbitMQProperties.getQueue().getUser().getFollow().getDeleted());
 
-            if (isEventAlreadyProcessed(event.id(), event.correlationId())) {
-                log.warn("Detected unfollow event {} with correlationId {} duplication, discarding message...",
+            var neo4jProcessed = isEventAlreadyProcessed(event.id(), event.correlationId(), TargetDatabase.NEO4J);
+            var postgresProcessed = isEventAlreadyProcessed(event.id(), event.correlationId(), TargetDatabase.POSTGRES);
+            if (neo4jProcessed && postgresProcessed) {
+                log.warn("Detected unfollow event {} with correlationId {} duplication for every target, discarding message...",
                         event.id(), event.correlationId());
                 return;
             }
 
-            followNodeService.deleteFollowRelationship(
-                    event.followerUserId(),
-                    event.followedUserId()
-            );
-            userStatsService.decrementFollowCounters(
-                    event.followerUserId(),
-                    event.followedUserId()
-            );
-            setEventAsProcessed(event.id(), event.correlationId(), event.getClass().getSimpleName());
+            var deferredFailure = unsyncFollowTargets(event, neo4jProcessed, postgresProcessed);
+            if (deferredFailure != null) {
+                throw deferredFailure;
+            }
         } catch (IllegalArgumentException exception) {
             log.error("Invalid user unfollowed event", exception);
             throw exception;
@@ -106,5 +101,106 @@ public class FollowRabbitMQListener extends AbstractRabbitMQListenerSupport {
                     event.id(), event.correlationId(), exception);
             throw exception;
         }
+    }
+
+    private RuntimeException syncFollowTargets(
+            UserFollowedEvent event,
+            boolean neo4jProcessed,
+            boolean postgresProcessed) {
+        RuntimeException deferredFailure = null;
+
+        if (!neo4jProcessed) {
+            deferredFailure = trySyncNeo4jFollow(event, deferredFailure);
+        }
+        if (!postgresProcessed) {
+            deferredFailure = trySyncPostgresFollow(event, deferredFailure);
+        }
+
+        return deferredFailure;
+    }
+
+    private RuntimeException unsyncFollowTargets(
+            UserUnfollowedEvent event,
+            boolean neo4jProcessed,
+            boolean postgresProcessed) {
+        RuntimeException deferredFailure = null;
+
+        if (!neo4jProcessed) {
+            deferredFailure = tryUnsyncNeo4jFollow(event, deferredFailure);
+        }
+        if (!postgresProcessed) {
+            deferredFailure = tryUnsyncPostgresFollow(event, deferredFailure);
+        }
+
+        return deferredFailure;
+    }
+
+    private RuntimeException trySyncNeo4jFollow(UserFollowedEvent event, RuntimeException deferredFailure) {
+        try {
+            followNodeService.createFollowRelationship(event.followerUserId(), event.followedUserId());
+            setEventAsProcessed(
+                    event.id(),
+                    event.correlationId(),
+                    event.getClass().getSimpleName(),
+                    TargetDatabase.NEO4J
+            );
+            return deferredFailure;
+        } catch (RuntimeException exception) {
+            return retainFirstFailure(deferredFailure, exception);
+        }
+    }
+
+    private RuntimeException trySyncPostgresFollow(UserFollowedEvent event, RuntimeException deferredFailure) {
+        try {
+            userStatsService.incrementFollowCounters(event.followerUserId(), event.followedUserId());
+            setEventAsProcessed(
+                    event.id(),
+                    event.correlationId(),
+                    event.getClass().getSimpleName(),
+                    TargetDatabase.POSTGRES
+            );
+            return deferredFailure;
+        } catch (RuntimeException exception) {
+            return retainFirstFailure(deferredFailure, exception);
+        }
+    }
+
+    private RuntimeException tryUnsyncNeo4jFollow(UserUnfollowedEvent event, RuntimeException deferredFailure) {
+        try {
+            followNodeService.deleteFollowRelationship(event.followerUserId(), event.followedUserId());
+            setEventAsProcessed(
+                    event.id(),
+                    event.correlationId(),
+                    event.getClass().getSimpleName(),
+                    TargetDatabase.NEO4J
+            );
+            return deferredFailure;
+        } catch (RuntimeException exception) {
+            return retainFirstFailure(deferredFailure, exception);
+        }
+    }
+
+    private RuntimeException tryUnsyncPostgresFollow(UserUnfollowedEvent event, RuntimeException deferredFailure) {
+        try {
+            userStatsService.decrementFollowCounters(event.followerUserId(), event.followedUserId());
+            setEventAsProcessed(
+                    event.id(),
+                    event.correlationId(),
+                    event.getClass().getSimpleName(),
+                    TargetDatabase.POSTGRES
+            );
+            return deferredFailure;
+        } catch (RuntimeException exception) {
+            return retainFirstFailure(deferredFailure, exception);
+        }
+    }
+
+    private RuntimeException retainFirstFailure(RuntimeException deferredFailure, RuntimeException exception) {
+        if (deferredFailure == null) {
+            return exception;
+        }
+
+        deferredFailure.addSuppressed(exception);
+        return deferredFailure;
     }
 }

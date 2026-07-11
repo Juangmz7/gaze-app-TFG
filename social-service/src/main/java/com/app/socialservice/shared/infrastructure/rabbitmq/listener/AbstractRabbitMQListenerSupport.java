@@ -8,8 +8,8 @@ import com.app.socialservice.follow.infrastructure.events.UserFollowedEvent;
 import com.app.socialservice.follow.infrastructure.events.UserUnfollowedEvent;
 import com.app.socialservice.post.infrastructure.events.PostCreatedEvent;
 import com.app.socialservice.post.infrastructure.events.PostDeletedEvent;
-import com.app.socialservice.shared.infrastructure.entity.ProcessedEvent;
 import com.app.socialservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
+import com.app.socialservice.shared.infrastructure.entity.TargetDatabase;
 import com.app.socialservice.shared.infrastructure.repository.ProcessedEventsRepository;
 import com.app.socialservice.user.infrastructure.events.UserDeletedEvent;
 import com.app.socialservice.user.infrastructure.events.UserDeletedFromAuthEvent;
@@ -31,14 +31,19 @@ abstract class AbstractRabbitMQListenerSupport {
         this.rabbitMQProperties = rabbitMQProperties;
     }
 
-    protected final boolean isEventAlreadyProcessed(UUID eventId, UUID correlationId) {
-        return processedEventsRepository.existsById(eventId)
-                || processedEventsRepository.existsByCorrelationId(correlationId);
+    protected final boolean isEventAlreadyProcessed(UUID eventId, UUID correlationId, TargetDatabase targetDatabase) {
+        return processedEventsRepository.existsByIdAndTargetDatabase(eventId, targetDatabase)
+                || processedEventsRepository.existsByCorrelationIdAndTargetDatabase(correlationId, targetDatabase);
     }
 
-    protected final void setEventAsProcessed(UUID eventId, UUID correlationId, String eventType) {
+    protected final void setEventAsProcessed(
+            UUID eventId,
+            UUID correlationId,
+            String eventType,
+            TargetDatabase targetDatabase) {
         processedEventsRepository.insertIfAbsent(
                 eventId,
+                targetDatabase.name(),
                 correlationId,
                 eventType
         );

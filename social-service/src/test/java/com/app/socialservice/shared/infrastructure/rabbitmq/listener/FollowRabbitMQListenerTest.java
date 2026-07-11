@@ -7,18 +7,19 @@ import com.app.socialservice.follow.application.service.FollowNodeService;
 import com.app.socialservice.follow.domain.exception.FollowBlockedException;
 import com.app.socialservice.follow.infrastructure.events.UserFollowedEvent;
 import com.app.socialservice.follow.infrastructure.events.UserUnfollowedEvent;
+import com.app.socialservice.shared.infrastructure.entity.TargetDatabase;
 import com.app.socialservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 import com.app.socialservice.shared.infrastructure.repository.ProcessedEventsRepository;
 import com.app.socialservice.user.application.service.UserStatsService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.springframework.amqp.AmqpRejectAndDontRequeueException;
-import org.mockito.InjectMocks;
 import org.mockito.InOrder;
+import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.amqp.AmqpRejectAndDontRequeueException;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -53,28 +54,195 @@ class FollowRabbitMQListenerTest {
     }
 
     @Test
-    void shouldDelegateUserFollowedEventToFollowNodeServiceAndRecordProcessedEvent() {
+    void shouldTrackUserFollowedEventProcessingSeparatelyForNeo4jAndPostgres() {
         var followerId = UUID.randomUUID();
         var followedId = UUID.randomUUID();
-        var event = UserFollowedEvent.builder()
-                .id(UUID.randomUUID())
-                .correlationId(UUID.randomUUID())
-                .occurredAt(Instant.now())
-                .followerUserId(followerId)
-                .followedUserId(followedId)
-                .build();
-        when(processedEventsRepository.existsById(event.id())).thenReturn(false);
-        when(processedEventsRepository.existsByCorrelationId(event.correlationId())).thenReturn(false);
+        var event = userFollowedEvent(followerId, followedId);
+        stubUnprocessedFollowEvent(event);
 
         followRabbitMQListener.onUserFollowed(event);
 
-        InOrder inOrder = inOrder(followNodeService, userStatsService, processedEventsRepository);
+        InOrder inOrder = inOrder(followNodeService, processedEventsRepository, userStatsService);
         inOrder.verify(followNodeService).createFollowRelationship(followerId, followedId);
+        inOrder.verify(processedEventsRepository).insertIfAbsent(
+                event.id(),
+                TargetDatabase.NEO4J.name(),
+                event.correlationId(),
+                UserFollowedEvent.class.getSimpleName()
+        );
         inOrder.verify(userStatsService).incrementFollowCounters(followerId, followedId);
         inOrder.verify(processedEventsRepository).insertIfAbsent(
                 event.id(),
+                TargetDatabase.POSTGRES.name(),
                 event.correlationId(),
                 UserFollowedEvent.class.getSimpleName()
+        );
+    }
+
+    @Test
+    void shouldNotSkipNeo4jHandlerWhenTheSameCorrelationIdWasAlreadyProcessedByAPostgresHandler() {
+        var event = userFollowedEvent(UUID.randomUUID(), UUID.randomUUID());
+        when(processedEventsRepository.existsByIdAndTargetDatabase(event.id(), TargetDatabase.NEO4J)).thenReturn(false);
+        when(processedEventsRepository.existsByCorrelationIdAndTargetDatabase(
+                event.correlationId(),
+                TargetDatabase.NEO4J
+        )).thenReturn(false);
+        when(processedEventsRepository.existsByIdAndTargetDatabase(event.id(), TargetDatabase.POSTGRES)).thenReturn(false);
+        when(processedEventsRepository.existsByCorrelationIdAndTargetDatabase(
+                event.correlationId(),
+                TargetDatabase.POSTGRES
+        )).thenReturn(true);
+
+        followRabbitMQListener.onUserFollowed(event);
+
+        verify(followNodeService).createFollowRelationship(event.followerUserId(), event.followedUserId());
+        verify(userStatsService, never()).incrementFollowCounters(any(), any());
+        verify(processedEventsRepository).insertIfAbsent(
+                event.id(),
+                TargetDatabase.NEO4J.name(),
+                event.correlationId(),
+                UserFollowedEvent.class.getSimpleName()
+        );
+    }
+
+    @Test
+    void shouldNotSkipPostgresHandlerWhenTheSameCorrelationIdWasAlreadyProcessedByANeo4jHandler() {
+        var event = userFollowedEvent(UUID.randomUUID(), UUID.randomUUID());
+        when(processedEventsRepository.existsByIdAndTargetDatabase(event.id(), TargetDatabase.NEO4J)).thenReturn(false);
+        when(processedEventsRepository.existsByCorrelationIdAndTargetDatabase(
+                event.correlationId(),
+                TargetDatabase.NEO4J
+        )).thenReturn(true);
+        when(processedEventsRepository.existsByIdAndTargetDatabase(event.id(), TargetDatabase.POSTGRES)).thenReturn(false);
+        when(processedEventsRepository.existsByCorrelationIdAndTargetDatabase(
+                event.correlationId(),
+                TargetDatabase.POSTGRES
+        )).thenReturn(false);
+
+        followRabbitMQListener.onUserFollowed(event);
+
+        verify(followNodeService, never()).createFollowRelationship(any(), any());
+        verify(userStatsService).incrementFollowCounters(event.followerUserId(), event.followedUserId());
+        verify(processedEventsRepository).insertIfAbsent(
+                event.id(),
+                TargetDatabase.POSTGRES.name(),
+                event.correlationId(),
+                UserFollowedEvent.class.getSimpleName()
+        );
+    }
+
+    @Test
+    void shouldSkipDuplicateEventWithinBothTargetDatabases() {
+        var event = userFollowedEvent(UUID.randomUUID(), UUID.randomUUID());
+        when(processedEventsRepository.existsByIdAndTargetDatabase(event.id(), TargetDatabase.NEO4J)).thenReturn(true);
+        when(processedEventsRepository.existsByIdAndTargetDatabase(event.id(), TargetDatabase.POSTGRES)).thenReturn(true);
+
+        followRabbitMQListener.onUserFollowed(event);
+
+        verify(followNodeService, never()).createFollowRelationship(any(), any());
+        verify(userStatsService, never()).incrementFollowCounters(any(), any());
+        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any(), any());
+    }
+
+    @Test
+    void shouldNotMarkTheNeo4jTargetAsProcessedWhenTheNeo4jOperationFails() {
+        var event = userFollowedEvent(UUID.randomUUID(), UUID.randomUUID());
+        stubUnprocessedFollowEvent(event);
+        doThrow(new RuntimeException("neo4j follow sync failed"))
+                .when(followNodeService)
+                .createFollowRelationship(event.followerUserId(), event.followedUserId());
+
+        assertThatThrownBy(() -> followRabbitMQListener.onUserFollowed(event))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage("neo4j follow sync failed");
+
+        verify(userStatsService).incrementFollowCounters(event.followerUserId(), event.followedUserId());
+        verify(processedEventsRepository, never()).insertIfAbsent(
+                event.id(),
+                TargetDatabase.NEO4J.name(),
+                event.correlationId(),
+                UserFollowedEvent.class.getSimpleName()
+        );
+        verify(processedEventsRepository).insertIfAbsent(
+                event.id(),
+                TargetDatabase.POSTGRES.name(),
+                event.correlationId(),
+                UserFollowedEvent.class.getSimpleName()
+        );
+    }
+
+    @Test
+    void shouldNotMarkThePostgresTargetAsProcessedWhenThePostgresOperationFails() {
+        var event = userFollowedEvent(UUID.randomUUID(), UUID.randomUUID());
+        stubUnprocessedFollowEvent(event);
+        doThrow(new RuntimeException("postgres counter sync failed"))
+                .when(userStatsService)
+                .incrementFollowCounters(event.followerUserId(), event.followedUserId());
+
+        assertThatThrownBy(() -> followRabbitMQListener.onUserFollowed(event))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage("postgres counter sync failed");
+
+        verify(followNodeService).createFollowRelationship(event.followerUserId(), event.followedUserId());
+        verify(processedEventsRepository).insertIfAbsent(
+                event.id(),
+                TargetDatabase.NEO4J.name(),
+                event.correlationId(),
+                UserFollowedEvent.class.getSimpleName()
+        );
+        verify(processedEventsRepository, never()).insertIfAbsent(
+                event.id(),
+                TargetDatabase.POSTGRES.name(),
+                event.correlationId(),
+                UserFollowedEvent.class.getSimpleName()
+        );
+    }
+
+    @Test
+    void shouldRejectUserFollowedEventToDlqWhenDomainRuleFails() {
+        var event = userFollowedEvent(UUID.randomUUID(), UUID.randomUUID());
+        stubUnprocessedFollowEvent(event);
+        doThrow(new FollowBlockedException("follow relationship is blocked"))
+                .when(followNodeService)
+                .createFollowRelationship(event.followerUserId(), event.followedUserId());
+
+        assertThatThrownBy(() -> followRabbitMQListener.onUserFollowed(event))
+                .isInstanceOf(AmqpRejectAndDontRequeueException.class)
+                .hasCauseInstanceOf(FollowBlockedException.class)
+                .hasMessage("follow relationship is blocked");
+
+        verify(userStatsService).incrementFollowCounters(event.followerUserId(), event.followedUserId());
+        verify(processedEventsRepository, never()).insertIfAbsent(
+                event.id(),
+                TargetDatabase.NEO4J.name(),
+                event.correlationId(),
+                UserFollowedEvent.class.getSimpleName()
+        );
+    }
+
+    @Test
+    void shouldTrackUserUnfollowedEventProcessingSeparatelyForNeo4jAndPostgres() {
+        var followerId = UUID.randomUUID();
+        var followedId = UUID.randomUUID();
+        var event = userUnfollowedEvent(followerId, followedId);
+        stubUnprocessedUnfollowEvent(event);
+
+        followRabbitMQListener.onUserUnfollowed(event);
+
+        InOrder inOrder = inOrder(followNodeService, processedEventsRepository, userStatsService);
+        inOrder.verify(followNodeService).deleteFollowRelationship(followerId, followedId);
+        inOrder.verify(processedEventsRepository).insertIfAbsent(
+                event.id(),
+                TargetDatabase.NEO4J.name(),
+                event.correlationId(),
+                UserUnfollowedEvent.class.getSimpleName()
+        );
+        inOrder.verify(userStatsService).decrementFollowCounters(followerId, followedId);
+        inOrder.verify(processedEventsRepository).insertIfAbsent(
+                event.id(),
+                TargetDatabase.POSTGRES.name(),
+                event.correlationId(),
+                UserUnfollowedEvent.class.getSimpleName()
         );
     }
 
@@ -95,100 +263,7 @@ class FollowRabbitMQListenerTest {
 
         verify(followNodeService, never()).createFollowRelationship(any(), any());
         verify(userStatsService, never()).incrementFollowCounters(any(), any());
-        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any());
-    }
-
-    @Test
-    void shouldSkipFollowNodeSyncWhenFollowEventIdWasAlreadyProcessed() {
-        var event = UserFollowedEvent.builder()
-                .id(UUID.randomUUID())
-                .correlationId(UUID.randomUUID())
-                .occurredAt(Instant.now())
-                .followerUserId(UUID.randomUUID())
-                .followedUserId(UUID.randomUUID())
-                .build();
-        when(processedEventsRepository.existsById(event.id())).thenReturn(true);
-
-        followRabbitMQListener.onUserFollowed(event);
-
-        verify(followNodeService, never()).createFollowRelationship(any(), any());
-        verify(userStatsService, never()).incrementFollowCounters(any(), any());
-        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any());
-    }
-
-    @Test
-    void shouldRethrowWhenFollowNodeSyncFails() {
-        var event = UserFollowedEvent.builder()
-                .id(UUID.randomUUID())
-                .correlationId(UUID.randomUUID())
-                .occurredAt(Instant.now())
-                .followerUserId(UUID.randomUUID())
-                .followedUserId(UUID.randomUUID())
-                .build();
-        when(processedEventsRepository.existsById(event.id())).thenReturn(false);
-        when(processedEventsRepository.existsByCorrelationId(event.correlationId())).thenReturn(false);
-
-        doThrow(new RuntimeException("neo4j follow sync failed"))
-                .when(followNodeService)
-                .createFollowRelationship(event.followerUserId(), event.followedUserId());
-
-        assertThatThrownBy(() -> followRabbitMQListener.onUserFollowed(event))
-                .isInstanceOf(RuntimeException.class)
-                .hasMessage("neo4j follow sync failed");
-
-        verify(userStatsService, never()).incrementFollowCounters(any(), any());
-        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any());
-    }
-
-    @Test
-    void shouldRejectUserFollowedEventToDlqWhenDomainRuleFails() {
-        var event = UserFollowedEvent.builder()
-                .id(UUID.randomUUID())
-                .correlationId(UUID.randomUUID())
-                .occurredAt(Instant.now())
-                .followerUserId(UUID.randomUUID())
-                .followedUserId(UUID.randomUUID())
-                .build();
-        when(processedEventsRepository.existsById(event.id())).thenReturn(false);
-        when(processedEventsRepository.existsByCorrelationId(event.correlationId())).thenReturn(false);
-
-        doThrow(new FollowBlockedException("follow relationship is blocked"))
-                .when(followNodeService)
-                .createFollowRelationship(event.followerUserId(), event.followedUserId());
-
-        assertThatThrownBy(() -> followRabbitMQListener.onUserFollowed(event))
-                .isInstanceOf(AmqpRejectAndDontRequeueException.class)
-                .hasCauseInstanceOf(FollowBlockedException.class)
-                .hasMessage("follow relationship is blocked");
-
-        verify(userStatsService, never()).incrementFollowCounters(any(), any());
-        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any());
-    }
-
-    @Test
-    void shouldDelegateUserUnfollowedEventToFollowNodeServiceAndRecordProcessedEvent() {
-        var followerId = UUID.randomUUID();
-        var followedId = UUID.randomUUID();
-        var event = UserUnfollowedEvent.builder()
-                .id(UUID.randomUUID())
-                .correlationId(UUID.randomUUID())
-                .occurredAt(Instant.now())
-                .followerUserId(followerId)
-                .followedUserId(followedId)
-                .build();
-        when(processedEventsRepository.existsById(event.id())).thenReturn(false);
-        when(processedEventsRepository.existsByCorrelationId(event.correlationId())).thenReturn(false);
-
-        followRabbitMQListener.onUserUnfollowed(event);
-
-        InOrder inOrder = inOrder(followNodeService, userStatsService, processedEventsRepository);
-        inOrder.verify(followNodeService).deleteFollowRelationship(followerId, followedId);
-        inOrder.verify(userStatsService).decrementFollowCounters(followerId, followedId);
-        inOrder.verify(processedEventsRepository).insertIfAbsent(
-                event.id(),
-                event.correlationId(),
-                UserUnfollowedEvent.class.getSimpleName()
-        );
+        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any(), any());
     }
 
     @Test
@@ -208,24 +283,52 @@ class FollowRabbitMQListenerTest {
 
         verify(followNodeService, never()).deleteFollowRelationship(any(), any());
         verify(userStatsService, never()).decrementFollowCounters(any(), any());
-        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any());
+        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any(), any());
     }
 
-    @Test
-    void shouldSkipFollowNodeDeletionWhenUnfollowEventWasAlreadyProcessed() {
-        var event = UserUnfollowedEvent.builder()
+    private void stubUnprocessedFollowEvent(UserFollowedEvent event) {
+        when(processedEventsRepository.existsByIdAndTargetDatabase(event.id(), TargetDatabase.NEO4J)).thenReturn(false);
+        when(processedEventsRepository.existsByCorrelationIdAndTargetDatabase(
+                event.correlationId(),
+                TargetDatabase.NEO4J
+        )).thenReturn(false);
+        when(processedEventsRepository.existsByIdAndTargetDatabase(event.id(), TargetDatabase.POSTGRES)).thenReturn(false);
+        when(processedEventsRepository.existsByCorrelationIdAndTargetDatabase(
+                event.correlationId(),
+                TargetDatabase.POSTGRES
+        )).thenReturn(false);
+    }
+
+    private void stubUnprocessedUnfollowEvent(UserUnfollowedEvent event) {
+        when(processedEventsRepository.existsByIdAndTargetDatabase(event.id(), TargetDatabase.NEO4J)).thenReturn(false);
+        when(processedEventsRepository.existsByCorrelationIdAndTargetDatabase(
+                event.correlationId(),
+                TargetDatabase.NEO4J
+        )).thenReturn(false);
+        when(processedEventsRepository.existsByIdAndTargetDatabase(event.id(), TargetDatabase.POSTGRES)).thenReturn(false);
+        when(processedEventsRepository.existsByCorrelationIdAndTargetDatabase(
+                event.correlationId(),
+                TargetDatabase.POSTGRES
+        )).thenReturn(false);
+    }
+
+    private UserFollowedEvent userFollowedEvent(UUID followerId, UUID followedId) {
+        return UserFollowedEvent.builder()
                 .id(UUID.randomUUID())
                 .correlationId(UUID.randomUUID())
                 .occurredAt(Instant.now())
-                .followerUserId(UUID.randomUUID())
-                .followedUserId(UUID.randomUUID())
+                .followerUserId(followerId)
+                .followedUserId(followedId)
                 .build();
-        when(processedEventsRepository.existsById(event.id())).thenReturn(true);
+    }
 
-        followRabbitMQListener.onUserUnfollowed(event);
-
-        verify(followNodeService, never()).deleteFollowRelationship(any(), any());
-        verify(userStatsService, never()).decrementFollowCounters(any(), any());
-        verify(processedEventsRepository, never()).insertIfAbsent(any(), any(), any());
+    private UserUnfollowedEvent userUnfollowedEvent(UUID followerId, UUID followedId) {
+        return UserUnfollowedEvent.builder()
+                .id(UUID.randomUUID())
+                .correlationId(UUID.randomUUID())
+                .occurredAt(Instant.now())
+                .followerUserId(followerId)
+                .followedUserId(followedId)
+                .build();
     }
 }

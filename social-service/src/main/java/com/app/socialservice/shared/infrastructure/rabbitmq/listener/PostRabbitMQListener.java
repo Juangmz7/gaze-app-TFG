@@ -3,6 +3,7 @@ package com.app.socialservice.shared.infrastructure.rabbitmq.listener;
 import com.app.socialservice.post.infrastructure.events.PostCreatedEvent;
 import com.app.socialservice.post.infrastructure.events.PostDeletedEvent;
 import com.app.socialservice.shared.domain.exception.DomainException;
+import com.app.socialservice.shared.infrastructure.entity.TargetDatabase;
 import com.app.socialservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 import com.app.socialservice.shared.infrastructure.repository.ProcessedEventsRepository;
 import com.app.socialservice.user.application.service.UserStatsService;
@@ -31,14 +32,19 @@ public class PostRabbitMQListener extends AbstractRabbitMQListenerSupport {
             log.info("PostCreated event: {} with correlationId: {} received from {}",
                     event.id(), event.correlationId(), rabbitMQProperties.getQueue().getPost().getCreated());
 
-            if (isEventAlreadyProcessed(event.id(), event.correlationId())) {
+            if (isEventAlreadyProcessed(event.id(), event.correlationId(), TargetDatabase.POSTGRES)) {
                 log.warn("Detected post-created event {} with correlationId {} duplication, discarding message...",
                         event.id(), event.correlationId());
                 return;
             }
 
             userStatsService.incrementPostCount(event.userId());
-            setEventAsProcessed(event.id(), event.correlationId(), event.getClass().getSimpleName());
+            setEventAsProcessed(
+                    event.id(),
+                    event.correlationId(),
+                    event.getClass().getSimpleName(),
+                    TargetDatabase.POSTGRES
+            );
         } catch (IllegalArgumentException exception) {
             log.error("Invalid post-created event", exception);
             throw exception;
@@ -59,14 +65,19 @@ public class PostRabbitMQListener extends AbstractRabbitMQListenerSupport {
             log.info("PostDeleted event: {} with correlationId: {} received from {}",
                     event.id(), event.correlationId(), rabbitMQProperties.getQueue().getPost().getDeleted());
 
-            if (isEventAlreadyProcessed(event.id(), event.correlationId())) {
+            if (isEventAlreadyProcessed(event.id(), event.correlationId(), TargetDatabase.POSTGRES)) {
                 log.warn("Detected post-deleted event {} with correlationId {} duplication, discarding message...",
                         event.id(), event.correlationId());
                 return;
             }
 
             userStatsService.decrementPostCount(event.userId());
-            setEventAsProcessed(event.id(), event.correlationId(), event.getClass().getSimpleName());
+            setEventAsProcessed(
+                    event.id(),
+                    event.correlationId(),
+                    event.getClass().getSimpleName(),
+                    TargetDatabase.POSTGRES
+            );
         } catch (IllegalArgumentException exception) {
             log.error("Invalid post-deleted event", exception);
             throw exception;
