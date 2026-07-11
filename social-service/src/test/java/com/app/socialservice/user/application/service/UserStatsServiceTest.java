@@ -2,13 +2,17 @@ package com.app.socialservice.user.application.service;
 
 import java.util.UUID;
 
+import com.app.socialservice.user.application.cache.CacheNames;
 import com.app.socialservice.user.application.repository.UserStatsRepository;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Caching;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -25,6 +29,55 @@ class UserStatsServiceTest {
 
     @InjectMocks
     private UserStatsService userStatsService;
+
+    @Nested
+    class CacheAnnotationsTest {
+
+        @Test
+        void shouldNotCacheRawStatReads() throws NoSuchMethodException {
+            assertNotCacheable("getFollowersCount");
+            assertNotCacheable("getFollowingCount");
+            assertNotCacheable("getPostCount");
+        }
+
+        @Test
+        void shouldEvictRelatedCachesWhenFollowCountersChange() throws NoSuchMethodException {
+            var method = UserStatsService.class.getMethod("incrementFollowCounters", UUID.class, UUID.class);
+            var caching = method.getAnnotation(Caching.class);
+
+            assertThat(caching).isNotNull();
+            assertThat(caching.evict()).hasSize(3);
+            assertEvict(caching.evict()[0], CacheNames.OWN_PROFILE, CacheNames.OWN_PROFILE_KEY_BY_FOLLOWER_USER_ID, false);
+            assertEvict(caching.evict()[1], CacheNames.OWN_PROFILE, CacheNames.OWN_PROFILE_KEY_BY_FOLLOWED_USER_ID, false);
+            assertEvict(caching.evict()[2], CacheNames.PUBLIC_PROFILE, "", true);
+        }
+
+        @Test
+        void shouldEvictRelatedCachesWhenPostCountChanges() throws NoSuchMethodException {
+            var method = UserStatsService.class.getMethod("incrementPostCount", UUID.class);
+            var caching = method.getAnnotation(Caching.class);
+
+            assertThat(caching).isNotNull();
+            assertThat(caching.evict()).hasSize(2);
+            assertEvict(caching.evict()[0], CacheNames.OWN_PROFILE, CacheNames.OWN_PROFILE_KEY_BY_USER_ID, false);
+            assertEvict(caching.evict()[1], CacheNames.PUBLIC_PROFILE, "", true);
+        }
+
+        private void assertNotCacheable(String methodName) throws NoSuchMethodException {
+            var method = UserStatsService.class.getMethod(methodName, UUID.class);
+            var cacheable = method.getAnnotationsByType(org.springframework.cache.annotation.Cacheable.class);
+
+            assertThat(cacheable).isEmpty();
+        }
+
+        private void assertEvict(CacheEvict cacheEvict, String cacheName, String key, boolean allEntries) {
+            assertThat(cacheEvict.cacheNames()).containsExactly(cacheName);
+            assertThat(cacheEvict.allEntries()).isEqualTo(allEntries);
+            if (!allEntries) {
+                assertThat(cacheEvict.key()).isEqualTo(key);
+            }
+        }
+    }
 
     @Test
     void shouldGetFollowersCountUsingRepositoryCounter() {

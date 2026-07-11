@@ -4,11 +4,11 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.app.socialservice.user.application.cache.CacheNames;
 import com.app.socialservice.user.application.commands.UpdateOwnUserProfileCommand;
 import com.app.socialservice.user.application.dto.OwnUserProfileResponse;
 import com.app.socialservice.user.application.dto.UserProfileResponse;
 import com.app.socialservice.user.application.repository.UserRepository;
-import com.app.socialservice.user.domain.enums.UserAccountStatus;
 import com.app.socialservice.user.domain.exception.SelfProfileRequestNotAllowedException;
 import com.app.socialservice.user.domain.exception.UserProfileBlockedException;
 import com.app.socialservice.user.domain.exception.UserProfileNotFoundException;
@@ -18,6 +18,10 @@ import com.app.socialservice.user.domain.model.valueobj.ProfilePictureUrl;
 import com.app.socialservice.user.domain.model.valueobj.UserBio;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.CachePut;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,30 +33,25 @@ public class UserProfileService {
     private final UserRepository userRepository;
     private final UserStatsService userStatsService;
 
+    @Cacheable(cacheNames = CacheNames.OWN_PROFILE, key = CacheNames.OWN_PROFILE_KEY_BY_USER_ID)
     @Transactional(readOnly = true)
     public OwnUserProfileResponse getOwnProfile(UUID userId) {
         validateUserId(userId);
         log.info("Retrieving own profile for user {}", userId);
 
-        var userProfile = userRepository.findOwnProfileById(userId)
-                .orElseThrow(() -> new UserNotFoundException(userId));
-
-        var response = new OwnUserProfileResponse(
-                userId,
-                userProfile.username(),
-                userProfile.description(),
-                userProfile.socialMedia(),
-                userStatsService.getFollowersCount(userId),
-                userStatsService.getFollowingCount(userId),
-                userProfile.postCount(),
-                userProfile.profilePic(),
-                userProfile.banned()
-        );
+        var response = loadOwnProfileResponse(userId);
 
         log.info("Own profile retrieved for user {}", userId);
         return response;
     }
 
+    @Caching(
+            put = @CachePut(
+                    cacheNames = CacheNames.OWN_PROFILE,
+                    key = CacheNames.OWN_PROFILE_KEY_BY_COMMAND
+            ),
+            evict = @CacheEvict(cacheNames = CacheNames.PUBLIC_PROFILE, allEntries = true)
+    )
     @Transactional
     public OwnUserProfileResponse updateOwnUserProfile(UpdateOwnUserProfileCommand command) {
         validateUpdateOwnProfileCommand(command);
@@ -63,18 +62,22 @@ public class UserProfileService {
         var requestedBio = toUserBio(command.description(), command.socialMedia());
 
         if (!user.hasProfileChanges(requestedPictureUrl, requestedBio)) {
-            return toOwnUserProfileResponse(user);
+            return getOwnProfile(command.userId());
         }
 
         user.updateProfile(requestedPictureUrl, requestedBio);
 
-        var updated = userRepository.updateProfile(user);
+        userRepository.updateProfile(user);
 
         log.info("Updated profile for user {}", command.userId());
 
-        return toOwnUserProfileResponse(updated);
+        return getOwnProfile(command.userId());
     }
 
+    @Cacheable(
+            cacheNames = CacheNames.PUBLIC_PROFILE,
+            key = CacheNames.PUBLIC_PROFILE_KEY
+    )
     @Transactional(readOnly = true)
     public UserProfileResponse getUserProfile(UUID requesterUserId, UUID targetUserId) {
         validateUserIds(requesterUserId, targetUserId);
@@ -115,18 +118,20 @@ public class UserProfileService {
         return userRepository.findById(id);
     }
 
-    private OwnUserProfileResponse toOwnUserProfileResponse(User user) {
-        var bio = user.getBio();
+    private OwnUserProfileResponse loadOwnProfileResponse(UUID userId) {
+        var userProfile = userRepository.findOwnProfileById(userId)
+                .orElseThrow(() -> new UserNotFoundException(userId));
+
         return new OwnUserProfileResponse(
-                user.getId().value(),
-                user.getUsername().value(),
-                bio == null ? null : bio.description(),
-                bio == null ? Map.of() : bio.socialMedia(),
-                0L,
-                0L,
-                0L,
-                user.getPictureUrl() == null ? null : user.getPictureUrl().value(),
-                user.getAccountStatus().equals(UserAccountStatus.BANNED)
+                userId,
+                userProfile.username(),
+                userProfile.description(),
+                userProfile.socialMedia(),
+                userStatsService.getFollowersCount(userId),
+                userStatsService.getFollowingCount(userId),
+                userStatsService.getPostCount(userId),
+                userProfile.profilePic(),
+                userProfile.banned()
         );
     }
 
