@@ -122,8 +122,7 @@ class UserProfileControllerIntegrationTest {
                 .postCount(5L)
                 .accountStatus(UserAccountStatus.ACCEPTED)
                 .build());
-        seedCounter(userId, "followers", 8L);
-        seedCounter(userId, "following", 3L);
+        seedUserStats(userId, 8L, 3L, 5L);
 
         mockMvc.perform(get("/api/social/profile/me")
                         .with(jwt().jwt(jwt -> jwt.subject(userId.toString())))

@@ -4,10 +4,12 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.app.socialservice.user.application.cache.CacheNames;
 import com.app.socialservice.user.application.commands.UpdateOwnUserProfileCommand;
 import com.app.socialservice.user.application.dto.OwnUserProfileData;
 import com.app.socialservice.user.application.dto.OwnUserProfileResponse;
 import com.app.socialservice.user.application.dto.UserProfileDetails;
+import com.app.socialservice.user.application.repository.UserRepository;
 import com.app.socialservice.user.domain.enums.UserAccountStatus;
 import com.app.socialservice.user.domain.exception.SelfProfileRequestNotAllowedException;
 import com.app.socialservice.user.domain.exception.UserProfileBlockedException;
@@ -19,12 +21,14 @@ import com.app.socialservice.user.domain.model.valueobj.ProfilePictureUrl;
 import com.app.socialservice.user.domain.model.valueobj.UserBio;
 import com.app.socialservice.user.domain.model.valueobj.UserId;
 import com.app.socialservice.user.domain.model.valueobj.Username;
-import com.app.socialservice.user.application.repository.UserRepository;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -45,6 +49,46 @@ class UserProfileServiceTest {
 
     @InjectMocks
     private UserProfileService userProfileService;
+
+    @Nested
+    class CacheAnnotationsTest {
+
+        @Test
+        void shouldCacheOwnProfileReadUsingCentralizedKeyBuilder() throws NoSuchMethodException {
+            var method = UserProfileService.class.getMethod("getOwnProfile", UUID.class);
+            var cacheable = method.getAnnotation(Cacheable.class);
+
+            assertThat(cacheable).isNotNull();
+            assertThat(cacheable.cacheNames()).containsExactly(CacheNames.OWN_PROFILE);
+            assertThat(cacheable.key()).isEqualTo(CacheNames.OWN_PROFILE_KEY_BY_USER_ID);
+        }
+
+        @Test
+        void shouldCachePublicProfileReadUsingCentralizedKeyBuilder() throws NoSuchMethodException {
+            var method = UserProfileService.class.getMethod("getUserProfile", UUID.class, UUID.class);
+            var cacheable = method.getAnnotation(Cacheable.class);
+
+            assertThat(cacheable).isNotNull();
+            assertThat(cacheable.cacheNames()).containsExactly(CacheNames.PUBLIC_PROFILE);
+            assertThat(cacheable.key()).isEqualTo(CacheNames.PUBLIC_PROFILE_KEY);
+        }
+
+        @Test
+        void shouldRefreshOwnProfileAndEvictPublicProfilesOnProfileUpdate() throws NoSuchMethodException {
+            var method = UserProfileService.class.getMethod("updateOwnUserProfile", UpdateOwnUserProfileCommand.class);
+            var caching = method.getAnnotation(Caching.class);
+
+            assertThat(caching).isNotNull();
+            assertThat(caching.put()).singleElement().satisfies(cachePut -> {
+                assertThat(cachePut.cacheNames()).containsExactly(CacheNames.OWN_PROFILE);
+                assertThat(cachePut.key()).isEqualTo(CacheNames.OWN_PROFILE_KEY_BY_COMMAND);
+            });
+            assertThat(caching.evict()).singleElement().satisfies(cacheEvict -> {
+                assertThat(cacheEvict.cacheNames()).containsExactly(CacheNames.PUBLIC_PROFILE);
+                assertThat(cacheEvict.allEntries()).isTrue();
+            });
+        }
+    }
 
     @Test
     void shouldThrowForbiddenWhenRequesterHasBlockedTarget() {
@@ -154,6 +198,7 @@ class UserProfileServiceTest {
         when(userRepository.findOwnProfileById(userId)).thenReturn(Optional.of(ownProfileData));
         when(userStatsService.getFollowersCount(userId)).thenReturn(11L);
         when(userStatsService.getFollowingCount(userId)).thenReturn(13L);
+        when(userStatsService.getPostCount(userId)).thenReturn(19L);
 
         var response = userProfileService.getOwnProfile(userId);
 
@@ -162,7 +207,7 @@ class UserProfileServiceTest {
         assertThat(response.socialMedia()).containsEntry("github", "profile-user");
         assertThat(response.followersCount()).isEqualTo(11L);
         assertThat(response.followingCount()).isEqualTo(13L);
-        assertThat(response.postCount()).isEqualTo(7L);
+        assertThat(response.postCount()).isEqualTo(19L);
         assertThat(response.profilePicture()).isEqualTo("https://example.com/avatar.png");
         assertThat(response.isBanned()).isTrue();
     }
@@ -207,9 +252,24 @@ class UserProfileServiceTest {
                 "github", "new-user",
                 "linkedin", "profile-user"
         )));
+        var ownProfileData = new OwnUserProfileData(
+                "profile-user",
+                "New bio",
+                Map.of(
+                        "github", "new-user",
+                        "linkedin", "profile-user"
+                ),
+                14L,
+                "https://cdn.example.com/new.png",
+                false
+        );
 
         when(userRepository.findById(userId)).thenReturn(Optional.of(existingUser));
         when(userRepository.updateProfile(any(User.class))).thenReturn(savedUser);
+        when(userRepository.findOwnProfileById(userId)).thenReturn(Optional.of(ownProfileData));
+        when(userStatsService.getFollowersCount(userId)).thenReturn(22L);
+        when(userStatsService.getFollowingCount(userId)).thenReturn(31L);
+        when(userStatsService.getPostCount(userId)).thenReturn(41L);
 
         var response = userProfileService.updateOwnUserProfile(command);
 
@@ -222,9 +282,9 @@ class UserProfileServiceTest {
                         "github", "new-user",
                         "linkedin", "profile-user"
                 ),
-                0L,
-                0L,
-                0L,
+                22L,
+                31L,
+                41L,
                 "https://cdn.example.com/new.png",
                 false
         ));
@@ -242,8 +302,20 @@ class UserProfileServiceTest {
                 "https://cdn.example.com/same.png",
                 Map.of("github", "same-user")
         );
+        var ownProfileData = new OwnUserProfileData(
+                "same-user",
+                "Same bio",
+                Map.of("github", "same-user"),
+                5L,
+                "https://cdn.example.com/same.png",
+                false
+        );
 
         when(userRepository.findById(userId)).thenReturn(Optional.of(existingUser));
+        when(userRepository.findOwnProfileById(userId)).thenReturn(Optional.of(ownProfileData));
+        when(userStatsService.getFollowersCount(userId)).thenReturn(8L);
+        when(userStatsService.getFollowingCount(userId)).thenReturn(13L);
+        when(userStatsService.getPostCount(userId)).thenReturn(21L);
 
         var response = userProfileService.updateOwnUserProfile(command);
 
@@ -253,9 +325,9 @@ class UserProfileServiceTest {
                 "same-user",
                 "Same bio",
                 Map.of("github", "same-user"),
-                0L,
-                0L,
-                0L,
+                8L,
+                13L,
+                21L,
                 "https://cdn.example.com/same.png",
                 false
         ));

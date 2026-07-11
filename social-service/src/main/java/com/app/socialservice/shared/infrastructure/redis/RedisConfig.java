@@ -1,5 +1,9 @@
 package com.app.socialservice.shared.infrastructure.redis;
 
+import java.time.Duration;
+import java.util.Map;
+
+import com.app.socialservice.user.application.cache.CacheNames;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.context.annotation.Bean;
@@ -11,9 +15,6 @@ import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.serializer.RedisSerializationContext;
 import org.springframework.data.redis.serializer.RedisSerializer;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
-
-import java.time.Duration;
-import java.util.Map;
 
 @Configuration
 @EnableCaching
@@ -47,10 +48,9 @@ public class RedisConfig {
                 )
                 .disableCachingNullValues();
 
-        // Different TTL per cache
         Map<String, RedisCacheConfiguration> cacheConfigs = Map.of(
-                // Only user domain for now
-                "users",    defaultConfig.entryTtl(Duration.ofMinutes(30))
+                CacheNames.OWN_PROFILE, defaultConfig.entryTtl(Duration.ofMinutes(30)),
+                CacheNames.PUBLIC_PROFILE, defaultConfig.entryTtl(Duration.ofMinutes(30))
         );
 
         return RedisCacheManager.builder(factory)
