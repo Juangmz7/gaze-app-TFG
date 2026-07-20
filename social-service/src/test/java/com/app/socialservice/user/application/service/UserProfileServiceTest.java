@@ -12,6 +12,7 @@ import com.app.socialservice.user.application.dto.UserProfileDetails;
 import com.app.socialservice.user.application.repository.UserRepository;
 import com.app.socialservice.user.domain.enums.UserAccountStatus;
 import com.app.socialservice.user.domain.exception.SelfProfileRequestNotAllowedException;
+import com.app.socialservice.user.domain.exception.UserBannedException;
 import com.app.socialservice.user.domain.exception.UserProfileBlockedException;
 import com.app.socialservice.user.domain.exception.UserProfileNotFoundException;
 import com.app.socialservice.shared.domain.exception.UserNotFoundException;
@@ -27,7 +28,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.cache.annotation.Caching;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -54,23 +54,20 @@ class UserProfileServiceTest {
     class CacheAnnotationsTest {
 
         @Test
-        void shouldCacheOwnProfileReadUsingCentralizedKeyBuilder() throws NoSuchMethodException {
+        void shouldNotCacheOwnProfileReadBecauseBannedStatusMustAlwaysBeReevaluated() throws NoSuchMethodException {
             var method = UserProfileService.class.getMethod("getOwnProfile", UUID.class);
-            var cacheable = method.getAnnotation(Cacheable.class);
+            var cacheable = method.getAnnotationsByType(org.springframework.cache.annotation.Cacheable.class);
 
-            assertThat(cacheable).isNotNull();
-            assertThat(cacheable.cacheNames()).containsExactly(CacheNames.OWN_PROFILE);
-            assertThat(cacheable.key()).isEqualTo(CacheNames.OWN_PROFILE_KEY_BY_USER_ID);
+            assertThat(cacheable).isEmpty();
         }
 
         @Test
-        void shouldCachePublicProfileReadUsingCentralizedKeyBuilder() throws NoSuchMethodException {
+        void shouldNotCachePublicProfileReadBecauseBannedUsersMustResolveAsNotFoundImmediately()
+                throws NoSuchMethodException {
             var method = UserProfileService.class.getMethod("getUserProfile", UUID.class, UUID.class);
-            var cacheable = method.getAnnotation(Cacheable.class);
+            var cacheable = method.getAnnotationsByType(org.springframework.cache.annotation.Cacheable.class);
 
-            assertThat(cacheable).isNotNull();
-            assertThat(cacheable.cacheNames()).containsExactly(CacheNames.PUBLIC_PROFILE);
-            assertThat(cacheable.key()).isEqualTo(CacheNames.PUBLIC_PROFILE_KEY);
+            assertThat(cacheable).isEmpty();
         }
 
         @Test
@@ -111,11 +108,26 @@ class UserProfileServiceTest {
         var targetUserId = UUID.randomUUID();
 
         when(userRepository.findProfileDetails(requesterUserId, targetUserId))
-                .thenReturn(Optional.of(buildProfileDetails(targetUserId, true, true)));
+                .thenReturn(Optional.of(buildProfileDetails(targetUserId, true, false)));
 
         assertThatThrownBy(() -> userProfileService.getUserProfile(requesterUserId, targetUserId))
                 .isInstanceOf(UserProfileBlockedException.class)
                 .hasMessageContaining("Profile access is blocked");
+
+        verifyNoInteractions(userStatsService);
+    }
+
+    @Test
+    void shouldThrowNotFoundWhenTargetUserIsBanned() {
+        var requesterUserId = UUID.randomUUID();
+        var targetUserId = UUID.randomUUID();
+
+        when(userRepository.findProfileDetails(requesterUserId, targetUserId))
+                .thenReturn(Optional.of(buildProfileDetails(targetUserId, true, true)));
+
+        assertThatThrownBy(() -> userProfileService.getUserProfile(requesterUserId, targetUserId))
+                .isInstanceOf(UserProfileNotFoundException.class)
+                .hasMessageContaining(targetUserId.toString());
 
         verifyNoInteractions(userStatsService);
     }
@@ -180,7 +192,6 @@ class UserProfileServiceTest {
         assertThat(response.profilePic()).isEqualTo("https://cdn.example.com/profile.png");
         assertThat(response.following()).isTrue();
         assertThat(response.followsMe()).isFalse();
-        assertThat(response.isBanned()).isFalse();
     }
 
     @Test
@@ -192,7 +203,7 @@ class UserProfileServiceTest {
                 java.util.Map.of("github", "profile-user"),
                 7L,
                 "https://example.com/avatar.png",
-                true
+                false
         );
 
         when(userRepository.findOwnProfileById(userId)).thenReturn(Optional.of(ownProfileData));
@@ -209,7 +220,27 @@ class UserProfileServiceTest {
         assertThat(response.followingCount()).isEqualTo(13L);
         assertThat(response.postCount()).isEqualTo(19L);
         assertThat(response.profilePicture()).isEqualTo("https://example.com/avatar.png");
-        assertThat(response.isBanned()).isTrue();
+    }
+
+    @Test
+    void shouldThrowForbiddenWhenOwnProfileUserIsBanned() {
+        var userId = UUID.randomUUID();
+        var ownProfileData = new OwnUserProfileData(
+                "banned-user",
+                null,
+                null,
+                0L,
+                null,
+                true
+        );
+
+        when(userRepository.findOwnProfileById(userId)).thenReturn(Optional.of(ownProfileData));
+
+        assertThatThrownBy(() -> userProfileService.getOwnProfile(userId))
+                .isInstanceOf(UserBannedException.class)
+                .hasMessage("User is banned: " + userId);
+
+        verifyNoInteractions(userStatsService);
     }
 
     @Test
@@ -285,8 +316,7 @@ class UserProfileServiceTest {
                 22L,
                 31L,
                 41L,
-                "https://cdn.example.com/new.png",
-                false
+                "https://cdn.example.com/new.png"
         ));
     }
 
@@ -328,8 +358,7 @@ class UserProfileServiceTest {
                 8L,
                 13L,
                 21L,
-                "https://cdn.example.com/same.png",
-                false
+                "https://cdn.example.com/same.png"
         ));
     }
 

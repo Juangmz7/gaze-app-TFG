@@ -11,7 +11,6 @@ public record OwnUserProfileResponse(
         long followersCount,
         long followingCount,
         long postCount,
-        String profilePicture,
-        boolean isBanned
+        String profilePicture
 ) {
 }

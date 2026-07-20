@@ -21,6 +21,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.cache.CacheManager;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.MediaType;
@@ -29,7 +30,6 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-import static org.hamcrest.Matchers.nullValue;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -47,6 +47,9 @@ class UserProfileControllerIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private CacheManager cacheManager;
 
     @Autowired
     private JpaUserRepository jpaUserRepository;
@@ -103,7 +106,7 @@ class UserProfileControllerIntegrationTest {
                 .andExpect(jsonPath("$.profilePic").value("https://cdn.example.com/target.png"))
                 .andExpect(jsonPath("$.following").value(true))
                 .andExpect(jsonPath("$.followsMe").value(false))
-                .andExpect(jsonPath("$.isBanned").value(false));
+                .andExpect(jsonPath("$.isBanned").doesNotExist());
     }
     
     @Test
@@ -135,7 +138,7 @@ class UserProfileControllerIntegrationTest {
                 .andExpect(jsonPath("$.followingCount").value(3))
                 .andExpect(jsonPath("$.postCount").value(5))
                 .andExpect(jsonPath("$.profilePicture").value("https://example.com/profile-user.png"))
-                .andExpect(jsonPath("$.isBanned").value(false));
+                .andExpect(jsonPath("$.isBanned").doesNotExist());
     }
 
     @Test
@@ -178,6 +181,47 @@ class UserProfileControllerIntegrationTest {
         mockMvc.perform(get("/api/social/profile/{userId}", targetUserId)
                         .with(jwt().jwt(jwt -> jwt.subject(requesterUserId.toString()))))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void getApiSocialProfileReturns404WhenTargetUserIsBanned() throws Exception {
+        var requesterUserId = UUID.randomUUID();
+        var targetUserId = UUID.randomUUID();
+
+        seedUser(requesterUserId, "requester-user", UserAccountStatus.ACCEPTED, null, null, null);
+        seedUser(targetUserId, "banned-target", UserAccountStatus.BANNED, null, null, null);
+
+        mockMvc.perform(get("/api/social/profile/{userId}", targetUserId)
+                        .with(jwt().jwt(jwt -> jwt.subject(requesterUserId.toString()))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("NOT_FOUND"));
+    }
+
+    @Test
+    void getApiSocialProfileReturns404AfterTargetUserBecomesBannedEvenAfterPreviousAcceptedRead() throws Exception {
+        var requesterUserId = UUID.randomUUID();
+        var targetUserId = UUID.randomUUID();
+
+        seedUser(requesterUserId, "requester-user", UserAccountStatus.ACCEPTED, null, null, null);
+        seedUser(targetUserId, "target-user", UserAccountStatus.ACCEPTED, "Target bio", null, null);
+
+        mockMvc.perform(get("/api/social/profile/{userId}", targetUserId)
+                        .with(jwt().jwt(jwt -> jwt.subject(requesterUserId.toString()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.username").value("target-user"));
+
+        assertThat(cacheManager.getCache("user-public-profile")).isNotNull();
+        assertThat(cacheManager.getCache("user-public-profile")
+                .get(requesterUserId + ":" + targetUserId)).isNull();
+
+        var targetUser = jpaUserRepository.findById(targetUserId).orElseThrow();
+        targetUser.setAccountStatus(UserAccountStatus.BANNED);
+        jpaUserRepository.saveAndFlush(targetUser);
+
+        mockMvc.perform(get("/api/social/profile/{userId}", targetUserId)
+                        .with(jwt().jwt(jwt -> jwt.subject(requesterUserId.toString()))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("NOT_FOUND"));
     }
 
     @Test
@@ -240,7 +284,7 @@ class UserProfileControllerIntegrationTest {
     }
 
     @Test
-    void getApiSocialProfileMeReturnsNullableFieldsAndBannedFlag() throws Exception {
+    void getApiSocialProfileMeReturns403WhenAuthenticatedUserIsBanned() throws Exception {
         var userId = UUID.randomUUID();
 
         seedUser(UserEntity.builder()
@@ -253,15 +297,39 @@ class UserProfileControllerIntegrationTest {
 
         mockMvc.perform(get("/api/social/profile/me")
                         .with(jwt().jwt(jwt -> jwt.subject(userId.toString()))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("USER_BANNED"))
+                .andExpect(jsonPath("$.path").value("/api/social/profile/me"));
+    }
+
+    @Test
+    void getApiSocialProfileMeReturns403AfterAuthenticatedUserBecomesBannedEvenAfterPreviousAcceptedRead()
+            throws Exception {
+        var userId = UUID.randomUUID();
+
+        seedUser(UserEntity.builder()
+                .id(userId)
+                .username("profile-user")
+                .email("profile-user@example.com")
+                .accountStatus(UserAccountStatus.ACCEPTED)
+                .build());
+
+        mockMvc.perform(get("/api/social/profile/me")
+                        .with(jwt().jwt(jwt -> jwt.subject(userId.toString()))))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.username").value("banned-user"))
-                .andExpect(jsonPath("$.description").value(nullValue()))
-                .andExpect(jsonPath("$.socialMedia").value(nullValue()))
-                .andExpect(jsonPath("$.followersCount").value(0))
-                .andExpect(jsonPath("$.followingCount").value(0))
-                .andExpect(jsonPath("$.postCount").value(0))
-                .andExpect(jsonPath("$.profilePicture").value(nullValue()))
-                .andExpect(jsonPath("$.isBanned").value(true));
+                .andExpect(jsonPath("$.username").value("profile-user"));
+
+        assertThat(cacheManager.getCache("user-own-profile")).isNotNull();
+        assertThat(cacheManager.getCache("user-own-profile").get(userId.toString())).isNull();
+
+        var user = jpaUserRepository.findById(userId).orElseThrow();
+        user.setAccountStatus(UserAccountStatus.BANNED);
+        jpaUserRepository.saveAndFlush(user);
+
+        mockMvc.perform(get("/api/social/profile/me")
+                        .with(jwt().jwt(jwt -> jwt.subject(userId.toString()))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("USER_BANNED"));
     }
 
     @Test
