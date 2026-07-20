@@ -22,7 +22,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.CachePut;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.cache.annotation.Caching;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,13 +34,15 @@ public class UserProfileService {
     private final UserRepository userRepository;
     private final UserStatsService userStatsService;
 
-    @Cacheable(cacheNames = CacheNames.OWN_PROFILE, key = CacheNames.OWN_PROFILE_KEY_BY_USER_ID)
     @Transactional(readOnly = true)
     public OwnUserProfileResponse getOwnProfile(UUID userId) {
         validateUserId(userId);
         log.info("Retrieving own profile for user {}", userId);
 
-        var response = loadOwnProfileResponse(userId);
+        var ownProfile = userRepository.findOwnProfileById(userId)
+                .orElseThrow(() -> new UserNotFoundException(userId));
+        ensureUserIsNotBanned(userId, ownProfile.banned());
+        var response = toOwnProfileResponse(userId, ownProfile);
 
         log.info("Own profile retrieved for user {}", userId);
         return response;
@@ -76,10 +77,6 @@ public class UserProfileService {
         return getOwnProfile(command.userId());
     }
 
-    @Cacheable(
-            cacheNames = CacheNames.PUBLIC_PROFILE,
-            key = CacheNames.PUBLIC_PROFILE_KEY
-    )
     @Transactional(readOnly = true)
     public UserProfileResponse getUserProfile(UUID requesterUserId, UUID targetUserId) {
         validateUserIds(requesterUserId, targetUserId);

@@ -362,7 +362,7 @@ class BlockControllerIntegrationTest {
         seedBlock(requesterUserId, firstBlockedUserId, Instant.now().minusSeconds(30));
         seedBlock(requesterUserId, secondBlockedUserId, Instant.now().minusSeconds(10));
 
-        mockMvc.perform(get("/api/social/blocks/users")
+        mockMvc.perform(get("/api/social/block/users")
                         .with(jwt().jwt(jwt -> jwt.subject(requesterUserId.toString()))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].userId").value(secondBlockedUserId.toString()))
@@ -385,7 +385,7 @@ class BlockControllerIntegrationTest {
         seedBlock(requesterUserId, blockedUserId, Instant.now().minusSeconds(20));
         seedBlock(blockerUserId, requesterUserId, Instant.now().minusSeconds(10));
 
-        mockMvc.perform(get("/api/social/blocks/users")
+        mockMvc.perform(get("/api/social/block/users")
                         .with(jwt().jwt(jwt -> jwt.subject(requesterUserId.toString()))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1))
@@ -402,7 +402,7 @@ class BlockControllerIntegrationTest {
         seedUser(bannedBlockedUserId, "status-banned-user", UserAccountStatus.BANNED);
         seedBlock(requesterUserId, bannedBlockedUserId, Instant.now().minusSeconds(10));
 
-        mockMvc.perform(get("/api/social/blocks/users")
+        mockMvc.perform(get("/api/social/block/users")
                         .with(jwt().jwt(jwt -> jwt.subject(requesterUserId.toString()))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1))
@@ -416,7 +416,7 @@ class BlockControllerIntegrationTest {
 
         seedUser(requesterUserId, "empty-block-list");
 
-        mockMvc.perform(get("/api/social/blocks/users")
+        mockMvc.perform(get("/api/social/block/users")
                         .with(jwt().jwt(jwt -> jwt.subject(requesterUserId.toString()))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(0));
@@ -434,12 +434,12 @@ class BlockControllerIntegrationTest {
             seedBlock(requesterUserId, blockedUserId, Instant.now().minusSeconds(index));
         }
 
-        mockMvc.perform(get("/api/social/blocks/users")
+        mockMvc.perform(get("/api/social/block/users")
                         .with(jwt().jwt(jwt -> jwt.subject(requesterUserId.toString()))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(20));
 
-        mockMvc.perform(get("/api/social/blocks/users")
+        mockMvc.perform(get("/api/social/block/users")
                         .param("page", "1")
                         .with(jwt().jwt(jwt -> jwt.subject(requesterUserId.toString()))))
                 .andExpect(status().isOk())
@@ -448,7 +448,7 @@ class BlockControllerIntegrationTest {
 
     @Test
     void getApiSocialBlocksUsersReturnsUnauthorizedWhenRequesterIsNotAuthenticated() throws Exception {
-        mockMvc.perform(get("/api/social/blocks/users"))
+        mockMvc.perform(get("/api/social/block/users"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.status").value(401))
                 .andExpect(jsonPath("$.errorCode").value("INVALID_JWT"))
