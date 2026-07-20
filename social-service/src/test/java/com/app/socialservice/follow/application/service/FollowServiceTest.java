@@ -14,6 +14,7 @@ import com.app.socialservice.follow.domain.exception.SelfFollowNotAllowedExcepti
 import com.app.socialservice.follow.domain.exception.SelfUnfollowNotAllowedException;
 import com.app.socialservice.shared.domain.exception.UserNotFoundException;
 import com.app.socialservice.follow.domain.model.Follow;
+import com.app.socialservice.follow.testutil.FollowMother;
 import com.app.socialservice.follow.infrastructure.events.UserFollowedEvent;
 import com.app.socialservice.follow.infrastructure.events.UserUnfollowedEvent;
 import com.app.socialservice.follow.infrastructure.mapper.FollowEventMapper;
@@ -22,10 +23,7 @@ import com.app.socialservice.shared.infrastructure.enums.EventStatus;
 import com.app.socialservice.shared.infrastructure.mapper.JsonMapper;
 import com.app.socialservice.shared.infrastructure.repository.OutboxEventRepository;
 import com.app.socialservice.user.application.repository.UserRepository;
-import com.app.socialservice.user.domain.model.User;
-import com.app.socialservice.user.domain.model.valueobj.Email;
-import com.app.socialservice.user.domain.model.valueobj.UserId;
-import com.app.socialservice.user.domain.model.valueobj.Username;
+import com.app.socialservice.user.testutil.UserMother;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -76,7 +74,7 @@ class FollowServiceTest {
     void shouldCreateFollowRelationshipWhenBothUsersExistAndAreDifferent() {
         var followerId = UUID.randomUUID();
         var followedId = UUID.randomUUID();
-        var savedFollow = new Follow(new UserId(followerId), new UserId(followedId), Instant.now());
+        var savedFollow = FollowMother.active(followerId, followedId, Instant.now());
         var command = new FollowUserCommand(followerId, followedId);
         var mappedEvent = UserFollowedEvent.builder()
                 .id(UUID.randomUUID())
@@ -86,8 +84,8 @@ class FollowServiceTest {
                 .followedUserId(followedId)
                 .build();
 
-        when(userRepository.findById(followerId)).thenReturn(Optional.of(buildUser(followerId, "follower")));
-        when(userRepository.findById(followedId)).thenReturn(Optional.of(buildUser(followedId, "followed")));
+        when(userRepository.findById(followerId)).thenReturn(Optional.of(UserMother.accepted(followerId, "follower")));
+        when(userRepository.findById(followedId)).thenReturn(Optional.of(UserMother.accepted(followedId, "followed")));
         when(blockRepository.existsByUsers(followerId, followedId)).thenReturn(false);
         when(blockRepository.existsByUsers(followedId, followerId)).thenReturn(false);
         when(followRepository.insertIfAbsent(any(Follow.class))).thenReturn(true);
@@ -122,11 +120,13 @@ class FollowServiceTest {
     void shouldReturnWithoutErrorWhenFollowAlreadyExistsAsActive() {
         var followerId = UUID.randomUUID();
         var followedId = UUID.randomUUID();
-        var existingFollow = new Follow(new UserId(followerId), new UserId(followedId), Instant.now());
+        var existingFollow = FollowMother.active(followerId, followedId, Instant.now());
         var command = new FollowUserCommand(followerId, followedId);
 
-        when(userRepository.findById(followerId)).thenReturn(Optional.of(buildUser(followerId, "follower-repeat")));
-        when(userRepository.findById(followedId)).thenReturn(Optional.of(buildUser(followedId, "followed-repeat")));
+        when(userRepository.findById(followerId))
+                .thenReturn(Optional.of(UserMother.accepted(followerId, "follower-repeat")));
+        when(userRepository.findById(followedId))
+                .thenReturn(Optional.of(UserMother.accepted(followedId, "followed-repeat")));
         when(blockRepository.existsByUsers(followerId, followedId)).thenReturn(false);
         when(blockRepository.existsByUsers(followedId, followerId)).thenReturn(false);
         when(followRepository.insertIfAbsent(any(Follow.class))).thenReturn(false);
@@ -145,7 +145,7 @@ class FollowServiceTest {
     void shouldReactivateRemovedFollowRelationship() {
         var followerId = UUID.randomUUID();
         var followedId = UUID.randomUUID();
-        var existingRemovedFollow = new Follow(new UserId(followerId), new UserId(followedId), Instant.now().minusSeconds(10));
+        var existingRemovedFollow = FollowMother.removed(followerId, followedId, Instant.now().minusSeconds(10));
         var command = new FollowUserCommand(followerId, followedId);
         var mappedEvent = UserFollowedEvent.builder()
                 .id(UUID.randomUUID())
@@ -155,12 +155,15 @@ class FollowServiceTest {
                 .followedUserId(followedId)
                 .build();
 
-        when(userRepository.findById(followerId)).thenReturn(Optional.of(buildUser(followerId, "follower-removed")));
-        when(userRepository.findById(followedId)).thenReturn(Optional.of(buildUser(followedId, "followed-removed")));
+        when(userRepository.findById(followerId))
+                .thenReturn(Optional.of(UserMother.accepted(followerId, "follower-removed")));
+        when(userRepository.findById(followedId))
+                .thenReturn(Optional.of(UserMother.accepted(followedId, "followed-removed")));
         when(blockRepository.existsByUsers(followerId, followedId)).thenReturn(false);
         when(blockRepository.existsByUsers(followedId, followerId)).thenReturn(false);
         when(followRepository.insertIfAbsent(any(Follow.class))).thenReturn(false);
-        when(followRepository.findRemovedByUsers(followerId, followedId)).thenReturn(Optional.of(existingRemovedFollow));
+        when(followRepository.findRemovedByUsers(followerId, followedId))
+                .thenReturn(Optional.of(existingRemovedFollow));
         when(followRepository.reactivate(followerId, followedId)).thenReturn(true);
         when(followEventMapper.toUserFollowedEvent(any(), any(), any(Follow.class), any())).thenReturn(mappedEvent);
         when(jsonMapper.toJson(mappedEvent)).thenReturn("{\"type\":\"followed\"}");
@@ -177,8 +180,8 @@ class FollowServiceTest {
     void shouldReturnActiveFollowWhenRemovedFollowWasConcurrentlyReactivated() {
         var followerId = UUID.randomUUID();
         var followedId = UUID.randomUUID();
-        var removedFollow = new Follow(new UserId(followerId), new UserId(followedId), Instant.now().minusSeconds(20));
-        var activeFollow = new Follow(new UserId(followerId), new UserId(followedId), removedFollow.getCreatedAt());
+        var removedFollow = FollowMother.removed(followerId, followedId, Instant.now().minusSeconds(20));
+        var activeFollow = FollowMother.active(followerId, followedId, removedFollow.getCreatedAt());
         var command = new FollowUserCommand(followerId, followedId);
 
         givenUsersExist(followerId, followedId, "reactivated");
@@ -202,7 +205,7 @@ class FollowServiceTest {
     void shouldRejectFollowWhenRemovedFollowWasConcurrentlyBlocked() {
         var followerId = UUID.randomUUID();
         var followedId = UUID.randomUUID();
-        var removedFollow = new Follow(new UserId(followerId), new UserId(followedId), Instant.now().minusSeconds(20));
+        var removedFollow = FollowMother.removed(followerId, followedId, Instant.now().minusSeconds(20));
         var command = new FollowUserCommand(followerId, followedId);
 
         givenUsersExist(followerId, followedId, "blocked");
@@ -225,7 +228,7 @@ class FollowServiceTest {
     void shouldThrowConflictWhenRemovedFollowConcurrentStateCannotBeResolved() {
         var followerId = UUID.randomUUID();
         var followedId = UUID.randomUUID();
-        var removedFollow = new Follow(new UserId(followerId), new UserId(followedId), Instant.now().minusSeconds(20));
+        var removedFollow = FollowMother.removed(followerId, followedId, Instant.now().minusSeconds(20));
         var command = new FollowUserCommand(followerId, followedId);
 
         givenUsersExist(followerId, followedId, "conflict");
@@ -247,7 +250,7 @@ class FollowServiceTest {
     void shouldDeleteFollowsRelationshipWhenBothUsersExistAndAreDifferent() {
         var followerId = UUID.randomUUID();
         var followedId = UUID.randomUUID();
-        var existingFollow = new Follow(new UserId(followerId), new UserId(followedId), Instant.now().minusSeconds(30));
+        var existingFollow = FollowMother.active(followerId, followedId, Instant.now().minusSeconds(30));
         var command = new UnfollowUserCommand(followerId, followedId);
         var mappedEvent = UserUnfollowedEvent.builder()
                 .id(UUID.randomUUID())
@@ -257,8 +260,10 @@ class FollowServiceTest {
                 .followedUserId(followedId)
                 .build();
 
-        when(userRepository.findById(followerId)).thenReturn(Optional.of(buildUser(followerId, "unfollow-follower")));
-        when(userRepository.findById(followedId)).thenReturn(Optional.of(buildUser(followedId, "unfollow-followed")));
+        when(userRepository.findById(followerId))
+                .thenReturn(Optional.of(UserMother.accepted(followerId, "unfollow-follower")));
+        when(userRepository.findById(followedId))
+                .thenReturn(Optional.of(UserMother.accepted(followedId, "unfollow-followed")));
         when(followRepository.findActiveByUsers(followerId, followedId)).thenReturn(Optional.of(existingFollow));
         when(followRepository.markAsRemoved(followerId, followedId)).thenReturn(true);
         when(followEventMapper.toUserUnfollowedEvent(any(), any(), any(Follow.class), any())).thenReturn(mappedEvent);
@@ -272,7 +277,8 @@ class FollowServiceTest {
         assertThat(outboxCaptor.getValue().getStatus()).isEqualTo(EventStatus.PENDING);
         assertThat(outboxCaptor.getValue().getEventType()).isEqualTo(UserUnfollowedEvent.class.getSimpleName());
 
-        verify(eventPublisher).publishEvent(any(com.app.socialservice.follow.domain.events.UserUnfollowedDomainEvent.class));
+        verify(eventPublisher)
+                .publishEvent(any(com.app.socialservice.follow.domain.events.UserUnfollowedDomainEvent.class));
     }
 
     @Test
@@ -281,8 +287,10 @@ class FollowServiceTest {
         var followedId = UUID.randomUUID();
         var command = new UnfollowUserCommand(followerId, followedId);
 
-        when(userRepository.findById(followerId)).thenReturn(Optional.of(buildUser(followerId, "missing-unfollow-follower")));
-        when(userRepository.findById(followedId)).thenReturn(Optional.of(buildUser(followedId, "missing-unfollow-followed")));
+        when(userRepository.findById(followerId))
+                .thenReturn(Optional.of(UserMother.accepted(followerId, "missing-unfollow-follower")));
+        when(userRepository.findById(followedId))
+                .thenReturn(Optional.of(UserMother.accepted(followedId, "missing-unfollow-followed")));
         when(followRepository.findActiveByUsers(followerId, followedId)).thenReturn(Optional.empty());
 
         followService.unfollowUser(command);
@@ -311,7 +319,8 @@ class FollowServiceTest {
         var followedId = UUID.randomUUID();
         var command = new UnfollowUserCommand(followerId, followedId);
 
-        when(userRepository.findById(followerId)).thenReturn(Optional.of(buildUser(followerId, "unfollow-follower-missing")));
+        when(userRepository.findById(followerId))
+                .thenReturn(Optional.of(UserMother.accepted(followerId, "unfollow-follower-missing")));
         when(userRepository.findById(followedId)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> followService.unfollowUser(command))
@@ -341,7 +350,8 @@ class FollowServiceTest {
         var followedId = UUID.randomUUID();
         var command = new FollowUserCommand(followerId, followedId);
 
-        when(userRepository.findById(followerId)).thenReturn(Optional.of(buildUser(followerId, "follower-missing")));
+        when(userRepository.findById(followerId))
+                .thenReturn(Optional.of(UserMother.accepted(followerId, "follower-missing")));
         when(userRepository.findById(followedId)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> followService.followUser(command))
@@ -358,8 +368,10 @@ class FollowServiceTest {
         var followedId = UUID.randomUUID();
         var command = new FollowUserCommand(followerId, followedId);
 
-        when(userRepository.findById(followerId)).thenReturn(Optional.of(buildUser(followerId, "follower-blocked")));
-        when(userRepository.findById(followedId)).thenReturn(Optional.of(buildUser(followedId, "followed-blocked")));
+        when(userRepository.findById(followerId))
+                .thenReturn(Optional.of(UserMother.accepted(followerId, "follower-blocked")));
+        when(userRepository.findById(followedId))
+                .thenReturn(Optional.of(UserMother.accepted(followedId, "followed-blocked")));
         when(blockRepository.existsByUsers(followerId, followedId)).thenReturn(true);
 
         assertThatThrownBy(() -> followService.followUser(command))
@@ -376,11 +388,13 @@ class FollowServiceTest {
     void shouldNotPublishEventWhenInsertIsIgnoredAndFollowAlreadyExists() {
         var followerId = UUID.randomUUID();
         var followedId = UUID.randomUUID();
-        var existingFollow = new Follow(new UserId(followerId), new UserId(followedId), Instant.now().minusSeconds(30));
+        var existingFollow = FollowMother.active(followerId, followedId, Instant.now().minusSeconds(30));
         var command = new FollowUserCommand(followerId, followedId);
 
-        when(userRepository.findById(followerId)).thenReturn(Optional.of(buildUser(followerId, "follower-duplicate")));
-        when(userRepository.findById(followedId)).thenReturn(Optional.of(buildUser(followedId, "followed-duplicate")));
+        when(userRepository.findById(followerId))
+                .thenReturn(Optional.of(UserMother.accepted(followerId, "follower-duplicate")));
+        when(userRepository.findById(followedId))
+                .thenReturn(Optional.of(UserMother.accepted(followedId, "followed-duplicate")));
         when(blockRepository.existsByUsers(followerId, followedId)).thenReturn(false);
         when(blockRepository.existsByUsers(followedId, followerId)).thenReturn(false);
         when(followRepository.insertIfAbsent(any(Follow.class))).thenReturn(false);
@@ -421,8 +435,10 @@ class FollowServiceTest {
         var followedId = UUID.randomUUID();
         var command = new UnfollowUserCommand(followerId, followedId);
 
-        when(userRepository.findById(followerId)).thenReturn(Optional.of(buildUser(followerId, "blocked-unfollower")));
-        when(userRepository.findById(followedId)).thenReturn(Optional.of(buildUser(followedId, "blocked-unfollowed")));
+        when(userRepository.findById(followerId))
+                .thenReturn(Optional.of(UserMother.accepted(followerId, "blocked-unfollower")));
+        when(userRepository.findById(followedId))
+                .thenReturn(Optional.of(UserMother.accepted(followedId, "blocked-unfollowed")));
         when(followRepository.findActiveByUsers(followerId, followedId)).thenReturn(Optional.empty());
 
         followService.unfollowUser(command);
@@ -436,11 +452,13 @@ class FollowServiceTest {
     void shouldReturnWithoutErrorWhenMarkAsRemovedFailsDueToConcurrency() {
         var followerId = UUID.randomUUID();
         var followedId = UUID.randomUUID();
-        var existingFollow = new Follow(new UserId(followerId), new UserId(followedId), Instant.now().minusSeconds(30));
+        var existingFollow = FollowMother.active(followerId, followedId, Instant.now().minusSeconds(30));
         var command = new UnfollowUserCommand(followerId, followedId);
 
-        when(userRepository.findById(followerId)).thenReturn(Optional.of(buildUser(followerId, "concurrent-follower")));
-        when(userRepository.findById(followedId)).thenReturn(Optional.of(buildUser(followedId, "concurrent-followed")));
+        when(userRepository.findById(followerId))
+                .thenReturn(Optional.of(UserMother.accepted(followerId, "concurrent-follower")));
+        when(userRepository.findById(followedId))
+                .thenReturn(Optional.of(UserMother.accepted(followedId, "concurrent-followed")));
         when(followRepository.findActiveByUsers(followerId, followedId)).thenReturn(Optional.of(existingFollow));
         when(followRepository.markAsRemoved(followerId, followedId)).thenReturn(false);
 
@@ -466,19 +484,11 @@ class FollowServiceTest {
                 jsonMapper, eventPublisher);
     }
 
-    private User buildUser(UUID userId, String username) {
-        return new User(
-                new UserId(userId),
-                new Username(username),
-                new Email(username + "@example.com")
-        );
-    }
-
     private void givenUsersExist(UUID followerId, UUID followedId, String usernamePrefix) {
         when(userRepository.findById(followerId))
-                .thenReturn(Optional.of(buildUser(followerId, usernamePrefix + "-follower")));
+                .thenReturn(Optional.of(UserMother.accepted(followerId, usernamePrefix + "-follower")));
         when(userRepository.findById(followedId))
-                .thenReturn(Optional.of(buildUser(followedId, usernamePrefix + "-followed")));
+                .thenReturn(Optional.of(UserMother.accepted(followedId, usernamePrefix + "-followed")));
     }
 
     private void givenUsersAreNotBlocked(UUID followerId, UUID followedId) {

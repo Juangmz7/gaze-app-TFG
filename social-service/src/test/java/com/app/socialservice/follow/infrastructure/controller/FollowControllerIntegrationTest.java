@@ -4,22 +4,22 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.UUID;
 
-import com.app.socialservice.block.infrastructure.entity.BlockEntity;
-import com.app.socialservice.block.infrastructure.entity.BlockEntityId;
 import com.app.socialservice.block.infrastructure.repository.JpaBlockRepository;
 import com.app.socialservice.TestcontainersConfiguration;
-import com.app.socialservice.follow.infrastructure.entity.FollowEntity;
 import com.app.socialservice.follow.infrastructure.entity.FollowEntityId;
 import com.app.socialservice.follow.infrastructure.enums.FollowStatus;
 import com.app.socialservice.follow.infrastructure.repository.JpaFollowRepository;
+import com.app.socialservice.follow.infrastructure.events.UserFollowedEvent;
+import com.app.socialservice.follow.infrastructure.events.UserUnfollowedEvent;
+import com.app.socialservice.follow.testutil.FollowMother;
 import com.app.socialservice.shared.infrastructure.enums.EventStatus;
 import com.app.socialservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 import com.app.socialservice.shared.infrastructure.repository.OutboxEventRepository;
-import com.app.socialservice.user.domain.enums.UserAccountStatus;
-import com.app.socialservice.user.infrastructure.entity.UserEntity;
-import com.app.socialservice.user.infrastructure.entity.UserNode;
+import com.app.socialservice.shared.testutil.SocialIntegrationSeeder;
+import com.app.socialservice.shared.testutil.UserStatsTestConstants;
 import com.app.socialservice.user.infrastructure.repository.JpaUserRepository;
 import com.app.socialservice.user.infrastructure.repository.UserNodeRepository;
+import com.app.socialservice.user.testutil.UserMother;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.amqp.core.AmqpAdmin;
@@ -53,7 +53,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 class FollowControllerIntegrationTest {
 
-    private static final String USER_STATS_KEY_PATTERN = "user:stats:%s:%s";
+    private static final String BLOCKED_ERROR_CODE = "BLOCKED";
+    private static final Instant DEFAULT_CREATED_AT = Instant.parse("2026-01-01T00:00:00Z");
+    private static final Instant DEFAULT_UPDATED_AT = Instant.parse("2026-01-01T00:04:00Z");
+    private static final Instant DEFAULT_BLOCKED_AT = Instant.parse("2026-01-01T00:05:00Z");
 
     @Autowired
     private MockMvc mockMvc;
@@ -123,17 +126,17 @@ class FollowControllerIntegrationTest {
                 .andExpect(jsonPath("$.createdAt").exists());
 
         assertThat(jpaFollowRepository.findById(new FollowEntityId(followerId, followedId))).get()
-                .extracting(FollowEntity::getStatus)
+                .extracting(follow -> follow.getStatus())
                 .isEqualTo(FollowStatus.ACTIVE);
         assertThat(outboxEventRepository.findAll()).singleElement()
                 .extracting(event -> event.getEventType())
-                .isEqualTo("UserFollowedEvent");
+                .isEqualTo(UserFollowedEvent.class.getSimpleName());
         waitForFollowRelationshipCreation(followerId, followedId);
         assertThat(countFollowRelationships(followerId, followedId)).isEqualTo(1L);
-        waitForCounterValue(followerId, "following", 1L);
-        waitForCounterValue(followedId, "followers", 1L);
-        assertThat(readCounter(followerId, "followers")).isZero();
-        assertThat(readCounter(followedId, "following")).isZero();
+        waitForCounterValue(followerId, UserStatsTestConstants.FOLLOWING_COUNTER, 1L);
+        waitForCounterValue(followedId, UserStatsTestConstants.FOLLOWERS_COUNTER, 1L);
+        assertThat(readCounter(followerId, UserStatsTestConstants.FOLLOWERS_COUNTER)).isZero();
+        assertThat(readCounter(followedId, UserStatsTestConstants.FOLLOWING_COUNTER)).isZero();
     }
 
     @Test
@@ -164,8 +167,8 @@ class FollowControllerIntegrationTest {
         assertThat(outboxEventRepository.count()).isEqualTo(1);
         waitForFollowRelationshipCreation(followerId, followedId);
         assertThat(countFollowRelationships(followerId, followedId)).isEqualTo(1L);
-        waitForCounterValue(followerId, "following", 1L);
-        waitForCounterValue(followedId, "followers", 1L);
+        waitForCounterValue(followerId, UserStatsTestConstants.FOLLOWING_COUNTER, 1L);
+        waitForCounterValue(followedId, UserStatsTestConstants.FOLLOWERS_COUNTER, 1L);
     }
 
     @Test
@@ -188,14 +191,14 @@ class FollowControllerIntegrationTest {
                 .andExpect(jsonPath("$.followedId").value(followedId.toString()));
 
         assertThat(jpaFollowRepository.findById(new FollowEntityId(followerId, followedId))).get()
-                .extracting(FollowEntity::getStatus)
+                .extracting(follow -> follow.getStatus())
                 .isEqualTo(FollowStatus.ACTIVE);
         assertThat(jpaFollowRepository.count()).isEqualTo(1);
         assertThat(outboxEventRepository.count()).isEqualTo(1);
         waitForFollowRelationshipCreation(followerId, followedId);
         assertThat(countFollowRelationships(followerId, followedId)).isEqualTo(1L);
-        waitForCounterValue(followerId, "following", 1L);
-        waitForCounterValue(followedId, "followers", 1L);
+        waitForCounterValue(followerId, UserStatsTestConstants.FOLLOWING_COUNTER, 1L);
+        waitForCounterValue(followedId, UserStatsTestConstants.FOLLOWERS_COUNTER, 1L);
     }
 
     @Test
@@ -214,15 +217,15 @@ class FollowControllerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(followRequest(followedId)))
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.errorCode").value("BLOCKED"));
+                .andExpect(jsonPath("$.errorCode").value(BLOCKED_ERROR_CODE));
 
         assertThat(jpaFollowRepository.findById(new FollowEntityId(followerId, followedId))).get()
-                .extracting(FollowEntity::getStatus)
+                .extracting(follow -> follow.getStatus())
                 .isEqualTo(FollowStatus.BLOCKED);
         assertThat(outboxEventRepository.count()).isZero();
         assertThat(countFollowRelationships(followerId, followedId)).isZero();
-        assertThat(readCounter(followerId, "following")).isZero();
-        assertThat(readCounter(followedId, "followers")).isZero();
+        assertThat(readCounter(followerId, UserStatsTestConstants.FOLLOWING_COUNTER)).isZero();
+        assertThat(readCounter(followedId, UserStatsTestConstants.FOLLOWERS_COUNTER)).isZero();
     }
 
     @Test
@@ -241,13 +244,13 @@ class FollowControllerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(followRequest(followedId)))
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.errorCode").value("BLOCKED"));
+                .andExpect(jsonPath("$.errorCode").value(BLOCKED_ERROR_CODE));
 
         assertThat(jpaFollowRepository.count()).isZero();
         assertThat(outboxEventRepository.count()).isZero();
         assertThat(countFollowRelationships(followerId, followedId)).isZero();
-        assertThat(readCounter(followerId, "following")).isZero();
-        assertThat(readCounter(followedId, "followers")).isZero();
+        assertThat(readCounter(followerId, UserStatsTestConstants.FOLLOWING_COUNTER)).isZero();
+        assertThat(readCounter(followedId, UserStatsTestConstants.FOLLOWERS_COUNTER)).isZero();
     }
 
     @Test
@@ -264,7 +267,7 @@ class FollowControllerIntegrationTest {
                 .andExpect(status().isBadRequest());
 
         assertThat(jpaFollowRepository.count()).isZero();
-        assertThat(readCounter(userId, "following")).isZero();
+        assertThat(readCounter(userId, UserStatsTestConstants.FOLLOWING_COUNTER)).isZero();
     }
 
     @Test
@@ -282,7 +285,7 @@ class FollowControllerIntegrationTest {
                 .andExpect(status().isNotFound());
 
         assertThat(jpaFollowRepository.count()).isZero();
-        assertThat(readCounter(followerId, "following")).isZero();
+        assertThat(readCounter(followerId, UserStatsTestConstants.FOLLOWING_COUNTER)).isZero();
         assertThat(outboxEventRepository.count()).isZero();
     }
 
@@ -344,15 +347,15 @@ class FollowControllerIntegrationTest {
                 .andExpect(status().isNoContent());
 
         assertThat(jpaFollowRepository.findById(new FollowEntityId(followerId, followedId))).get()
-                .extracting(FollowEntity::getStatus)
+                .extracting(follow -> follow.getStatus())
                 .isEqualTo(FollowStatus.REMOVED);
         assertThat(outboxEventRepository.findAll()).singleElement()
                 .extracting(event -> event.getEventType())
-                .isEqualTo("UserUnfollowedEvent");
+                .isEqualTo(UserUnfollowedEvent.class.getSimpleName());
         waitForFollowRelationshipDeletion(followerId, followedId);
         assertThat(countFollowRelationships(followerId, followedId)).isZero();
-        waitForCounterValue(followerId, "following", 0L);
-        waitForCounterValue(followedId, "followers", 0L);
+        waitForCounterValue(followerId, UserStatsTestConstants.FOLLOWING_COUNTER, 0L);
+        waitForCounterValue(followedId, UserStatsTestConstants.FOLLOWERS_COUNTER, 0L);
     }
 
     @Test
@@ -458,68 +461,38 @@ class FollowControllerIntegrationTest {
                 """.formatted(followedId);
     }
 
-    private void seedUser(UUID userId, String username) {
-        jpaUserRepository.save(UserEntity.builder()
-                .id(userId)
-                .username(username)
-                .email(username + "@example.com")
-                .accountStatus(UserAccountStatus.ACCEPTED)
-                .build());
-    }
-
-    private void seedNode(UUID userId) {
-        userNodeRepository.save(UserNode.builder().id(userId).build());
-    }
-
     private void seedRemovedFollow(UUID followerId, UUID followedId) {
-        jpaFollowRepository.save(new FollowEntity(
-                new FollowEntityId(followerId, followedId),
-                FollowStatus.REMOVED,
-                Instant.now().minusSeconds(300),
-                Instant.now().minusSeconds(60)
-        ));
+        SocialIntegrationSeeder.seedFollow(
+                jpaFollowRepository,
+                FollowMother.removedEntity(followerId, followedId, DEFAULT_CREATED_AT, DEFAULT_UPDATED_AT)
+        );
     }
 
     private void seedActiveFollow(UUID followerId, UUID followedId) {
-        jpaFollowRepository.save(new FollowEntity(
-                new FollowEntityId(followerId, followedId),
-                FollowStatus.ACTIVE,
-                Instant.now().minusSeconds(300),
-                Instant.now().minusSeconds(60)
-        ));
+        SocialIntegrationSeeder.seedFollow(
+                jpaFollowRepository,
+                FollowMother.activeEntity(followerId, followedId, DEFAULT_CREATED_AT, DEFAULT_UPDATED_AT)
+        );
     }
 
     private void seedBlockedFollow(UUID followerId, UUID followedId) {
         seedBlock(followerId, followedId);
-        jpaFollowRepository.save(new FollowEntity(
-                new FollowEntityId(followerId, followedId),
-                FollowStatus.BLOCKED,
-                Instant.now().minusSeconds(300),
-                Instant.now().minusSeconds(60)
-        ));
+        SocialIntegrationSeeder.seedFollow(
+                jpaFollowRepository,
+                FollowMother.blockedEntity(followerId, followedId, DEFAULT_CREATED_AT, DEFAULT_UPDATED_AT)
+        );
     }
 
     private void seedBlock(UUID blockerId, UUID blockedId) {
-        jpaBlockRepository.save(new BlockEntity(
-                new BlockEntityId(blockerId, blockedId),
-                Instant.now().minusSeconds(60)
-        ));
+        SocialIntegrationSeeder.seedBlock(jpaBlockRepository, blockerId, blockedId, DEFAULT_BLOCKED_AT);
     }
 
     private void seedFollowRelationship(UUID followerId, UUID followedId) {
-        neo4jClient.query("""
-                MATCH (follower:User {id: $followerId})
-                MATCH (followed:User {id: $followedId})
-                MERGE (follower)-[:FOLLOWS]->(followed)
-                """)
-                .bind(followerId.toString()).to("followerId")
-                .bind(followedId.toString()).to("followedId")
-                .run();
+        SocialIntegrationSeeder.seedGraphFollow(neo4jClient, followerId, followedId);
     }
 
     private void seedUserStats(UUID userId, long followingCount, long followerCount) {
-        stringRedisTemplate.opsForValue().set(buildCounterKey(userId, "following"), String.valueOf(followingCount));
-        stringRedisTemplate.opsForValue().set(buildCounterKey(userId, "followers"), String.valueOf(followerCount));
+        SocialIntegrationSeeder.seedUserStats(stringRedisTemplate, userId, followerCount, followingCount, 0L);
     }
 
     private long countFollowRelationships(UUID followerId, UUID followedId) {
@@ -582,11 +555,7 @@ class FollowControllerIntegrationTest {
     }
 
     private long readCounter(UUID userId, String counterName) {
-        var rawValue = stringRedisTemplate.opsForValue().get(buildCounterKey(userId, counterName));
-        if (rawValue == null) {
-            return 0L;
-        }
-        return Long.parseLong(rawValue);
+        return SocialIntegrationSeeder.readCounter(stringRedisTemplate, userId, counterName);
     }
 
     private void flushRedis() {
@@ -598,7 +567,11 @@ class FollowControllerIntegrationTest {
         }
     }
 
-    private String buildCounterKey(UUID userId, String counterName) {
-        return String.format(USER_STATS_KEY_PATTERN, userId, counterName);
+    private void seedUser(UUID userId, String username) {
+        SocialIntegrationSeeder.seedUser(jpaUserRepository, UserMother.acceptedEntity(userId, username));
+    }
+
+    private void seedNode(UUID userId) {
+        SocialIntegrationSeeder.seedUserNode(userNodeRepository, userId);
     }
 }
