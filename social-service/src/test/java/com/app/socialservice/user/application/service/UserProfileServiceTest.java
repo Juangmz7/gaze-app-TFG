@@ -28,6 +28,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.cache.annotation.Caching;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -68,6 +69,23 @@ class UserProfileServiceTest {
             var cacheable = method.getAnnotationsByType(org.springframework.cache.annotation.Cacheable.class);
 
             assertThat(cacheable).isEmpty();
+        void shouldCacheOwnProfileReadUsingCentralizedKeyBuilder() throws NoSuchMethodException {
+            var method = UserProfileService.class.getMethod("getOwnProfile", UUID.class);
+            var cacheable = method.getAnnotation(Cacheable.class);
+
+            assertThat(cacheable).isNotNull();
+            assertThat(cacheable.cacheNames()).containsExactly(CacheNames.OWN_PROFILE);
+            assertThat(cacheable.key()).isEqualTo(CacheNames.OWN_PROFILE_KEY_BY_USER_ID);
+        }
+
+        @Test
+        void shouldCachePublicProfileReadUsingCentralizedKeyBuilder() throws NoSuchMethodException {
+            var method = UserProfileService.class.getMethod("getUserProfile", UUID.class, UUID.class);
+            var cacheable = method.getAnnotation(Cacheable.class);
+
+            assertThat(cacheable).isNotNull();
+            assertThat(cacheable.cacheNames()).containsExactly(CacheNames.PUBLIC_PROFILE);
+            assertThat(cacheable.key()).isEqualTo(CacheNames.PUBLIC_PROFILE_KEY);
         }
 
         @Test
