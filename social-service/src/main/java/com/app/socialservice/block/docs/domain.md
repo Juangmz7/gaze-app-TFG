@@ -1,4 +1,4 @@
-# Block — Domain Layer
+# Block - Domain Layer
 
 ## What it does
 Defines the business logic for blocking and unblocking users.

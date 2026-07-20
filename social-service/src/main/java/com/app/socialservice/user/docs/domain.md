@@ -1,4 +1,4 @@
-# User — Domain Layer
+# User - Domain Layer
 
 ## What it does
 The domain layer defines the core business model for a **User**. It contains the `User` aggregate root, self-validating value objects, and domain events.

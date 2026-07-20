@@ -1,12 +1,15 @@
-# Follow — Application Layer
+# Follow - Application Layer
 
 ## What it does
-Orchestrates follow/unfollow use cases, updating both relational state and the social graph.
+Orchestrates follow/unfollow use cases. Relational state is the source of truth, while Neo4j graph relationships are maintained from follow integration events.
 
 ## Key Design Choices (For New Developers)
 - **Command-Driven**: `FollowUserCommand` and `UnfollowUserCommand` handle the inputs cleanly.
-- **Graph & Relational Sync**: The layer uses both `FollowRepository` (for relational source-of-truth) and `FollowGraphRepository` (for Neo4j graph operations).
-- **Guard Clauses**: Application services enforce cross-domain rules (e.g., checking if a user is blocked before allowing a follow).
+- **Relational Source of Truth**: `FollowService` writes and reads relationship state through `FollowRepository`.
+- **Graph Projection**: `FollowNodeService` applies published follow/unfollow events to Neo4j.
+- **Guard Clauses**: Application services enforce cross-domain rules, including self-follow prevention, user existence checks, and block checks in both directions.
+- **Idempotent Operations**: Following an already active relationship returns the existing relationship, unfollowing a missing active relationship returns success, and removed relationships can be reactivated.
+- **Transactional Outbox**: Follow and unfollow writes create `UserFollowedEvent` or `UserUnfollowedEvent` outbox records before publishing domain events.
 
 ## Components
 - `FollowService`, `FollowNodeService`
