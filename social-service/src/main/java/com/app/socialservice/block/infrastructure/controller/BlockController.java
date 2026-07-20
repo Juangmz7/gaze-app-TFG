@@ -24,14 +24,14 @@ import org.springframework.validation.annotation.Validated;
 
 @Validated
 @RestController
-@RequestMapping("/api/social/block")
+@RequestMapping("/api/social")
 @RequiredArgsConstructor
 public class BlockController {
 
     private final BlockService blockService;
     private final SecurityUtils securityUtils;
 
-    @PostMapping
+    @PostMapping("/block")
     public ResponseEntity<BlockResponse> blockUser(@Valid @RequestBody BlockUserRequest request) {
         var blockerUserId = securityUtils.getUserId();
         if (blockerUserId == null) {
@@ -42,7 +42,7 @@ public class BlockController {
         return ResponseEntity.ok(response);
     }
 
-    @DeleteMapping
+    @DeleteMapping("/block")
     public ResponseEntity<Void> unblockUser(@Valid @RequestBody BlockUserRequest request) {
         var unblockerUserId = securityUtils.getUserId();
         if (unblockerUserId == null) {
@@ -53,7 +53,7 @@ public class BlockController {
         return ResponseEntity.ok().build();
     }
 
-    @GetMapping("/users")
+    @GetMapping("/blocks/users")
     public ResponseEntity<List<BlockedUserResponse>> getBlockedUsers(
             @RequestParam(defaultValue = "0") @Min(value = 0, message = "page must be greater than or equal to 0") int page) {
         var requesterUserId = securityUtils.getUserId();
