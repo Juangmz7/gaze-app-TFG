@@ -5,17 +5,16 @@ import java.util.Map;
 import java.util.UUID;
 
 import com.app.socialservice.TestcontainersConfiguration;
-import com.app.socialservice.block.infrastructure.entity.BlockEntity;
-import com.app.socialservice.block.infrastructure.entity.BlockEntityId;
 import com.app.socialservice.block.infrastructure.repository.JpaBlockRepository;
-import com.app.socialservice.follow.infrastructure.entity.FollowEntity;
-import com.app.socialservice.follow.infrastructure.entity.FollowEntityId;
 import com.app.socialservice.follow.infrastructure.enums.FollowStatus;
 import com.app.socialservice.follow.infrastructure.repository.JpaFollowRepository;
+import com.app.socialservice.follow.testutil.FollowMother;
+import com.app.socialservice.shared.testutil.SocialIntegrationSeeder;
 import com.app.socialservice.user.domain.enums.UserAccountStatus;
 import com.app.socialservice.user.infrastructure.entity.UserBioEmbeddable;
 import com.app.socialservice.user.infrastructure.entity.UserEntity;
 import com.app.socialservice.user.infrastructure.repository.JpaUserRepository;
+import com.app.socialservice.user.testutil.UserMother;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -42,8 +41,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 class UserProfileControllerIntegrationTest {
-
-    private static final String USER_STATS_KEY_PATTERN = "user:stats:%s:%s";
 
     @Autowired
     private MockMvc mockMvc;
@@ -199,44 +196,31 @@ class UserProfileControllerIntegrationTest {
             Map<String, String> socialMedia,
             String pictureUrl
     ) {
-        UserBioEmbeddable bio = null;
-        if (description != null || socialMedia != null) {
-            bio = UserBioEmbeddable.builder()
-                    .description(description)
-                    .socialMedia(socialMedia)
-                    .build();
-        }
-
-        jpaUserRepository.save(UserEntity.builder()
-                .id(userId)
-                .username(username)
-                .email(username + "@example.com")
-                .accountStatus(status)
-                .pictureUrl(pictureUrl)
-                .bio(bio)
-                .build());
+        SocialIntegrationSeeder.seedUser(
+                jpaUserRepository,
+                UserMother.entity(userId, username, status, null, description, socialMedia, pictureUrl)
+        );
     }
 
     private void seedFollow(UUID followerUserId, UUID followedUserId, FollowStatus status) {
-        jpaFollowRepository.save(new FollowEntity(
-                new FollowEntityId(followerUserId, followedUserId),
-                status,
-                Instant.now(),
-                Instant.now()
-        ));
+        SocialIntegrationSeeder.seedFollow(
+                jpaFollowRepository,
+                FollowMother.entity(followerUserId, followedUserId, status, Instant.now(), Instant.now())
+        );
     }
 
     private void seedBlock(UUID blockerUserId, UUID blockedUserId) {
-        jpaBlockRepository.save(new BlockEntity(
-                new BlockEntityId(blockerUserId, blockedUserId),
-                Instant.now()
-        ));
+        SocialIntegrationSeeder.seedBlock(jpaBlockRepository, blockerUserId, blockedUserId, Instant.now());
     }
 
     private void seedUserStats(UUID userId, long followerCount, long followingCount, long postCount) {
-        stringRedisTemplate.opsForValue().set(buildCounterKey(userId, "followers"), String.valueOf(followerCount));
-        stringRedisTemplate.opsForValue().set(buildCounterKey(userId, "following"), String.valueOf(followingCount));
-        stringRedisTemplate.opsForValue().set(buildCounterKey(userId, "postCount"), String.valueOf(postCount));
+        SocialIntegrationSeeder.seedUserStats(
+                stringRedisTemplate,
+                userId,
+                followerCount,
+                followingCount,
+                postCount
+        );
     }
 
     @Test
@@ -287,10 +271,6 @@ class UserProfileControllerIntegrationTest {
         jpaUserRepository.save(userEntity);
     }
 
-    private void seedCounter(UUID userId, String counterName, long value) {
-        stringRedisTemplate.opsForValue().set(buildCounterKey(userId, counterName), String.valueOf(value));
-    }
-
     private void flushRedis() {
         var connection = stringRedisTemplate.getConnectionFactory().getConnection();
         try {
@@ -298,10 +278,6 @@ class UserProfileControllerIntegrationTest {
         } finally {
             connection.close();
         }
-    }
-
-    private String buildCounterKey(UUID userId, String counterName) {
-        return String.format(USER_STATS_KEY_PATTERN, userId, counterName);
     }
 
     @Test
@@ -480,16 +456,17 @@ class UserProfileControllerIntegrationTest {
     }
 
     private UserEntity seedUser(UUID userId, String username, String description, String pictureUrl) {
-        return jpaUserRepository.save(UserEntity.builder()
-                .id(userId)
-                .username(username)
-                .email(username + "@example.com")
-                .pictureUrl(pictureUrl)
-                .bio(UserBioEmbeddable.builder()
-                        .description(description)
-                        .socialMedia(Map.of("github", username))
-                        .build())
-                .accountStatus(UserAccountStatus.ACCEPTED)
-                .build());
+        return SocialIntegrationSeeder.seedUser(
+                jpaUserRepository,
+                UserMother.entity(
+                        userId,
+                        username,
+                        UserAccountStatus.ACCEPTED,
+                        null,
+                        description,
+                        Map.of("github", username),
+                        pictureUrl
+                )
+        );
     }
 }
