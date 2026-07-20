@@ -27,6 +27,18 @@ public interface JpaBlockRepository extends JpaRepository<BlockEntity, BlockEnti
     )
     List<UUID> findBlockedUserIds(UUID userId);
 
+    @Query(
+            value = """
+                    SELECT blocked_id
+                    FROM blocks
+                    WHERE blocker_id = :blockerUserId
+                    ORDER BY created_at DESC, blocked_id ASC
+                    LIMIT :limit OFFSET :offset
+                    """,
+            nativeQuery = true
+    )
+    List<UUID> findBlockedUserIdsByBlockerId(UUID blockerUserId, int limit, long offset);
+
     @Modifying
     @Query(
             value = """

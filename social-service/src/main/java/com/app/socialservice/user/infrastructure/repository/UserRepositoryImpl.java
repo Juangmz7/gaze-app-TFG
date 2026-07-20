@@ -4,6 +4,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.List;
 
+import com.app.socialservice.block.application.dto.BlockedUserDetails;
 import com.app.socialservice.user.application.dto.UserProfileDetails;
 import com.app.socialservice.user.application.mapper.UserMapper;
 import com.app.socialservice.user.application.repository.UserRepository;
@@ -88,6 +89,24 @@ public class UserRepositoryImpl implements UserRepository {
     @Override
     public boolean existsById(UUID id) {
         return jpaUserRepository.existsById(id);
+    }
+
+    @Override
+    public List<BlockedUserDetails> findBlockedUsersByIds(List<UUID> userIds) {
+        if (userIds == null) {
+            throw new IllegalArgumentException("userIds must not be null");
+        }
+        if (userIds.isEmpty()) {
+            return List.of();
+        }
+
+        return jpaUserRepository.findBlockedUsersByIds(userIds).stream()
+                .map(projection -> new BlockedUserDetails(
+                        projection.getUserId(),
+                        projection.getUsername(),
+                        projection.getProfilePic()
+                ))
+                .toList();
     }
 
     @Override

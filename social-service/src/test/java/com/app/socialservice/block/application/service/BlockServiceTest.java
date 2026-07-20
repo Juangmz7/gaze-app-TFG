@@ -1,11 +1,13 @@
 package com.app.socialservice.block.application.service;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import com.app.socialservice.block.application.commands.BlockUserCommand;
 import com.app.socialservice.block.application.commands.UnblockUserCommand;
+import com.app.socialservice.block.application.dto.BlockedUserDetails;
 import com.app.socialservice.block.application.repository.BlockRepository;
 import com.app.socialservice.block.domain.events.UserBlockedDomainEvent;
 import com.app.socialservice.block.domain.exception.SelfBlockNotAllowedException;
@@ -42,6 +44,7 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -163,6 +166,76 @@ class BlockServiceTest {
                 .hasMessage("User not found: " + blockedId);
 
         verify(blockRepository, never()).insertIfAbsent(any(Block.class));
+        verifyNoInteractions(followRepository, outboxEventRepository, blockEventMapper, jsonMapper, eventPublisher);
+    }
+
+    @Test
+    void shouldReturnBlockedUsersWithUserIdUsernameAndProfilePic() {
+        var requesterUserId = UUID.randomUUID();
+        var firstBlockedUserId = UUID.randomUUID();
+        var secondBlockedUserId = UUID.randomUUID();
+
+        when(blockRepository.findBlockedUserIdsByBlockerId(requesterUserId, 0, BlockService.BLOCKED_USERS_PAGE_SIZE))
+                .thenReturn(List.of(firstBlockedUserId, secondBlockedUserId));
+        when(userRepository.findBlockedUsersByIds(List.of(firstBlockedUserId, secondBlockedUserId)))
+                .thenReturn(List.of(
+                        new BlockedUserDetails(secondBlockedUserId, "second-user", "second-pic"),
+                        new BlockedUserDetails(firstBlockedUserId, "first-user", "first-pic")
+                ));
+
+        var response = blockService.getBlockedUsers(requesterUserId, 0);
+
+        assertThat(response).containsExactly(
+                new com.app.socialservice.block.application.dto.BlockedUserResponse(
+                        firstBlockedUserId,
+                        "first-user",
+                        "first-pic"
+                ),
+                new com.app.socialservice.block.application.dto.BlockedUserResponse(
+                        secondBlockedUserId,
+                        "second-user",
+                        "second-pic"
+                )
+        );
+        verify(blockRepository).findBlockedUserIdsByBlockerId(requesterUserId, 0, BlockService.BLOCKED_USERS_PAGE_SIZE);
+        verify(userRepository).findBlockedUsersByIds(List.of(firstBlockedUserId, secondBlockedUserId));
+        verifyNoInteractions(followRepository, outboxEventRepository, blockEventMapper, jsonMapper, eventPublisher);
+    }
+
+    @Test
+    void shouldReturnEmptyListWhenRequesterHasNoBlockedUsers() {
+        var requesterUserId = UUID.randomUUID();
+
+        when(blockRepository.findBlockedUserIdsByBlockerId(requesterUserId, 0, BlockService.BLOCKED_USERS_PAGE_SIZE))
+                .thenReturn(List.of());
+
+        var response = blockService.getBlockedUsers(requesterUserId, 0);
+
+        assertThat(response).isEmpty();
+        verify(blockRepository).findBlockedUserIdsByBlockerId(requesterUserId, 0, BlockService.BLOCKED_USERS_PAGE_SIZE);
+        verify(userRepository, never()).findBlockedUsersByIds(any());
+        verifyNoInteractions(followRepository, outboxEventRepository, blockEventMapper, jsonMapper, eventPublisher);
+    }
+
+    @Test
+    void shouldRetrieveBlockedUserProfilesUsingABatchedQuery() {
+        var requesterUserId = UUID.randomUUID();
+        var blockedUserIds = List.of(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
+
+        when(blockRepository.findBlockedUserIdsByBlockerId(requesterUserId, 1, BlockService.BLOCKED_USERS_PAGE_SIZE))
+                .thenReturn(blockedUserIds);
+        when(userRepository.findBlockedUsersByIds(blockedUserIds))
+                .thenReturn(blockedUserIds.stream()
+                        .map(userId -> new BlockedUserDetails(userId, "user-" + userId, null))
+                        .toList());
+
+        var response = blockService.getBlockedUsers(requesterUserId, 1);
+
+        assertThat(response).hasSize(3);
+        verify(blockRepository).findBlockedUserIdsByBlockerId(requesterUserId, 1, BlockService.BLOCKED_USERS_PAGE_SIZE);
+        verify(userRepository).findBlockedUsersByIds(blockedUserIds);
+        verify(userRepository, never()).findById(any());
+        verifyNoMoreInteractions(userRepository);
         verifyNoInteractions(followRepository, outboxEventRepository, blockEventMapper, jsonMapper, eventPublisher);
     }
 
