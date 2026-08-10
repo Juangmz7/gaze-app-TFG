@@ -33,7 +33,6 @@ public class RecommendedUserService {
 
     @Transactional(readOnly = true)
     public List<RecommendedUserResponse> getRecommendedUsers(UUID requesterUserId) {
-        validateRequesterUserId(requesterUserId);
         assertRequesterExists(requesterUserId);
 
         var blockedUserIds = blockRepository.findBlockedUserIds(requesterUserId);
@@ -62,11 +61,6 @@ public class RecommendedUserService {
                 .toList();
     }
 
-    private void validateRequesterUserId(UUID requesterUserId) {
-        if (requesterUserId == null) {
-            throw new IllegalArgumentException("requesterUserId must not be null");
-        }
-    }
 
     private void assertRequesterExists(UUID requesterUserId) {
         if (userRepository.findById(requesterUserId).isEmpty()) {
@@ -77,7 +71,6 @@ public class RecommendedUserService {
     private List<RecommendedFollowCandidate> deduplicateCandidates(List<RecommendedFollowCandidate> graphCandidates) {
         var distinctCandidates = new HashMap<UUID, RecommendedFollowCandidate>();
         for (var candidate : graphCandidates) {
-            validateGraphCandidate(candidate);
             distinctCandidates.merge(
                     candidate.userId(),
                     candidate,
@@ -87,17 +80,6 @@ public class RecommendedUserService {
         return new ArrayList<>(distinctCandidates.values());
     }
 
-    private void validateGraphCandidate(RecommendedFollowCandidate candidate) {
-        if (candidate == null) {
-            throw new IllegalArgumentException("graph candidate must not be null");
-        }
-        if (candidate.userId() == null) {
-            throw new IllegalArgumentException("graph candidate userId must not be null");
-        }
-        if (candidate.commonConnections() < 0) {
-            throw new IllegalArgumentException("graph candidate commonConnections must not be negative");
-        }
-    }
 
     private HashMap<UUID, RecommendedUserDetails> loadProfilesById(
             List<RecommendedFollowCandidate> rankedCandidates,
@@ -110,23 +92,11 @@ public class RecommendedUserService {
         var profiles = userRepository.findRecommendedUsersByIds(candidateIds, requesterUserId);
         var profilesById = new HashMap<UUID, RecommendedUserDetails>();
         for (var profile : profiles) {
-            validateProfile(profile);
             profilesById.put(profile.id(), profile);
         }
         return profilesById;
     }
 
-    private void validateProfile(RecommendedUserDetails profile) {
-        if (profile == null) {
-            throw new IllegalArgumentException("recommended user profile must not be null");
-        }
-        if (profile.id() == null) {
-            throw new IllegalArgumentException("recommended user profile id must not be null");
-        }
-        if (profile.username() == null) {
-            throw new IllegalArgumentException("recommended user profile username must not be null");
-        }
-    }
 
     private Comparator<RecommendedFollowCandidate> candidateComparator(
             HashMap<UUID, RecommendedUserDetails> profilesById

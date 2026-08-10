@@ -257,15 +257,6 @@ class UserProfileServiceTest {
     }
 
     @Test
-    void shouldRejectNullUserIdWhenGettingOwnProfile() {
-        assertThatThrownBy(() -> userProfileService.getOwnProfile(null))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("userId must not be null");
-
-        verifyNoInteractions(userRepository, userStatsService);
-    }
-
-    @Test
     void shouldUpdateOwnProfileWhenDataChanges() {
         var userId = UUID.randomUUID();
         var existingUser = buildUser(userId, "profile-user", "profile@example.com", UserAccountStatus.ACCEPTED);

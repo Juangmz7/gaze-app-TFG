@@ -50,15 +50,6 @@ class RecommendedUserServiceTest {
     private RecommendedUserService recommendedUserService;
 
     @Test
-    void shouldThrowWhenRequesterUserIdIsNull() {
-        assertThatThrownBy(() -> recommendedUserService.getRecommendedUsers(null))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("requesterUserId must not be null");
-
-        verifyNoInteractions(blockRepository, followGraphRepository, userRepository);
-    }
-
-    @Test
     void shouldThrowUserNotFoundExceptionWhenRequesterDoesNotExist() {
         var requesterUserId = UUID.randomUUID();
         when(userRepository.findById(requesterUserId)).thenReturn(Optional.empty());

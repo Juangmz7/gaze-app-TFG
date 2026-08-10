@@ -17,7 +17,6 @@ public class UserNodeService {
 
     @Transactional("neo4jTransactionManager")
     public void registerUserNode(SynchroniseSecondaryDatabaseCommand command) {
-        validateCommand(command);
 
         log.debug("Registering node for event: {} with correlationId: {}",
                 command.eventId(), command.correlationId());
@@ -34,7 +33,6 @@ public class UserNodeService {
 
     @Transactional("neo4jTransactionManager")
     public void deleteUserNode(SynchroniseSecondaryDatabaseCommand command) {
-        validateCommand(command);
 
         log.debug("Deleting node for event: {} with correlationId: {}",
                 command.eventId(), command.correlationId());
@@ -45,18 +43,5 @@ public class UserNodeService {
                 command.userId(), command.eventId(), command.correlationId());
     }
 
-    private void validateCommand(SynchroniseSecondaryDatabaseCommand command) {
-        if (command == null) {
-            throw new IllegalArgumentException("command must not be null");
-        }
-        if (command.correlationId() == null) {
-            throw new IllegalArgumentException("command.correlationId must not be null");
-        }
-        if (command.eventId() == null) {
-            throw new IllegalArgumentException("command.eventId must not be null");
-        }
-        if (command.userId() == null) {
-            throw new IllegalArgumentException("command.userId must not be null");
-        }
-    }
+
 }
