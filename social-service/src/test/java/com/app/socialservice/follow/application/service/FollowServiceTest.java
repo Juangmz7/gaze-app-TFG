@@ -409,25 +409,7 @@ class FollowServiceTest {
         verify(eventPublisher, never()).publishEvent(any());
     }
 
-    @Test
-    void shouldThrowIllegalArgumentWhenFollowCommandIsNull() {
-        assertThatThrownBy(() -> followService.followUser(null))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("command must not be null");
 
-        verifyNoInteractions(followRepository, userRepository, outboxEventRepository,
-                followEventMapper, jsonMapper, eventPublisher, blockRepository);
-    }
-
-    @Test
-    void shouldThrowIllegalArgumentWhenUnfollowCommandIsNull() {
-        assertThatThrownBy(() -> followService.unfollowUser(null))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("command must not be null");
-
-        verifyNoInteractions(followRepository, userRepository, outboxEventRepository,
-                followEventMapper, jsonMapper, eventPublisher, blockRepository);
-    }
 
     @Test
     void shouldReturnIdempotentSuccessWhenUnfollowingBlockedUser() {

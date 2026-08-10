@@ -75,9 +75,6 @@ public class BlockService {
 
     @Transactional
     public BlockResponse blockUser(BlockUserCommand command) {
-        if (command == null) {
-            throw new IllegalArgumentException("command must not be null");
-        }
 
         validateBlockCommandInput(command);
 
@@ -113,9 +110,6 @@ public class BlockService {
 
     @Transactional
     public void unblockUser(UnblockUserCommand command) {
-        if (command == null) {
-            throw new IllegalArgumentException("command must not be null");
-        }
 
         validateUnblockCommandInput(command);
 
@@ -166,9 +160,6 @@ public class BlockService {
     }
 
     private void validateBlockedUsersRequest(UUID requesterUserId, int page) {
-        if (requesterUserId == null) {
-            throw new IllegalArgumentException("requesterUserId must not be null");
-        }
         if (page < 0) {
             throw new IllegalArgumentException("page must not be negative");
         }
@@ -198,23 +189,11 @@ public class BlockService {
     private HashMap<UUID, BlockedUserDetails> loadBlockedUsersById(List<UUID> blockedUserIds) {
         var blockedUsersById = new HashMap<UUID, BlockedUserDetails>();
         for (var blockedUser : userRepository.findBlockedUsersByIds(blockedUserIds)) {
-            validateBlockedUser(blockedUser);
             blockedUsersById.put(blockedUser.userId(), blockedUser);
         }
         return blockedUsersById;
     }
 
-    private void validateBlockedUser(BlockedUserDetails blockedUser) {
-        if (blockedUser == null) {
-            throw new IllegalArgumentException("blockedUser must not be null");
-        }
-        if (blockedUser.userId() == null) {
-            throw new IllegalArgumentException("blockedUser.userId must not be null");
-        }
-        if (blockedUser.username() == null) {
-            throw new IllegalArgumentException("blockedUser.username must not be null");
-        }
-    }
 
     private OutboxEvent createAndSaveOutboxEvent(Block block, Instant occurredOn) {
         var correlationId = UUID.randomUUID();

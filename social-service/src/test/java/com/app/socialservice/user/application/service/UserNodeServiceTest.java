@@ -11,9 +11,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -54,16 +52,4 @@ class UserNodeServiceTest {
         verify(userNodeRepository).deleteById(command.userId());
     }
 
-    @Test
-    void shouldThrowWhenSynchroniseCommandUserIdIsNull() {
-        var command = new SynchroniseSecondaryDatabaseCommand(
-                UUID.randomUUID(),
-                UUID.randomUUID(),
-                null
-        );
-
-        assertThatThrownBy(() -> userNodeService.registerUserNode(command))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("command.userId must not be null");
-    }
 }

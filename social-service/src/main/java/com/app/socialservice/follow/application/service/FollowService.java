@@ -45,9 +45,6 @@ public class FollowService {
 
     @Transactional
     public FollowResponse followUser(FollowUserCommand command) {
-        if (command == null) {
-            throw new IllegalArgumentException("command must not be null");
-        }
 
         validateCommandInput(command);
 
@@ -73,9 +70,6 @@ public class FollowService {
 
     @Transactional
     public void unfollowUser(UnfollowUserCommand command) {
-        if (command == null) {
-            throw new IllegalArgumentException("command must not be null");
-        }
 
         validateUnfollowCommandInput(command);
 

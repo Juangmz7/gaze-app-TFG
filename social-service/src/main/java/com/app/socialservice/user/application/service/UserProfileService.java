@@ -36,7 +36,6 @@ public class UserProfileService {
 
     @Transactional(readOnly = true)
     public OwnUserProfileResponse getOwnProfile(UUID userId) {
-        validateUserId(userId);
         log.info("Retrieving own profile for user {}", userId);
 
         var ownProfile = userRepository.findOwnProfileById(userId)
@@ -79,7 +78,6 @@ public class UserProfileService {
 
     @Transactional(readOnly = true)
     public UserProfileResponse getUserProfile(UUID requesterUserId, UUID targetUserId) {
-        validateUserIds(requesterUserId, targetUserId);
 
         if (requesterUserId.equals(targetUserId)) {
             throw new SelfProfileRequestNotAllowedException("A user cannot request their own public profile");
@@ -155,12 +153,6 @@ public class UserProfileService {
     }
 
     private void validateUpdateOwnProfileCommand(UpdateOwnUserProfileCommand command) {
-        if (command == null) {
-            throw new IllegalArgumentException("command must not be null");
-        }
-        if (command.userId() == null) {
-            throw new IllegalArgumentException("command.userId must not be null");
-        }
         if (command.description() != null && command.description().isBlank()) {
             throw new IllegalArgumentException("command.description must not be blank");
         }
@@ -186,18 +178,5 @@ public class UserProfileService {
         }
     }
 
-    private void validateUserIds(UUID requesterUserId, UUID targetUserId) {
-        if (requesterUserId == null) {
-            throw new IllegalArgumentException("requesterUserId must not be null");
-        }
-        if (targetUserId == null) {
-            throw new IllegalArgumentException("targetUserId must not be null");
-        }
-    }
 
-    private void validateUserId(UUID userId) {
-        if (userId == null) {
-            throw new IllegalArgumentException("userId must not be null");
-        }
-    }
 }
