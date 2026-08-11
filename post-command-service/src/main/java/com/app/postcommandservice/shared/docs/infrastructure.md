@@ -9,13 +9,13 @@ Contains cross-cutting infrastructure implementations: security, API error handl
 - **Security Configuration**: Centralized Spring Security setup for JWT validation.
 - **RabbitMQ Schema Ownership**: `RabbitMQConfig` declares exchanges, queues, dead-letter queues, bindings, JSON conversion, retry advice, and listener container settings from `RabbitMQProperties`.
 - **Idempotent Message Handling**: `AbstractRabbitMQListenerSupport` provides duplicate detection and processed-event recording through `ProcessedEventsRepository`.
-- **Multi-Store Configuration**: JPA/PostgreSQL, Neo4j, and Redis configuration are centralized here so feature modules depend on repository interfaces and Spring beans rather than connection details.
+- **Multi-Store Configuration**: JPA/PostgreSQL, and Redis configuration are centralized here so feature modules depend on repository interfaces and Spring beans rather than connection details.
 
 ## Components
-- `DatasourceConfig`, `JpaConfig`, `Neo4jConfig`, `RedisConfig`
+- `DatasourceConfig`, `JpaConfig`, `RedisConfig`
 - `SecurityConfig`, `SecurityUtils`, `CustomAuthenticationEntryPoint`, `ApiExceptionHandler`
 - `RabbitMQConfig`, `RabbitMQProperties`, `EventPublisher`
-- `AbstractRabbitMQListenerSupport`, `UserRabbitMQListener`, `FollowRabbitMQListener`, `BlockRabbitMQListener`, `PostRabbitMQListener`
+- `AbstractRabbitMQListenerSupport`
 - `OutboxEvent`, `ProcessedEvent`, `OutboxEventRepository`, `ProcessedEventsRepository`
 - `ImmediateOutboxSender`, `OutboxRetryWorker`
 - `EventMessage`, `JsonMapper`
