@@ -3,6 +3,7 @@
 spring:
   # --- PostgreSQL ---
   datasource:
+    driver-class-name: org.postgresql.Driver
     url: jdbc:postgresql://localhost:5433/post_command_service_db
     username: post_command_user
     password: post_command_pass
