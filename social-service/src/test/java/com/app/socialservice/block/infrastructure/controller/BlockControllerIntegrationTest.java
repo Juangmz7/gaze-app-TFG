@@ -454,7 +454,7 @@ class BlockControllerIntegrationTest {
                 .andExpect(jsonPath("$.errorCode").value("INVALID_JWT"))
                 .andExpect(jsonPath("$.message")
                         .value("Authentication failed: Full authentication is required to access this resource"))
-                .andExpect(jsonPath("$.path").value("/api/social/blocks/users"));
+                .andExpect(jsonPath("$.path").value("/api/social/block/users"));
     }
 
     private String blockRequest(UUID blockedId) {
