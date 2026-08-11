@@ -11,13 +11,13 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.UUID;
 
 public interface ProcessedEventsRepository extends JpaRepository<ProcessedEvent, UUID> {
-    boolean existsByIdAndTargetDatabase(UUID id);
+    boolean existsById(UUID id);
 
-    boolean existsByCorrelationIdAndTargetDatabase(UUID correlationId);
+    boolean existsByCorrelationId(UUID correlationId);
 
-    java.util.Optional<ProcessedEvent> findByIdAndTargetDatabase(UUID id);
+    java.util.Optional<ProcessedEvent> findById(UUID id);
 
-    java.util.Optional<ProcessedEvent> findByCorrelationIdAndTargetDatabase(UUID correlationId);
+    java.util.Optional<ProcessedEvent> findByCorrelationId(UUID correlationId);
 
     @Modifying
     @Transactional

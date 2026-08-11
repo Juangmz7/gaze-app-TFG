@@ -53,8 +53,8 @@ class ProcessedEventsRepositoryIntegrationTest {
 
         assertThat(firstInsert).isEqualTo(1);
         assertThat(secondInsert).isEqualTo(1);
-        assertThat(processedEventsRepository.findByIdAndTargetDatabase(eventId)).isPresent();
-        assertThat(processedEventsRepository.findByIdAndTargetDatabase(eventId)).isPresent();
+        assertThat(processedEventsRepository.findById(eventId)).isPresent();
+        assertThat(processedEventsRepository.findById(eventId)).isPresent();
     }
 
     @Test
@@ -74,9 +74,9 @@ class ProcessedEventsRepositoryIntegrationTest {
 
         assertThat(firstInsert).isEqualTo(1);
         assertThat(secondInsert).isEqualTo(1);
-        assertThat(processedEventsRepository.findByCorrelationIdAndTargetDatabase(correlationId))
+        assertThat(processedEventsRepository.findByCorrelationId(correlationId))
                 .isPresent();
-        assertThat(processedEventsRepository.findByCorrelationIdAndTargetDatabase(correlationId))
+        assertThat(processedEventsRepository.findByCorrelationId(correlationId))
                 .isPresent();
     }
 
@@ -120,7 +120,7 @@ class ProcessedEventsRepositoryIntegrationTest {
 
         assertThat(firstInsert).isEqualTo(1);
         assertThat(secondInsert).isZero();
-        assertThat(processedEventsRepository.findByCorrelationIdAndTargetDatabase(correlationId))
+        assertThat(processedEventsRepository.findByCorrelationId(correlationId))
                 .get()
                 .extracting(com.app.postcommandservice.shared.infrastructure.entity.ProcessedEvent::getId)
                 .isEqualTo(firstEventId);
