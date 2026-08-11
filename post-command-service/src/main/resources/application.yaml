@@ -1,0 +1,74 @@
+# --- RabbitMQ Bindings ---
+rabbitmq:
+  queue:
+    post: q.post-command-service.post
+    user:
+      slow: q.post-command-service.user.slow
+      fast: q.post-command-service.user.fast
+
+  exchange:
+    post:
+      commands: x.post.commands
+      events: x.post.events
+    user:
+      events: x.user.events
+
+  rk:
+    post:
+      # --- post ---
+      created: rk.post.created
+      updated: rk.post.updated
+      deleted: rk.post.deleted
+      banned: rk.post.banned
+      viewed: rk.post.viewed
+
+      # --- view ---
+      view:
+        validate: rk.post.view.validate
+
+      # --- like ---
+      like:
+        validate: rk.post.like.validate
+        created: rk.post.like.created
+        deleted: rk.post.like.deleted
+
+      # --- share ---
+      share:
+        create:
+          validate: rk.post.share.create.validate
+        delete:
+          validate: rk.post.share.delete.validate
+        created: rk.post.share.created
+        deleted: rk.post.share.deleted
+
+      # --- comment ---
+      comment:
+        created: rk.post.comment.created
+        updated: rk.post.comment.updated
+        deleted: rk.post.comment.deleted
+        banned: rk.post.comment.banned
+        like:
+          created: rk.post.comment.like.created
+          deleted: rk.post.comment.like.deleted
+
+      # --- collab ---
+      collab:
+        opened: rk.post.collab.opened
+        closed: rk.post.collab.closed
+        request:
+          created: rk.post.collab.request.created
+          accepted: rk.post.collab.request.accepted
+          rejected: rk.post.collab.request.rejected
+          deleted: rk.post.collab.request.deleted
+        member:
+          left: rk.post.collab.member.left
+          banned: rk.post.collab.member.banned
+
+    # --- user ---
+    user:
+      deleted: rk.user.deleted
+      registered: rk.user.registered
+      updated: rk.user.updated
+      block:
+        created: rk.user.block.created
+        deleted: rk.user.block.deleted

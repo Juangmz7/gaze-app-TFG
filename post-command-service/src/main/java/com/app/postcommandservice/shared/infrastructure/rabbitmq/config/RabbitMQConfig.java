@@ -33,15 +33,130 @@ public class RabbitMQConfig {
     private final RabbitMQProperties props;
 
     @Bean
-    public Declarables socialServiceSchema() {
-        return new Declarables();
+    public Declarables postCommandServiceSchema() {
+
+        var postCommandsExchangeName = props.getExchange().getPost().getCommands();
+        var postEventsExchangeName = props.getExchange().getPost().getEvents();
+        var userEventsExchangeName = props.getExchange().getUser().getEvents();
+
+        var postQueueName = props.getQueue().getPost();
+        var userFastQueueName = props.getQueue().getUser().getFast();
+        var userSlowQueueName = props.getQueue().getUser().getSlow();
+
+        var postShareCreateValidateRk = props.getRk().getPost().getShare().getCreate().getValidate();
+        var postShareDeleteValidateRk = props.getRk().getPost().getShare().getDelete().getValidate();
+        var postViewValidateRk = props.getRk().getPost().getView().getValidate();
+        var postLikeValidateRk = props.getRk().getPost().getLike().getValidate();
+
+        var userBlockCreatedRk = props.getRk().getUser().getBlock().getCreated();
+        var userRegisteredRk = props.getRk().getUser().getRegistered();
+        var userUpdatedRk = props.getRk().getUser().getUpdated();
+
+        var userBlockDeletedRk = props.getRk().getUser().getBlock().getDeleted();
+        var userDeletedRk = props.getRk().getUser().getDeleted();
+
+        var postCommandsExchange = new TopicExchange(postCommandsExchangeName);
+        var postCommandsDlx = new DirectExchange(deadLetterExchangeName(postCommandsExchangeName));
+
+        var userEventsExchange = new TopicExchange(userEventsExchangeName);
+        var userEventsDlx = new DirectExchange(deadLetterExchangeName(userEventsExchangeName));
+
+        var postEventsExchange = new TopicExchange(postEventsExchangeName);
+
+        Queue postQueue = buildQueue(postQueueName, postCommandsExchangeName);
+        Queue postDlq = buildDlq(postQueueName);
+
+        Queue userFastQueue = buildQueue(userFastQueueName, userEventsExchangeName);
+        Queue userFastDlq = buildDlq(userFastQueueName);
+
+        Queue userSlowQueue = buildQueue(userSlowQueueName, userEventsExchangeName);
+        Queue userSlowDlq = buildDlq(userSlowQueueName);
+
+        return new Declarables(
+                postCommandsExchange,
+                postCommandsDlx,
+                userEventsExchange,
+                userEventsDlx,
+                postEventsExchange,
+
+                postQueue,
+                postDlq,
+                userFastQueue,
+                userFastDlq,
+                userSlowQueue,
+                userSlowDlq,
+
+                // --- post queue: 4 routing keys, same queue ---
+                BindingBuilder
+                        .bind(postQueue)
+                        .to(postCommandsExchange)
+                        .with(postShareCreateValidateRk),
+
+                BindingBuilder
+                        .bind(postQueue)
+                        .to(postCommandsExchange)
+                        .with(postShareDeleteValidateRk),
+
+                BindingBuilder
+                        .bind(postQueue)
+                        .to(postCommandsExchange)
+                        .with(postViewValidateRk),
+
+                BindingBuilder
+                        .bind(postQueue)
+                        .to(postCommandsExchange)
+                        .with(postLikeValidateRk),
+
+                // --- user.fast queue: 3 routing keys, same queue ---
+                BindingBuilder
+                        .bind(userFastQueue)
+                        .to(userEventsExchange)
+                        .with(userBlockCreatedRk),
+
+                BindingBuilder
+                        .bind(userFastQueue)
+                        .to(userEventsExchange)
+                        .with(userRegisteredRk),
+
+                BindingBuilder
+                        .bind(userFastQueue)
+                        .to(userEventsExchange)
+                        .with(userUpdatedRk),
+
+                // --- user.slow queue: 2 routing keys, same queue ---
+                BindingBuilder
+                        .bind(userSlowQueue)
+                        .to(userEventsExchange)
+                        .with(userBlockDeletedRk),
+
+                BindingBuilder
+                        .bind(userSlowQueue)
+                        .to(userEventsExchange)
+                        .with(userDeletedRk),
+
+                // --- DLQ bindings: one per queue, keyed off the queue name (not any single rk) ---
+                BindingBuilder
+                        .bind(postDlq)
+                        .to(postCommandsDlx)
+                        .with(deadLetterRoutingKey(postQueueName)),
+
+                BindingBuilder
+                        .bind(userFastDlq)
+                        .to(userEventsDlx)
+                        .with(deadLetterRoutingKey(userFastQueueName)),
+
+                BindingBuilder
+                        .bind(userSlowDlq)
+                        .to(userEventsDlx)
+                        .with(deadLetterRoutingKey(userSlowQueueName))
+        );
     }
 
-    private Queue buildQueue(String queueName, String exchangeName, String routingKey) {
+    private Queue buildQueue(String queueName, String exchangeName) {
         return QueueBuilder
                 .durable(queueName)
                 .withArgument("x-dead-letter-exchange", deadLetterExchangeName(exchangeName))
-                .withArgument("x-dead-letter-routing-key", deadLetterRoutingKey(routingKey))
+                .withArgument("x-dead-letter-routing-key", deadLetterRoutingKey(queueName))
                 .build();
     }
 
@@ -55,8 +170,8 @@ public class RabbitMQConfig {
         return exchangeName + ".dlx";
     }
 
-    private String deadLetterRoutingKey(String routingKey) {
-        return routingKey + ".fall-back";
+    private String deadLetterRoutingKey(String key) {
+        return key + ".fall-back";
     }
 
     @Bean
