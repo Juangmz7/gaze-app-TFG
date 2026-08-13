@@ -18,6 +18,10 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 
+import com.app.postcommandservice.post.domain.exception.TaggedUserBlockedException;
+import com.app.postcommandservice.post.domain.exception.TaggedUserNotFoundException;
+import com.app.postcommandservice.shared.domain.exception.DomainException;
+
 @Slf4j
 @RestControllerAdvice
 public class ApiExceptionHandler {
@@ -40,6 +44,30 @@ public class ApiExceptionHandler {
             HttpServletRequest request) {
 
         return buildErrorResponse(HttpStatus.UNAUTHORIZED, ApiErrorCode.INVALID_JWT, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(TaggedUserNotFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handleTaggedUserNotFoundException(
+            TaggedUserNotFoundException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(HttpStatus.NOT_FOUND, ApiErrorCode.NOT_FOUND, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(TaggedUserBlockedException.class)
+    public ResponseEntity<ApiErrorResponse> handleTaggedUserBlockedException(
+            TaggedUserBlockedException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(HttpStatus.FORBIDDEN, ApiErrorCode.BLOCKED, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(DomainException.class)
+    public ResponseEntity<ApiErrorResponse> handleDomainException(
+            DomainException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, ApiErrorCode.BAD_REQUEST, exception.getMessage(), request);
     }
 
     @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
