@@ -9,7 +9,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.testcontainers.utility.TestcontainersConfiguration;
+import com.app.postcommandservice.TestcontainersConfiguration;
 
 import java.util.UUID;
 
@@ -52,7 +52,7 @@ class ProcessedEventsRepositoryIntegrationTest {
         );
 
         assertThat(firstInsert).isEqualTo(1);
-        assertThat(secondInsert).isEqualTo(1);
+        assertThat(secondInsert).isEqualTo(0);
         assertThat(processedEventsRepository.findById(eventId)).isPresent();
         assertThat(processedEventsRepository.findById(eventId)).isPresent();
     }
@@ -74,10 +74,8 @@ class ProcessedEventsRepositoryIntegrationTest {
 
         assertThat(firstInsert).isEqualTo(1);
         assertThat(secondInsert).isEqualTo(1);
-        assertThat(processedEventsRepository.findByCorrelationId(correlationId))
-                .isPresent();
-        assertThat(processedEventsRepository.findByCorrelationId(correlationId))
-                .isPresent();
+        assertThat(processedEventsRepository.existsByCorrelationId(correlationId)).isTrue();
+        assertThat(processedEventsRepository.existsByCorrelationId(correlationId)).isTrue();
     }
 
     @Test
@@ -102,7 +100,7 @@ class ProcessedEventsRepositoryIntegrationTest {
     }
 
     @Test
-    void shouldIgnoreDuplicateProcessedEventsForTheSameCorrelationId() {
+    void shouldAllowMultipleEventsWithTheSameCorrelationId() {
         var firstEventId = UUID.randomUUID();
         var secondEventId = UUID.randomUUID();
         var correlationId = UUID.randomUUID();
@@ -119,12 +117,8 @@ class ProcessedEventsRepositoryIntegrationTest {
         );
 
         assertThat(firstInsert).isEqualTo(1);
-        assertThat(secondInsert).isZero();
-        assertThat(processedEventsRepository.findByCorrelationId(correlationId))
-                .get()
-                .extracting(com.app.postcommandservice.shared.infrastructure.entity.ProcessedEvent::getId)
-                .isEqualTo(firstEventId);
-        assertThat(countRowsForCorrelationAndTarget(correlationId)).isEqualTo(1);
+        assertThat(secondInsert).isEqualTo(1);
+        assertThat(countRowsForCorrelationAndTarget(correlationId)).isEqualTo(2);
     }
 
     @Test

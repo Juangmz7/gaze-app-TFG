@@ -16,7 +16,7 @@ import java.time.Duration;
 import java.time.Instant;
 
 @TestConfiguration(proxyBeanMethods = false)
-class TestcontainersConfiguration {
+public class TestcontainersConfiguration {
 
     @Bean
     @ServiceConnection

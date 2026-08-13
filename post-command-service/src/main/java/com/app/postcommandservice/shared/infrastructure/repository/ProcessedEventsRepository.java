@@ -21,9 +21,9 @@ public interface ProcessedEventsRepository extends JpaRepository<ProcessedEvent,
 
     @Modifying
     @Transactional
-    @Query(value = "INSERT INTO processed_events (id, target_database, correlation_id, event_type, processed_at) "
+    @Query(value = "INSERT INTO processed_events (id, correlation_id, event_type, processed_at) "
             + "VALUES (:id, :correlationId, :eventType, NOW()) "
-            + "ON CONFLICT DO NOTHING",
+            + "ON CONFLICT (id) DO NOTHING",
             nativeQuery = true)
     int insertIfAbsent(@Param("id") UUID id,
                        @Param("correlationId") UUID correlationId,
