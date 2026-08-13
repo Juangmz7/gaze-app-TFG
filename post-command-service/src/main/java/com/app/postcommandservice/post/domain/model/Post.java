@@ -1,9 +1,6 @@
 package com.app.postcommandservice.post.domain.model;
 
-import com.app.postcommandservice.post.domain.model.valueobj.PostDescription;
-import com.app.postcommandservice.post.domain.model.valueobj.PostId;
-import com.app.postcommandservice.post.domain.model.valueobj.PostStatus;
-import com.app.postcommandservice.post.domain.model.valueobj.PostTaggedUsers;
+import com.app.postcommandservice.post.domain.model.valueobj.*;
 import com.app.postcommandservice.shared.domain.model.user.valueobj.UserId;
 
 import java.time.Instant;
