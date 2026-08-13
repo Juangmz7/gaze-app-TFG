@@ -1,7 +1,13 @@
 package com.app.postcommandservice.shared.infrastructure.entity;
 
 import com.app.postcommandservice.shared.infrastructure.enums.EventStatus;
-import jakarta.persistence.*;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.Id;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.Table;
 import lombok.*;
 
 import java.time.Instant;
@@ -34,4 +40,9 @@ public class OutboxEvent {
 
     @Column(nullable = false)
     private Instant createdAt;
+
+    @PrePersist
+    void onCreate() {
+        createdAt = Instant.now();
+    }
 }

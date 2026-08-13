@@ -13,22 +13,21 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.app.postcommandservice.post.application.commands.CreatePostCommand;
+import com.app.postcommandservice.post.application.commands.UpdatePostCommand;
 import com.app.postcommandservice.post.application.dto.PostResponse;
 import com.app.postcommandservice.post.application.repository.PostRepository;
-import com.app.postcommandservice.post.application.repository.PostRequestIdempotencyRepository;
 import com.app.postcommandservice.post.application.repository.TaggedUserValidationRepository;
-import com.app.postcommandservice.post.domain.events.PostCreatedDomainEvent;
+import com.app.postcommandservice.post.domain.events.PostUpdatedDomainEvent;
+import com.app.postcommandservice.post.domain.exception.PostNotFoundException;
+import com.app.postcommandservice.post.domain.exception.PostOwnershipException;
 import com.app.postcommandservice.post.domain.exception.TaggedUserBlockedException;
 import com.app.postcommandservice.post.domain.exception.TaggedUserNotFoundException;
 import com.app.postcommandservice.post.domain.model.Post;
 import com.app.postcommandservice.post.domain.model.valueobj.PostDescription;
-import com.app.postcommandservice.post.domain.model.valueobj.PostId;
 import com.app.postcommandservice.post.domain.model.valueobj.PostTaggedUsers;
 import com.app.postcommandservice.post.domain.model.valueobj.PostTags;
-import com.app.postcommandservice.post.infrastructure.events.PostCreatedEvent;
+import com.app.postcommandservice.post.infrastructure.events.PostUpdatedEvent;
 import com.app.postcommandservice.post.infrastructure.mapper.PostEventMapper;
-import com.app.postcommandservice.shared.domain.model.user.valueobj.UserId;
 import com.app.postcommandservice.shared.infrastructure.entity.OutboxEvent;
 import com.app.postcommandservice.shared.infrastructure.enums.EventStatus;
 import com.app.postcommandservice.shared.infrastructure.mapper.JsonMapper;
@@ -36,10 +35,9 @@ import com.app.postcommandservice.shared.infrastructure.repository.OutboxEventRe
 
 @Service
 @RequiredArgsConstructor
-public class CreatePostUseCase {
+public class UpdatePostUseCase {
 
     private final PostRepository postRepository;
-    private final PostRequestIdempotencyRepository postRequestIdempotencyRepository;
     private final TaggedUserValidationRepository taggedUserValidationRepository;
     private final OutboxEventRepository outboxEventRepository;
     private final PostEventMapper postEventMapper;
@@ -47,43 +45,41 @@ public class CreatePostUseCase {
     private final ApplicationEventPublisher applicationEventPublisher;
 
     @Transactional
-    public PostResponse createPost(CreatePostCommand command) {
-        postRequestIdempotencyRepository.acquireCorrelationLock(command.correlationId());
+    public PostResponse updatePost(UpdatePostCommand command) {
+        var existingPost = postRepository.findById(command.postId())
+                .orElseThrow(() -> new PostNotFoundException(command.postId()));
 
-        var existingPostId = postRequestIdempotencyRepository.findPostIdByCorrelationId(command.correlationId());
-        if (existingPostId.isPresent()) {
-            return postRepository.findById(existingPostId.get())
-                    .map(this::toResponse)
-                    .orElseThrow(() -> new IllegalStateException(
-                            "Idempotency record exists but post was not found: " + existingPostId.get()));
-        }
+        assertOwnership(existingPost, command.currentUserId());
 
-        var taggedUsers = new PostTaggedUsers(normalizeSet(command.taggedUsers()));
-        var postTags = new PostTags(normalizeSet(command.postTags()));
-        var description = new PostDescription(command.description() == null ? "" : command.description());
-
-        validateTaggedUsers(command.currentUserId(), taggedUsers.value());
-
-        var post = Post.create(
-                new PostId(UUID.randomUUID()),
-                new UserId(command.currentUserId()),
-                description,
-                taggedUsers,
-                postTags
+        var updateResult = existingPost.update(
+                new PostDescription(command.description() == null ? "" : command.description()),
+                new PostTaggedUsers(normalizeSet(command.taggedUsers())),
+                new PostTags(normalizeSet(command.postTags()))
         );
 
-        var savedPost = postRepository.save(post);
-        postRequestIdempotencyRepository.save(command.correlationId(), savedPost.getId().value());
+        if (!updateResult.changed()) {
+            return toResponse(existingPost);
+        }
+
+        validateTaggedUsers(command.currentUserId(), updateResult.newlyTaggedUsers());
+
+        var savedPost = postRepository.saveAndFlush(updateResult.post());
 
         var outboxId = UUID.randomUUID();
         var eventCorrelationId = UUID.randomUUID();
         var occurredAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
-        var event = postEventMapper.toPostCreatedEvent(outboxId, eventCorrelationId, savedPost, occurredAt);
-        saveOutboxEvent(command.correlationId(), outboxId, event);
+        var event = postEventMapper.toPostUpdatedEvent(outboxId, eventCorrelationId, savedPost, occurredAt);
+        saveOutboxEvent(outboxId, event);
 
-        applicationEventPublisher.publishEvent(new PostCreatedDomainEvent(outboxId));
+        applicationEventPublisher.publishEvent(new PostUpdatedDomainEvent(outboxId));
 
         return toResponse(savedPost);
+    }
+
+    private void assertOwnership(Post post, UUID currentUserId) {
+        if (!post.getUserId().value().equals(currentUserId)) {
+            throw new PostOwnershipException(post.getId().value(), currentUserId);
+        }
     }
 
     private void validateTaggedUsers(UUID creatorUserId, Set<String> taggedUsers) {
@@ -110,13 +106,13 @@ public class CreatePostUseCase {
         }
     }
 
-    private void saveOutboxEvent(UUID correlationId, UUID outboxId, PostCreatedEvent event) {
+    private void saveOutboxEvent(UUID outboxId, PostUpdatedEvent event) {
         outboxEventRepository.save(
                 OutboxEvent.builder()
                         .id(outboxId)
-                        .correlationId(correlationId)
+                        .correlationId(event.correlationId())
                         .payload(jsonMapper.toJson(event))
-                        .eventType(PostCreatedEvent.class.getSimpleName())
+                        .eventType(PostUpdatedEvent.class.getSimpleName())
                         .status(EventStatus.PENDING)
                         .build()
         );

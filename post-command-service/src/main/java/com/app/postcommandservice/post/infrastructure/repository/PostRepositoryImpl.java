@@ -23,6 +23,11 @@ public class PostRepositoryImpl implements PostRepository {
     }
 
     @Override
+    public Post saveAndFlush(Post post) {
+        return postMapper.toDomain(postJpaRepository.saveAndFlush(postMapper.toEntity(post)));
+    }
+
+    @Override
     public Optional<Post> findById(UUID postId) {
         return postJpaRepository.findById(postId).map(postMapper::toDomain);
     }

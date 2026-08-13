@@ -9,5 +9,7 @@ public interface PostRepository {
 
     Post save(Post post);
 
+    Post saveAndFlush(Post post);
+
     Optional<Post> findById(UUID postId);
 }

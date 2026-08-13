@@ -1,7 +1,9 @@
 package com.app.postcommandservice.post.infrastructure.controller;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.LinkedHashSet;
@@ -33,6 +35,7 @@ import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequ
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.context.WebApplicationContext;
 
 import com.app.postcommandservice.TestcontainersConfiguration;
@@ -51,8 +54,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import com.app.postcommandservice.post.domain.model.valueobj.PostStatus;
 
 @ActiveProfiles("test")
 @Import(TestcontainersConfiguration.class)
@@ -94,6 +100,9 @@ class PostControllerIT {
 
     @Autowired
     private RabbitMQProperties rabbitMQProperties;
+
+    @Autowired
+    private TransactionTemplate transactionTemplate;
 
     @BeforeEach
     void setUpMockMvc() {
@@ -181,6 +190,161 @@ class PostControllerIT {
     }
 
     @Test
+    void shouldUpdatePostAndPublishEventWhenRequestIsValid() throws Exception {
+        String queueName = "test.post.updated." + UUID.randomUUID();
+        RabbitAdmin rabbitAdmin = new RabbitAdmin(connectionFactory);
+        Queue queue = new Queue(queueName, false, true, true);
+        rabbitAdmin.declareQueue(queue);
+        rabbitAdmin.declareBinding(BindingBuilder.bind(queue)
+                .to(new org.springframework.amqp.core.TopicExchange(rabbitMQProperties.getExchange().getPost().getEvents()))
+                .with(rabbitMQProperties.getRk().getPost().getUpdated()));
+
+        seedUser(UUID.randomUUID(), "bob");
+        var existingPost = seedPost(CREATOR_ID, "before", Set.of("alice"), Set.of("java"));
+
+        var payload = objectMapper.writeValueAsString(Map.of(
+                "postId", existingPost.getId(),
+                "description", "after",
+                "taggedUsers", new LinkedHashSet<>(Set.of("alice", "bob")),
+                "postTags", Set.of("spring")
+        ));
+
+        var mvcResult = mockMvc.perform(put("/api/posts")
+                        .with(jwtFor(CREATOR_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.postId").value(existingPost.getId().toString()))
+                .andExpect(jsonPath("$.description").value("after"))
+                .andExpect(jsonPath("$.taggedUsers").isArray())
+                .andExpect(jsonPath("$.postTags[0]").value("spring"))
+                .andReturn();
+
+        var persistedUpdatedAt = transactionTemplate.execute(status -> {
+            var updatedPost = postJpaRepository.findById(existingPost.getId()).orElseThrow();
+            assertThat(updatedPost.getDescription()).isEqualTo("after");
+            assertThat(new LinkedHashSet<>(updatedPost.getTaggedUsers())).containsExactlyInAnyOrder("alice", "bob");
+            assertThat(updatedPost.getTags()).containsExactly("spring");
+            assertThat(updatedPost.getUpdatedAt()).isAfterOrEqualTo(updatedPost.getCreatedAt());
+            return updatedPost.getUpdatedAt();
+        });
+        assertThat(persistedUpdatedAt).isNotNull();
+        assertThat(outboxEventRepository.findAll()).hasSize(1);
+
+        Message message = receiveMessage(queueName);
+        assertThat(message).isNotNull();
+        var eventPayload = objectMapper.readValue(message.getBody(), new TypeReference<Map<String, Object>>() { });
+        var outboxPayload = objectMapper.readValue(
+                outboxEventRepository.findAll().getFirst().getPayload(),
+                new TypeReference<Map<String, Object>>() { }
+        );
+        var responsePayload = objectMapper.readValue(
+                mvcResult.getResponse().getContentAsString(),
+                new TypeReference<Map<String, Object>>() { }
+        );
+        assertThat(eventPayload.get("description")).isEqualTo("after");
+        assertThat(eventPayload.get("createdAt")).isEqualTo(responsePayload.get("createdAt"));
+        assertThat(eventPayload.get("updatedAt")).isEqualTo(responsePayload.get("updatedAt"));
+        assertTimestampsEquivalent(responsePayload.get("updatedAt"), persistedUpdatedAt.toString());
+        assertTimestampsEquivalent(eventPayload.get("updatedAt"), persistedUpdatedAt.toString());
+        assertTimestampsEquivalent(outboxPayload.get("updatedAt"), persistedUpdatedAt.toString());
+
+        rabbitAdmin.deleteQueue(queueName);
+    }
+
+    @Test
+    void shouldReturnExistingPostWithoutWritesOrEventsWhenUpdatePayloadMatchesCurrentState() throws Exception {
+        var existingPost = seedPost(CREATOR_ID, "same", Set.of("alice"), Set.of("java"));
+
+        var payload = objectMapper.writeValueAsString(Map.of(
+                "postId", existingPost.getId(),
+                "description", "same",
+                "taggedUsers", Set.of("alice"),
+                "postTags", Set.of("java")
+        ));
+
+        var response = mockMvc.perform(put("/api/posts")
+                        .with(jwtFor(CREATOR_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        var responseBody = objectMapper.readValue(response, new TypeReference<Map<String, Object>>() { });
+        var persistedPost = postJpaRepository.findById(existingPost.getId()).orElseThrow();
+
+        assertTimestampsEquivalent(responseBody.get("createdAt"), normalizeTimestamp(existingPost.getCreatedAt()).toString());
+        assertTimestampsEquivalent(responseBody.get("updatedAt"), normalizeTimestamp(existingPost.getUpdatedAt()).toString());
+        assertTimestampsEquivalent(persistedPost.getUpdatedAt().toString(), existingPost.getUpdatedAt().toString());
+        assertThat(outboxEventRepository.count()).isEqualTo(0);
+    }
+
+    @Test
+    void shouldReturnForbiddenWhenUpdatingPostOwnedByAnotherUser() throws Exception {
+        var existingPost = seedPost(UUID.randomUUID(), "before", Set.of(), Set.of());
+
+        var payload = objectMapper.writeValueAsString(Map.of(
+                "postId", existingPost.getId(),
+                "description", "after",
+                "taggedUsers", Set.of(),
+                "postTags", Set.of()
+        ));
+
+        mockMvc.perform(put("/api/posts")
+                        .with(jwtFor(CREATOR_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("FORBIDDEN"));
+    }
+
+    @Test
+    void shouldReturnNotFoundWhenNewlyTaggedUsernameDoesNotExistDuringUpdate() throws Exception {
+        var existingPost = seedPost(CREATOR_ID, "before", Set.of("alice"), Set.of());
+
+        var payload = objectMapper.writeValueAsString(Map.of(
+                "postId", existingPost.getId(),
+                "description", "after",
+                "taggedUsers", new LinkedHashSet<>(Set.of("alice", "missing")),
+                "postTags", Set.of("java")
+        ));
+
+        mockMvc.perform(put("/api/posts")
+                        .with(jwtFor(CREATOR_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("NOT_FOUND"));
+    }
+
+    @Test
+    void shouldReturnForbiddenWhenNewlyTaggedUserIsBlockedDuringUpdate() throws Exception {
+        UUID bobId = UUID.randomUUID();
+        seedUser(bobId, "bob");
+        blockReadModelJpaRepository.save(new BlockReadModelEntity(
+                new BlockReadModelId(CREATOR_ID, bobId),
+                Instant.now()
+        ));
+        var existingPost = seedPost(CREATOR_ID, "before", Set.of("alice"), Set.of());
+
+        var payload = objectMapper.writeValueAsString(Map.of(
+                "postId", existingPost.getId(),
+                "description", "after",
+                "taggedUsers", new LinkedHashSet<>(Set.of("alice", "bob")),
+                "postTags", Set.of("java")
+        ));
+
+        mockMvc.perform(put("/api/posts")
+                        .with(jwtFor(CREATOR_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("BLOCKED"));
+    }
+
+    @Test
     void shouldReturnSamePostBodyWhenCalledTwiceWithTheSameCorrelationId() throws Exception {
         var correlationId = UUID.randomUUID();
         var payload = objectMapper.writeValueAsString(Map.of(
@@ -211,7 +375,7 @@ class PostControllerIT {
         var firstBody = objectMapper.readValue(firstResponse, new TypeReference<Map<String, Object>>() { });
         var secondBody = objectMapper.readValue(secondResponse, new TypeReference<Map<String, Object>>() { });
 
-        assertThat(secondBody).isEqualTo(firstBody);
+        assertPostBodiesEqualIgnoringTimestampPrecision(secondBody, firstBody);
         assertThat(postJpaRepository.count()).isEqualTo(1);
         assertThat(postRequestIdempotencyJpaRepository.count()).isEqualTo(1);
         assertThat(outboxEventRepository.count()).isEqualTo(1);
@@ -241,7 +405,7 @@ class PostControllerIT {
             var firstBody = objectMapper.readValue(futures.get(0).get(), new TypeReference<Map<String, Object>>() { });
             var secondBody = objectMapper.readValue(futures.get(1).get(), new TypeReference<Map<String, Object>>() { });
 
-            assertThat(firstBody).isEqualTo(secondBody);
+            assertPostBodiesEqualIgnoringTimestampPrecision(firstBody, secondBody);
         }
 
         assertThat(postJpaRepository.count()).isEqualTo(1);
@@ -295,6 +459,21 @@ class PostControllerIT {
         userReadModelJpaRepository.save(new UserReadModelEntity(userId, username, now, now));
     }
 
+    private com.app.postcommandservice.post.infrastructure.entity.PostEntity seedPost(
+            UUID ownerId,
+            String description,
+            Set<String> taggedUsers,
+            Set<String> tags) {
+        return postJpaRepository.save(com.app.postcommandservice.post.infrastructure.entity.PostEntity.builder()
+                .id(UUID.randomUUID())
+                .userId(ownerId)
+                .description(description)
+                .taggedUsers(new ArrayList<>(taggedUsers))
+                .tags(new ArrayList<>(tags))
+                .status(PostStatus.ACTIVE)
+                .build());
+    }
+
     private Callable<String> concurrentCreatePostRequest(
             String payload,
             CountDownLatch readyLatch,
@@ -330,5 +509,32 @@ class PostControllerIT {
         } while (System.currentTimeMillis() < deadline);
 
         return null;
+    }
+
+    private void assertPostBodiesEqualIgnoringTimestampPrecision(
+            Map<String, Object> firstBody,
+            Map<String, Object> secondBody) {
+        assertThat(firstBody.get("postId")).isEqualTo(secondBody.get("postId"));
+        assertThat(firstBody.get("userId")).isEqualTo(secondBody.get("userId"));
+        assertThat(firstBody.get("description")).isEqualTo(secondBody.get("description"));
+        assertThat(firstBody.get("taggedUsers")).isEqualTo(secondBody.get("taggedUsers"));
+        assertThat(firstBody.get("postTags")).isEqualTo(secondBody.get("postTags"));
+        assertTimestampsEquivalent(firstBody.get("createdAt"), secondBody.get("createdAt"));
+        assertTimestampsEquivalent(firstBody.get("updatedAt"), secondBody.get("updatedAt"));
+    }
+
+    private Instant parseInstant(Object value) {
+        return normalizeTimestamp(Instant.parse(String.valueOf(value)));
+    }
+
+    private Instant normalizeTimestamp(Instant value) {
+        return value.truncatedTo(ChronoUnit.MICROS);
+    }
+
+    private void assertTimestampsEquivalent(Object firstValue, Object secondValue) {
+        var firstTimestamp = parseInstant(firstValue);
+        var secondTimestamp = parseInstant(secondValue);
+        assertThat(Duration.between(firstTimestamp, secondTimestamp).abs())
+                .isLessThanOrEqualTo(java.time.Duration.of(1, ChronoUnit.MICROS));
     }
 }

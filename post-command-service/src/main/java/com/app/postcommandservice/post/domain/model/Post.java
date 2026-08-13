@@ -1,7 +1,9 @@
 package com.app.postcommandservice.post.domain.model;
 
 import java.time.Instant;
+import java.util.LinkedHashSet;
 import java.util.Objects;
+import java.util.Set;
 
 import com.app.postcommandservice.post.domain.model.valueobj.PostDescription;
 import com.app.postcommandservice.post.domain.model.valueobj.PostId;
@@ -36,8 +38,8 @@ public class Post {
         this.taggedUsers = Objects.requireNonNull(taggedUsers, "taggedUsers must not be null");
         this.tags = Objects.requireNonNull(tags, "tags must not be null");
         this.status = Objects.requireNonNull(status, "status must not be null");
-        this.createdAt = Objects.requireNonNull(createdAt, "createdAt must not be null");
-        this.updatedAt = Objects.requireNonNull(updatedAt, "updatedAt must not be null");
+        this.createdAt = createdAt;
+        this.updatedAt = updatedAt;
     }
 
     public static Post create(
@@ -45,9 +47,30 @@ public class Post {
             UserId userId,
             PostDescription description,
             PostTaggedUsers taggedUsers,
-            PostTags tags,
-            Instant createdAt) {
-        return new Post(id, userId, description, taggedUsers, tags, PostStatus.ACTIVE, createdAt, createdAt);
+            PostTags tags) {
+        return new Post(id, userId, description, taggedUsers, tags, PostStatus.ACTIVE, null, null);
+    }
+
+    public PostUpdateResult update(
+            PostDescription description,
+            PostTaggedUsers taggedUsers,
+            PostTags tags) {
+        Objects.requireNonNull(description, "description must not be null");
+        Objects.requireNonNull(taggedUsers, "taggedUsers must not be null");
+        Objects.requireNonNull(tags, "tags must not be null");
+
+        if (this.description.equals(description) && this.taggedUsers.equals(taggedUsers) && this.tags.equals(tags)) {
+            return new PostUpdateResult(this, false, Set.of());
+        }
+
+        Set<String> newlyTaggedUsers = new LinkedHashSet<>(taggedUsers.value());
+        newlyTaggedUsers.removeAll(this.taggedUsers.value());
+
+        return new PostUpdateResult(
+                new Post(id, userId, description, taggedUsers, tags, status, createdAt, updatedAt),
+                true,
+                newlyTaggedUsers
+        );
     }
 
     public PostId getId() {
