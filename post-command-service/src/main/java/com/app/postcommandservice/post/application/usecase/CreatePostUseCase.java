@@ -78,7 +78,8 @@ public class CreatePostUseCase {
         postRequestIdempotencyRepository.save(command.correlationId(), savedPost.getId().value());
 
         var outboxId = UUID.randomUUID();
-        var event = postEventMapper.toPostCreatedEvent(outboxId, command.correlationId(), savedPost, now);
+        var eventCorrelationId = UUID.randomUUID();
+        var event = postEventMapper.toPostCreatedEvent(outboxId, eventCorrelationId, savedPost, now);
         saveOutboxEvent(command.correlationId(), outboxId, event);
 
         applicationEventPublisher.publishEvent(new PostCreatedDomainEvent(outboxId));
