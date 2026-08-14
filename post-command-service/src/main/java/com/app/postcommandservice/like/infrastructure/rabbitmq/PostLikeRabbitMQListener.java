@@ -93,6 +93,7 @@ public class PostLikeRabbitMQListener extends AbstractRabbitMQListenerSupport {
                 command == null ? null : command.postId(),
                 command == null ? null : command.userId()
         );
+        validateContext(command == null ? null : command.source(), command == null ? null : command.feedPosition());
     }
 
     private void validateCommand(ValidatePostUnlikeCommand command) {
@@ -103,6 +104,7 @@ public class PostLikeRabbitMQListener extends AbstractRabbitMQListenerSupport {
                 command == null ? null : command.postId(),
                 command == null ? null : command.userId()
         );
+        validateContext(command == null ? null : command.source(), command == null ? null : command.feedPosition());
     }
 
     private void validateCommand(ProcessPostViewCommand command) {
@@ -168,6 +170,15 @@ public class PostLikeRabbitMQListener extends AbstractRabbitMQListenerSupport {
                 || !StringUtils.hasText(postId.toString())
                 || !StringUtils.hasText(userId.toString())) {
             throw new IllegalArgumentException("command identifiers must not be blank");
+        }
+    }
+
+    private void validateContext(Object source, Integer feedPosition) {
+        if (source == null) {
+            throw new IllegalArgumentException("command.source must not be null");
+        }
+        if (feedPosition == null || feedPosition < 0) {
+            throw new IllegalArgumentException("command.feedPosition must be zero or greater");
         }
     }
 }

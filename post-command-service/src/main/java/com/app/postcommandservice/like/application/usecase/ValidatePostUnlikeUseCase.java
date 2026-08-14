@@ -47,6 +47,8 @@ public class ValidatePostUnlikeUseCase {
                 command.correlationId(),
                 command.postId(),
                 command.userId(),
+                command.source(),
+                command.feedPosition(),
                 Instant.now().truncatedTo(ChronoUnit.MICROS)
         );
         saveOutboxEvent(outboxId, command.correlationId(), event);

@@ -27,6 +27,7 @@ import org.springframework.web.context.WebApplicationContext;
 
 import com.app.postcommandservice.TestcontainersConfiguration;
 import com.app.postcommandservice.like.application.commands.ValidatePostUnlikeCommand;
+import com.app.postcommandservice.like.domain.model.PostLikeSource;
 import com.app.postcommandservice.like.infrastructure.entity.PostLikeEntity;
 import com.app.postcommandservice.like.infrastructure.entity.PostLikeId;
 import com.app.postcommandservice.like.infrastructure.repository.PostLikeJpaRepository;
@@ -104,7 +105,8 @@ class PostUnlikeFlowIT {
 
         mockMvc.perform(delete("/api/posts/{postId}/like", postId)
                         .with(jwtFor(LIKER_ID))
-                        .contentType(MediaType.APPLICATION_JSON))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(unlikeRequest("user_profile", 4)))
                 .andExpect(status().isAccepted());
 
         var message = receiveMessage(queueName);
@@ -112,6 +114,8 @@ class PostUnlikeFlowIT {
         var commandPayload = objectMapper.readValue(message.getBody(), new TypeReference<Map<String, Object>>() { });
         assertThat(commandPayload.get("postId")).isEqualTo(postId.toString());
         assertThat(commandPayload.get("userId")).isEqualTo(LIKER_ID.toString());
+        assertThat(commandPayload.get("source")).isEqualTo("USER_PROFILE");
+        assertThat(commandPayload.get("feedPosition")).isEqualTo(4);
 
         rabbitAdmin.deleteQueue(queueName);
     }
@@ -142,6 +146,8 @@ class PostUnlikeFlowIT {
         var eventPayload = objectMapper.readValue(eventMessage.getBody(), new TypeReference<Map<String, Object>>() { });
         assertThat(eventPayload.get("postId")).isEqualTo(post.getId().toString());
         assertThat(eventPayload.get("userId")).isEqualTo(LIKER_ID.toString());
+        assertThat(eventPayload.get("source")).isEqualTo("SEARCH");
+        assertThat(eventPayload.get("feedPosition")).isEqualTo(2);
         assertThat(eventPayload.get("occurredAt")).isNotNull();
         assertThat(eventPayload).doesNotContainKey("createdAt");
 
@@ -196,6 +202,8 @@ class PostUnlikeFlowIT {
     private void seedLike(UUID postId, UUID userId) {
         postLikeJpaRepository.save(PostLikeEntity.builder()
                 .id(new PostLikeId(postId, userId))
+                .source(PostLikeSource.HOME_FEED)
+                .feedPosition(0)
                 .createdAt(Instant.now())
                 .build());
     }
@@ -206,8 +214,21 @@ class PostUnlikeFlowIT {
                 UUID.randomUUID(),
                 Instant.now(),
                 postId,
-                userId
+                userId,
+                PostLikeSource.SEARCH,
+                2
         );
+    }
+
+    private String unlikeRequest(String source, int feedPosition) {
+        return String.format("""
+                {
+                  "context": {
+                    "source": "%s",
+                    "feedPosition": %d
+                  }
+                }
+                """, source, feedPosition);
     }
 
     private void bindQueue(RabbitAdmin rabbitAdmin, String queueName, String exchangeName, String routingKey) {

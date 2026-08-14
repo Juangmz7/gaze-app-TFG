@@ -27,6 +27,7 @@ import org.springframework.web.context.WebApplicationContext;
 
 import com.app.postcommandservice.TestcontainersConfiguration;
 import com.app.postcommandservice.like.application.commands.ValidatePostLikeCommand;
+import com.app.postcommandservice.like.domain.model.PostLikeSource;
 import com.app.postcommandservice.like.infrastructure.repository.PostLikeJpaRepository;
 import com.app.postcommandservice.post.domain.model.valueobj.PostStatus;
 import com.app.postcommandservice.post.infrastructure.entity.BlockReadModelEntity;
@@ -102,7 +103,8 @@ class PostLikeFlowIT {
 
         mockMvc.perform(post("/api/posts/{postId}/like", postId)
                         .with(jwtFor(LIKER_ID))
-                        .contentType(MediaType.APPLICATION_JSON))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(likeRequest("home_feed", 5)))
                 .andExpect(status().isAccepted());
 
         var message = receiveMessage(queueName);
@@ -110,6 +112,8 @@ class PostLikeFlowIT {
         var commandPayload = objectMapper.readValue(message.getBody(), new TypeReference<Map<String, Object>>() { });
         assertThat(commandPayload.get("postId")).isEqualTo(postId.toString());
         assertThat(commandPayload.get("userId")).isEqualTo(LIKER_ID.toString());
+        assertThat(commandPayload.get("source")).isEqualTo("HOME_FEED");
+        assertThat(commandPayload.get("feedPosition")).isEqualTo(5);
 
         rabbitAdmin.deleteQueue(queueName);
     }
@@ -139,7 +143,12 @@ class PostLikeFlowIT {
         var eventPayload = objectMapper.readValue(eventMessage.getBody(), new TypeReference<Map<String, Object>>() { });
         assertThat(eventPayload.get("postId")).isEqualTo(post.getId().toString());
         assertThat(eventPayload.get("userId")).isEqualTo(LIKER_ID.toString());
+        assertThat(eventPayload.get("source")).isEqualTo("SEARCH");
+        assertThat(eventPayload.get("feedPosition")).isEqualTo(7);
         assertThat(eventPayload.get("createdAt")).isNotNull();
+        var persistedLike = postLikeJpaRepository.findAll().getFirst();
+        assertThat(persistedLike.getSource()).isEqualTo(PostLikeSource.SEARCH);
+        assertThat(persistedLike.getFeedPosition()).isEqualTo(7);
 
         rabbitAdmin.deleteQueue(queueName);
     }
@@ -234,8 +243,21 @@ class PostLikeFlowIT {
                 UUID.randomUUID(),
                 Instant.now(),
                 postId,
-                userId
+                userId,
+                PostLikeSource.SEARCH,
+                7
         );
+    }
+
+    private String likeRequest(String source, int feedPosition) {
+        return String.format("""
+                {
+                  "context": {
+                    "source": "%s",
+                    "feedPosition": %d
+                  }
+                }
+                """, source, feedPosition);
     }
 
     private void bindQueue(RabbitAdmin rabbitAdmin, String queueName, String exchangeName, String routingKey) {

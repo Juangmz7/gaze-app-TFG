@@ -85,24 +85,38 @@ public class PostController {
     }
 
     @PostMapping("/{postId}/like")
-    public ResponseEntity<Void> likePost(@PathVariable("postId") java.util.UUID postId) {
+    public ResponseEntity<Void> likePost(
+            @PathVariable("postId") java.util.UUID postId,
+            @Valid @RequestBody PostLikeRequest request) {
         var currentUserId = securityUtils.getUserId();
         if (currentUserId == null) {
             throw new AuthenticationCredentialsNotFoundException("JWT subject claim is missing or invalid");
         }
 
-        dispatchValidatePostLikeCommandUseCase.dispatch(postId, currentUserId);
+        dispatchValidatePostLikeCommandUseCase.dispatch(
+                postId,
+                currentUserId,
+                request.context().toSource(),
+                request.context().feedPosition()
+        );
         return ResponseEntity.accepted().build();
     }
 
     @DeleteMapping("/{postId}/like")
-    public ResponseEntity<Void> unlikePost(@PathVariable("postId") java.util.UUID postId) {
+    public ResponseEntity<Void> unlikePost(
+            @PathVariable("postId") java.util.UUID postId,
+            @Valid @RequestBody PostLikeRequest request) {
         var currentUserId = securityUtils.getUserId();
         if (currentUserId == null) {
             throw new AuthenticationCredentialsNotFoundException("JWT subject claim is missing or invalid");
         }
 
-        dispatchValidatePostUnlikeCommandUseCase.dispatch(postId, currentUserId);
+        dispatchValidatePostUnlikeCommandUseCase.dispatch(
+                postId,
+                currentUserId,
+                request.context().toSource(),
+                request.context().feedPosition()
+        );
         return ResponseEntity.accepted().build();
     }
 

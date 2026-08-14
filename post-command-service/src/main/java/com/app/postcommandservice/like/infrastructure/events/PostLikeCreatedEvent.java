@@ -5,6 +5,7 @@ import java.util.UUID;
 
 import lombok.Builder;
 
+import com.app.postcommandservice.like.domain.model.PostLikeSource;
 import com.app.postcommandservice.shared.infrastructure.events.EventMessage;
 
 @Builder
@@ -14,6 +15,8 @@ public record PostLikeCreatedEvent(
         Instant occurredAt,
         UUID postId,
         UUID userId,
+        PostLikeSource source,
+        int feedPosition,
         Instant createdAt
 ) implements EventMessage {
 }

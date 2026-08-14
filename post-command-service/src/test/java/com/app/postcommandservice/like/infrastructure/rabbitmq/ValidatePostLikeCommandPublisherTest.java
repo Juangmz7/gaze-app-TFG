@@ -12,6 +12,7 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
 
 import com.app.postcommandservice.like.application.commands.ValidatePostLikeCommand;
 import com.app.postcommandservice.like.application.commands.ValidatePostUnlikeCommand;
+import com.app.postcommandservice.like.domain.model.PostLikeSource;
 import com.app.postcommandservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 
 import static org.mockito.Mockito.verify;
@@ -51,7 +52,9 @@ class ValidatePostLikeCommandPublisherTest {
                 UUID.randomUUID(),
                 Instant.now(),
                 UUID.randomUUID(),
-                UUID.randomUUID()
+                UUID.randomUUID(),
+                PostLikeSource.HOME_FEED,
+                1
         );
 
         when(rabbitMQProperties.getExchange()).thenReturn(exchanges);
@@ -77,7 +80,9 @@ class ValidatePostLikeCommandPublisherTest {
                 UUID.randomUUID(),
                 Instant.now(),
                 UUID.randomUUID(),
-                UUID.randomUUID()
+                UUID.randomUUID(),
+                PostLikeSource.SEARCH,
+                4
         );
 
         when(rabbitMQProperties.getExchange()).thenReturn(exchanges);

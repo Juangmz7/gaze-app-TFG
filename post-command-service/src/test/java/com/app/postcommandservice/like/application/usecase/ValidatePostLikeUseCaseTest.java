@@ -17,7 +17,9 @@ import com.app.postcommandservice.like.application.commands.ValidatePostLikeComm
 import com.app.postcommandservice.like.application.repository.PostLikeRepository;
 import com.app.postcommandservice.like.application.repository.PostLikeValidationRepository;
 import com.app.postcommandservice.like.domain.events.PostLikeCreatedDomainEvent;
+import com.app.postcommandservice.like.domain.model.PostLikeContext;
 import com.app.postcommandservice.like.domain.model.PostLike;
+import com.app.postcommandservice.like.domain.model.PostLikeSource;
 import com.app.postcommandservice.like.infrastructure.events.PostLikeCreatedEvent;
 import com.app.postcommandservice.like.infrastructure.mapper.PostLikeEventMapper;
 import com.app.postcommandservice.post.domain.model.valueobj.PostId;
@@ -42,6 +44,8 @@ class ValidatePostLikeUseCaseTest {
     private static final UUID POST_ID = UUID.randomUUID();
     private static final UUID USER_ID = UUID.randomUUID();
     private static final UUID OWNER_ID = UUID.randomUUID();
+    private static final PostLikeSource SOURCE = PostLikeSource.HOME_FEED;
+    private static final int FEED_POSITION = 3;
 
     @Mock
     private PostLikeRepository postLikeRepository;
@@ -70,13 +74,20 @@ class ValidatePostLikeUseCaseTest {
     @Test
     void shouldPersistLikeAndPublishPostLikeCreatedEventWhenCommandIsValid() {
         var command = command();
-        var savedLike = new PostLike(new PostId(POST_ID), new UserId(USER_ID), Instant.now());
+        var savedLike = new PostLike(
+                new PostId(POST_ID),
+                new UserId(USER_ID),
+                new PostLikeContext(SOURCE, FEED_POSITION),
+                Instant.now()
+        );
         var event = PostLikeCreatedEvent.builder()
                 .id(UUID.randomUUID())
                 .correlationId(CORRELATION_ID)
                 .occurredAt(Instant.now())
                 .postId(POST_ID)
                 .userId(USER_ID)
+                .source(SOURCE)
+                .feedPosition(FEED_POSITION)
                 .createdAt(savedLike.getCreatedAt())
                 .build();
 
@@ -138,6 +149,14 @@ class ValidatePostLikeUseCaseTest {
     }
 
     private ValidatePostLikeCommand command() {
-        return new ValidatePostLikeCommand(COMMAND_ID, CORRELATION_ID, Instant.now(), POST_ID, USER_ID);
+        return new ValidatePostLikeCommand(
+                COMMAND_ID,
+                CORRELATION_ID,
+                Instant.now(),
+                POST_ID,
+                USER_ID,
+                SOURCE,
+                FEED_POSITION
+        );
     }
 }

@@ -15,6 +15,7 @@ import com.app.postcommandservice.like.application.repository.PostLikeRepository
 import com.app.postcommandservice.like.application.repository.PostLikeValidationRepository;
 import com.app.postcommandservice.like.domain.events.PostLikeCreatedDomainEvent;
 import com.app.postcommandservice.like.domain.model.PostLike;
+import com.app.postcommandservice.like.domain.model.PostLikeContext;
 import com.app.postcommandservice.like.infrastructure.events.PostLikeCreatedEvent;
 import com.app.postcommandservice.like.infrastructure.mapper.PostLikeEventMapper;
 import com.app.postcommandservice.post.domain.model.valueobj.PostId;
@@ -60,7 +61,8 @@ public class ValidatePostLikeUseCase {
 
         var savedLike = postLikeRepository.save(PostLike.create(
                 new PostId(command.postId()),
-                new UserId(command.userId())
+                new UserId(command.userId()),
+                new PostLikeContext(command.source(), command.feedPosition())
         ));
 
         var outboxId = UUID.randomUUID();

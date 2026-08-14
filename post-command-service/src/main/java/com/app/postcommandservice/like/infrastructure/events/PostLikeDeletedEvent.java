@@ -5,6 +5,7 @@ import java.util.UUID;
 
 import lombok.Builder;
 
+import com.app.postcommandservice.like.domain.model.PostLikeSource;
 import com.app.postcommandservice.shared.infrastructure.events.EventMessage;
 
 @Builder
@@ -13,6 +14,8 @@ public record PostLikeDeletedEvent(
         UUID correlationId,
         Instant occurredAt,
         UUID postId,
-        UUID userId
+        UUID userId,
+        PostLikeSource source,
+        int feedPosition
 ) implements EventMessage {
 }
