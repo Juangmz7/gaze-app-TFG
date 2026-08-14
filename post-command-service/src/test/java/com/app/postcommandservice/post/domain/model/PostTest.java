@@ -15,6 +15,7 @@ import com.app.postcommandservice.post.domain.model.valueobj.PostTags;
 import com.app.postcommandservice.shared.domain.model.user.valueobj.UserId;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class PostTest {
 
@@ -48,6 +49,36 @@ class PostTest {
         assertThat(result.post().getDescription().value()).isEqualTo("updated");
         assertThat(result.post().getTaggedUsers().value()).containsExactlyInAnyOrder("alice", "bob");
         assertThat(result.newlyTaggedUsers()).containsExactly("bob");
+    }
+
+    @Test
+    void shouldReturnDeletedCopyWhenDeletingAnActivePost() {
+        var post = existingPost("description", Set.of("alice"), Set.of("java"));
+
+        var deletedPost = post.delete();
+
+        assertThat(deletedPost).isNotSameAs(post);
+        assertThat(deletedPost.getStatus()).isEqualTo(PostStatus.DELETED);
+        assertThat(deletedPost.getId()).isEqualTo(post.getId());
+    }
+
+    @Test
+    void shouldThrowWhenDeletingANonActivePost() {
+        var now = Instant.now();
+        var post = new Post(
+                new PostId(UUID.randomUUID()),
+                new UserId(UUID.randomUUID()),
+                new PostDescription("description"),
+                new PostTaggedUsers(new LinkedHashSet<>(Set.of("alice"))),
+                new PostTags(new LinkedHashSet<>(Set.of("java"))),
+                PostStatus.DELETED,
+                now,
+                now
+        );
+
+        assertThatThrownBy(post::delete)
+                .isInstanceOf(com.app.postcommandservice.post.domain.exception.PostNotActiveException.class)
+                .hasMessageContaining("ACTIVE");
     }
 
     private Post existingPost(String description, Set<String> taggedUsers, Set<String> tags) {

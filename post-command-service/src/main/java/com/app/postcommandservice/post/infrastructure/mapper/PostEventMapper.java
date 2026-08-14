@@ -7,6 +7,7 @@ import org.springframework.stereotype.Component;
 
 import com.app.postcommandservice.post.domain.model.Post;
 import com.app.postcommandservice.post.infrastructure.events.PostCreatedEvent;
+import com.app.postcommandservice.post.infrastructure.events.PostDeletedEvent;
 import com.app.postcommandservice.post.infrastructure.events.PostUpdatedEvent;
 
 @Component
@@ -39,6 +40,13 @@ public class PostEventMapper {
                 .postTags(post.getTags().value())
                 .createdAt(post.getCreatedAt())
                 .updatedAt(post.getUpdatedAt())
+                .build();
+    }
+
+    public PostDeletedEvent toPostDeletedEvent(UUID postId, Instant occurredAt) {
+        return PostDeletedEvent.builder()
+                .postId(postId)
+                .occurredAt(occurredAt)
                 .build();
     }
 }
