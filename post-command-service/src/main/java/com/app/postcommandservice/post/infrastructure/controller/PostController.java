@@ -22,6 +22,7 @@ import com.app.postcommandservice.post.application.usecase.CreatePostUseCase;
 import com.app.postcommandservice.post.application.usecase.DeletePostUseCase;
 import com.app.postcommandservice.post.application.usecase.UpdatePostUseCase;
 import com.app.postcommandservice.shared.infrastructure.security.SecurityUtils;
+import com.app.postcommandservice.view.application.usecase.DispatchProcessPostViewCommandUseCase;
 
 @RestController
 @RequestMapping("/api/posts")
@@ -33,6 +34,7 @@ public class PostController {
     private final DeletePostUseCase deletePostUseCase;
     private final DispatchValidatePostLikeCommandUseCase dispatchValidatePostLikeCommandUseCase;
     private final DispatchValidatePostUnlikeCommandUseCase dispatchValidatePostUnlikeCommandUseCase;
+    private final DispatchProcessPostViewCommandUseCase dispatchProcessPostViewCommandUseCase;
     private final SecurityUtils securityUtils;
 
     @PostMapping
@@ -101,6 +103,32 @@ public class PostController {
         }
 
         dispatchValidatePostUnlikeCommandUseCase.dispatch(postId, currentUserId);
+        return ResponseEntity.accepted().build();
+    }
+
+    @PostMapping("/{postId}/views")
+    public ResponseEntity<Void> reportPostView(
+            @PathVariable("postId") java.util.UUID postId,
+            @Valid @RequestBody ReportPostViewRequest request) {
+        var currentUserId = securityUtils.getUserId();
+        if (currentUserId == null) {
+            throw new AuthenticationCredentialsNotFoundException("JWT subject claim is missing or invalid");
+        }
+        if (!postId.equals(request.postId())) {
+            throw new IllegalArgumentException("Request postId must match the path postId");
+        }
+
+        dispatchProcessPostViewCommandUseCase.dispatch(
+                request.viewId(),
+                request.postId(),
+                currentUserId,
+                request.context().toSource(),
+                request.context().feedPosition(),
+                request.playbackMetrics().durationMs(),
+                request.playbackMetrics().timeWatchedMs(),
+                request.playbackMetrics().completionPercent(),
+                request.playbackMetrics().toExitReason()
+        );
         return ResponseEntity.accepted().build();
     }
 }

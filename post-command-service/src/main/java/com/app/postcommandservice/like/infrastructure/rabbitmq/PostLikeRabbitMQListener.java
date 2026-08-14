@@ -17,6 +17,8 @@ import com.app.postcommandservice.like.application.usecase.ValidatePostUnlikeUse
 import com.app.postcommandservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 import com.app.postcommandservice.shared.infrastructure.rabbitmq.listener.AbstractRabbitMQListenerSupport;
 import com.app.postcommandservice.shared.infrastructure.repository.ProcessedEventsRepository;
+import com.app.postcommandservice.view.application.commands.ProcessPostViewCommand;
+import com.app.postcommandservice.view.application.usecase.ProcessPostViewUseCase;
 
 @Slf4j
 @Component
@@ -25,15 +27,18 @@ public class PostLikeRabbitMQListener extends AbstractRabbitMQListenerSupport {
 
     private final ValidatePostLikeUseCase validatePostLikeUseCase;
     private final ValidatePostUnlikeUseCase validatePostUnlikeUseCase;
+    private final ProcessPostViewUseCase processPostViewUseCase;
 
     public PostLikeRabbitMQListener(
             ValidatePostLikeUseCase validatePostLikeUseCase,
             ValidatePostUnlikeUseCase validatePostUnlikeUseCase,
+            ProcessPostViewUseCase processPostViewUseCase,
             ProcessedEventsRepository processedEventsRepository,
             RabbitMQProperties rabbitMQProperties) {
         super(processedEventsRepository, rabbitMQProperties);
         this.validatePostLikeUseCase = validatePostLikeUseCase;
         this.validatePostUnlikeUseCase = validatePostUnlikeUseCase;
+        this.processPostViewUseCase = processPostViewUseCase;
     }
 
     @Transactional
@@ -62,6 +67,19 @@ public class PostLikeRabbitMQListener extends AbstractRabbitMQListenerSupport {
         setEventAsProcessed(command.id(), command.correlationId(), ValidatePostUnlikeCommand.class.getSimpleName());
     }
 
+    @Transactional
+    @RabbitHandler
+    public void onProcessPostView(ProcessPostViewCommand command) {
+        validateCommand(command);
+        if (isEventAlreadyProcessed(command.id(), command.correlationId())) {
+            log.warn("Detected duplicate process post view command {}, skipping", command.id());
+            return;
+        }
+
+        processPostViewUseCase.process(command);
+        setEventAsProcessed(command.id(), command.correlationId(), ProcessPostViewCommand.class.getSimpleName());
+    }
+
     @RabbitHandler(isDefault = true)
     public void onUnsupportedPostCommand(Object ignored) {
         throw rejectToDlq(new IllegalArgumentException("Unsupported post command payload"));
@@ -85,6 +103,40 @@ public class PostLikeRabbitMQListener extends AbstractRabbitMQListenerSupport {
                 command == null ? null : command.postId(),
                 command == null ? null : command.userId()
         );
+    }
+
+    private void validateCommand(ProcessPostViewCommand command) {
+        validateCommand(
+                command == null ? null : command.id(),
+                command == null ? null : command.correlationId(),
+                command == null ? null : command.occurredAt(),
+                command == null ? null : command.postId(),
+                command == null ? null : command.userId()
+        );
+        if (command == null) {
+            return;
+        }
+        if (command.viewId() == null) {
+            throw new IllegalArgumentException("command.viewId must not be null");
+        }
+        if (command.source() == null) {
+            throw new IllegalArgumentException("command.source must not be null");
+        }
+        if (command.exitReason() == null) {
+            throw new IllegalArgumentException("command.exitReason must not be null");
+        }
+        if (command.feedPosition() < 0) {
+            throw new IllegalArgumentException("command.feedPosition must be zero or greater");
+        }
+        if (command.durationMs() <= 0) {
+            throw new IllegalArgumentException("command.durationMs must be greater than zero");
+        }
+        if (command.timeWatchedMs() < 0 || command.timeWatchedMs() > command.durationMs()) {
+            throw new IllegalArgumentException("command.timeWatchedMs must be between 0 and durationMs");
+        }
+        if (command.completionPercent() < 0 || command.completionPercent() > 100) {
+            throw new IllegalArgumentException("command.completionPercent must be between 0 and 100");
+        }
     }
 
     private void validateCommand(

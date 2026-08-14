@@ -72,7 +72,7 @@ public class RabbitMQProperties {
 
             @Data
             public static class ViewRk {
-                private String validate;              // incoming: rk.post.view.validate
+                private String process;               // incoming: rk.post.view.process
             }
 
             @Data
