@@ -9,6 +9,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 
+import com.app.postcommandservice.comment.application.dto.CommentResponse;
+import com.app.postcommandservice.comment.application.usecase.CreateCommentUseCase;
 import com.app.postcommandservice.like.application.usecase.DispatchValidatePostLikeCommandUseCase;
 import com.app.postcommandservice.like.application.usecase.DispatchValidatePostUnlikeCommandUseCase;
 import com.app.postcommandservice.post.application.usecase.CreatePostUseCase;
@@ -31,6 +33,9 @@ class PostLikeControllerIT {
 
     @Mock
     private DeletePostUseCase deletePostUseCase;
+
+    @Mock
+    private CreateCommentUseCase createCommentUseCase;
 
     @Mock
     private DispatchValidatePostLikeCommandUseCase dispatchValidatePostLikeCommandUseCase;
@@ -66,5 +71,24 @@ class PostLikeControllerIT {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
         verify(dispatchValidatePostUnlikeCommandUseCase).dispatch(postId, userId);
+    }
+
+    @Test
+    void shouldCreateCommentAndReturnOk() {
+        var postId = UUID.randomUUID();
+        var userId = UUID.randomUUID();
+        var responseBody = new CommentResponse(UUID.randomUUID(), postId, userId, "hello", null, null, null);
+        when(securityUtils.getUserId()).thenReturn(userId);
+        when(createCommentUseCase.createComment(new com.app.postcommandservice.comment.application.commands.CreateCommentCommand(
+                postId,
+                userId,
+                "hello",
+                null
+        ))).thenReturn(responseBody);
+
+        var response = postController.createComment(postId, new CreateCommentRequest("hello", null));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isEqualTo(responseBody);
     }
 }
