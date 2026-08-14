@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.app.postcommandservice.like.application.usecase.DispatchValidatePostLikeCommandUseCase;
+import com.app.postcommandservice.like.application.usecase.DispatchValidatePostUnlikeCommandUseCase;
 import com.app.postcommandservice.post.application.commands.CreatePostCommand;
 import com.app.postcommandservice.post.application.commands.DeletePostCommand;
 import com.app.postcommandservice.post.application.commands.UpdatePostCommand;
@@ -31,6 +32,7 @@ public class PostController {
     private final UpdatePostUseCase updatePostUseCase;
     private final DeletePostUseCase deletePostUseCase;
     private final DispatchValidatePostLikeCommandUseCase dispatchValidatePostLikeCommandUseCase;
+    private final DispatchValidatePostUnlikeCommandUseCase dispatchValidatePostUnlikeCommandUseCase;
     private final SecurityUtils securityUtils;
 
     @PostMapping
@@ -88,6 +90,17 @@ public class PostController {
         }
 
         dispatchValidatePostLikeCommandUseCase.dispatch(postId, currentUserId);
+        return ResponseEntity.accepted().build();
+    }
+
+    @DeleteMapping("/{postId}/like")
+    public ResponseEntity<Void> unlikePost(@PathVariable("postId") java.util.UUID postId) {
+        var currentUserId = securityUtils.getUserId();
+        if (currentUserId == null) {
+            throw new AuthenticationCredentialsNotFoundException("JWT subject claim is missing or invalid");
+        }
+
+        dispatchValidatePostUnlikeCommandUseCase.dispatch(postId, currentUserId);
         return ResponseEntity.accepted().build();
     }
 }

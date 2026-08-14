@@ -65,6 +65,7 @@ public class RabbitMQProperties {
 
             private ViewRk view = new ViewRk();
             private LikeRk like = new LikeRk();
+            private UnlikeRk unlike = new UnlikeRk();
             private ShareRk share = new ShareRk();
             private CommentRk comment = new CommentRk();
             private CollabRk collab = new CollabRk();
@@ -79,6 +80,11 @@ public class RabbitMQProperties {
                 private String validate;               // incoming: rk.post.like.validate
                 private String created;                // outgoing: rk.post.like.created
                 private String deleted;                // outgoing: rk.post.like.deleted
+            }
+
+            @Data
+            public static class UnlikeRk {
+                private String validate;               // incoming: rk.post.unlike.validate
             }
 
             @Data

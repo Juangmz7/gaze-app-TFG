@@ -26,4 +26,9 @@ public class PostLikeRepositoryImpl implements PostLikeRepository {
     public PostLike save(PostLike postLike) {
         return postLikeMapper.toDomain(postLikeJpaRepository.save(postLikeMapper.toEntity(postLike)));
     }
+
+    @Override
+    public void deleteByPostIdAndUserId(UUID postId, UUID userId) {
+        postLikeJpaRepository.deleteById(new PostLikeId(postId, userId));
+    }
 }

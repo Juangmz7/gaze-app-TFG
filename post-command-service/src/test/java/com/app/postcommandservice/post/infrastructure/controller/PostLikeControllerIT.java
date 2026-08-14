@@ -10,6 +10,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 
 import com.app.postcommandservice.like.application.usecase.DispatchValidatePostLikeCommandUseCase;
+import com.app.postcommandservice.like.application.usecase.DispatchValidatePostUnlikeCommandUseCase;
 import com.app.postcommandservice.post.application.usecase.CreatePostUseCase;
 import com.app.postcommandservice.post.application.usecase.DeletePostUseCase;
 import com.app.postcommandservice.post.application.usecase.UpdatePostUseCase;
@@ -35,6 +36,9 @@ class PostLikeControllerIT {
     private DispatchValidatePostLikeCommandUseCase dispatchValidatePostLikeCommandUseCase;
 
     @Mock
+    private DispatchValidatePostUnlikeCommandUseCase dispatchValidatePostUnlikeCommandUseCase;
+
+    @Mock
     private SecurityUtils securityUtils;
 
     @InjectMocks
@@ -50,5 +54,17 @@ class PostLikeControllerIT {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
         verify(dispatchValidatePostLikeCommandUseCase).dispatch(postId, userId);
+    }
+
+    @Test
+    void shouldDispatchValidatePostUnlikeCommandAndReturnAccepted() {
+        var postId = UUID.randomUUID();
+        var userId = UUID.randomUUID();
+        when(securityUtils.getUserId()).thenReturn(userId);
+
+        var response = postController.unlikePost(postId);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+        verify(dispatchValidatePostUnlikeCommandUseCase).dispatch(postId, userId);
     }
 }

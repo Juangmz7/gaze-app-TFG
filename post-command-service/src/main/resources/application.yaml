@@ -31,6 +31,8 @@ rabbitmq:
         validate: rk.post.like.validate
         created: rk.post.like.created
         deleted: rk.post.like.deleted
+      unlike:
+        validate: rk.post.unlike.validate
 
       # --- share ---
       share:

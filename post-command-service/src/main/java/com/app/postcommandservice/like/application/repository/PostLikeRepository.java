@@ -9,4 +9,6 @@ public interface PostLikeRepository {
     boolean existsByPostIdAndUserId(UUID postId, UUID userId);
 
     PostLike save(PostLike postLike);
+
+    void deleteByPostIdAndUserId(UUID postId, UUID userId);
 }

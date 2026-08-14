@@ -5,6 +5,7 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Component;
 
 import com.app.postcommandservice.like.application.commands.ValidatePostLikeCommand;
+import com.app.postcommandservice.like.application.commands.ValidatePostUnlikeCommand;
 import com.app.postcommandservice.like.application.repository.PostLikeCommandPublisher;
 import com.app.postcommandservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 
@@ -20,6 +21,15 @@ public class ValidatePostLikeCommandPublisher implements PostLikeCommandPublishe
         rabbitTemplate.convertAndSend(
                 rabbitMQProperties.getExchange().getPost().getCommands(),
                 rabbitMQProperties.getRk().getPost().getLike().getValidate(),
+                command
+        );
+    }
+
+    @Override
+    public void publish(ValidatePostUnlikeCommand command) {
+        rabbitTemplate.convertAndSend(
+                rabbitMQProperties.getExchange().getPost().getCommands(),
+                rabbitMQProperties.getRk().getPost().getUnlike().getValidate(),
                 command
         );
     }
