@@ -51,8 +51,10 @@ import com.app.postcommandservice.shared.infrastructure.repository.OutboxEventRe
 import com.app.postcommandservice.shared.infrastructure.repository.ProcessedEventsRepository;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.entry;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -342,6 +344,78 @@ class PostControllerIT {
                         .content(payload))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.errorCode").value("BLOCKED"));
+    }
+
+    @Test
+    void shouldDeletePostAndPublishMinimalEventWhenOwnerDeletesAnActivePost() throws Exception {
+        String queueName = "test.post.deleted." + UUID.randomUUID();
+        RabbitAdmin rabbitAdmin = new RabbitAdmin(connectionFactory);
+        Queue queue = new Queue(queueName, false, true, true);
+        rabbitAdmin.declareQueue(queue);
+        rabbitAdmin.declareBinding(BindingBuilder.bind(queue)
+                .to(new org.springframework.amqp.core.TopicExchange(rabbitMQProperties.getExchange().getPost().getEvents()))
+                .with(rabbitMQProperties.getRk().getPost().getDeleted()));
+        var existingPost = seedPost(CREATOR_ID, "before", Set.of("alice"), Set.of("java"));
+
+        mockMvc.perform(delete("/api/posts/{postId}", existingPost.getId())
+                        .with(jwtFor(CREATOR_ID)))
+                .andExpect(status().isNoContent());
+
+        var deletedPost = postJpaRepository.findById(existingPost.getId()).orElseThrow();
+        assertThat(deletedPost.getStatus()).isEqualTo(PostStatus.DELETED);
+        assertThat(outboxEventRepository.findAll()).hasSize(1);
+
+        Message message = receiveMessage(queueName);
+        assertThat(message).isNotNull();
+        var eventPayload = objectMapper.readValue(message.getBody(), new TypeReference<Map<String, Object>>() { });
+        assertThat(eventPayload).hasSize(2);
+        assertThat(eventPayload).contains(entry("postId", existingPost.getId().toString()));
+        assertThat(eventPayload.get("occurredAt")).isNotNull();
+
+        var outboxPayload = objectMapper.readValue(
+                outboxEventRepository.findAll().getFirst().getPayload(),
+                new TypeReference<Map<String, Object>>() { }
+        );
+        assertThat(outboxPayload).hasSize(2);
+        assertThat(outboxPayload).contains(entry("postId", existingPost.getId().toString()));
+        assertThat(outboxPayload.get("occurredAt")).isNotNull();
+
+        rabbitAdmin.deleteQueue(queueName);
+    }
+
+    @Test
+    void shouldReturnForbiddenWhenDeletingPostOwnedByAnotherUser() throws Exception {
+        var existingPost = seedPost(UUID.randomUUID(), "before", Set.of(), Set.of());
+
+        mockMvc.perform(delete("/api/posts/{postId}", existingPost.getId())
+                        .with(jwtFor(CREATOR_ID)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("FORBIDDEN"));
+    }
+
+    @Test
+    void shouldReturnNotFoundWhenDeletingPostThatDoesNotExist() throws Exception {
+        mockMvc.perform(delete("/api/posts/{postId}", UUID.randomUUID())
+                        .with(jwtFor(CREATOR_ID)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("NOT_FOUND"));
+    }
+
+    @Test
+    void shouldReturnBadRequestWhenDeletingPostThatIsAlreadyDeleted() throws Exception {
+        var existingPost = postJpaRepository.save(com.app.postcommandservice.post.infrastructure.entity.PostEntity.builder()
+                .id(UUID.randomUUID())
+                .userId(CREATOR_ID)
+                .description("before")
+                .taggedUsers(new ArrayList<>())
+                .tags(new ArrayList<>())
+                .status(PostStatus.DELETED)
+                .build());
+
+        mockMvc.perform(delete("/api/posts/{postId}", existingPost.getId())
+                        .with(jwtFor(CREATOR_ID)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("BAD_REQUEST"));
     }
 
     @Test

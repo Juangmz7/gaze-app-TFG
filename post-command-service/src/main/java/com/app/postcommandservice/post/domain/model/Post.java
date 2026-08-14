@@ -5,6 +5,7 @@ import java.util.LinkedHashSet;
 import java.util.Objects;
 import java.util.Set;
 
+import com.app.postcommandservice.post.domain.exception.PostNotActiveException;
 import com.app.postcommandservice.post.domain.model.valueobj.PostDescription;
 import com.app.postcommandservice.post.domain.model.valueobj.PostId;
 import com.app.postcommandservice.post.domain.model.valueobj.PostStatus;
@@ -71,6 +72,14 @@ public class Post {
                 true,
                 newlyTaggedUsers
         );
+    }
+
+    public Post delete() {
+        if (status != PostStatus.ACTIVE) {
+            throw new PostNotActiveException(id.value(), status);
+        }
+
+        return new Post(id, userId, description, taggedUsers, tags, PostStatus.DELETED, createdAt, updatedAt);
     }
 
     public PostId getId() {
