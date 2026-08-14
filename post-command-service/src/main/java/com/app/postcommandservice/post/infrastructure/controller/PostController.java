@@ -4,14 +4,17 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.app.postcommandservice.post.application.commands.CreatePostCommand;
+import com.app.postcommandservice.post.application.commands.UpdatePostCommand;
 import com.app.postcommandservice.post.application.dto.PostResponse;
 import com.app.postcommandservice.post.application.usecase.CreatePostUseCase;
+import com.app.postcommandservice.post.application.usecase.UpdatePostUseCase;
 import com.app.postcommandservice.shared.infrastructure.security.SecurityUtils;
 
 @RestController
@@ -20,6 +23,7 @@ import com.app.postcommandservice.shared.infrastructure.security.SecurityUtils;
 public class PostController {
 
     private final CreatePostUseCase createPostUseCase;
+    private final UpdatePostUseCase updatePostUseCase;
     private final SecurityUtils securityUtils;
 
     @PostMapping
@@ -38,5 +42,23 @@ public class PostController {
         );
 
         return ResponseEntity.ok(createPostUseCase.createPost(command));
+    }
+
+    @PutMapping
+    public ResponseEntity<PostResponse> updatePost(@Valid @RequestBody UpdatePostRequest request) {
+        var currentUserId = securityUtils.getUserId();
+        if (currentUserId == null) {
+            throw new AuthenticationCredentialsNotFoundException("JWT subject claim is missing or invalid");
+        }
+
+        var command = new UpdatePostCommand(
+                request.postId(),
+                currentUserId,
+                request.description(),
+                request.taggedUsers(),
+                request.postTags()
+        );
+
+        return ResponseEntity.ok(updatePostUseCase.updatePost(command));
     }
 }

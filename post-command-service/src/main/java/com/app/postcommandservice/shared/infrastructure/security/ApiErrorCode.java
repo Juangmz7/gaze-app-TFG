@@ -2,6 +2,7 @@ package com.app.postcommandservice.shared.infrastructure.security;
 
 public enum ApiErrorCode {
     NOT_FOUND,
+    FORBIDDEN,
     BAD_REQUEST,
     BLOCKED,
     USER_BANNED,

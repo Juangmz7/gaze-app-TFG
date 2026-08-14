@@ -1,6 +1,5 @@
 package com.app.postcommandservice.post.infrastructure.repository;
 
-import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -34,6 +33,6 @@ public class PostRequestIdempotencyRepositoryImpl implements PostRequestIdempote
 
     @Override
     public void save(UUID correlationId, UUID postId) {
-        postRequestIdempotencyJpaRepository.save(new PostRequestIdempotencyEntity(correlationId, postId, Instant.now()));
+        postRequestIdempotencyJpaRepository.save(new PostRequestIdempotencyEntity(correlationId, postId, null));
     }
 }

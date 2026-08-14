@@ -20,6 +20,8 @@ import org.springframework.web.method.annotation.HandlerMethodValidationExceptio
 
 import com.app.postcommandservice.post.domain.exception.TaggedUserBlockedException;
 import com.app.postcommandservice.post.domain.exception.TaggedUserNotFoundException;
+import com.app.postcommandservice.post.domain.exception.PostNotFoundException;
+import com.app.postcommandservice.post.domain.exception.PostOwnershipException;
 import com.app.postcommandservice.shared.domain.exception.DomainException;
 
 @Slf4j
@@ -54,12 +56,28 @@ public class ApiExceptionHandler {
         return buildErrorResponse(HttpStatus.NOT_FOUND, ApiErrorCode.NOT_FOUND, exception.getMessage(), request);
     }
 
+    @ExceptionHandler(PostNotFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handlePostNotFoundException(
+            PostNotFoundException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(HttpStatus.NOT_FOUND, ApiErrorCode.NOT_FOUND, exception.getMessage(), request);
+    }
+
     @ExceptionHandler(TaggedUserBlockedException.class)
     public ResponseEntity<ApiErrorResponse> handleTaggedUserBlockedException(
             TaggedUserBlockedException exception,
             HttpServletRequest request) {
 
         return buildErrorResponse(HttpStatus.FORBIDDEN, ApiErrorCode.BLOCKED, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(PostOwnershipException.class)
+    public ResponseEntity<ApiErrorResponse> handlePostOwnershipException(
+            PostOwnershipException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(HttpStatus.FORBIDDEN, ApiErrorCode.FORBIDDEN, exception.getMessage(), request);
     }
 
     @ExceptionHandler(DomainException.class)
