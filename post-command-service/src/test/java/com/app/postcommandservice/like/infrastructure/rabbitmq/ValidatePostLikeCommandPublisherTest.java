@@ -11,6 +11,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 
 import com.app.postcommandservice.like.application.commands.ValidatePostLikeCommand;
+import com.app.postcommandservice.like.application.commands.ValidatePostUnlikeCommand;
 import com.app.postcommandservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 
 import static org.mockito.Mockito.verify;
@@ -64,5 +65,31 @@ class ValidatePostLikeCommandPublisherTest {
         publisher.publish(command);
 
         verify(rabbitTemplate).convertAndSend("x.post.commands", "rk.post.like.validate", command);
+    }
+
+    @Mock
+    private RabbitMQProperties.RoutingKeys.PostRk.UnlikeRk unlikeRk;
+
+    @Test
+    void shouldPublishValidatePostUnlikeCommandUsingConfiguredExchangeAndRoutingKey() {
+        var command = new ValidatePostUnlikeCommand(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                Instant.now(),
+                UUID.randomUUID(),
+                UUID.randomUUID()
+        );
+
+        when(rabbitMQProperties.getExchange()).thenReturn(exchanges);
+        when(exchanges.getPost()).thenReturn(postExchange);
+        when(postExchange.getCommands()).thenReturn("x.post.commands");
+        when(rabbitMQProperties.getRk()).thenReturn(routingKeys);
+        when(routingKeys.getPost()).thenReturn(postRk);
+        when(postRk.getUnlike()).thenReturn(unlikeRk);
+        when(unlikeRk.getValidate()).thenReturn("rk.post.unlike.validate");
+
+        publisher.publish(command);
+
+        verify(rabbitTemplate).convertAndSend("x.post.commands", "rk.post.unlike.validate", command);
     }
 }
