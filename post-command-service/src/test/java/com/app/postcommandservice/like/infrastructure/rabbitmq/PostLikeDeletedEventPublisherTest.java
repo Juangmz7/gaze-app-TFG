@@ -11,6 +11,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 
+import com.app.postcommandservice.like.domain.model.PostLikeSource;
 import com.app.postcommandservice.like.infrastructure.events.PostLikeDeletedEvent;
 import com.app.postcommandservice.shared.infrastructure.entity.OutboxEvent;
 import com.app.postcommandservice.shared.infrastructure.enums.EventStatus;
@@ -58,6 +59,8 @@ class PostLikeDeletedEventPublisherTest {
                 .occurredAt(Instant.now())
                 .postId(UUID.randomUUID())
                 .userId(UUID.randomUUID())
+                .source(PostLikeSource.SEARCH)
+                .feedPosition(9)
                 .build();
         var outboxEvent = OutboxEvent.builder()
                 .id(payload.id())

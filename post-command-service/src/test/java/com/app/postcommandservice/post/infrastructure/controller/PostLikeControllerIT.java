@@ -13,6 +13,7 @@ import com.app.postcommandservice.comment.application.dto.CommentResponse;
 import com.app.postcommandservice.comment.application.usecase.CreateCommentUseCase;
 import com.app.postcommandservice.like.application.usecase.DispatchValidatePostLikeCommandUseCase;
 import com.app.postcommandservice.like.application.usecase.DispatchValidatePostUnlikeCommandUseCase;
+import com.app.postcommandservice.like.domain.model.PostLikeSource;
 import com.app.postcommandservice.post.application.usecase.CreatePostUseCase;
 import com.app.postcommandservice.post.application.usecase.DeletePostUseCase;
 import com.app.postcommandservice.post.application.usecase.UpdatePostUseCase;
@@ -59,24 +60,26 @@ class PostLikeControllerIT {
     void shouldDispatchValidatePostLikeCommandAndReturnAccepted() {
         var postId = UUID.randomUUID();
         var userId = UUID.randomUUID();
+        var request = new PostLikeRequest(new PostLikeContextRequest("search", 8));
         when(securityUtils.getUserId()).thenReturn(userId);
 
-        var response = postController.likePost(postId);
+        var response = postController.likePost(postId, request);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
-        verify(dispatchValidatePostLikeCommandUseCase).dispatch(postId, userId);
+        verify(dispatchValidatePostLikeCommandUseCase).dispatch(postId, userId, PostLikeSource.SEARCH, 8);
     }
 
     @Test
     void shouldDispatchValidatePostUnlikeCommandAndReturnAccepted() {
         var postId = UUID.randomUUID();
         var userId = UUID.randomUUID();
+        var request = new PostLikeRequest(new PostLikeContextRequest("user_profile", 2));
         when(securityUtils.getUserId()).thenReturn(userId);
 
-        var response = postController.unlikePost(postId);
+        var response = postController.unlikePost(postId, request);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
-        verify(dispatchValidatePostUnlikeCommandUseCase).dispatch(postId, userId);
+        verify(dispatchValidatePostUnlikeCommandUseCase).dispatch(postId, userId, PostLikeSource.USER_PROFILE, 2);
     }
 
     @Test

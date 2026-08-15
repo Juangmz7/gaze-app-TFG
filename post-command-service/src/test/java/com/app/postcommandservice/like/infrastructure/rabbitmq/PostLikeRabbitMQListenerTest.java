@@ -13,6 +13,7 @@ import com.app.postcommandservice.like.application.commands.ValidatePostLikeComm
 import com.app.postcommandservice.like.application.commands.ValidatePostUnlikeCommand;
 import com.app.postcommandservice.like.application.usecase.ValidatePostLikeUseCase;
 import com.app.postcommandservice.like.application.usecase.ValidatePostUnlikeUseCase;
+import com.app.postcommandservice.like.domain.model.PostLikeSource;
 import com.app.postcommandservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 import com.app.postcommandservice.shared.infrastructure.repository.ProcessedEventsRepository;
 import com.app.postcommandservice.view.application.commands.ProcessPostViewCommand;
@@ -148,7 +149,9 @@ class PostLikeRabbitMQListenerTest {
                 UUID.randomUUID(),
                 Instant.now(),
                 UUID.randomUUID(),
-                UUID.randomUUID()
+                UUID.randomUUID(),
+                PostLikeSource.HOME_FEED,
+                1
         );
     }
 
@@ -158,7 +161,9 @@ class PostLikeRabbitMQListenerTest {
                 UUID.randomUUID(),
                 Instant.now(),
                 UUID.randomUUID(),
-                UUID.randomUUID()
+                UUID.randomUUID(),
+                PostLikeSource.SEARCH,
+                4
         );
     }
 

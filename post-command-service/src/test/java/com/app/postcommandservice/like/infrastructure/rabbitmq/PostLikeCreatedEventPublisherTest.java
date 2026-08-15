@@ -10,6 +10,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 
+import com.app.postcommandservice.like.domain.model.PostLikeSource;
 import com.app.postcommandservice.like.infrastructure.events.PostLikeCreatedEvent;
 import com.app.postcommandservice.shared.infrastructure.entity.OutboxEvent;
 import com.app.postcommandservice.shared.infrastructure.enums.EventStatus;
@@ -57,6 +58,8 @@ class PostLikeCreatedEventPublisherTest {
                 .occurredAt(Instant.now())
                 .postId(UUID.randomUUID())
                 .userId(UUID.randomUUID())
+                .source(PostLikeSource.USER_PROFILE)
+                .feedPosition(2)
                 .createdAt(Instant.now())
                 .build();
         var outboxEvent = OutboxEvent.builder()

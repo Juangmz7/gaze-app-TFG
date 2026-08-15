@@ -6,6 +6,7 @@ import java.util.UUID;
 import org.springframework.stereotype.Component;
 
 import com.app.postcommandservice.like.domain.model.PostLike;
+import com.app.postcommandservice.like.domain.model.PostLikeSource;
 import com.app.postcommandservice.like.infrastructure.events.PostLikeCreatedEvent;
 import com.app.postcommandservice.like.infrastructure.events.PostLikeDeletedEvent;
 
@@ -23,6 +24,8 @@ public class PostLikeEventMapper {
                 .occurredAt(occurredAt)
                 .postId(postLike.getPostId().value())
                 .userId(postLike.getUserId().value())
+                .source(postLike.getContext().source())
+                .feedPosition(postLike.getContext().feedPosition())
                 .createdAt(postLike.getCreatedAt())
                 .build();
     }
@@ -32,6 +35,8 @@ public class PostLikeEventMapper {
             UUID correlationId,
             UUID postId,
             UUID userId,
+            PostLikeSource source,
+            int feedPosition,
             Instant occurredAt) {
         return PostLikeDeletedEvent.builder()
                 .id(eventId)
@@ -39,6 +44,8 @@ public class PostLikeEventMapper {
                 .occurredAt(occurredAt)
                 .postId(postId)
                 .userId(userId)
+                .source(source)
+                .feedPosition(feedPosition)
                 .build();
     }
 }

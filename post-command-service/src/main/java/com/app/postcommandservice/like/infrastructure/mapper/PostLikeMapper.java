@@ -2,6 +2,7 @@ package com.app.postcommandservice.like.infrastructure.mapper;
 
 import org.springframework.stereotype.Component;
 
+import com.app.postcommandservice.like.domain.model.PostLikeContext;
 import com.app.postcommandservice.like.domain.model.PostLike;
 import com.app.postcommandservice.like.infrastructure.entity.PostLikeEntity;
 import com.app.postcommandservice.like.infrastructure.entity.PostLikeId;
@@ -14,6 +15,8 @@ public class PostLikeMapper {
     public PostLikeEntity toEntity(PostLike postLike) {
         return PostLikeEntity.builder()
                 .id(new PostLikeId(postLike.getPostId().value(), postLike.getUserId().value()))
+                .source(postLike.getContext().source())
+                .feedPosition(postLike.getContext().feedPosition())
                 .createdAt(postLike.getCreatedAt())
                 .build();
     }
@@ -22,6 +25,7 @@ public class PostLikeMapper {
         return new PostLike(
                 new PostId(entity.getId().getPostId()),
                 new UserId(entity.getId().getUserId()),
+                new PostLikeContext(entity.getSource(), entity.getFeedPosition()),
                 entity.getCreatedAt()
         );
     }
