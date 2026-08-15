@@ -34,6 +34,7 @@ import com.app.postcommandservice.post.infrastructure.entity.PostEntity;
 import com.app.postcommandservice.post.infrastructure.repository.BlockReadModelJpaRepository;
 import com.app.postcommandservice.post.infrastructure.repository.PostJpaRepository;
 import com.app.postcommandservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
+import com.app.postcommandservice.shared.infrastructure.enums.EventStatus;
 import com.app.postcommandservice.shared.infrastructure.repository.OutboxEventRepository;
 import com.app.postcommandservice.shared.infrastructure.repository.ProcessedEventsRepository;
 import com.app.postcommandservice.view.application.commands.ProcessPostViewCommand;
@@ -128,6 +129,14 @@ class PostViewFlowTest {
         assertThat(commandPayload.get("postId")).isEqualTo(postId.toString());
         assertThat(commandPayload.get("userId")).isEqualTo(VIEWER_ID.toString());
         assertThat(commandPayload.get("source")).isEqualTo("HOME_FEED");
+        waitUntil(() -> outboxEventRepository.findAll().stream()
+                .anyMatch(outboxEvent -> ProcessPostViewCommand.class.getSimpleName().equals(outboxEvent.getEventType())));
+        var commandOutboxEvent = outboxEventRepository.findAll().stream()
+                .filter(outboxEvent -> ProcessPostViewCommand.class.getSimpleName().equals(outboxEvent.getEventType()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(commandOutboxEvent.getStatus()).isEqualTo(EventStatus.PROCESSED);
+        assertThat(commandOutboxEvent.getCorrelationId()).isNotNull();
 
         rabbitAdmin.deleteQueue(queueName);
     }

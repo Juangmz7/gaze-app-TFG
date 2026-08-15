@@ -38,6 +38,7 @@ import com.app.postcommandservice.post.infrastructure.entity.PostEntity;
 import com.app.postcommandservice.post.infrastructure.repository.BlockReadModelJpaRepository;
 import com.app.postcommandservice.post.infrastructure.repository.PostJpaRepository;
 import com.app.postcommandservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
+import com.app.postcommandservice.shared.infrastructure.enums.EventStatus;
 import com.app.postcommandservice.shared.infrastructure.repository.OutboxEventRepository;
 import com.app.postcommandservice.shared.infrastructure.repository.ProcessedEventsRepository;
 
@@ -116,6 +117,14 @@ class PostUnlikeFlowIT {
         assertThat(commandPayload.get("userId")).isEqualTo(LIKER_ID.toString());
         assertThat(commandPayload.get("source")).isEqualTo("USER_PROFILE");
         assertThat(commandPayload.get("feedPosition")).isEqualTo(4);
+        waitUntil(() -> outboxEventRepository.findAll().stream()
+                .anyMatch(outboxEvent -> ValidatePostUnlikeCommand.class.getSimpleName().equals(outboxEvent.getEventType())));
+        var commandOutboxEvent = outboxEventRepository.findAll().stream()
+                .filter(outboxEvent -> ValidatePostUnlikeCommand.class.getSimpleName().equals(outboxEvent.getEventType()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(commandOutboxEvent.getStatus()).isEqualTo(EventStatus.PROCESSED);
+        assertThat(commandOutboxEvent.getCorrelationId()).isNotNull();
 
         rabbitAdmin.deleteQueue(queueName);
     }
