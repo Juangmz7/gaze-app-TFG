@@ -12,6 +12,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.app.postcommandservice.comment.application.commands.CreateCommentCommand;
+import com.app.postcommandservice.comment.application.dto.CommentResponse;
+import com.app.postcommandservice.comment.application.usecase.CreateCommentUseCase;
 import com.app.postcommandservice.like.application.usecase.DispatchValidatePostLikeCommandUseCase;
 import com.app.postcommandservice.like.application.usecase.DispatchValidatePostUnlikeCommandUseCase;
 import com.app.postcommandservice.post.application.commands.CreatePostCommand;
@@ -32,6 +35,7 @@ public class PostController {
     private final CreatePostUseCase createPostUseCase;
     private final UpdatePostUseCase updatePostUseCase;
     private final DeletePostUseCase deletePostUseCase;
+    private final CreateCommentUseCase createCommentUseCase;
     private final DispatchValidatePostLikeCommandUseCase dispatchValidatePostLikeCommandUseCase;
     private final DispatchValidatePostUnlikeCommandUseCase dispatchValidatePostUnlikeCommandUseCase;
     private final DispatchProcessPostViewCommandUseCase dispatchProcessPostViewCommandUseCase;
@@ -106,6 +110,18 @@ public class PostController {
         return ResponseEntity.accepted().build();
     }
 
+    @PostMapping("/{postId}/comments")
+    public ResponseEntity<CommentResponse> createComment(
+            @PathVariable("postId") java.util.UUID postId,
+            @Valid @RequestBody CreateCommentRequest request) {
+        var currentUserId = securityUtils.getUserId();
+        if (currentUserId == null) {
+            throw new AuthenticationCredentialsNotFoundException("JWT subject claim is missing or invalid");
+        }
+        var command = new CreateCommentCommand(postId, currentUserId, request.content(), request.replyTo());
+        return ResponseEntity.ok(createCommentUseCase.createComment(command));
+    }
+  
     @PostMapping("/{postId}/views")
     public ResponseEntity<Void> reportPostView(
             @PathVariable("postId") java.util.UUID postId,

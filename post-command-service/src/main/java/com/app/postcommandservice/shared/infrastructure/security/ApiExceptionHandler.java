@@ -18,6 +18,8 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 
+import com.app.postcommandservice.comment.domain.exception.CommentBlockedException;
+import com.app.postcommandservice.comment.domain.exception.CommentNotFoundException;
 import com.app.postcommandservice.post.domain.exception.TaggedUserBlockedException;
 import com.app.postcommandservice.post.domain.exception.TaggedUserNotFoundException;
 import com.app.postcommandservice.post.domain.exception.PostNotActiveException;
@@ -65,12 +67,28 @@ public class ApiExceptionHandler {
         return buildErrorResponse(HttpStatus.NOT_FOUND, ApiErrorCode.NOT_FOUND, exception.getMessage(), request);
     }
 
+    @ExceptionHandler(CommentNotFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handleCommentNotFoundException(
+            CommentNotFoundException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(HttpStatus.NOT_FOUND, ApiErrorCode.NOT_FOUND, exception.getMessage(), request);
+    }
+
     @ExceptionHandler(TaggedUserBlockedException.class)
     public ResponseEntity<ApiErrorResponse> handleTaggedUserBlockedException(
             TaggedUserBlockedException exception,
             HttpServletRequest request) {
 
         return buildErrorResponse(HttpStatus.FORBIDDEN, ApiErrorCode.BLOCKED, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(CommentBlockedException.class)
+    public ResponseEntity<ApiErrorResponse> handleCommentBlockedException(
+            CommentBlockedException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, ApiErrorCode.BLOCKED, exception.getMessage(), request);
     }
 
     @ExceptionHandler(PostOwnershipException.class)
