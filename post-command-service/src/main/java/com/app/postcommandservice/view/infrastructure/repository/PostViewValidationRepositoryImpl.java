@@ -1,0 +1,21 @@
+package com.app.postcommandservice.view.infrastructure.repository;
+
+import java.util.UUID;
+
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Repository;
+
+import com.app.postcommandservice.post.infrastructure.repository.PostJpaRepository;
+import com.app.postcommandservice.view.application.repository.PostViewValidationRepository;
+
+@Repository
+@RequiredArgsConstructor
+public class PostViewValidationRepositoryImpl implements PostViewValidationRepository {
+
+    private final PostJpaRepository postJpaRepository;
+
+    @Override
+    public boolean existsPost(UUID postId) {
+        return postJpaRepository.existsById(postId);
+    }
+}
