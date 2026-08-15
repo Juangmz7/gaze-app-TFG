@@ -45,7 +45,7 @@ public class RabbitMQConfig {
 
         var postShareCreateValidateRk = props.getRk().getPost().getShare().getCreate().getValidate();
         var postShareDeleteValidateRk = props.getRk().getPost().getShare().getDelete().getValidate();
-        var postViewValidateRk = props.getRk().getPost().getView().getValidate();
+        var postViewProcessRk = props.getRk().getPost().getView().getProcess();
         var postLikeValidateRk = props.getRk().getPost().getLike().getValidate();
         var postUnlikeValidateRk = props.getRk().getPost().getUnlike().getValidate();
 
@@ -101,7 +101,7 @@ public class RabbitMQConfig {
                 BindingBuilder
                         .bind(postQueue)
                         .to(postCommandsExchange)
-                        .with(postViewValidateRk),
+                        .with(postViewProcessRk),
 
                 BindingBuilder
                         .bind(postQueue)

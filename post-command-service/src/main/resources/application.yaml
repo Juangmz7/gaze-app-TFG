@@ -24,7 +24,7 @@ rabbitmq:
 
       # --- view ---
       view:
-        validate: rk.post.view.validate
+        process: rk.post.view.process
 
       # --- like ---
       like:

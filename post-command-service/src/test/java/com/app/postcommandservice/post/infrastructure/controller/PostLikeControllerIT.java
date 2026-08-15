@@ -17,6 +17,9 @@ import com.app.postcommandservice.post.application.usecase.CreatePostUseCase;
 import com.app.postcommandservice.post.application.usecase.DeletePostUseCase;
 import com.app.postcommandservice.post.application.usecase.UpdatePostUseCase;
 import com.app.postcommandservice.shared.infrastructure.security.SecurityUtils;
+import com.app.postcommandservice.view.application.usecase.DispatchProcessPostViewCommandUseCase;
+import com.app.postcommandservice.view.domain.model.PostViewExitReason;
+import com.app.postcommandservice.view.domain.model.PostViewSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
@@ -42,6 +45,9 @@ class PostLikeControllerIT {
 
     @Mock
     private DispatchValidatePostUnlikeCommandUseCase dispatchValidatePostUnlikeCommandUseCase;
+
+    @Mock
+    private DispatchProcessPostViewCommandUseCase dispatchProcessPostViewCommandUseCase;
 
     @Mock
     private SecurityUtils securityUtils;
@@ -90,5 +96,32 @@ class PostLikeControllerIT {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).isEqualTo(responseBody);
+    }
+  
+    void shouldDispatchProcessPostViewCommandAndReturnAccepted() {
+        var postId = UUID.randomUUID();
+        var userId = UUID.randomUUID();
+        var request = new ReportPostViewRequest(
+                UUID.randomUUID(),
+                postId,
+                new ReportPostViewRequest.ViewContextRequest("home_feed", 3),
+                new ReportPostViewRequest.PlaybackMetricsRequest(1000, 750, 75, "scroll_next")
+        );
+        when(securityUtils.getUserId()).thenReturn(userId);
+
+        var response = postController.reportPostView(postId, request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+        verify(dispatchProcessPostViewCommandUseCase).dispatch(
+                request.viewId(),
+                postId,
+                userId,
+                PostViewSource.HOME_FEED,
+                3,
+                1000,
+                750,
+                75,
+                PostViewExitReason.SCROLL_NEXT
+        );
     }
 }

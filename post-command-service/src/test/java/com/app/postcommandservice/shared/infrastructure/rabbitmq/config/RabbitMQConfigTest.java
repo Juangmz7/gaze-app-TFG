@@ -24,7 +24,7 @@ class RabbitMQConfigTest {
         properties.getExchange().getUser().setEvents("x.user.events");
         properties.getRk().getPost().getShare().getCreate().setValidate("rk.post.share.create.validate");
         properties.getRk().getPost().getShare().getDelete().setValidate("rk.post.share.delete.validate");
-        properties.getRk().getPost().getView().setValidate("rk.post.view.validate");
+        properties.getRk().getPost().getView().setProcess("rk.post.view.process");
         properties.getRk().getPost().getLike().setValidate("rk.post.like.validate");
         properties.getRk().getPost().getUnlike().setValidate("rk.post.unlike.validate");
         properties.getRk().getUser().getBlock().setCreated("rk.user.block.created");

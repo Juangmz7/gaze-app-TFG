@@ -15,6 +15,10 @@ import com.app.postcommandservice.like.application.usecase.ValidatePostLikeUseCa
 import com.app.postcommandservice.like.application.usecase.ValidatePostUnlikeUseCase;
 import com.app.postcommandservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 import com.app.postcommandservice.shared.infrastructure.repository.ProcessedEventsRepository;
+import com.app.postcommandservice.view.application.commands.ProcessPostViewCommand;
+import com.app.postcommandservice.view.application.usecase.ProcessPostViewUseCase;
+import com.app.postcommandservice.view.domain.model.PostViewExitReason;
+import com.app.postcommandservice.view.domain.model.PostViewSource;
 
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -30,6 +34,9 @@ class PostLikeRabbitMQListenerTest {
     private ValidatePostUnlikeUseCase validatePostUnlikeUseCase;
 
     @Mock
+    private ProcessPostViewUseCase processPostViewUseCase;
+
+    @Mock
     private ProcessedEventsRepository processedEventsRepository;
 
     @Mock
@@ -42,6 +49,7 @@ class PostLikeRabbitMQListenerTest {
         listener = new PostLikeRabbitMQListener(
                 validatePostLikeUseCase,
                 validatePostUnlikeUseCase,
+                processPostViewUseCase,
                 processedEventsRepository,
                 rabbitMQProperties
         );
@@ -104,6 +112,36 @@ class PostLikeRabbitMQListenerTest {
         );
     }
 
+    @Test
+    void shouldProcessPostViewCommandAndMarkItAsProcessed() {
+        var command = postViewCommand();
+        when(processedEventsRepository.existsById(command.id())).thenReturn(false);
+
+        listener.onProcessPostView(command);
+
+        verify(processPostViewUseCase).process(command);
+        verify(processedEventsRepository).insertIfAbsent(
+                command.id(),
+                command.correlationId(),
+                ProcessPostViewCommand.class.getSimpleName()
+        );
+    }
+
+    @Test
+    void shouldSkipDuplicatePostViewCommand() {
+        var command = postViewCommand();
+        when(processedEventsRepository.existsById(command.id())).thenReturn(true);
+
+        listener.onProcessPostView(command);
+
+        verify(processPostViewUseCase, never()).process(command);
+        verify(processedEventsRepository, never()).insertIfAbsent(
+                command.id(),
+                command.correlationId(),
+                ProcessPostViewCommand.class.getSimpleName()
+        );
+    }
+
     private ValidatePostLikeCommand command() {
         return new ValidatePostLikeCommand(
                 UUID.randomUUID(),
@@ -121,6 +159,23 @@ class PostLikeRabbitMQListenerTest {
                 Instant.now(),
                 UUID.randomUUID(),
                 UUID.randomUUID()
+        );
+    }
+
+    private ProcessPostViewCommand postViewCommand() {
+        return new ProcessPostViewCommand(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                Instant.now(),
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                PostViewSource.HOME_FEED,
+                1,
+                1200,
+                600,
+                50,
+                PostViewExitReason.NAVIGATED_AWAY
         );
     }
 }
