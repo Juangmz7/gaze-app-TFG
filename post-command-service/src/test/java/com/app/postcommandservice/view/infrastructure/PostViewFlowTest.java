@@ -28,7 +28,10 @@ import org.springframework.web.context.WebApplicationContext;
 
 import com.app.postcommandservice.TestcontainersConfiguration;
 import com.app.postcommandservice.post.domain.model.valueobj.PostStatus;
+import com.app.postcommandservice.post.infrastructure.entity.BlockReadModelEntity;
+import com.app.postcommandservice.post.infrastructure.entity.BlockReadModelId;
 import com.app.postcommandservice.post.infrastructure.entity.PostEntity;
+import com.app.postcommandservice.post.infrastructure.repository.BlockReadModelJpaRepository;
 import com.app.postcommandservice.post.infrastructure.repository.PostJpaRepository;
 import com.app.postcommandservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 import com.app.postcommandservice.shared.infrastructure.repository.OutboxEventRepository;
@@ -61,6 +64,9 @@ class PostViewFlowTest {
     private PostViewJpaRepository postViewJpaRepository;
 
     @Autowired
+    private BlockReadModelJpaRepository blockReadModelJpaRepository;
+
+    @Autowired
     private OutboxEventRepository outboxEventRepository;
 
     @Autowired
@@ -79,6 +85,7 @@ class PostViewFlowTest {
 
     @AfterEach
     void tearDown() {
+        blockReadModelJpaRepository.deleteAll();
         postViewJpaRepository.deleteAll();
         postJpaRepository.deleteAll();
         outboxEventRepository.deleteAll();
@@ -167,6 +174,46 @@ class PostViewFlowTest {
                 rabbitMQProperties.getExchange().getPost().getCommands(),
                 rabbitMQProperties.getRk().getPost().getView().getProcess(),
                 command(UUID.randomUUID(), VIEWER_ID, UUID.randomUUID())
+        );
+        waitUntil(() -> processedEventsRepository.count() == 1);
+
+        assertThat(postViewJpaRepository.count()).isEqualTo(0);
+        assertThat(outboxEventRepository.count()).isEqualTo(0);
+    }
+
+    @Test
+    void shouldDiscardViewCommandWhenPostIsInactive() throws Exception {
+        var inactivePost = postJpaRepository.save(PostEntity.builder()
+                .id(UUID.randomUUID())
+                .userId(UUID.randomUUID())
+                .description("inactive")
+                .status(PostStatus.DELETED)
+                .build());
+
+        rabbitTemplate.convertAndSend(
+                rabbitMQProperties.getExchange().getPost().getCommands(),
+                rabbitMQProperties.getRk().getPost().getView().getProcess(),
+                command(inactivePost.getId(), VIEWER_ID, UUID.randomUUID())
+        );
+        waitUntil(() -> processedEventsRepository.count() == 1);
+
+        assertThat(postViewJpaRepository.count()).isEqualTo(0);
+        assertThat(outboxEventRepository.count()).isEqualTo(0);
+    }
+
+    @Test
+    void shouldDiscardViewCommandWhenUsersAreBlocked() throws Exception {
+        var ownerId = UUID.randomUUID();
+        var post = seedPost(ownerId);
+        blockReadModelJpaRepository.save(new BlockReadModelEntity(
+                new BlockReadModelId(ownerId, VIEWER_ID),
+                Instant.now()
+        ));
+
+        rabbitTemplate.convertAndSend(
+                rabbitMQProperties.getExchange().getPost().getCommands(),
+                rabbitMQProperties.getRk().getPost().getView().getProcess(),
+                command(post.getId(), VIEWER_ID, UUID.randomUUID())
         );
         waitUntil(() -> processedEventsRepository.count() == 1);
 

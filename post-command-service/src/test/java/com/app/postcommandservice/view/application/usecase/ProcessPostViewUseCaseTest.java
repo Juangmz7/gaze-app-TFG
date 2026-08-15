@@ -1,6 +1,7 @@
 package com.app.postcommandservice.view.application.usecase;
 
 import java.time.Instant;
+import java.util.Optional;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -41,6 +42,7 @@ class ProcessPostViewUseCaseTest {
     private static final UUID VIEW_ID = UUID.randomUUID();
     private static final UUID POST_ID = UUID.randomUUID();
     private static final UUID USER_ID = UUID.randomUUID();
+    private static final UUID OWNER_ID = UUID.randomUUID();
 
     @Mock
     private PostViewRepository postViewRepository;
@@ -102,7 +104,9 @@ class ProcessPostViewUseCaseTest {
                 .replayCount(3)
                 .build();
 
-        when(postViewValidationRepository.existsPost(POST_ID)).thenReturn(true);
+        when(postViewValidationRepository.findActivePost(POST_ID))
+                .thenReturn(Optional.of(new PostViewValidationRepository.ActivePost(POST_ID, OWNER_ID)));
+        when(postViewValidationRepository.existsBlockRelationship(USER_ID, OWNER_ID)).thenReturn(false);
         when(postViewRepository.countByPostIdAndUserId(POST_ID, USER_ID)).thenReturn(2L);
         when(postViewRepository.save(any(PostView.class))).thenReturn(savedView);
         when(postViewEventMapper.toPostViewedEvent(any(UUID.class), eq(CORRELATION_ID), eq(savedView), any(Instant.class)))
@@ -128,7 +132,22 @@ class ProcessPostViewUseCaseTest {
 
     @Test
     void shouldAbortProcessingWhenPostDoesNotExist() {
-        when(postViewValidationRepository.existsPost(POST_ID)).thenReturn(false);
+        when(postViewValidationRepository.findActivePost(POST_ID)).thenReturn(Optional.empty());
+
+        processPostViewUseCase.process(command());
+
+        verify(postViewValidationRepository, never()).existsBlockRelationship(any(UUID.class), any(UUID.class));
+        verify(postViewRepository, never()).countByPostIdAndUserId(any(UUID.class), any(UUID.class));
+        verify(postViewRepository, never()).save(any(PostView.class));
+        verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
+        verify(applicationEventPublisher, never()).publishEvent(any(PostViewedDomainEvent.class));
+    }
+
+    @Test
+    void shouldAbortProcessingWhenBlockRelationshipExists() {
+        when(postViewValidationRepository.findActivePost(POST_ID))
+                .thenReturn(Optional.of(new PostViewValidationRepository.ActivePost(POST_ID, OWNER_ID)));
+        when(postViewValidationRepository.existsBlockRelationship(USER_ID, OWNER_ID)).thenReturn(true);
 
         processPostViewUseCase.process(command());
 

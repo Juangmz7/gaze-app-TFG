@@ -37,9 +37,17 @@ public class ProcessPostViewUseCase {
 
     @Transactional
     public void process(ProcessPostViewCommand command) {
-        if (!postViewValidationRepository.existsPost(command.postId())) {
-            log.info("Discarding post view command {} because post {} does not exist",
+        var activePost = postViewValidationRepository.findActivePost(command.postId());
+        if (activePost.isEmpty()) {
+            log.info("Discarding post view command {} because post {} does not exist or is not ACTIVE",
                     command.id(), command.postId());
+            return;
+        }
+
+        var postOwnerId = activePost.get().ownerUserId();
+        if (postViewValidationRepository.existsBlockRelationship(command.userId(), postOwnerId)) {
+            log.info("Discarding post view command {} because users {} and {} are blocked",
+                    command.id(), command.userId(), postOwnerId);
             return;
         }
 

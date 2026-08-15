@@ -133,6 +133,7 @@ class ValidatePostLikeUseCaseTest {
         verify(postLikeValidationRepository, never()).existsBlockRelationship(any(UUID.class), any(UUID.class));
         verify(postLikeRepository, never()).save(any(PostLike.class));
         verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
+        verify(applicationEventPublisher, never()).publishEvent(any(PostLikeCreatedDomainEvent.class));
     }
 
     @Test
@@ -146,6 +147,7 @@ class ValidatePostLikeUseCaseTest {
         verify(postLikeRepository, never()).existsByPostIdAndUserId(any(UUID.class), any(UUID.class));
         verify(postLikeRepository, never()).save(any(PostLike.class));
         verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
+        verify(applicationEventPublisher, never()).publishEvent(any(PostLikeCreatedDomainEvent.class));
     }
 
     private ValidatePostLikeCommand command() {
