@@ -2,6 +2,7 @@
 class RawInteractionStats():
     def __init__(
             self,
+            impressions: int,
             views: int,
             likes: int,
             comments: int,
@@ -13,6 +14,7 @@ class RawInteractionStats():
             watch_time_average_percent: float,
             watch_time: float,
     ):
+        self.impressions = impressions
         self.views = views
         self.likes = likes
         self.comments = comments

@@ -2,6 +2,7 @@
 class DecayedInteractionStats():
     def __init__(
             self,
+            impressions: float,
             views_engagement: float,
             likes: float,
             comments: float,
@@ -13,6 +14,7 @@ class DecayedInteractionStats():
             watch_time_average_percent: float,
             watch_time: float,
     ):
+        self.impressions = impressions
         self.views_engagement = views_engagement
         self.likes = likes
         self.comments = comments
