@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 
+import com.app.postcommandservice.comment.domain.exception.CommentNotActiveException;
 import com.app.postcommandservice.comment.domain.model.valueobj.CommentContent;
 import com.app.postcommandservice.comment.domain.model.valueobj.CommentId;
 import com.app.postcommandservice.comment.domain.model.valueobj.CommentStatus;
@@ -45,6 +46,16 @@ public class Comment {
 
     public static Comment create(CommentId id, PostId postId, UserId userId, CommentContent content, UUID replyTo) {
         return new Comment(id, postId, userId, content, replyTo, CommentStatus.ACTIVE, null, null, null);
+    }
+
+    public Comment delete(Instant deletedAt) {
+        Objects.requireNonNull(deletedAt, "deletedAt must not be null");
+
+        if (status != CommentStatus.ACTIVE) {
+            throw new CommentNotActiveException(id.value(), status);
+        }
+
+        return new Comment(id, postId, userId, content, replyTo, CommentStatus.DELETED, createdAt, updatedAt, deletedAt);
     }
 
     public CommentId getId() {

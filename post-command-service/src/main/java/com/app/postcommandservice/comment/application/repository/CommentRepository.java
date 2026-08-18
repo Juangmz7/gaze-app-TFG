@@ -9,5 +9,7 @@ public interface CommentRepository {
 
     Comment save(Comment comment);
 
+    Comment saveAndFlush(Comment comment);
+
     Optional<Comment> findByIdAndPostId(UUID commentId, UUID postId);
 }

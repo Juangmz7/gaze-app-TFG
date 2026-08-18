@@ -33,6 +33,7 @@ import com.app.postcommandservice.post.infrastructure.repository.PostJpaReposito
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -192,6 +193,79 @@ class CommentControllerTest {
                         ))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errorCode").value("BLOCKED"));
+    }
+
+    @Test
+    void shouldSoftDeleteCommentAndReturnNoContentWhenOwnerDeletesAnActiveComment() throws Exception {
+        var postEntity = seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+        var comment = seedComment(postEntity.getId(), COMMENTER_ID, "hello comment", null);
+
+        mockMvc.perform(delete("/api/posts/{postId}/comments/{commentId}", postEntity.getId(), comment.getId())
+                        .with(jwtFor(COMMENTER_ID)))
+                .andExpect(status().isNoContent());
+
+        var deletedComment = commentJpaRepository.findById(comment.getId()).orElseThrow();
+        assertThat(deletedComment.getStatus()).isEqualTo(CommentStatus.DELETED);
+        assertThat(deletedComment.getDeletedAt()).isNotNull();
+    }
+
+    @Test
+    void shouldReturnForbiddenWhenDeletingCommentOwnedByAnotherUser() throws Exception {
+        var postEntity = seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+        var comment = seedComment(postEntity.getId(), UUID.randomUUID(), "hello comment", null);
+
+        mockMvc.perform(delete("/api/posts/{postId}/comments/{commentId}", postEntity.getId(), comment.getId())
+                        .with(jwtFor(COMMENTER_ID)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("FORBIDDEN"));
+    }
+
+    @Test
+    void shouldReturnNotFoundWhenDeletingCommentThatDoesNotExist() throws Exception {
+        var postEntity = seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+
+        mockMvc.perform(delete("/api/posts/{postId}/comments/{commentId}", postEntity.getId(), UUID.randomUUID())
+                        .with(jwtFor(COMMENTER_ID)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("NOT_FOUND"));
+    }
+
+    @Test
+    void shouldReturnBadRequestWhenDeletingCommentThatIsNotActive() throws Exception {
+        var postEntity = seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+        var comment = commentJpaRepository.save(CommentEntity.builder()
+                .id(UUID.randomUUID())
+                .postId(postEntity.getId())
+                .userId(COMMENTER_ID)
+                .content("hello comment")
+                .replyTo(null)
+                .status(CommentStatus.DELETED)
+                .deletedAt(Instant.now())
+                .build());
+
+        mockMvc.perform(delete("/api/posts/{postId}/comments/{commentId}", postEntity.getId(), comment.getId())
+                        .with(jwtFor(COMMENTER_ID)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("BAD_REQUEST"));
+    }
+
+    @Test
+    void shouldReturnBadRequestWhenDeletingCommentThatIsBanned() throws Exception {
+        var postEntity = seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+        var comment = commentJpaRepository.save(CommentEntity.builder()
+                .id(UUID.randomUUID())
+                .postId(postEntity.getId())
+                .userId(COMMENTER_ID)
+                .content("hello comment")
+                .replyTo(null)
+                .status(CommentStatus.BANNED)
+                .deletedAt(Instant.now())
+                .build());
+
+        mockMvc.perform(delete("/api/posts/{postId}/comments/{commentId}", postEntity.getId(), comment.getId())
+                        .with(jwtFor(COMMENTER_ID)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("BAD_REQUEST"));
     }
 
     private PostEntity seedPost(UUID ownerId, PostStatus status) {

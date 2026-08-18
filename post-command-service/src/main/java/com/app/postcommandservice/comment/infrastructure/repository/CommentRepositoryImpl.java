@@ -23,6 +23,11 @@ public class CommentRepositoryImpl implements CommentRepository {
     }
 
     @Override
+    public Comment saveAndFlush(Comment comment) {
+        return commentMapper.toDomain(commentJpaRepository.saveAndFlush(commentMapper.toEntity(comment)));
+    }
+
+    @Override
     public Optional<Comment> findByIdAndPostId(UUID commentId, UUID postId) {
         return commentJpaRepository.findByIdAndPostId(commentId, postId).map(commentMapper::toDomain);
     }
