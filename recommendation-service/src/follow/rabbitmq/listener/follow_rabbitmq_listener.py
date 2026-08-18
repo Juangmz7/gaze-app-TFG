@@ -1,0 +1,3 @@
+
+class FollowRabbitmqListener:
+    pass

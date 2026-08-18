@@ -1,0 +1,3 @@
+
+class BlockRabbitmqListener:
+    pass
