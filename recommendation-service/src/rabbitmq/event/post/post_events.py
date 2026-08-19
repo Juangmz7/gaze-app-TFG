@@ -1,67 +1,119 @@
-from typing import Any
+from datetime import datetime
+from enum import Enum
+from typing import Optional
+from uuid import UUID
 
-from pydantic import RootModel
+from rabbitmq.model.event_message import EventMessage
 
 
-class PostShareDeletedEvent(RootModel[dict[str, Any]]):
+class PostLikeSource(str, Enum):
+    HOME_FEED = "HOME_FEED"
+    USER_PROFILE = "USER_PROFILE"
+    SEARCH = "SEARCH"
+
+
+class PostViewSource(str, Enum):
+    HOME_FEED = "HOME_FEED"
+    USER_PROFILE = "USER_PROFILE"
+    SEARCH = "SEARCH"
+
+
+class PostViewExitReason(str, Enum):
+    SCROLL_NEXT = "SCROLL_NEXT"
+    VIDEO_COMPLETED = "VIDEO_COMPLETED"
+    APP_BACKGROUNDED = "APP_BACKGROUNDED"
+    NAVIGATED_AWAY = "NAVIGATED_AWAY"
+
+
+class PostShareDeletedEvent(EventMessage):
     pass
 
 
-class PostShareCreatedEvent(RootModel[dict[str, Any]]):
+class PostShareCreatedEvent(EventMessage):
     pass
 
 
-class PostCollabRequestCreatedEvent(RootModel[dict[str, Any]]):
+class PostCollabRequestCreatedEvent(EventMessage):
     pass
 
 
-class PostCollabRequestDeletedEvent(RootModel[dict[str, Any]]):
+class PostCollabRequestDeletedEvent(EventMessage):
     pass
 
 
-class PostCommentLikeDeletedEvent(RootModel[dict[str, Any]]):
+class PostCommentLikeDeletedEvent(EventMessage):
     pass
 
 
-class PostCommentLikeCreatedEvent(RootModel[dict[str, Any]]):
+class PostCommentLikeCreatedEvent(EventMessage):
     pass
 
 
-class PostCommentDeletedEvent(RootModel[dict[str, Any]]):
+class PostCommentDeletedEvent(EventMessage):
     pass
 
 
-class PostCommentCreatedEvent(RootModel[dict[str, Any]]):
+class PostCommentCreatedEvent(EventMessage):
     pass
 
 
-class PostViewedEvent(RootModel[dict[str, Any]]):
+class PostViewedEvent(EventMessage):
+    viewId: UUID
+    postId: UUID
+    userId: UUID
+    source: PostViewSource
+    feedPosition: int
+    durationMs: int
+    timeWatchedMs: int
+    completionPercent: int
+    exitReason: PostViewExitReason
+    serverTimestamp: datetime
+    replayCount: int
+
+
+class PostLikeDeletedEvent(EventMessage):
+    postId: UUID
+    userId: UUID
+    source: PostLikeSource
+    feedPosition: int
+
+
+class PostLikeCreatedEvent(EventMessage):
+    postId: UUID
+    userId: UUID
+    source: PostLikeSource
+    feedPosition: int
+    createdAt: datetime
+
+
+class PostBannedEvent(EventMessage):
     pass
 
 
-class PostLikeDeletedEvent(RootModel[dict[str, Any]]):
-    pass
+class PostDeletedEvent(EventMessage):
+    postId: UUID
+    userId: UUID
 
 
-class PostLikeCreatedEvent(RootModel[dict[str, Any]]):
-    pass
+class PostUpdatedEvent(EventMessage):
+    postId: UUID
+    userId: UUID
+    description: Optional[str] = None
+    taggedUsers: set[str] = set()
+    postTags: set[str] = set()
+    createdAt: datetime
+    updatedAt: datetime
 
 
-class PostBannedEvent(RootModel[dict[str, Any]]):
-    pass
+class PostCreatedEvent(EventMessage):
+    postId: UUID
+    userId: UUID
+    description: Optional[str] = None
+    taggedUsers: set[str] = set()
+    postTags: set[str] = set()
+    createdAt: datetime
+    updatedAt: datetime
 
 
-class PostDeletedEvent(RootModel[dict[str, Any]]):
-    pass
-
-
-class PostUpdatedEvent(RootModel[dict[str, Any]]):
-    pass
-
-
-class PostCreatedEvent(RootModel[dict[str, Any]]):
-    pass
-
-
-class PostFeedExhaustedEvent(RootModel[dict[str, Any]]):
+class PostFeedExhaustedEvent(EventMessage):
     pass

@@ -1,31 +1,54 @@
-from typing import Any
+from datetime import datetime
+from typing import Optional
+from uuid import UUID
 
-from pydantic import RootModel
+from pydantic import BaseModel
 
-
-class UserFollowDeletedEvent(RootModel[dict[str, Any]]):
-    pass
-
-
-class UserFollowCreatedEvent(RootModel[dict[str, Any]]):
-    pass
+from rabbitmq.model.event_message import EventMessage
 
 
-class UserBlockDeletedEvent(RootModel[dict[str, Any]]):
-    pass
+class UserBioEventPayload(BaseModel):
+    description: Optional[str] = None
+    socialMedia: dict[str, str] = {}
 
 
-class UserDeletedEvent(RootModel[dict[str, Any]]):
-    pass
+class UserFollowDeletedEvent(EventMessage):
+    followerUserId: UUID
+    followedUserId: UUID
 
 
-class UserBlockCreatedEvent(RootModel[dict[str, Any]]):
-    pass
+class UserFollowCreatedEvent(EventMessage):
+    followerUserId: UUID
+    followedUserId: UUID
 
 
-class UserRegisteredEvent(RootModel[dict[str, Any]]):
-    pass
+class UserBlockDeletedEvent(EventMessage):
+    blockerUserId: UUID
+    blockedUserId: UUID
 
 
-class UserUpdatedEvent(RootModel[dict[str, Any]]):
-    pass
+class UserDeletedEvent(EventMessage):
+    userId: UUID
+
+
+class UserBlockCreatedEvent(EventMessage):
+    blockerUserId: UUID
+    blockedUserId: UUID
+
+
+class UserRegisteredEvent(EventMessage):
+    userId: UUID
+    username: str
+    email: str
+    bio: Optional[UserBioEventPayload] = None
+
+
+class UserUpdatedEvent(EventMessage):
+    userId: UUID
+    username: str
+    email: str
+    bio: Optional[UserBioEventPayload] = None
+    pictureUrl: Optional[str] = None
+    accountStatus: Optional[str] = None
+    createdAt: Optional[datetime] = None
+    updatedAt: Optional[datetime] = None
