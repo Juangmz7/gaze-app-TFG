@@ -11,7 +11,7 @@ from tenacity import (
     wait_exponential,
 )
 
-from src.rabbitmq.exception.exceptions import (
+from rabbitmq.exception.exceptions import (
     RejectAndDontRequeueError,
 )
 

@@ -4,7 +4,7 @@ from typing import Any
 from faststream import BaseMiddleware, StreamMessage
 from faststream.message import decode_message
 
-from src.observability.log_context import (
+from observability.log_context import (
     correlation_id_ctx,
     event_id_ctx,
 )

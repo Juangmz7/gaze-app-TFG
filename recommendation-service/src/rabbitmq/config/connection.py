@@ -5,7 +5,7 @@ from faststream.rabbit import RabbitBroker
 from faststream.rabbit.opentelemetry import RabbitTelemetryMiddleware
 
 from rabbitmq.middleware.retry_middleware import RabbitRetryMiddleware
-from src.rabbitmq.config.declarables import (
+from rabbitmq.config.declarables import (
     configure_rabbitmq_declarables,
 )
 

@@ -5,7 +5,7 @@ from faststream.rabbit import (
     RabbitQueue,
 )
 
-from src.rabbitmq.config.constants import (
+from rabbitmq.config.constants import (
     INCOMING_QUEUES,
     OUTGOING_EXCHANGES,
 )

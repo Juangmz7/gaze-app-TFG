@@ -1,6 +1,6 @@
 import logging
 
-from src.observability.log_context import (
+from observability.log_context import (
     correlation_id_ctx,
     event_id_ctx,
 )
