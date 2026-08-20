@@ -1,12 +1,12 @@
 from faststream.rabbit import RabbitQueue
 
-from src.rabbitmq.config.constants import (
+from rabbitmq.config.constants import (
     POST_QUEUE,
     USER_QUEUE,
 )
-from src.rabbitmq.config.connection import broker
-from src.rabbitmq.listener.post_event_listener import PostEventListener
-from src.rabbitmq.listener.user_event_listener import UserEventListener
+from rabbitmq.config.connection import broker
+from rabbitmq.listener.post_event_listener import PostEventListener
+from rabbitmq.listener.user_event_listener import UserEventListener
 
 
 user_event_handler = UserEventListener()
