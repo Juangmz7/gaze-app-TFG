@@ -9,12 +9,15 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.app.postcommandservice.comment.application.commands.CreateCommentCommand;
+import com.app.postcommandservice.comment.application.commands.UpdateCommentCommand;
 import com.app.postcommandservice.comment.application.dto.CommentResponse;
 import com.app.postcommandservice.comment.application.usecase.CreateCommentUseCase;
+import com.app.postcommandservice.comment.application.usecase.UpdateCommentUseCase;
 import com.app.postcommandservice.like.application.usecase.DispatchValidatePostLikeCommandUseCase;
 import com.app.postcommandservice.like.application.usecase.DispatchValidatePostUnlikeCommandUseCase;
 import com.app.postcommandservice.post.application.commands.CreatePostCommand;
@@ -36,6 +39,7 @@ public class PostController {
     private final UpdatePostUseCase updatePostUseCase;
     private final DeletePostUseCase deletePostUseCase;
     private final CreateCommentUseCase createCommentUseCase;
+    private final UpdateCommentUseCase updateCommentUseCase;
     private final DispatchValidatePostLikeCommandUseCase dispatchValidatePostLikeCommandUseCase;
     private final DispatchValidatePostUnlikeCommandUseCase dispatchValidatePostUnlikeCommandUseCase;
     private final DispatchProcessPostViewCommandUseCase dispatchProcessPostViewCommandUseCase;
@@ -134,6 +138,19 @@ public class PostController {
         }
         var command = new CreateCommentCommand(postId, currentUserId, request.content(), request.replyTo());
         return ResponseEntity.ok(createCommentUseCase.createComment(command));
+    }
+
+    @RequestMapping(path = "/{postId}/comments/{commentId}", method = {RequestMethod.PUT, RequestMethod.PATCH})
+    public ResponseEntity<CommentResponse> updateComment(
+            @PathVariable("postId") java.util.UUID postId,
+            @PathVariable("commentId") java.util.UUID commentId,
+            @Valid @RequestBody UpdateCommentRequest request) {
+        var currentUserId = securityUtils.getUserId();
+        if (currentUserId == null) {
+            throw new AuthenticationCredentialsNotFoundException("JWT subject claim is missing or invalid");
+        }
+        var command = new UpdateCommentCommand(postId, commentId, currentUserId, request.content());
+        return ResponseEntity.ok(updateCommentUseCase.updateComment(command));
     }
   
     @PostMapping("/{postId}/views")
