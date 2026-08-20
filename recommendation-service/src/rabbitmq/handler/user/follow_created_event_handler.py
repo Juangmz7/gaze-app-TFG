@@ -4,7 +4,6 @@ from rabbitmq.event.user.user_events import UserFollowCreatedEvent
 
 
 class FollowCreatedEventHandler:
-    @staticmethod
     async def handle(event: UserFollowCreatedEvent) -> str:
         command = CreateFollowCommand(
             event_id=event.id,

@@ -4,7 +4,6 @@ from rabbitmq.event.post.post_events import PostBannedEvent
 
 
 class PostBannedEventHandler:
-    @staticmethod
     async def handle(event: PostBannedEvent) -> str:
         command = BanPostCommand(
             event_id=event.id,

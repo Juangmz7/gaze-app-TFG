@@ -4,7 +4,6 @@ from user.usecase.register_user_usecase import RegisterUserUsecase
 
 
 class UserRegisteredEventHandler:
-    @staticmethod
     async def handle(event: UserRegisteredEvent) -> str:
         command = RegisterUserCommand(
             event_id=event.id,

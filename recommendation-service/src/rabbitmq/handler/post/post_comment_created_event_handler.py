@@ -4,7 +4,6 @@ from rabbitmq.event.post.post_events import PostCommentCreatedEvent
 
 
 class PostCommentCreatedEventHandler:
-    @staticmethod
     async def handle(event: PostCommentCreatedEvent) -> str:
         command = CreatePostCommentCommand(
             event_id=event.id,

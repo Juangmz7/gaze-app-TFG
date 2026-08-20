@@ -4,7 +4,6 @@ from rabbitmq.event.post.post_events import PostCollabRequestDeletedEvent
 
 
 class PostCollabRequestDeletedEventHandler:
-    @staticmethod
     async def handle(event: PostCollabRequestDeletedEvent) -> str:
         command = DeletePostCollabRequestCommand(
             event_id=event.id,

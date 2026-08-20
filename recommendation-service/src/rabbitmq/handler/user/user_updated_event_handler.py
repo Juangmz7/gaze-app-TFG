@@ -4,7 +4,6 @@ from user.usecase.update_user_usecase import UpdateUserUsecase
 
 
 class UserUpdatedEventHandler:
-    @staticmethod
     async def handle(event: UserUpdatedEvent) -> str:
         command = UpdateUserCommand(
             event_id=event.id,

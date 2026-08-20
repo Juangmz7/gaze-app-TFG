@@ -4,7 +4,6 @@ from rabbitmq.event.post.post_events import PostViewedEvent
 
 
 class PostViewedEventHandler:
-    @staticmethod
     async def handle(event: PostViewedEvent) -> str:
         command = RegisterPostViewCommand(
             event_id=event.id,

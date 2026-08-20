@@ -4,7 +4,6 @@ from rabbitmq.event.post.post_events import PostUpdatedEvent
 
 
 class PostUpdatedEventHandler:
-    @staticmethod
     async def handle(event: PostUpdatedEvent) -> str:
         command = UpdatePostCommand(
             event_id=event.id,

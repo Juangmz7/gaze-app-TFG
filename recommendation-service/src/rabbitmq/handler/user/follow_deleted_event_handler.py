@@ -4,7 +4,6 @@ from rabbitmq.event.user.user_events import UserFollowDeletedEvent
 
 
 class FollowDeletedEventHandler:
-    @staticmethod
     async def handle(event: UserFollowDeletedEvent) -> str:
         command = DeleteFollowCommand(
             event_id=event.id,

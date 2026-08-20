@@ -4,7 +4,6 @@ from rabbitmq.event.post.post_events import PostFeedExhaustedEvent
 
 
 class PostFeedExhaustedEventHandler:
-    @staticmethod
     async def handle(event: PostFeedExhaustedEvent) -> str:
         command = ExhaustPostFeedCommand(
             event_id=event.id,

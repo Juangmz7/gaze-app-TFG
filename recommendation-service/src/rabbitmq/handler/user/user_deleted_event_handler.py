@@ -4,7 +4,6 @@ from user.usecase.delete_user_usecase import DeleteUserUsecase
 
 
 class UserDeletedEventHandler:
-    @staticmethod
     async def handle(event: UserDeletedEvent) -> str:
         command = DeleteUserCommand(
             event_id=event.id,

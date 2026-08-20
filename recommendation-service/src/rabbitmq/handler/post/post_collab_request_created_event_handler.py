@@ -4,7 +4,6 @@ from rabbitmq.event.post.post_events import PostCollabRequestCreatedEvent
 
 
 class PostCollabRequestCreatedEventHandler:
-    @staticmethod
     async def handle(event: PostCollabRequestCreatedEvent) -> str:
         command = CreatePostCollabRequestCommand(
             event_id=event.id,

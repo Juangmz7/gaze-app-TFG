@@ -4,7 +4,6 @@ from rabbitmq.event.user.user_events import UserBlockDeletedEvent
 
 
 class BlockDeletedEventHandler:
-    @staticmethod
     async def handle(event: UserBlockDeletedEvent) -> str:
         command = DeleteBlockCommand(
             event_id=event.id,

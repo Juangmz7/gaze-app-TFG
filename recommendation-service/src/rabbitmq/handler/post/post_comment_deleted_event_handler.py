@@ -4,7 +4,6 @@ from rabbitmq.event.post.post_events import PostCommentDeletedEvent
 
 
 class PostCommentDeletedEventHandler:
-    @staticmethod
     async def handle(event: PostCommentDeletedEvent) -> str:
         command = DeletePostCommentCommand(
             event_id=event.id,

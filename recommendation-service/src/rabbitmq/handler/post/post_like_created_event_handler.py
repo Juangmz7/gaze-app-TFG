@@ -4,7 +4,6 @@ from rabbitmq.event.post.post_events import PostLikeCreatedEvent
 
 
 class PostLikeCreatedEventHandler:
-    @staticmethod
     async def handle(event: PostLikeCreatedEvent) -> str:
         command = CreatePostLikeCommand(
             event_id=event.id,

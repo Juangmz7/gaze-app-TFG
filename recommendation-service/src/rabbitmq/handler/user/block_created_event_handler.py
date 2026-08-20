@@ -4,7 +4,6 @@ from rabbitmq.event.user.user_events import UserBlockCreatedEvent
 
 
 class BlockCreatedEventHandler:
-    @staticmethod
     async def handle(event: UserBlockCreatedEvent) -> str:
         command = CreateBlockCommand(
             event_id=event.id,
