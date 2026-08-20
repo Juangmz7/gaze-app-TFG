@@ -2,20 +2,16 @@ import logging
 
 from faststream.rabbit import RabbitMessage
 
-from block.handlers.block_handlers import BlockCreatedHandler, BlockDeletedHandler
-from follow.handlers.follow_handlers import FollowCreatedHandler, FollowDeletedHandler
-from pipeline.handlers.user_handlers import (
-    UserDeletedHandler,
-    UserRegisteredHandler,
-    UserUpdatedHandler,
-)
+from block.service.block_service import BlockService
+from follow.service.follow_service import FollowService
 from rabbitmq.config.constants import (
+    PostRoutingKey,
     UserRoutingKey,
 )
 from rabbitmq.exception.exceptions import RejectAndDontRequeueError
 from rabbitmq.model.event_message import EventMessage
 from shared.repository.processed_events_repository import ProcessedEventsRepository
-from rabbitmq.event.user.user_events import (
+from src.rabbitmq.event.user.user_events import (
     UserBlockCreatedEvent,
     UserBlockDeletedEvent,
     UserDeletedEvent,
@@ -32,22 +28,12 @@ class UserEventListener:
     def __init__(
         self,
         processed_events_repository: ProcessedEventsRepository,
-        follow_deleted_handler: FollowDeletedHandler,
-        follow_created_handler: FollowCreatedHandler,
-        block_deleted_handler: BlockDeletedHandler,
-        user_deleted_handler: UserDeletedHandler,
-        block_created_handler: BlockCreatedHandler,
-        user_registered_handler: UserRegisteredHandler,
-        user_updated_handler: UserUpdatedHandler,
+        block_service: BlockService,
+        follow_service: FollowService,
     ):
-        self.processed_events_repository = processed_events_repository
-        self.follow_deleted_handler = follow_deleted_handler
-        self.follow_created_handler = follow_created_handler
-        self.block_deleted_handler = block_deleted_handler
-        self.user_deleted_handler = user_deleted_handler
-        self.block_created_handler = block_created_handler
-        self.user_registered_handler = user_registered_handler
-        self.user_updated_handler = user_updated_handler
+            self.processed_events_repository = processed_events_repository
+            self.block_service = block_service
+            self.follow_service = follow_service
 
     async def handle_event(
         self,
@@ -58,10 +44,10 @@ class UserEventListener:
         logger.info("User event received: routing_key=%s, event_id=%s, correlation_id=%s",
                      raw_routing_key, event.id, event.correlationId)
         try:
-            routing_key = UserRoutingKey(raw_routing_key)
+            routing_key = PostRoutingKey(raw_routing_key)
         except ValueError as exc:
             raise RejectAndDontRequeueError(
-                f"Unsupported user routing key: {raw_routing_key}"
+                f"Unsupported post routing key: {raw_routing_key}"
             ) from exc
 
         if self.processed_events_repository.isAlreadyProcessed(
@@ -84,39 +70,81 @@ class UserEventListener:
                       event_name, event.id, event.correlationId)
 
 
-    async def _match_routing_key_handler(self, routing_key: UserRoutingKey, event: EventMessage) -> str:
+    async def _match_routing_key_handler(self, routing_key: PostRoutingKey, event: EventMessage) -> str:
         match routing_key:
             case UserRoutingKey.FOLLOW_DELETED:
-                return await self.follow_deleted_handler.handle(
+                return await self.handle_follow_deleted(
                     UserFollowDeletedEvent.model_validate(event)
                 )
 
             case UserRoutingKey.FOLLOW_CREATED:
-                return await self.follow_created_handler.handle(
+                return await self.handle_follow_created(
                     UserFollowCreatedEvent.model_validate(event)
                 )
 
             case UserRoutingKey.BLOCK_DELETED:
-                return await self.block_deleted_handler.handle(
+                return await self.handle_block_deleted(
                     UserBlockDeletedEvent.model_validate(event)
                 )
 
             case UserRoutingKey.DELETED:
-                return await self.user_deleted_handler.handle(
+                return await self.handle_deleted(
                     UserDeletedEvent.model_validate(event)
                 )
 
             case UserRoutingKey.BLOCK_CREATED:
-                return await self.block_created_handler.handle(
+                return await self.handle_block_created(
                     UserBlockCreatedEvent.model_validate(event)
                 )
 
             case UserRoutingKey.REGISTERED:
-                return await self.user_registered_handler.handle(
+                return await self.handle_registered(
                     UserRegisteredEvent.model_validate(event)
                 )
 
             case UserRoutingKey.UPDATED:
-                return await self.user_updated_handler.handle(
+                return await self.handle_updated(
                     UserUpdatedEvent.model_validate(event)
                 )
+
+    async def handle_follow_deleted(
+        self,
+        event: UserFollowDeletedEvent,
+    ) -> str:
+        ...
+
+    async def handle_follow_created(
+        self,
+        event: UserFollowCreatedEvent,
+    ) -> str:
+        ...
+
+    async def handle_block_deleted(
+        self,
+        event: UserBlockDeletedEvent,
+    ) -> str:
+        ...
+
+    async def handle_deleted(
+        self,
+        event: UserDeletedEvent,
+    ) -> str:
+        ...
+
+    async def handle_block_created(
+        self,
+        event: UserBlockCreatedEvent,
+    ) -> str:
+        ...
+
+    async def handle_registered(
+        self,
+        event: UserRegisteredEvent,
+    ) -> str:
+        ...
+
+    async def handle_updated(
+        self,
+        event: UserUpdatedEvent,
+    ) -> str:
+        ...
