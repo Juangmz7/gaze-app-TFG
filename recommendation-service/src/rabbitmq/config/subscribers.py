@@ -5,12 +5,12 @@ from src.rabbitmq.config.constants import (
     USER_QUEUE,
 )
 from src.rabbitmq.config.connection import broker
-from src.rabbitmq.listener.post_event_handlers import PostEventHandler
-from src.rabbitmq.listener.user_event_listeners import UserEventHandler
+from src.rabbitmq.listener.post_event_listener import PostEventListener
+from src.rabbitmq.listener.user_event_listener import UserEventListener
 
 
-user_event_handler = UserEventHandler()
-post_event_handler = PostEventHandler()
+user_event_handler = UserEventListener()
+post_event_handler = PostEventListener()
 
 
 broker.subscriber(

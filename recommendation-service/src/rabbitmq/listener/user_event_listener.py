@@ -1,5 +1,9 @@
+import logging
+
 from faststream.rabbit import RabbitMessage
 
+from block.service.block_service import BlockService
+from follow.service.follow_service import FollowService
 from rabbitmq.config.constants import (
     PostRoutingKey,
     UserRoutingKey,
@@ -17,11 +21,19 @@ from src.rabbitmq.event.user.user_events import (
     UserUpdatedEvent,
 )
 
+logger = logging.getLogger(__name__)
 
-class UserEventHandler:
+class UserEventListener:
 
-    def __init__(self, processed_events_repository: ProcessedEventsRepository):
+    def __init__(
+        self,
+        processed_events_repository: ProcessedEventsRepository,
+        block_service: BlockService,
+        follow_service: FollowService,
+    ):
             self.processed_events_repository = processed_events_repository
+            self.block_service = block_service
+            self.follow_service = follow_service
 
     async def handle_event(
         self,
@@ -29,6 +41,8 @@ class UserEventHandler:
         message: RabbitMessage,
     ) -> None:
         raw_routing_key = message.raw_message.routing_key
+        logger.info("User event received: routing_key=%s, event_id=%s, correlation_id=%s",
+                     raw_routing_key, event.id, event.correlationId)
         try:
             routing_key = PostRoutingKey(raw_routing_key)
         except ValueError as exc:
@@ -40,8 +54,11 @@ class UserEventHandler:
             correlation_id=event.correlationId,
             event_id=event.id,
         ):
+            logger.warning("Duplicate user event detected, discarding: event_id=%s, correlation_id=%s",
+                            event.id, event.correlationId)
             return
-                
+
+        logger.debug("Dispatching to handler for routing_key=%s", raw_routing_key)
         event_name = await self._match_routing_key_handler(routing_key, event)
         
         self.processed_events_repository.setEventAsProcessed(
@@ -49,7 +66,9 @@ class UserEventHandler:
             event_id=event.id,
             event_name=event_name,
         )
-        
+        logger.info("User event processed successfully: event_name=%s, event_id=%s, correlation_id=%s",
+                      event_name, event.id, event.correlationId)
+
 
     async def _match_routing_key_handler(self, routing_key: PostRoutingKey, event: EventMessage) -> str:
         match routing_key:
