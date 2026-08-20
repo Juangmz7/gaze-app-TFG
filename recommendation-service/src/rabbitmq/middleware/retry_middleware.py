@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -13,6 +14,8 @@ from tenacity import (
 from src.rabbitmq.exception.exceptions import (
     RejectAndDontRequeueError,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class RabbitRetryMiddleware(BaseMiddleware):
@@ -45,8 +48,11 @@ class RabbitRetryMiddleware(BaseMiddleware):
                     return await call_next(msg)
 
         except RejectAndDontRequeueError as exc:
+            logger.error("Non-retryable error, rejecting message to DLQ", exc_info=exc)
             raise RejectMessage() from exc
 
         except Exception as exc:
             # Retries exhausted
+            logger.exception("Retries exhausted after %d attempts, rejecting message to DLQ",
+                              self.MAX_RETRIES)
             raise RejectMessage() from exc
