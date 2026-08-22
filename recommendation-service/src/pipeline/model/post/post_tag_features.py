@@ -26,3 +26,6 @@ class PostTagFeatures:
         affinity_score_processor = AffinityScoreProcessor(self.decayed_interaction_stats)
         return affinity_score_processor.calculate_affinity_score()
 
+    def recalculate_affinity_score(self) -> None:
+        self.affinity_score = self.calculate_affinity_score()
+

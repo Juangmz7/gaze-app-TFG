@@ -1,8 +1,8 @@
 from datetime import datetime
 from uuid import UUID
 
-from pipeline.model.interaction import DecayedInteractionStats
-from pipeline.model.interaction import RawInteractionStats
+from pipeline.model.interaction.decayed_interaction_stats import DecayedInteractionStats
+from pipeline.model.interaction.raw_interaction_stats import RawInteractionStats
 from pipeline.model.interaction.affinity_score_processor import AffinityScoreProcessor
 
 class UserCreatorFeatures:
@@ -23,4 +23,7 @@ class UserCreatorFeatures:
     def calculate_affinity_score(self) -> float:
         affinity_score_processor = AffinityScoreProcessor(self.decayed_interaction_stats)
         return affinity_score_processor.calculate_affinity_score()
+
+    def recalculate_affinity_score(self) -> None:
+        self.affinity_score = self.calculate_affinity_score()
 

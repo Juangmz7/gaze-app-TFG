@@ -97,8 +97,6 @@ class DeletePostLikeCommand:
 
 @dataclass(frozen=True)
 class CreatePostLikeCommand:
-    event_id: UUID
-    correlation_id: UUID
     occurred_at: datetime
     post_id: UUID
     user_id: UUID

@@ -69,6 +69,7 @@ class PostEventListener:
         try:
             routing_key = PostRoutingKey(raw_routing_key)
         except ValueError as exc:
+            logger.error("Unsupported post routing key: %s", raw_routing_key)
             raise RejectAndDontRequeueError(
                 f"Unsupported post routing key: {raw_routing_key}"
             ) from exc
