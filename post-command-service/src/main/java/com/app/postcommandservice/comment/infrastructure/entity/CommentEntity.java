@@ -1,6 +1,7 @@
 package com.app.postcommandservice.comment.infrastructure.entity;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
 import jakarta.persistence.Column;
@@ -59,13 +60,13 @@ public class CommentEntity {
 
     @PrePersist
     void onCreate() {
-        var now = Instant.now();
+        var now = Instant.now().truncatedTo(ChronoUnit.MICROS);
         createdAt = now;
         updatedAt = now;
     }
 
     @PreUpdate
     void onUpdate() {
-        updatedAt = Instant.now();
+        updatedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
     }
 }
