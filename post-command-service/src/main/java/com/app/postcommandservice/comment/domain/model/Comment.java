@@ -48,6 +48,14 @@ public class Comment {
         return new Comment(id, postId, userId, content, replyTo, CommentStatus.ACTIVE, null, null, null);
     }
 
+    public Comment delete(Instant deletedAt) {
+        Objects.requireNonNull(deletedAt, "deletedAt must not be null");
+
+        if (status != CommentStatus.ACTIVE) {
+            throw new CommentNotActiveException(id.value(), status);
+        }
+
+        return new Comment(id, postId, userId, content, replyTo, CommentStatus.DELETED, createdAt, updatedAt, deletedAt);
     public CommentUpdateResult update(String newContent) {
         var updatedContent = new CommentContent(newContent);
         if (status != CommentStatus.ACTIVE) {

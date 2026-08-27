@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.app.postcommandservice.comment.application.commands.CreateCommentCommand;
+import com.app.postcommandservice.comment.application.commands.DeleteCommentCommand;
 import com.app.postcommandservice.comment.application.commands.UpdateCommentCommand;
 import com.app.postcommandservice.comment.application.dto.CommentResponse;
 import com.app.postcommandservice.comment.application.usecase.CreateCommentUseCase;
@@ -39,6 +40,7 @@ public class PostController {
     private final UpdatePostUseCase updatePostUseCase;
     private final DeletePostUseCase deletePostUseCase;
     private final CreateCommentUseCase createCommentUseCase;
+    private final DeleteCommentUseCase deleteCommentUseCase;
     private final UpdateCommentUseCase updateCommentUseCase;
     private final DispatchValidatePostLikeCommandUseCase dispatchValidatePostLikeCommandUseCase;
     private final DispatchValidatePostUnlikeCommandUseCase dispatchValidatePostUnlikeCommandUseCase;
@@ -140,6 +142,19 @@ public class PostController {
         return ResponseEntity.ok(createCommentUseCase.createComment(command));
     }
 
+    @DeleteMapping("/{postId}/comments/{commentId}")
+    public ResponseEntity<Void> deleteComment(
+            @PathVariable("postId") java.util.UUID postId,
+            @PathVariable("commentId") java.util.UUID commentId) {
+        var currentUserId = securityUtils.getUserId();
+        if (currentUserId == null) {
+            throw new AuthenticationCredentialsNotFoundException("JWT subject claim is missing or invalid");
+        }
+        
+        deleteCommentUseCase.deleteComment(new DeleteCommentCommand(postId, commentId, currentUserId));
+        return ResponseEntity.noContent().build();
+    }
+  
     @RequestMapping(path = "/{postId}/comments/{commentId}", method = {RequestMethod.PUT, RequestMethod.PATCH})
     public ResponseEntity<CommentResponse> updateComment(
             @PathVariable("postId") java.util.UUID postId,

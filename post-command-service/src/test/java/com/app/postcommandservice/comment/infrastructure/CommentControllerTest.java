@@ -5,8 +5,8 @@ import java.time.temporal.ChronoUnit;
 import java.util.Map;
 import java.util.UUID;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.hamcrest.Matchers;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -33,9 +33,10 @@ import com.app.postcommandservice.post.infrastructure.repository.BlockReadModelJ
 import com.app.postcommandservice.post.infrastructure.repository.PostJpaRepository;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -46,8 +47,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 class CommentControllerTest {
 
-    private static final UUID COMMENTER_ID = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
-    private static final UUID POST_OWNER_ID = UUID.fromString("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+    private static final UUID COMMENTER_ID =
+            UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+
+    private static final UUID POST_OWNER_ID =
+            UUID.fromString("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
 
     @Autowired
     private WebApplicationContext webApplicationContext;
@@ -67,7 +71,8 @@ class CommentControllerTest {
 
     @BeforeEach
     void setUpMockMvc() {
-        mockMvc = MockMvcBuilders.webAppContextSetup(webApplicationContext)
+        mockMvc = MockMvcBuilders
+                .webAppContextSetup(webApplicationContext)
                 .apply(springSecurity())
                 .build();
     }
@@ -83,288 +88,916 @@ class CommentControllerTest {
     void shouldCreateCommentAndReturnExpectedBodyWhenPostIsActive() throws Exception {
         var postEntity = seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
 
-        mockMvc.perform(post("/api/posts/{postId}/comments", postEntity.getId())
-                        .with(jwtFor(COMMENTER_ID))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("content", "hello comment"))))
+        mockMvc.perform(
+                        post(
+                                "/api/posts/{postId}/comments",
+                                postEntity.getId()
+                        )
+                                .with(jwtFor(COMMENTER_ID))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        objectMapper.writeValueAsString(
+                                                Map.of(
+                                                        "content",
+                                                        "hello comment"
+                                                )
+                                        )
+                                )
+                )
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.commentId").exists())
-                .andExpect(jsonPath("$.postId").value(postEntity.getId().toString()))
-                .andExpect(jsonPath("$.userId").value(COMMENTER_ID.toString()))
-                .andExpect(jsonPath("$.content").value("hello comment"))
-                .andExpect(jsonPath("$.replyTo").value(Matchers.nullValue()))
+                .andExpect(
+                        jsonPath("$.postId")
+                                .value(postEntity.getId().toString())
+                )
+                .andExpect(
+                        jsonPath("$.userId")
+                                .value(COMMENTER_ID.toString())
+                )
+                .andExpect(
+                        jsonPath("$.content")
+                                .value("hello comment")
+                )
+                .andExpect(
+                        jsonPath("$.replyTo")
+                                .value(Matchers.nullValue())
+                )
                 .andExpect(jsonPath("$.createdAt").exists())
                 .andExpect(jsonPath("$.updatedAt").exists())
                 .andExpect(jsonPath("$.commentStatus").doesNotExist())
                 .andExpect(jsonPath("$.deletedAt").doesNotExist());
 
-        var persistedComment = commentJpaRepository.findAll().getFirst();
-        assertThat(persistedComment.getStatus().name()).isEqualTo("ACTIVE");
-        assertThat(persistedComment.getReplyTo()).isNull();
+        var persistedComment =
+                commentJpaRepository.findAll().getFirst();
+
+        assertThat(persistedComment.getStatus().name())
+                .isEqualTo("ACTIVE");
+
+        assertThat(persistedComment.getReplyTo())
+                .isNull();
     }
 
     @Test
-    void shouldCreateReplyCommentWhenParentCommentBelongsToSamePost() throws Exception {
-        var postEntity = seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
-        var parentComment = seedComment(postEntity.getId(), UUID.randomUUID(), "parent", null);
+    void shouldCreateReplyCommentWhenParentCommentBelongsToSamePost()
+            throws Exception {
 
-        mockMvc.perform(post("/api/posts/{postId}/comments", postEntity.getId())
-                        .with(jwtFor(COMMENTER_ID))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of(
-                                "content", "reply comment",
-                                "replyTo", parentComment.getId()
-                        ))))
+        var postEntity =
+                seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+
+        var parentComment =
+                seedComment(
+                        postEntity.getId(),
+                        UUID.randomUUID(),
+                        "parent",
+                        null
+                );
+
+        mockMvc.perform(
+                        post(
+                                "/api/posts/{postId}/comments",
+                                postEntity.getId()
+                        )
+                                .with(jwtFor(COMMENTER_ID))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        objectMapper.writeValueAsString(
+                                                Map.of(
+                                                        "content",
+                                                        "reply comment",
+                                                        "replyTo",
+                                                        parentComment.getId()
+                                                )
+                                        )
+                                )
+                )
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.replyTo").value(parentComment.getId().toString()))
-                .andExpect(jsonPath("$.content").value("reply comment"));
+                .andExpect(
+                        jsonPath("$.replyTo")
+                                .value(parentComment.getId().toString())
+                )
+                .andExpect(
+                        jsonPath("$.content")
+                                .value("reply comment")
+                );
 
-        assertThat(commentJpaRepository.count()).isEqualTo(2);
+        assertThat(commentJpaRepository.count())
+                .isEqualTo(2);
     }
 
     @Test
-    void shouldReturnNotFoundWhenTargetPostDoesNotExist() throws Exception {
-        mockMvc.perform(post("/api/posts/{postId}/comments", UUID.randomUUID())
-                        .with(jwtFor(COMMENTER_ID))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("content", "hello comment"))))
+    void shouldReturnNotFoundWhenTargetPostDoesNotExist()
+            throws Exception {
+
+        mockMvc.perform(
+                        post(
+                                "/api/posts/{postId}/comments",
+                                UUID.randomUUID()
+                        )
+                                .with(jwtFor(COMMENTER_ID))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        objectMapper.writeValueAsString(
+                                                Map.of(
+                                                        "content",
+                                                        "hello comment"
+                                                )
+                                        )
+                                )
+                )
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.errorCode").value("NOT_FOUND"));
+                .andExpect(
+                        jsonPath("$.errorCode")
+                                .value("NOT_FOUND")
+                );
     }
 
     @Test
-    void shouldReturnBadRequestWhenTargetPostIsNotActive() throws Exception {
-        var postEntity = seedPost(POST_OWNER_ID, PostStatus.DELETED);
+    void shouldReturnBadRequestWhenTargetPostIsNotActive()
+            throws Exception {
 
-        mockMvc.perform(post("/api/posts/{postId}/comments", postEntity.getId())
-                        .with(jwtFor(COMMENTER_ID))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("content", "hello comment"))))
+        var postEntity =
+                seedPost(POST_OWNER_ID, PostStatus.DELETED);
+
+        mockMvc.perform(
+                        post(
+                                "/api/posts/{postId}/comments",
+                                postEntity.getId()
+                        )
+                                .with(jwtFor(COMMENTER_ID))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        objectMapper.writeValueAsString(
+                                                Map.of(
+                                                        "content",
+                                                        "hello comment"
+                                                )
+                                        )
+                                )
+                )
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.errorCode").value("BAD_REQUEST"));
+                .andExpect(
+                        jsonPath("$.errorCode")
+                                .value("BAD_REQUEST")
+                );
     }
 
     @Test
-    void shouldReturnNotFoundWhenReplyTargetDoesNotBelongToSamePost() throws Exception {
-        var targetPost = seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
-        var otherPost = seedPost(UUID.randomUUID(), PostStatus.ACTIVE);
-        var foreignComment = seedComment(otherPost.getId(), UUID.randomUUID(), "foreign", null);
+    void shouldReturnNotFoundWhenReplyTargetDoesNotBelongToSamePost()
+            throws Exception {
 
-        mockMvc.perform(post("/api/posts/{postId}/comments", targetPost.getId())
-                        .with(jwtFor(COMMENTER_ID))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of(
-                                "content", "reply comment",
-                                "replyTo", foreignComment.getId()
-                        ))))
+        var targetPost =
+                seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+
+        var otherPost =
+                seedPost(UUID.randomUUID(), PostStatus.ACTIVE);
+
+        var foreignComment =
+                seedComment(
+                        otherPost.getId(),
+                        UUID.randomUUID(),
+                        "foreign",
+                        null
+                );
+
+        mockMvc.perform(
+                        post(
+                                "/api/posts/{postId}/comments",
+                                targetPost.getId()
+                        )
+                                .with(jwtFor(COMMENTER_ID))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        objectMapper.writeValueAsString(
+                                                Map.of(
+                                                        "content",
+                                                        "reply comment",
+                                                        "replyTo",
+                                                        foreignComment.getId()
+                                                )
+                                        )
+                                )
+                )
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.errorCode").value("NOT_FOUND"));
+                .andExpect(
+                        jsonPath("$.errorCode")
+                                .value("NOT_FOUND")
+                );
     }
 
     @Test
-    void shouldReturnBadRequestWhenSenderIsBlockedByPostOwnerOrViceVersa() throws Exception {
-        var postEntity = seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
-        blockReadModelJpaRepository.save(new BlockReadModelEntity(
-                new BlockReadModelId(COMMENTER_ID, POST_OWNER_ID),
-                Instant.now()
-        ));
+    void shouldReturnBadRequestWhenSenderIsBlockedByPostOwnerOrViceVersa()
+            throws Exception {
 
-        mockMvc.perform(post("/api/posts/{postId}/comments", postEntity.getId())
-                        .with(jwtFor(COMMENTER_ID))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("content", "hello comment"))))
+        var postEntity =
+                seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+
+        blockReadModelJpaRepository.save(
+                new BlockReadModelEntity(
+                        new BlockReadModelId(
+                                COMMENTER_ID,
+                                POST_OWNER_ID
+                        ),
+                        Instant.now()
+                )
+        );
+
+        mockMvc.perform(
+                        post(
+                                "/api/posts/{postId}/comments",
+                                postEntity.getId()
+                        )
+                                .with(jwtFor(COMMENTER_ID))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        objectMapper.writeValueAsString(
+                                                Map.of(
+                                                        "content",
+                                                        "hello comment"
+                                                )
+                                        )
+                                )
+                )
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.errorCode").value("BLOCKED"));
+                .andExpect(
+                        jsonPath("$.errorCode")
+                                .value("BLOCKED")
+                );
     }
 
     @Test
-    void shouldReturnBadRequestWhenSenderIsBlockedByParentCommentAuthorOrViceVersa() throws Exception {
-        var postEntity = seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
-        var parentAuthorId = UUID.randomUUID();
-        var parentComment = seedComment(postEntity.getId(), parentAuthorId, "parent", null);
-        blockReadModelJpaRepository.save(new BlockReadModelEntity(
-                new BlockReadModelId(parentAuthorId, COMMENTER_ID),
-                Instant.now()
-        ));
+    void shouldReturnBadRequestWhenSenderIsBlockedByParentCommentAuthorOrViceVersa()
+            throws Exception {
 
-        mockMvc.perform(post("/api/posts/{postId}/comments", postEntity.getId())
-                        .with(jwtFor(COMMENTER_ID))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of(
-                                "content", "reply comment",
-                                "replyTo", parentComment.getId()
-                        ))))
+        var postEntity =
+                seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+
+        var parentAuthorId =
+                UUID.randomUUID();
+
+        var parentComment =
+                seedComment(
+                        postEntity.getId(),
+                        parentAuthorId,
+                        "parent",
+                        null
+                );
+
+        blockReadModelJpaRepository.save(
+                new BlockReadModelEntity(
+                        new BlockReadModelId(
+                                parentAuthorId,
+                                COMMENTER_ID
+                        ),
+                        Instant.now()
+                )
+        );
+
+        mockMvc.perform(
+                        post(
+                                "/api/posts/{postId}/comments",
+                                postEntity.getId()
+                        )
+                                .with(jwtFor(COMMENTER_ID))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        objectMapper.writeValueAsString(
+                                                Map.of(
+                                                        "content",
+                                                        "reply comment",
+                                                        "replyTo",
+                                                        parentComment.getId()
+                                                )
+                                        )
+                                )
+                )
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.errorCode").value("BLOCKED"));
+                .andExpect(
+                        jsonPath("$.errorCode")
+                                .value("BLOCKED")
+                );
+    }
+
+    // =========================================================
+    // DELETE COMMENT
+    // =========================================================
+
+    @Test
+    void shouldSoftDeleteCommentAndReturnNoContentWhenOwnerDeletesAnActiveComment()
+            throws Exception {
+
+        var postEntity =
+                seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+
+        var comment =
+                seedComment(
+                        postEntity.getId(),
+                        COMMENTER_ID,
+                        "hello comment",
+                        null
+                );
+
+        mockMvc.perform(
+                        delete(
+                                "/api/posts/{postId}/comments/{commentId}",
+                                postEntity.getId(),
+                                comment.getId()
+                        )
+                                .with(jwtFor(COMMENTER_ID))
+                )
+                .andExpect(status().isNoContent());
+
+        var deletedComment =
+                commentJpaRepository
+                        .findById(comment.getId())
+                        .orElseThrow();
+
+        assertThat(deletedComment.getStatus())
+                .isEqualTo(CommentStatus.DELETED);
+
+        assertThat(deletedComment.getDeletedAt())
+                .isNotNull();
     }
 
     @Test
-    void shouldUpdateCommentAndReturnExpectedBodyWhenOwnerUsesPut() throws Exception {
-        var postEntity = seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
-        var comment = seedComment(postEntity.getId(), COMMENTER_ID, "before", null);
-        var originalUpdatedAt = refreshedComment(comment.getId()).getUpdatedAt();
+    void shouldReturnForbiddenWhenDeletingCommentOwnedByAnotherUser()
+            throws Exception {
 
-        Thread.sleep(5L);
+        var postEntity =
+                seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
 
-        var result = mockMvc.perform(put("/api/posts/{postId}/comments/{commentId}", postEntity.getId(), comment.getId())
-                        .with(jwtFor(COMMENTER_ID))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("content", "after"))))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.commentId").value(comment.getId().toString()))
-                .andExpect(jsonPath("$.postId").value(postEntity.getId().toString()))
-                .andExpect(jsonPath("$.userId").value(COMMENTER_ID.toString()))
-                .andExpect(jsonPath("$.content").value("after"))
-                .andExpect(jsonPath("$.replyTo").value(Matchers.nullValue()))
-                .andExpect(jsonPath("$.updatedAt").exists())
-                .andExpect(jsonPath("$.commentStatus").doesNotExist())
-                .andExpect(jsonPath("$.deletedAt").doesNotExist())
-                .andReturn();
+        var comment =
+                seedComment(
+                        postEntity.getId(),
+                        UUID.randomUUID(),
+                        "hello comment",
+                        null
+                );
 
-        var persistedComment = refreshedComment(comment.getId());
-        var responseBody = readResponse(result);
-        assertThat(persistedComment.getContent()).isEqualTo("after");
-        assertThat(persistedComment.getUpdatedAt()).isAfter(originalUpdatedAt);
-        assertThat(responseBody.get("updatedAt").asText()).isEqualTo(persistedComment.getUpdatedAt().toString());
-    }
-
-    @Test
-    void shouldUpdateCommentWhenOwnerUsesPatch() throws Exception {
-        var postEntity = seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
-        var comment = seedComment(postEntity.getId(), COMMENTER_ID, "before", null);
-        var originalUpdatedAt = refreshedComment(comment.getId()).getUpdatedAt();
-
-        Thread.sleep(5L);
-
-        var result = mockMvc.perform(patch("/api/posts/{postId}/comments/{commentId}", postEntity.getId(), comment.getId())
-                        .with(jwtFor(COMMENTER_ID))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("content", "patched"))))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content").value("patched"))
-                .andExpect(jsonPath("$.updatedAt").exists())
-                .andReturn();
-
-        var persistedComment = refreshedComment(comment.getId());
-        var responseBody = readResponse(result);
-        assertThat(persistedComment.getContent()).isEqualTo("patched");
-        assertThat(persistedComment.getUpdatedAt()).isAfter(originalUpdatedAt);
-        assertThat(responseBody.get("updatedAt").asText()).isEqualTo(persistedComment.getUpdatedAt().toString());
-    }
-
-    @Test
-    void shouldReturnOkWithoutUpdatingTimestampsWhenContentIsUnchanged() throws Exception {
-        var postEntity = seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
-        var comment = seedComment(postEntity.getId(), COMMENTER_ID, "same", null);
-        var originalPersistedComment = refreshedComment(comment.getId());
-
-        var result = mockMvc.perform(put("/api/posts/{postId}/comments/{commentId}", postEntity.getId(), comment.getId())
-                        .with(jwtFor(COMMENTER_ID))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("content", "same"))))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content").value("same"))
-                .andExpect(jsonPath("$.updatedAt").value(originalPersistedComment.getUpdatedAt().toString()))
-                .andReturn();
-
-        var persistedComment = refreshedComment(comment.getId());
-        var responseBody = readResponse(result);
-        assertThat(persistedComment.getContent()).isEqualTo("same");
-        assertThat(persistedComment.getUpdatedAt().truncatedTo(ChronoUnit.MICROS))
-                .isEqualTo(originalPersistedComment.getUpdatedAt().truncatedTo(ChronoUnit.MICROS));
-        assertThat(responseBody.get("updatedAt").asText()).isEqualTo(persistedComment.getUpdatedAt().toString());
-    }
-
-    @Test
-    void shouldReturnNotFoundWhenCommentDoesNotBelongToPathPost() throws Exception {
-        var targetPost = seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
-        var otherPost = seedPost(UUID.randomUUID(), PostStatus.ACTIVE);
-        var foreignComment = seedComment(otherPost.getId(), COMMENTER_ID, "before", null);
-
-        mockMvc.perform(put("/api/posts/{postId}/comments/{commentId}", targetPost.getId(), foreignComment.getId())
-                        .with(jwtFor(COMMENTER_ID))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("content", "after"))))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.errorCode").value("NOT_FOUND"));
-    }
-
-    @Test
-    void shouldReturnForbiddenWhenRequesterIsNotOriginalAuthor() throws Exception {
-        var postEntity = seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
-        var comment = seedComment(postEntity.getId(), UUID.randomUUID(), "before", null);
-
-        mockMvc.perform(put("/api/posts/{postId}/comments/{commentId}", postEntity.getId(), comment.getId())
-                        .with(jwtFor(COMMENTER_ID))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("content", "after"))))
+        mockMvc.perform(
+                        delete(
+                                "/api/posts/{postId}/comments/{commentId}",
+                                postEntity.getId(),
+                                comment.getId()
+                        )
+                                .with(jwtFor(COMMENTER_ID))
+                )
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.errorCode").value("FORBIDDEN"));
+                .andExpect(
+                        jsonPath("$.errorCode")
+                                .value("FORBIDDEN")
+                );
     }
 
     @Test
-    void shouldReturnBadRequestWhenCommentIsDeleted() throws Exception {
-        var postEntity = seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
-        var comment = seedComment(postEntity.getId(), COMMENTER_ID, "before", null);
+    void shouldReturnNotFoundWhenDeletingCommentThatDoesNotExist()
+            throws Exception {
+
+        var postEntity =
+                seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+
+        mockMvc.perform(
+                        delete(
+                                "/api/posts/{postId}/comments/{commentId}",
+                                postEntity.getId(),
+                                UUID.randomUUID()
+                        )
+                                .with(jwtFor(COMMENTER_ID))
+                )
+                .andExpect(status().isNotFound())
+                .andExpect(
+                        jsonPath("$.errorCode")
+                                .value("NOT_FOUND")
+                );
+    }
+
+    @Test
+    void shouldReturnBadRequestWhenDeletingCommentThatIsNotActive()
+            throws Exception {
+
+        var postEntity =
+                seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+
+        var comment =
+                commentJpaRepository.save(
+                        CommentEntity.builder()
+                                .id(UUID.randomUUID())
+                                .postId(postEntity.getId())
+                                .userId(COMMENTER_ID)
+                                .content("hello comment")
+                                .replyTo(null)
+                                .status(CommentStatus.DELETED)
+                                .deletedAt(Instant.now())
+                                .build()
+                );
+
+        mockMvc.perform(
+                        delete(
+                                "/api/posts/{postId}/comments/{commentId}",
+                                postEntity.getId(),
+                                comment.getId()
+                        )
+                                .with(jwtFor(COMMENTER_ID))
+                )
+                .andExpect(status().isBadRequest())
+                .andExpect(
+                        jsonPath("$.errorCode")
+                                .value("BAD_REQUEST")
+                );
+    }
+
+    @Test
+    void shouldReturnBadRequestWhenDeletingCommentThatIsBanned()
+            throws Exception {
+
+        var postEntity =
+                seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+
+        var comment =
+                commentJpaRepository.save(
+                        CommentEntity.builder()
+                                .id(UUID.randomUUID())
+                                .postId(postEntity.getId())
+                                .userId(COMMENTER_ID)
+                                .content("hello comment")
+                                .replyTo(null)
+                                .status(CommentStatus.BANNED)
+                                .deletedAt(Instant.now())
+                                .build()
+                );
+
+        mockMvc.perform(
+                        delete(
+                                "/api/posts/{postId}/comments/{commentId}",
+                                postEntity.getId(),
+                                comment.getId()
+                        )
+                                .with(jwtFor(COMMENTER_ID))
+                )
+                .andExpect(status().isBadRequest())
+                .andExpect(
+                        jsonPath("$.errorCode")
+                                .value("BAD_REQUEST")
+                );
+    }
+
+    // =========================================================
+    // UPDATE COMMENT
+    // =========================================================
+
+    @Test
+    void shouldUpdateCommentAndReturnExpectedBodyWhenOwnerUsesPut()
+            throws Exception {
+
+        var postEntity =
+                seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+
+        var comment =
+                seedComment(
+                        postEntity.getId(),
+                        COMMENTER_ID,
+                        "before",
+                        null
+                );
+
+        var originalUpdatedAt =
+                refreshedComment(comment.getId()).getUpdatedAt();
+
+        Thread.sleep(5L);
+
+        var result =
+                mockMvc.perform(
+                                put(
+                                        "/api/posts/{postId}/comments/{commentId}",
+                                        postEntity.getId(),
+                                        comment.getId()
+                                )
+                                        .with(jwtFor(COMMENTER_ID))
+                                        .contentType(MediaType.APPLICATION_JSON)
+                                        .content(
+                                                objectMapper.writeValueAsString(
+                                                        Map.of(
+                                                                "content",
+                                                                "after"
+                                                        )
+                                                )
+                                        )
+                        )
+                        .andExpect(status().isOk())
+                        .andExpect(
+                                jsonPath("$.commentId")
+                                        .value(comment.getId().toString())
+                        )
+                        .andExpect(
+                                jsonPath("$.postId")
+                                        .value(postEntity.getId().toString())
+                        )
+                        .andExpect(
+                                jsonPath("$.userId")
+                                        .value(COMMENTER_ID.toString())
+                        )
+                        .andExpect(
+                                jsonPath("$.content")
+                                        .value("after")
+                        )
+                        .andExpect(
+                                jsonPath("$.replyTo")
+                                        .value(Matchers.nullValue())
+                        )
+                        .andExpect(jsonPath("$.updatedAt").exists())
+                        .andExpect(jsonPath("$.commentStatus").doesNotExist())
+                        .andExpect(jsonPath("$.deletedAt").doesNotExist())
+                        .andReturn();
+
+        var persistedComment =
+                refreshedComment(comment.getId());
+
+        var responseBody =
+                readResponse(result);
+
+        assertThat(persistedComment.getContent())
+                .isEqualTo("after");
+
+        assertThat(persistedComment.getUpdatedAt())
+                .isAfter(originalUpdatedAt);
+
+        assertThat(responseBody.get("updatedAt").asText())
+                .isEqualTo(
+                        persistedComment
+                                .getUpdatedAt()
+                                .toString()
+                );
+    }
+
+    @Test
+    void shouldUpdateCommentWhenOwnerUsesPatch()
+            throws Exception {
+
+        var postEntity =
+                seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+
+        var comment =
+                seedComment(
+                        postEntity.getId(),
+                        COMMENTER_ID,
+                        "before",
+                        null
+                );
+
+        var originalUpdatedAt =
+                refreshedComment(comment.getId()).getUpdatedAt();
+
+        Thread.sleep(5L);
+
+        var result =
+                mockMvc.perform(
+                                patch(
+                                        "/api/posts/{postId}/comments/{commentId}",
+                                        postEntity.getId(),
+                                        comment.getId()
+                                )
+                                        .with(jwtFor(COMMENTER_ID))
+                                        .contentType(MediaType.APPLICATION_JSON)
+                                        .content(
+                                                objectMapper.writeValueAsString(
+                                                        Map.of(
+                                                                "content",
+                                                                "patched"
+                                                        )
+                                                )
+                                        )
+                        )
+                        .andExpect(status().isOk())
+                        .andExpect(
+                                jsonPath("$.content")
+                                        .value("patched")
+                        )
+                        .andExpect(
+                                jsonPath("$.updatedAt")
+                                        .exists()
+                        )
+                        .andReturn();
+
+        var persistedComment =
+                refreshedComment(comment.getId());
+
+        var responseBody =
+                readResponse(result);
+
+        assertThat(persistedComment.getContent())
+                .isEqualTo("patched");
+
+        assertThat(persistedComment.getUpdatedAt())
+                .isAfter(originalUpdatedAt);
+
+        assertThat(responseBody.get("updatedAt").asText())
+                .isEqualTo(
+                        persistedComment
+                                .getUpdatedAt()
+                                .toString()
+                );
+    }
+
+    @Test
+    void shouldReturnOkWithoutUpdatingTimestampsWhenContentIsUnchanged()
+            throws Exception {
+
+        var postEntity =
+                seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+
+        var comment =
+                seedComment(
+                        postEntity.getId(),
+                        COMMENTER_ID,
+                        "same",
+                        null
+                );
+
+        var originalPersistedComment =
+                refreshedComment(comment.getId());
+
+        var result =
+                mockMvc.perform(
+                                put(
+                                        "/api/posts/{postId}/comments/{commentId}",
+                                        postEntity.getId(),
+                                        comment.getId()
+                                )
+                                        .with(jwtFor(COMMENTER_ID))
+                                        .contentType(MediaType.APPLICATION_JSON)
+                                        .content(
+                                                objectMapper.writeValueAsString(
+                                                        Map.of(
+                                                                "content",
+                                                                "same"
+                                                        )
+                                                )
+                                        )
+                        )
+                        .andExpect(status().isOk())
+                        .andExpect(
+                                jsonPath("$.content")
+                                        .value("same")
+                        )
+                        .andExpect(
+                                jsonPath("$.updatedAt")
+                                        .value(
+                                                originalPersistedComment
+                                                        .getUpdatedAt()
+                                                        .toString()
+                                        )
+                        )
+                        .andReturn();
+
+        var persistedComment =
+                refreshedComment(comment.getId());
+
+        var responseBody =
+                readResponse(result);
+
+        assertThat(persistedComment.getContent())
+                .isEqualTo("same");
+
+        assertThat(
+                persistedComment
+                        .getUpdatedAt()
+                        .truncatedTo(ChronoUnit.MICROS)
+        ).isEqualTo(
+                originalPersistedComment
+                        .getUpdatedAt()
+                        .truncatedTo(ChronoUnit.MICROS)
+        );
+
+        assertThat(responseBody.get("updatedAt").asText())
+                .isEqualTo(
+                        persistedComment
+                                .getUpdatedAt()
+                                .toString()
+                );
+    }
+
+    @Test
+    void shouldReturnNotFoundWhenCommentDoesNotBelongToPathPost()
+            throws Exception {
+
+        var targetPost =
+                seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+
+        var otherPost =
+                seedPost(UUID.randomUUID(), PostStatus.ACTIVE);
+
+        var foreignComment =
+                seedComment(
+                        otherPost.getId(),
+                        COMMENTER_ID,
+                        "before",
+                        null
+                );
+
+        mockMvc.perform(
+                        put(
+                                "/api/posts/{postId}/comments/{commentId}",
+                                targetPost.getId(),
+                                foreignComment.getId()
+                        )
+                                .with(jwtFor(COMMENTER_ID))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        objectMapper.writeValueAsString(
+                                                Map.of(
+                                                        "content",
+                                                        "after"
+                                                )
+                                        )
+                                )
+                )
+                .andExpect(status().isNotFound())
+                .andExpect(
+                        jsonPath("$.errorCode")
+                                .value("NOT_FOUND")
+                );
+    }
+
+    @Test
+    void shouldReturnForbiddenWhenRequesterIsNotOriginalAuthor()
+            throws Exception {
+
+        var postEntity =
+                seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+
+        var comment =
+                seedComment(
+                        postEntity.getId(),
+                        UUID.randomUUID(),
+                        "before",
+                        null
+                );
+
+        mockMvc.perform(
+                        put(
+                                "/api/posts/{postId}/comments/{commentId}",
+                                postEntity.getId(),
+                                comment.getId()
+                        )
+                                .with(jwtFor(COMMENTER_ID))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        objectMapper.writeValueAsString(
+                                                Map.of(
+                                                        "content",
+                                                        "after"
+                                                )
+                                        )
+                                )
+                )
+                .andExpect(status().isForbidden())
+                .andExpect(
+                        jsonPath("$.errorCode")
+                                .value("FORBIDDEN")
+                );
+    }
+
+    @Test
+    void shouldReturnBadRequestWhenCommentIsDeleted()
+            throws Exception {
+
+        var postEntity =
+                seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+
+        var comment =
+                seedComment(
+                        postEntity.getId(),
+                        COMMENTER_ID,
+                        "before",
+                        null
+                );
+
         comment.setStatus(CommentStatus.DELETED);
         comment.setDeletedAt(Instant.now());
+
         commentJpaRepository.save(comment);
 
-        mockMvc.perform(put("/api/posts/{postId}/comments/{commentId}", postEntity.getId(), comment.getId())
-                        .with(jwtFor(COMMENTER_ID))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("content", "after"))))
+        mockMvc.perform(
+                        put(
+                                "/api/posts/{postId}/comments/{commentId}",
+                                postEntity.getId(),
+                                comment.getId()
+                        )
+                                .with(jwtFor(COMMENTER_ID))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        objectMapper.writeValueAsString(
+                                                Map.of(
+                                                        "content",
+                                                        "after"
+                                                )
+                                        )
+                                )
+                )
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.errorCode").value("BAD_REQUEST"));
+                .andExpect(
+                        jsonPath("$.errorCode")
+                                .value("BAD_REQUEST")
+                );
     }
 
     @Test
-    void shouldReturnBadRequestWhenCommentIsBanned() throws Exception {
-        var postEntity = seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
-        var comment = seedComment(postEntity.getId(), COMMENTER_ID, "before", null);
+    void shouldReturnBadRequestWhenCommentIsBanned()
+            throws Exception {
+
+        var postEntity =
+                seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+
+        var comment =
+                seedComment(
+                        postEntity.getId(),
+                        COMMENTER_ID,
+                        "before",
+                        null
+                );
+
         comment.setStatus(CommentStatus.BANNED);
         comment.setDeletedAt(Instant.now());
+
         commentJpaRepository.save(comment);
 
-        mockMvc.perform(put("/api/posts/{postId}/comments/{commentId}", postEntity.getId(), comment.getId())
-                        .with(jwtFor(COMMENTER_ID))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("content", "after"))))
+        mockMvc.perform(
+                        put(
+                                "/api/posts/{postId}/comments/{commentId}",
+                                postEntity.getId(),
+                                comment.getId()
+                        )
+                                .with(jwtFor(COMMENTER_ID))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        objectMapper.writeValueAsString(
+                                                Map.of(
+                                                        "content",
+                                                        "after"
+                                                )
+                                        )
+                                )
+                )
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.errorCode").value("BAD_REQUEST"));
+                .andExpect(
+                        jsonPath("$.errorCode")
+                                .value("BAD_REQUEST")
+                );
     }
 
-    private PostEntity seedPost(UUID ownerId, PostStatus status) {
-        return postJpaRepository.save(PostEntity.builder()
-                .id(UUID.randomUUID())
-                .userId(ownerId)
-                .description("post")
-                .taggedUsers(new java.util.ArrayList<>())
-                .tags(new java.util.ArrayList<>())
-                .status(status)
-                .build());
+    private PostEntity seedPost(
+            UUID ownerId,
+            PostStatus status
+    ) {
+        return postJpaRepository.save(
+                PostEntity.builder()
+                        .id(UUID.randomUUID())
+                        .userId(ownerId)
+                        .description("post")
+                        .taggedUsers(new java.util.ArrayList<>())
+                        .tags(new java.util.ArrayList<>())
+                        .status(status)
+                        .build()
+        );
     }
 
-    private CommentEntity seedComment(UUID postId, UUID userId, String content, UUID replyTo) {
-        return commentJpaRepository.save(CommentEntity.builder()
-                .id(UUID.randomUUID())
-                .postId(postId)
-                .userId(userId)
-                .content(content)
-                .replyTo(replyTo)
-                .status(CommentStatus.ACTIVE)
-                .build());
+    private CommentEntity seedComment(
+            UUID postId,
+            UUID userId,
+            String content,
+            UUID replyTo
+    ) {
+        return commentJpaRepository.save(
+                CommentEntity.builder()
+                        .id(UUID.randomUUID())
+                        .postId(postId)
+                        .userId(userId)
+                        .content(content)
+                        .replyTo(replyTo)
+                        .status(CommentStatus.ACTIVE)
+                        .build()
+        );
     }
 
     private CommentEntity refreshedComment(UUID commentId) {
-        return commentJpaRepository.findById(commentId).orElseThrow();
+        return commentJpaRepository
+                .findById(commentId)
+                .orElseThrow();
     }
 
-    private JsonNode readResponse(org.springframework.test.web.servlet.MvcResult result) throws Exception {
-        return objectMapper.readTree(result.getResponse().getContentAsString());
+    private JsonNode readResponse(
+            org.springframework.test.web.servlet.MvcResult result
+    ) throws Exception {
+
+        return objectMapper.readTree(
+                result.getResponse().getContentAsString()
+        );
     }
 
-    private SecurityMockMvcRequestPostProcessors.JwtRequestPostProcessor jwtFor(UUID userId) {
-        return jwt().jwt(jwt -> jwt.subject(userId.toString()));
+    private SecurityMockMvcRequestPostProcessors.JwtRequestPostProcessor jwtFor(
+            UUID userId
+    ) {
+        return jwt().jwt(
+                jwt -> jwt.subject(userId.toString())
+        );
     }
 }

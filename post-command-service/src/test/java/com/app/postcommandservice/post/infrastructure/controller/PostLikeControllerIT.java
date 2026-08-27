@@ -11,6 +11,7 @@ import org.springframework.http.HttpStatus;
 
 import com.app.postcommandservice.comment.application.dto.CommentResponse;
 import com.app.postcommandservice.comment.application.usecase.CreateCommentUseCase;
+import com.app.postcommandservice.comment.application.usecase.DeleteCommentUseCase;
 import com.app.postcommandservice.like.application.usecase.DispatchValidatePostLikeCommandUseCase;
 import com.app.postcommandservice.like.application.usecase.DispatchValidatePostUnlikeCommandUseCase;
 import com.app.postcommandservice.like.domain.model.PostLikeSource;
@@ -40,6 +41,9 @@ class PostLikeControllerIT {
 
     @Mock
     private CreateCommentUseCase createCommentUseCase;
+
+    @Mock
+    private DeleteCommentUseCase deleteCommentUseCase;
 
     @Mock
     private DispatchValidatePostLikeCommandUseCase dispatchValidatePostLikeCommandUseCase;
@@ -99,6 +103,21 @@ class PostLikeControllerIT {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).isEqualTo(responseBody);
+    }
+
+    @Test
+    void shouldDeleteCommentAndReturnNoContent() {
+        var postId = UUID.randomUUID();
+        var commentId = UUID.randomUUID();
+        var userId = UUID.randomUUID();
+        when(securityUtils.getUserId()).thenReturn(userId);
+
+        var response = postController.deleteComment(postId, commentId);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        verify(deleteCommentUseCase).deleteComment(
+                new com.app.postcommandservice.comment.application.commands.DeleteCommentCommand(postId, commentId, userId)
+        );
     }
   
     void shouldDispatchProcessPostViewCommandAndReturnAccepted() {

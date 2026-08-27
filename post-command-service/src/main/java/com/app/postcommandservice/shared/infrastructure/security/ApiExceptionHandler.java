@@ -101,6 +101,14 @@ public class ApiExceptionHandler {
         return buildErrorResponse(HttpStatus.BAD_REQUEST, ApiErrorCode.BLOCKED, exception.getMessage(), request);
     }
 
+    @ExceptionHandler(CommentOwnershipException.class)
+    public ResponseEntity<ApiErrorResponse> handleCommentOwnershipException(
+            CommentOwnershipException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(HttpStatus.FORBIDDEN, ApiErrorCode.FORBIDDEN, exception.getMessage(), request);
+    }
+
     @ExceptionHandler(CommentNotActiveException.class)
     public ResponseEntity<ApiErrorResponse> handleCommentNotActiveException(
             CommentNotActiveException exception,
