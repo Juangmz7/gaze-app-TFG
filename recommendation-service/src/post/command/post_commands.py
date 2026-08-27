@@ -68,8 +68,6 @@ class CreatePostCommentCommand:
 
 @dataclass(frozen=True)
 class RegisterPostViewCommand:
-    event_id: UUID
-    correlation_id: UUID
     occurred_at: datetime
     view_id: UUID
     post_id: UUID

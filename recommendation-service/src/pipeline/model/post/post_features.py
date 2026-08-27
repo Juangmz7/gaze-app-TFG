@@ -7,7 +7,7 @@ class PostFeatures:
             post_id: UUID,
             creator_id: UUID,
             description: str | None,
-            tags: list[str] | None,
+            tags: list[str],
             tagged_users_ids: list[UUID],
             semantic_embedding: list[float],
             created_at: datetime
