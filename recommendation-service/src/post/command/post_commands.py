@@ -47,9 +47,12 @@ class DeletePostCommentLikeCommand:
 
 @dataclass(frozen=True)
 class CreatePostCommentLikeCommand:
-    event_id: UUID
-    correlation_id: UUID
     occurred_at: datetime
+    post_id: UUID
+    user_id: UUID
+    source: PostLikeSource
+    feed_position: int
+    created_at: datetime
 
 
 @dataclass(frozen=True)
