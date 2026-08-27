@@ -18,6 +18,7 @@ import com.app.postcommandservice.comment.application.commands.DeleteCommentComm
 import com.app.postcommandservice.comment.application.commands.UpdateCommentCommand;
 import com.app.postcommandservice.comment.application.dto.CommentResponse;
 import com.app.postcommandservice.comment.application.usecase.CreateCommentUseCase;
+import com.app.postcommandservice.comment.application.usecase.DeleteCommentUseCase;
 import com.app.postcommandservice.comment.application.usecase.UpdateCommentUseCase;
 import com.app.postcommandservice.like.application.usecase.DispatchValidatePostLikeCommandUseCase;
 import com.app.postcommandservice.like.application.usecase.DispatchValidatePostUnlikeCommandUseCase;

@@ -8,6 +8,6 @@ import com.app.postcommandservice.shared.domain.exception.DomainException;
 public class CommentNotActiveException extends DomainException {
 
     public CommentNotActiveException(UUID commentId, CommentStatus status) {
-        super(String.format("Comment %s must be ACTIVE to be deleted, but was %s", commentId, status));
+        super(String.format("Comment %s must be ACTIVE, but was %s", commentId, status));
     }
 }
