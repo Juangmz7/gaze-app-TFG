@@ -56,6 +56,19 @@ public class Comment {
         }
 
         return new Comment(id, postId, userId, content, replyTo, CommentStatus.DELETED, createdAt, updatedAt, deletedAt);
+    public CommentUpdateResult update(String newContent) {
+        var updatedContent = new CommentContent(newContent);
+        if (status != CommentStatus.ACTIVE) {
+            throw new CommentNotActiveException(id.value(), status);
+        }
+        if (content.equals(updatedContent)) {
+            return new CommentUpdateResult(this, false);
+        }
+
+        return new CommentUpdateResult(
+                new Comment(id, postId, userId, updatedContent, replyTo, status, createdAt, updatedAt, deletedAt),
+                true
+        );
     }
 
     public CommentId getId() {

@@ -77,6 +77,14 @@ public class ApiExceptionHandler {
         return buildErrorResponse(HttpStatus.NOT_FOUND, ApiErrorCode.NOT_FOUND, exception.getMessage(), request);
     }
 
+    @ExceptionHandler(CommentOwnershipException.class)
+    public ResponseEntity<ApiErrorResponse> handleCommentOwnershipException(
+            CommentOwnershipException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(HttpStatus.FORBIDDEN, ApiErrorCode.FORBIDDEN, exception.getMessage(), request);
+    }
+
     @ExceptionHandler(TaggedUserBlockedException.class)
     public ResponseEntity<ApiErrorResponse> handleTaggedUserBlockedException(
             TaggedUserBlockedException exception,
