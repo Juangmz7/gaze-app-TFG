@@ -62,6 +62,8 @@ class CreatePostLikeUsecase:
         [post_tag_feature.recalculate_affinity_score() for post_tag_feature in post_tags_features]
 
         self._update_user_semantic_embedding(command.user_id, command.post_id)
+        self.user_creator_features_repository.save(user_creator_features)
+        self.post_tag_features_repository.save_all(post_tags_features)
 
 
     def _update_raw_interaction_stats(interactions_stats: list[RawInteractionStats]):
@@ -76,8 +78,10 @@ class CreatePostLikeUsecase:
 
 
     def _update_user_semantic_embedding(self, user_id: UUID, post_semantic_embedding: list[float] ):
-            user_feature = self.user_features_repository.get_user_features(user_id)
+        user_feature = self.user_features_repository.get_user_features(user_id)
     
-            user_feature.semantic_embedding = (
-                user_feature.semantic_embedding * decay(user_feature.last_updated_at) + post_semantic_embedding * POST_LIKE_WEIGHT
-            )
+        user_feature.semantic_embedding = (
+            user_feature.semantic_embedding * decay(user_feature.last_updated_at) + post_semantic_embedding * POST_LIKE_WEIGHT
+        )
+
+        self.user_features_repository.save(user_feature)
