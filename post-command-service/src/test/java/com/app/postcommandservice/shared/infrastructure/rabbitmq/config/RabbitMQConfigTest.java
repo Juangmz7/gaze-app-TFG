@@ -27,6 +27,7 @@ class RabbitMQConfigTest {
         properties.getRk().getPost().getView().setProcess("rk.post.view.process");
         properties.getRk().getPost().getLike().setValidate("rk.post.like.validate");
         properties.getRk().getPost().getUnlike().setValidate("rk.post.unlike.validate");
+        properties.getRk().getPost().getComment().getLike().setValidate("rk.post.comment.like.validate");
         properties.getRk().getUser().getBlock().setCreated("rk.user.block.created");
         properties.getRk().getUser().getBlock().setDeleted("rk.user.block.deleted");
         properties.getRk().getUser().setRegistered("rk.user.registered");
@@ -54,6 +55,8 @@ class RabbitMQConfigTest {
         assertThat(queues).containsKeys("q.post-command-service.post", "q.post-command-service.post.dlq");
         assertThat(bindings).anyMatch(binding -> "q.post-command-service.post".equals(binding.getDestination())
                 && "rk.post.unlike.validate".equals(binding.getRoutingKey()));
+        assertThat(bindings).anyMatch(binding -> "q.post-command-service.post".equals(binding.getDestination())
+                && "rk.post.comment.like.validate".equals(binding.getRoutingKey()));
         assertThat(bindings).anyMatch(binding -> "q.post-command-service.post.dlq".equals(binding.getDestination())
                 && "q.post-command-service.post.fall-back".equals(binding.getRoutingKey()));
     }

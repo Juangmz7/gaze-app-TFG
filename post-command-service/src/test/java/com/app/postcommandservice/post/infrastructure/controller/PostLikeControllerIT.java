@@ -12,6 +12,8 @@ import org.springframework.http.HttpStatus;
 import com.app.postcommandservice.comment.application.dto.CommentResponse;
 import com.app.postcommandservice.comment.application.usecase.CreateCommentUseCase;
 import com.app.postcommandservice.comment.application.usecase.DeleteCommentUseCase;
+import com.app.postcommandservice.commentlike.application.usecase.DispatchValidateCommentLikeCommandUseCase;
+import com.app.postcommandservice.commentlike.domain.model.CommentLikeSource;
 import com.app.postcommandservice.like.application.usecase.DispatchValidatePostLikeCommandUseCase;
 import com.app.postcommandservice.like.application.usecase.DispatchValidatePostUnlikeCommandUseCase;
 import com.app.postcommandservice.like.domain.model.PostLikeSource;
@@ -44,6 +46,9 @@ class PostLikeControllerIT {
 
     @Mock
     private DeleteCommentUseCase deleteCommentUseCase;
+
+    @Mock
+    private DispatchValidateCommentLikeCommandUseCase dispatchValidateCommentLikeCommandUseCase;
 
     @Mock
     private DispatchValidatePostLikeCommandUseCase dispatchValidatePostLikeCommandUseCase;
@@ -84,6 +89,21 @@ class PostLikeControllerIT {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
         verify(dispatchValidatePostUnlikeCommandUseCase).dispatch(postId, userId, PostLikeSource.USER_PROFILE, 2);
+    }
+
+    @Test
+    void shouldDispatchValidateCommentLikeCommandAndReturnAccepted() {
+        var postId = UUID.randomUUID();
+        var commentId = UUID.randomUUID();
+        var userId = UUID.randomUUID();
+        var request = new CommentLikeRequest(new CommentLikeContextRequest("home_feed", 6));
+        when(securityUtils.getUserId()).thenReturn(userId);
+
+        var response = postController.likeComment(postId, commentId, request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+        verify(dispatchValidateCommentLikeCommandUseCase)
+                .dispatch(postId, commentId, userId, CommentLikeSource.HOME_FEED, 6);
     }
 
     @Test

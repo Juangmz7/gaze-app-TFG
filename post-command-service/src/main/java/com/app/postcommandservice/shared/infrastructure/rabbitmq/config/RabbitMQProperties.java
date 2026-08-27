@@ -115,6 +115,7 @@ public class RabbitMQProperties {
 
                 @Data
                 public static class LikeRk {
+                    private String validate;
                     private String created;
                     private String deleted;
                 }

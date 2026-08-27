@@ -50,6 +50,7 @@ rabbitmq:
         deleted: rk.post.comment.deleted
         banned: rk.post.comment.banned
         like:
+          validate: rk.post.comment.like.validate
           created: rk.post.comment.like.created
           deleted: rk.post.comment.like.deleted
 

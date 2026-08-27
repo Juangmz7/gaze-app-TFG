@@ -1,6 +1,7 @@
-package com.app.postcommandservice.like.infrastructure.entity;
+package com.app.postcommandservice.commentlike.infrastructure.entity;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.EmbeddedId;
@@ -15,23 +16,23 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-import com.app.postcommandservice.like.domain.model.PostLikeSource;
+import com.app.postcommandservice.commentlike.domain.model.CommentLikeSource;
 
 @Entity
-@Table(name = "post_likes")
+@Table(name = "comment_likes")
 @Getter
 @Setter
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class PostLikeEntity {
+public class PostCommentLikeEntity {
 
     @EmbeddedId
-    private PostLikeId id;
+    private PostCommentLikeId id;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, updatable = false)
-    private PostLikeSource source;
+    private CommentLikeSource source;
 
     @Column(name = "feed_position", nullable = false, updatable = false)
     private int feedPosition;
@@ -41,6 +42,6 @@ public class PostLikeEntity {
 
     @PrePersist
     void onCreate() {
-        createdAt = Instant.now();
+        createdAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
     }
 }
