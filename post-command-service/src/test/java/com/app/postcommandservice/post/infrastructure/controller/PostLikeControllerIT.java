@@ -13,6 +13,7 @@ import com.app.postcommandservice.comment.application.dto.CommentResponse;
 import com.app.postcommandservice.comment.application.usecase.CreateCommentUseCase;
 import com.app.postcommandservice.comment.application.usecase.DeleteCommentUseCase;
 import com.app.postcommandservice.commentlike.application.usecase.DispatchValidateCommentLikeCommandUseCase;
+import com.app.postcommandservice.commentlike.application.usecase.DispatchValidateCommentUnlikeCommandUseCase;
 import com.app.postcommandservice.commentlike.domain.model.CommentLikeSource;
 import com.app.postcommandservice.like.application.usecase.DispatchValidatePostLikeCommandUseCase;
 import com.app.postcommandservice.like.application.usecase.DispatchValidatePostUnlikeCommandUseCase;
@@ -49,6 +50,9 @@ class PostLikeControllerIT {
 
     @Mock
     private DispatchValidateCommentLikeCommandUseCase dispatchValidateCommentLikeCommandUseCase;
+
+    @Mock
+    private DispatchValidateCommentUnlikeCommandUseCase dispatchValidateCommentUnlikeCommandUseCase;
 
     @Mock
     private DispatchValidatePostLikeCommandUseCase dispatchValidatePostLikeCommandUseCase;
@@ -104,6 +108,21 @@ class PostLikeControllerIT {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
         verify(dispatchValidateCommentLikeCommandUseCase)
                 .dispatch(postId, commentId, userId, CommentLikeSource.HOME_FEED, 6);
+    }
+
+    @Test
+    void shouldDispatchValidateCommentUnlikeCommandAndReturnAccepted() {
+        var postId = UUID.randomUUID();
+        var commentId = UUID.randomUUID();
+        var userId = UUID.randomUUID();
+        var request = new CommentLikeRequest(new CommentLikeContextRequest("search", 1));
+        when(securityUtils.getUserId()).thenReturn(userId);
+
+        var response = postController.unlikeComment(postId, commentId, request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+        verify(dispatchValidateCommentUnlikeCommandUseCase)
+                .dispatch(postId, commentId, userId, CommentLikeSource.SEARCH, 1);
     }
 
     @Test
