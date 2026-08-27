@@ -46,7 +46,11 @@ class PostCommentLikeDeletedEvent(EventMessage):
 
 
 class PostCommentLikeCreatedEvent(EventMessage):
-    pass
+    postId: UUID
+    userId: UUID
+    source: PostLikeSource
+    feedPosition: int
+    createdAt: datetime
 
 
 class PostCommentDeletedEvent(EventMessage):
