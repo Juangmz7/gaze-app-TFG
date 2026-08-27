@@ -19,6 +19,8 @@ import com.app.postcommandservice.shared.infrastructure.rabbitmq.listener.Abstra
 import com.app.postcommandservice.shared.infrastructure.repository.ProcessedEventsRepository;
 import com.app.postcommandservice.view.application.commands.ProcessPostViewCommand;
 import com.app.postcommandservice.view.application.usecase.ProcessPostViewUseCase;
+import com.app.postcommandservice.commentlike.application.commands.ValidateCommentLikeCommand;
+import com.app.postcommandservice.commentlike.application.usecase.ValidateCommentLikeUseCase;
 
 @Slf4j
 @Component
@@ -28,17 +30,20 @@ public class PostLikeRabbitMQListener extends AbstractRabbitMQListenerSupport {
     private final ValidatePostLikeUseCase validatePostLikeUseCase;
     private final ValidatePostUnlikeUseCase validatePostUnlikeUseCase;
     private final ProcessPostViewUseCase processPostViewUseCase;
+    private final ValidateCommentLikeUseCase validateCommentLikeUseCase;
 
     public PostLikeRabbitMQListener(
             ValidatePostLikeUseCase validatePostLikeUseCase,
             ValidatePostUnlikeUseCase validatePostUnlikeUseCase,
             ProcessPostViewUseCase processPostViewUseCase,
+            ValidateCommentLikeUseCase validateCommentLikeUseCase,
             ProcessedEventsRepository processedEventsRepository,
             RabbitMQProperties rabbitMQProperties) {
         super(processedEventsRepository, rabbitMQProperties);
         this.validatePostLikeUseCase = validatePostLikeUseCase;
         this.validatePostUnlikeUseCase = validatePostUnlikeUseCase;
         this.processPostViewUseCase = processPostViewUseCase;
+        this.validateCommentLikeUseCase = validateCommentLikeUseCase;
     }
 
     @Transactional
@@ -65,6 +70,19 @@ public class PostLikeRabbitMQListener extends AbstractRabbitMQListenerSupport {
 
         validatePostUnlikeUseCase.validateAndDeleteLike(command);
         setEventAsProcessed(command.id(), command.correlationId(), ValidatePostUnlikeCommand.class.getSimpleName());
+    }
+
+    @Transactional
+    @RabbitHandler
+    public void onValidateCommentLike(ValidateCommentLikeCommand command) {
+        validateCommand(command);
+        if (isEventAlreadyProcessed(command.id(), command.correlationId())) {
+            log.warn("Detected duplicate validate comment like command {}, skipping", command.id());
+            return;
+        }
+
+        validateCommentLikeUseCase.validateAndCreateLike(command);
+        setEventAsProcessed(command.id(), command.correlationId(), ValidateCommentLikeCommand.class.getSimpleName());
     }
 
     @Transactional
@@ -105,6 +123,23 @@ public class PostLikeRabbitMQListener extends AbstractRabbitMQListenerSupport {
                 command == null ? null : command.userId()
         );
         validateContext(command == null ? null : command.source(), command == null ? null : command.feedPosition());
+    }
+
+    private void validateCommand(ValidateCommentLikeCommand command) {
+        validateCommand(
+                command == null ? null : command.id(),
+                command == null ? null : command.correlationId(),
+                command == null ? null : command.occurredAt(),
+                command == null ? null : command.postId(),
+                command == null ? null : command.userId()
+        );
+        if (command == null) {
+            return;
+        }
+        if (command.commentId() == null) {
+            throw new IllegalArgumentException("command.commentId must not be null");
+        }
+        validateContext(command.source(), command.feedPosition());
     }
 
     private void validateCommand(ProcessPostViewCommand command) {

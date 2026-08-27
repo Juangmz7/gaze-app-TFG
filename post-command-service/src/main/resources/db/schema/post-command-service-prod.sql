@@ -17,3 +17,12 @@ ALTER TABLE post_likes
 
 ALTER TABLE post_likes
     ALTER COLUMN feed_position SET NOT NULL;
+
+CREATE TABLE IF NOT EXISTS comment_likes (
+    comment_id UUID NOT NULL,
+    user_id UUID NOT NULL,
+    source VARCHAR(255) NOT NULL,
+    feed_position INTEGER NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    CONSTRAINT pk_comment_likes PRIMARY KEY (comment_id, user_id)
+);

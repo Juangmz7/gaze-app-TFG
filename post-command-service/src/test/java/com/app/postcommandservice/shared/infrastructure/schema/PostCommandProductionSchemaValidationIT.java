@@ -16,7 +16,6 @@ import org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.jdbc.ContainerDatabaseDriver;
 import org.testcontainers.utility.DockerImageName;
 
 import com.zaxxer.hikari.HikariConfig;
@@ -52,6 +51,20 @@ class PostCommandProductionSchemaValidationIT {
         assertThatThrownBy(() -> bootstrapSchema("validate"))
                 .hasRootCauseInstanceOf(Exception.class)
                 .hasMessageContaining("post_likes");
+
+        applySchemaPatch("db/schema/post-command-service-prod.sql");
+
+        assertThatNoException().isThrownBy(() -> bootstrapSchema("validate"));
+    }
+
+    @Test
+    void shouldRequireTrackedSchemaPatchBeforeProductionValidationPassesForCommentLikesTable() {
+        bootstrapSchema("create");
+        execute("DROP TABLE IF EXISTS comment_likes");
+
+        assertThatThrownBy(() -> bootstrapSchema("validate"))
+                .hasRootCauseInstanceOf(Exception.class)
+                .hasMessageContaining("comment_likes");
 
         applySchemaPatch("db/schema/post-command-service-prod.sql");
 
@@ -98,7 +111,7 @@ class PostCommandProductionSchemaValidationIT {
 
     private DataSource dataSource() {
         HikariConfig config = new HikariConfig();
-        config.setDriverClassName(ContainerDatabaseDriver.class.getName());
+        config.setDriverClassName(org.postgresql.Driver.class.getName());
         config.setJdbcUrl(POSTGRES.getJdbcUrl());
         config.setUsername(POSTGRES.getUsername());
         config.setPassword(POSTGRES.getPassword());
