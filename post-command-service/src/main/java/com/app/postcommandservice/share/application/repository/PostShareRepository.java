@@ -8,5 +8,7 @@ public interface PostShareRepository {
 
     boolean existsByPostIdAndUserId(UUID postId, UUID userId);
 
+    int deleteByPostIdAndUserId(UUID postId, UUID userId);
+
     PostShare save(PostShare postShare);
 }

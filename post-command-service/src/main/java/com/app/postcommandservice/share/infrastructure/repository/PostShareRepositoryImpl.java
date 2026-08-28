@@ -23,6 +23,11 @@ public class PostShareRepositoryImpl implements PostShareRepository {
     }
 
     @Override
+    public int deleteByPostIdAndUserId(UUID postId, UUID userId) {
+        return postShareJpaRepository.deleteByPostIdAndUserId(postId, userId);
+    }
+
+    @Override
     public PostShare save(PostShare postShare) {
         return postShareMapper.toDomain(postShareJpaRepository.save(postShareMapper.toEntity(postShare)));
     }
