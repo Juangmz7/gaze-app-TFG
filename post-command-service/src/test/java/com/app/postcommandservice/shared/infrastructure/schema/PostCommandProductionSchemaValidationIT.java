@@ -71,6 +71,20 @@ class PostCommandProductionSchemaValidationIT {
         assertThatNoException().isThrownBy(() -> bootstrapSchema("validate"));
     }
 
+    @Test
+    void shouldRequireTrackedSchemaPatchBeforeProductionValidationPassesForPostSharesTable() {
+        bootstrapSchema("create");
+        execute("DROP TABLE IF EXISTS post_shares");
+
+        assertThatThrownBy(() -> bootstrapSchema("validate"))
+                .hasRootCauseInstanceOf(Exception.class)
+                .hasMessageContaining("post_shares");
+
+        applySchemaPatch("db/schema/post-command-service-prod.sql");
+
+        assertThatNoException().isThrownBy(() -> bootstrapSchema("validate"));
+    }
+
     private void applySchemaPatch(String resourcePath) {
         ResourceDatabasePopulator populator = new ResourceDatabasePopulator(new ClassPathResource(resourcePath));
         populator.execute(dataSource());

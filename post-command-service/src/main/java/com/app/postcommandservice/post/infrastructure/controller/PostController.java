@@ -30,6 +30,8 @@ import com.app.postcommandservice.post.application.dto.PostResponse;
 import com.app.postcommandservice.post.application.usecase.CreatePostUseCase;
 import com.app.postcommandservice.post.application.usecase.DeletePostUseCase;
 import com.app.postcommandservice.post.application.usecase.UpdatePostUseCase;
+import com.app.postcommandservice.share.application.commands.CreatePostShareCommand;
+import com.app.postcommandservice.share.application.usecase.CreatePostShareUseCase;
 import com.app.postcommandservice.shared.infrastructure.security.SecurityUtils;
 import com.app.postcommandservice.view.application.usecase.DispatchProcessPostViewCommandUseCase;
 
@@ -48,6 +50,7 @@ public class PostController {
     private final DispatchValidatePostLikeCommandUseCase dispatchValidatePostLikeCommandUseCase;
     private final DispatchValidatePostUnlikeCommandUseCase dispatchValidatePostUnlikeCommandUseCase;
     private final DispatchProcessPostViewCommandUseCase dispatchProcessPostViewCommandUseCase;
+    private final CreatePostShareUseCase createPostShareUseCase;
     private final SecurityUtils securityUtils;
 
     @PostMapping
@@ -131,6 +134,17 @@ public class PostController {
                 request.context().feedPosition()
         );
         return ResponseEntity.accepted().build();
+    }
+
+    @PostMapping("/{postId}/share")
+    public ResponseEntity<Void> sharePost(@PathVariable("postId") java.util.UUID postId) {
+        var currentUserId = securityUtils.getUserId();
+        if (currentUserId == null) {
+            throw new AuthenticationCredentialsNotFoundException("JWT subject claim is missing or invalid");
+        }
+
+        createPostShareUseCase.share(new CreatePostShareCommand(postId, currentUserId));
+        return ResponseEntity.ok().build();
     }
 
     @PostMapping("/{postId}/comments")
