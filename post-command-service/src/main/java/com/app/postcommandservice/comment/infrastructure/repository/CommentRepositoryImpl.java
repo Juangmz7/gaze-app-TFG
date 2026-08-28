@@ -28,6 +28,11 @@ public class CommentRepositoryImpl implements CommentRepository {
     }
 
     @Override
+    public Optional<Comment> findById(UUID commentId) {
+        return commentJpaRepository.findById(commentId).map(commentMapper::toDomain);
+    }
+
+    @Override
     public Optional<Comment> findByIdAndPostId(UUID commentId, UUID postId) {
         return commentJpaRepository.findByIdAndPostId(commentId, postId).map(commentMapper::toDomain);
     }
