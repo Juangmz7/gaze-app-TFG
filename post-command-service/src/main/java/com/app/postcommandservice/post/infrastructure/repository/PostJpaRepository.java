@@ -12,6 +12,8 @@ import com.app.postcommandservice.post.infrastructure.entity.PostEntity;
 
 public interface PostJpaRepository extends JpaRepository<PostEntity, UUID> {
 
+    Optional<PostEntity> findFirstByCollabId(UUID collabId);
+
     @Query("""
             SELECT post.userId
             FROM PostEntity post

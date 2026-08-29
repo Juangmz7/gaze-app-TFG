@@ -27,6 +27,7 @@ import com.app.postcommandservice.post.domain.model.valueobj.PostId;
 import com.app.postcommandservice.post.domain.model.valueobj.PostStatus;
 import com.app.postcommandservice.post.domain.model.valueobj.PostTaggedUsers;
 import com.app.postcommandservice.post.domain.model.valueobj.PostTags;
+import com.app.postcommandservice.post.domain.model.valueobj.PostType;
 import com.app.postcommandservice.post.infrastructure.events.PostDeletedEvent;
 import com.app.postcommandservice.post.infrastructure.mapper.PostEventMapper;
 import com.app.postcommandservice.shared.domain.model.user.valueobj.UserId;
@@ -161,6 +162,8 @@ class DeletePostUseCaseTest {
         return new Post(
                 new PostId(POST_ID),
                 new UserId(ownerId),
+                null,
+                PostType.BASIC,
                 new PostDescription("description"),
                 new PostTaggedUsers(new LinkedHashSet<>(Set.of("alice"))),
                 new PostTags(new LinkedHashSet<>(Set.of("java"))),

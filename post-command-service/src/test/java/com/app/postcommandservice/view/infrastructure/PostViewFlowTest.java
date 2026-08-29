@@ -28,6 +28,7 @@ import org.springframework.web.context.WebApplicationContext;
 
 import com.app.postcommandservice.TestcontainersConfiguration;
 import com.app.postcommandservice.post.domain.model.valueobj.PostStatus;
+import com.app.postcommandservice.post.domain.model.valueobj.PostType;
 import com.app.postcommandservice.post.infrastructure.entity.BlockReadModelEntity;
 import com.app.postcommandservice.post.infrastructure.entity.BlockReadModelId;
 import com.app.postcommandservice.post.infrastructure.entity.PostEntity;
@@ -195,7 +196,9 @@ class PostViewFlowTest {
         var inactivePost = postJpaRepository.save(PostEntity.builder()
                 .id(UUID.randomUUID())
                 .userId(UUID.randomUUID())
+                .collabId(null)
                 .description("inactive")
+                .postType(PostType.BASIC)
                 .status(PostStatus.DELETED)
                 .build());
 
@@ -262,7 +265,9 @@ class PostViewFlowTest {
         return postJpaRepository.save(PostEntity.builder()
                 .id(UUID.randomUUID())
                 .userId(ownerId)
+                .collabId(null)
                 .description("active")
+                .postType(PostType.BASIC)
                 .status(PostStatus.ACTIVE)
                 .build());
     }

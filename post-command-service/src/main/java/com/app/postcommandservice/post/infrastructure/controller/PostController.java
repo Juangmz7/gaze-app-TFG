@@ -31,6 +31,7 @@ import com.app.postcommandservice.post.application.dto.PostResponse;
 import com.app.postcommandservice.post.application.usecase.CreatePostUseCase;
 import com.app.postcommandservice.post.application.usecase.DeletePostUseCase;
 import com.app.postcommandservice.post.application.usecase.UpdatePostUseCase;
+import com.app.postcommandservice.post.domain.model.valueobj.PostType;
 import com.app.postcommandservice.shared.infrastructure.security.SecurityUtils;
 import com.app.postcommandservice.view.application.usecase.DispatchProcessPostViewCommandUseCase;
 
@@ -62,6 +63,8 @@ public class PostController {
         var command = new CreatePostCommand(
                 request.correlationId(),
                 currentUserId,
+                null,
+                PostType.BASIC,
                 request.description(),
                 request.taggedUsers(),
                 request.postTags()
