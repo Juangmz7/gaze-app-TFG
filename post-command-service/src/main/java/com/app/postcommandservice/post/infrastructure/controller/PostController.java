@@ -141,7 +141,13 @@ public class PostController {
         if (currentUserId == null) {
             throw new AuthenticationCredentialsNotFoundException("JWT subject claim is missing or invalid");
         }
-        var command = new CreateCommentCommand(postId, currentUserId, request.content(), request.replyTo());
+        var command = new CreateCommentCommand(
+                request.correlationId(),
+                postId,
+                currentUserId,
+                request.content(),
+                request.replyTo()
+        );
         return ResponseEntity.ok(createCommentUseCase.createComment(command));
     }
 

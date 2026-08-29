@@ -26,3 +26,14 @@ CREATE TABLE IF NOT EXISTS comment_likes (
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
     CONSTRAINT pk_comment_likes PRIMARY KEY (comment_id, user_id)
 );
+
+CREATE TABLE IF NOT EXISTS comment_request_idempotency (
+    correlation_id UUID NOT NULL,
+    comment_id UUID NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    CONSTRAINT pk_comment_request_idempotency PRIMARY KEY (correlation_id),
+    CONSTRAINT uk_comment_request_idempotency_comment_id UNIQUE (comment_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_comment_request_idempotency_comment_id
+    ON comment_request_idempotency (comment_id);

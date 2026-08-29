@@ -71,6 +71,20 @@ class PostCommandProductionSchemaValidationIT {
         assertThatNoException().isThrownBy(() -> bootstrapSchema("validate"));
     }
 
+    @Test
+    void shouldRequireTrackedSchemaPatchBeforeProductionValidationPassesForCommentRequestIdempotencyTable() {
+        bootstrapSchema("create");
+        execute("DROP TABLE IF EXISTS comment_request_idempotency");
+
+        assertThatThrownBy(() -> bootstrapSchema("validate"))
+                .hasRootCauseInstanceOf(Exception.class)
+                .hasMessageContaining("comment_request_idempotency");
+
+        applySchemaPatch("db/schema/post-command-service-prod.sql");
+
+        assertThatNoException().isThrownBy(() -> bootstrapSchema("validate"));
+    }
+
     private void applySchemaPatch(String resourcePath) {
         ResourceDatabasePopulator populator = new ResourceDatabasePopulator(new ClassPathResource(resourcePath));
         populator.execute(dataSource());

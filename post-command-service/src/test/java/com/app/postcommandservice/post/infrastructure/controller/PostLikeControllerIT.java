@@ -110,16 +110,18 @@ class PostLikeControllerIT {
     void shouldCreateCommentAndReturnOk() {
         var postId = UUID.randomUUID();
         var userId = UUID.randomUUID();
+        var correlationId = UUID.randomUUID();
         var responseBody = new CommentResponse(UUID.randomUUID(), postId, userId, "hello", null, null, null);
         when(securityUtils.getUserId()).thenReturn(userId);
         when(createCommentUseCase.createComment(new com.app.postcommandservice.comment.application.commands.CreateCommentCommand(
+                correlationId,
                 postId,
                 userId,
                 "hello",
                 null
         ))).thenReturn(responseBody);
 
-        var response = postController.createComment(postId, new CreateCommentRequest("hello", null));
+        var response = postController.createComment(postId, new CreateCommentRequest(correlationId, "hello", null));
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).isEqualTo(responseBody);

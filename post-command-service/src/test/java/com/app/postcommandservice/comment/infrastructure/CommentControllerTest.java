@@ -2,8 +2,15 @@ package com.app.postcommandservice.comment.infrastructure;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -25,6 +32,7 @@ import com.app.postcommandservice.TestcontainersConfiguration;
 import com.app.postcommandservice.comment.domain.model.valueobj.CommentStatus;
 import com.app.postcommandservice.comment.infrastructure.entity.CommentEntity;
 import com.app.postcommandservice.comment.infrastructure.repository.CommentJpaRepository;
+import com.app.postcommandservice.comment.infrastructure.repository.CommentRequestIdempotencyJpaRepository;
 import com.app.postcommandservice.post.domain.model.valueobj.PostStatus;
 import com.app.postcommandservice.post.infrastructure.entity.BlockReadModelEntity;
 import com.app.postcommandservice.post.infrastructure.entity.BlockReadModelId;
@@ -63,6 +71,9 @@ class CommentControllerTest {
     private CommentJpaRepository commentJpaRepository;
 
     @Autowired
+    private CommentRequestIdempotencyJpaRepository commentRequestIdempotencyJpaRepository;
+
+    @Autowired
     private BlockReadModelJpaRepository blockReadModelJpaRepository;
 
     private MockMvc mockMvc;
@@ -80,6 +91,7 @@ class CommentControllerTest {
     @AfterEach
     void tearDown() {
         blockReadModelJpaRepository.deleteAll();
+        commentRequestIdempotencyJpaRepository.deleteAll();
         commentJpaRepository.deleteAll();
         postJpaRepository.deleteAll();
     }
@@ -87,6 +99,7 @@ class CommentControllerTest {
     @Test
     void shouldCreateCommentAndReturnExpectedBodyWhenPostIsActive() throws Exception {
         var postEntity = seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+        var correlationId = UUID.randomUUID();
 
         mockMvc.perform(
                         post(
@@ -98,6 +111,8 @@ class CommentControllerTest {
                                 .content(
                                         objectMapper.writeValueAsString(
                                                 Map.of(
+                                                        "correlationId",
+                                                        correlationId,
                                                         "content",
                                                         "hello comment"
                                                 )
@@ -135,6 +150,99 @@ class CommentControllerTest {
 
         assertThat(persistedComment.getReplyTo())
                 .isNull();
+
+        assertThat(commentRequestIdempotencyJpaRepository.findById(correlationId))
+                .isPresent()
+                .get()
+                .extracting(idempotency -> idempotency.getCommentId())
+                .isEqualTo(persistedComment.getId());
+    }
+
+    @Test
+    void shouldReturnBadRequestWhenCreateCommentOmitsCorrelationId() throws Exception {
+        var postEntity = seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+
+        mockMvc.perform(
+                        post("/api/posts/{postId}/comments", postEntity.getId())
+                                .with(jwtFor(COMMENTER_ID))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        objectMapper.writeValueAsString(
+                                                Map.of(
+                                                        "content",
+                                                        "hello comment"
+                                                )
+                                        )
+                                )
+                )
+                .andExpect(status().isBadRequest());
+
+        assertThat(commentJpaRepository.count()).isEqualTo(0);
+        assertThat(commentRequestIdempotencyJpaRepository.count()).isEqualTo(0);
+    }
+
+    @Test
+    void shouldReturnSameCommentBodyWhenCalledTwiceWithTheSameCorrelationId() throws Exception {
+        var postEntity = seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+        var correlationId = UUID.randomUUID();
+        var payload = objectMapper.writeValueAsString(Map.of(
+                "correlationId", correlationId,
+                "content", "hello comment"
+        ));
+
+        var firstResponse = mockMvc.perform(
+                        post("/api/posts/{postId}/comments", postEntity.getId())
+                                .with(jwtFor(COMMENTER_ID))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(payload)
+                )
+                .andExpect(status().isOk())
+                .andReturn();
+
+        var secondResponse = mockMvc.perform(
+                        post("/api/posts/{postId}/comments", postEntity.getId())
+                                .with(jwtFor(COMMENTER_ID))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(payload)
+                )
+                .andExpect(status().isOk())
+                .andReturn();
+
+        assertCommentBodiesEqual(readResponse(firstResponse), readResponse(secondResponse));
+        assertThat(commentJpaRepository.count()).isEqualTo(1);
+        assertThat(commentRequestIdempotencyJpaRepository.count()).isEqualTo(1);
+    }
+
+    @Test
+    void shouldReturnSameCommentBodyWhenConcurrentRequestsReuseTheSameCorrelationId() throws Exception {
+        var postEntity = seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+        var correlationId = UUID.randomUUID();
+        var payload = objectMapper.writeValueAsString(Map.of(
+                "correlationId", correlationId,
+                "content", "concurrent comment"
+        ));
+        var readyLatch = new CountDownLatch(2);
+        var startLatch = new CountDownLatch(1);
+
+        try (ExecutorService executorService = Executors.newFixedThreadPool(2)) {
+            List<Future<String>> futures = new ArrayList<>();
+            for (int index = 0; index < 2; index++) {
+                futures.add(executorService.submit(
+                        concurrentCreateCommentRequest(postEntity.getId(), payload, readyLatch, startLatch)
+                ));
+            }
+
+            readyLatch.await();
+            startLatch.countDown();
+
+            var firstBody = objectMapper.readTree(futures.get(0).get());
+            var secondBody = objectMapper.readTree(futures.get(1).get());
+
+            assertCommentBodiesEqual(firstBody, secondBody);
+        }
+
+        assertThat(commentJpaRepository.count()).isEqualTo(1);
+        assertThat(commentRequestIdempotencyJpaRepository.count()).isEqualTo(1);
     }
 
     @Test
@@ -162,6 +270,8 @@ class CommentControllerTest {
                                 .content(
                                         objectMapper.writeValueAsString(
                                                 Map.of(
+                                                        "correlationId",
+                                                        UUID.randomUUID(),
                                                         "content",
                                                         "reply comment",
                                                         "replyTo",
@@ -198,6 +308,8 @@ class CommentControllerTest {
                                 .content(
                                         objectMapper.writeValueAsString(
                                                 Map.of(
+                                                        "correlationId",
+                                                        UUID.randomUUID(),
                                                         "content",
                                                         "hello comment"
                                                 )
@@ -228,6 +340,8 @@ class CommentControllerTest {
                                 .content(
                                         objectMapper.writeValueAsString(
                                                 Map.of(
+                                                        "correlationId",
+                                                        UUID.randomUUID(),
                                                         "content",
                                                         "hello comment"
                                                 )
@@ -269,6 +383,8 @@ class CommentControllerTest {
                                 .content(
                                         objectMapper.writeValueAsString(
                                                 Map.of(
+                                                        "correlationId",
+                                                        UUID.randomUUID(),
                                                         "content",
                                                         "reply comment",
                                                         "replyTo",
@@ -311,6 +427,8 @@ class CommentControllerTest {
                                 .content(
                                         objectMapper.writeValueAsString(
                                                 Map.of(
+                                                        "correlationId",
+                                                        UUID.randomUUID(),
                                                         "content",
                                                         "hello comment"
                                                 )
@@ -362,6 +480,8 @@ class CommentControllerTest {
                                 .content(
                                         objectMapper.writeValueAsString(
                                                 Map.of(
+                                                        "correlationId",
+                                                        UUID.randomUUID(),
                                                         "content",
                                                         "reply comment",
                                                         "replyTo",
@@ -984,6 +1104,29 @@ class CommentControllerTest {
                 .orElseThrow();
     }
 
+    private Callable<String> concurrentCreateCommentRequest(
+            UUID postId,
+            String payload,
+            CountDownLatch readyLatch,
+            CountDownLatch startLatch
+    ) {
+        return () -> {
+            readyLatch.countDown();
+            startLatch.await();
+
+            return mockMvc.perform(
+                            post("/api/posts/{postId}/comments", postId)
+                                    .with(jwtFor(COMMENTER_ID))
+                                    .contentType(MediaType.APPLICATION_JSON)
+                                    .content(payload)
+                    )
+                    .andExpect(status().isOk())
+                    .andReturn()
+                    .getResponse()
+                    .getContentAsString();
+        };
+    }
+
     private JsonNode readResponse(
             org.springframework.test.web.servlet.MvcResult result
     ) throws Exception {
@@ -991,6 +1134,18 @@ class CommentControllerTest {
         return objectMapper.readTree(
                 result.getResponse().getContentAsString()
         );
+    }
+
+    private void assertCommentBodiesEqual(JsonNode firstBody, JsonNode secondBody) {
+        assertThat(firstBody.get("commentId").asText()).isEqualTo(secondBody.get("commentId").asText());
+        assertThat(firstBody.get("postId").asText()).isEqualTo(secondBody.get("postId").asText());
+        assertThat(firstBody.get("userId").asText()).isEqualTo(secondBody.get("userId").asText());
+        assertThat(firstBody.get("content").asText()).isEqualTo(secondBody.get("content").asText());
+        assertThat(firstBody.get("replyTo").isNull()).isEqualTo(secondBody.get("replyTo").isNull());
+        assertThat(firstBody.get("createdAt").asText()).isEqualTo(secondBody.get("createdAt").asText());
+        assertThat(firstBody.get("updatedAt").asText()).isEqualTo(secondBody.get("updatedAt").asText());
+        assertThat(firstBody.get("commentStatus")).isNull();
+        assertThat(firstBody.get("deletedAt")).isNull();
     }
 
     private SecurityMockMvcRequestPostProcessors.JwtRequestPostProcessor jwtFor(

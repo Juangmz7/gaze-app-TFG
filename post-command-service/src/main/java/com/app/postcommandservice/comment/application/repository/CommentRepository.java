@@ -11,5 +11,7 @@ public interface CommentRepository {
 
     Comment saveAndFlush(Comment comment);
 
+    Optional<Comment> findById(UUID commentId);
+
     Optional<Comment> findByIdAndPostId(UUID commentId, UUID postId);
 }
