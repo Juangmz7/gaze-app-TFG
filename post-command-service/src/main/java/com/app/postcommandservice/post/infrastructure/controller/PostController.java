@@ -31,7 +31,9 @@ import com.app.postcommandservice.post.application.usecase.CreatePostUseCase;
 import com.app.postcommandservice.post.application.usecase.DeletePostUseCase;
 import com.app.postcommandservice.post.application.usecase.UpdatePostUseCase;
 import com.app.postcommandservice.share.application.commands.CreatePostShareCommand;
+import com.app.postcommandservice.share.application.commands.DeletePostShareCommand;
 import com.app.postcommandservice.share.application.usecase.CreatePostShareUseCase;
+import com.app.postcommandservice.share.application.usecase.DeletePostShareUseCase;
 import com.app.postcommandservice.shared.infrastructure.security.SecurityUtils;
 import com.app.postcommandservice.view.application.usecase.DispatchProcessPostViewCommandUseCase;
 
@@ -51,6 +53,7 @@ public class PostController {
     private final DispatchValidatePostUnlikeCommandUseCase dispatchValidatePostUnlikeCommandUseCase;
     private final DispatchProcessPostViewCommandUseCase dispatchProcessPostViewCommandUseCase;
     private final CreatePostShareUseCase createPostShareUseCase;
+    private final DeletePostShareUseCase deletePostShareUseCase;
     private final SecurityUtils securityUtils;
 
     @PostMapping
@@ -145,6 +148,17 @@ public class PostController {
 
         createPostShareUseCase.share(new CreatePostShareCommand(postId, currentUserId));
         return ResponseEntity.ok().build();
+    }
+
+    @DeleteMapping("/{postId}/share")
+    public ResponseEntity<Void> deletePostShare(@PathVariable("postId") java.util.UUID postId) {
+        var currentUserId = securityUtils.getUserId();
+        if (currentUserId == null) {
+            throw new AuthenticationCredentialsNotFoundException("JWT subject claim is missing or invalid");
+        }
+
+        deletePostShareUseCase.delete(new DeletePostShareCommand(postId, currentUserId));
+        return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/{postId}/comments")

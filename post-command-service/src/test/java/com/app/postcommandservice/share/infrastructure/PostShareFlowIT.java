@@ -37,6 +37,8 @@ import com.app.postcommandservice.shared.infrastructure.rabbitmq.config.RabbitMQ
 import com.app.postcommandservice.shared.infrastructure.repository.OutboxEventRepository;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -180,6 +182,78 @@ class PostShareFlowIT {
         assertThat(rabbitTemplate.receive(queueName, 1000)).isNull();
 
         rabbitAdmin.deleteQueue(queueName);
+    }
+
+    @Test
+    void shouldDeleteOwnShareAndPublishPostShareDeletedEvent() throws Exception {
+        var ownerId = UUID.randomUUID();
+        var postId = seedActivePost(ownerId).getId();
+        postShareJpaRepository.save(new com.app.postcommandservice.share.infrastructure.entity.PostShareEntity(
+                new com.app.postcommandservice.share.infrastructure.entity.PostShareId(postId, SHARER_ID),
+                Instant.now()
+        ));
+        var queueName = "test.post.share.deleted." + UUID.randomUUID();
+        var rabbitAdmin = new RabbitAdmin(connectionFactory);
+        bindQueue(rabbitAdmin, queueName, rabbitMQProperties.getExchange().getPost().getEvents(),
+                rabbitMQProperties.getRk().getPost().getShare().getDeleted());
+
+        mockMvc.perform(delete("/api/posts/{postId}/share", postId)
+                        .with(jwtFor(SHARER_ID)))
+                .andExpect(status().isNoContent());
+
+        waitUntil(() -> postShareJpaRepository.count() == 0 && outboxEventRepository.count() == 1);
+
+        assertThat(postShareJpaRepository.count()).isEqualTo(0);
+        var outboxEvent = outboxEventRepository.findAll().getFirst();
+        assertThat(outboxEvent.getEventType()).isEqualTo("PostShareDeletedEvent");
+
+        var message = receiveMessage(queueName);
+        assertThat(message).isNotNull();
+        var eventPayload = objectMapper.readValue(message.getBody(), new TypeReference<Map<String, Object>>() { });
+        assertThat(eventPayload.get("postId")).isEqualTo(postId.toString());
+        assertThat(eventPayload.get("userId")).isEqualTo(SHARER_ID.toString());
+        assertThat(eventPayload.get("id")).isNotNull();
+        assertThat(eventPayload.get("correlationId")).isNotNull();
+        assertThat(eventPayload.get("occurredAt")).isNotNull();
+
+        rabbitAdmin.deleteQueue(queueName);
+    }
+
+    @Test
+    void shouldReturnNoContentWithoutDeletingAnotherUsersShareOrPublishingEvent() throws Exception {
+        var ownerId = UUID.randomUUID();
+        var postId = seedActivePost(ownerId).getId();
+        var otherUserId = UUID.randomUUID();
+        postShareJpaRepository.save(new com.app.postcommandservice.share.infrastructure.entity.PostShareEntity(
+                new com.app.postcommandservice.share.infrastructure.entity.PostShareId(postId, otherUserId),
+                Instant.now()
+        ));
+
+        mockMvc.perform(delete("/api/posts/{postId}/share", postId)
+                        .with(jwtFor(SHARER_ID)))
+                .andExpect(status().isNoContent());
+
+        Thread.sleep(500L);
+
+        assertThat(postShareJpaRepository.findAll())
+                .extracting(share -> share.getId().getPostId(), share -> share.getId().getUserId())
+                .containsExactly(tuple(postId, otherUserId));
+        assertThat(outboxEventRepository.count()).isEqualTo(0);
+    }
+
+    @Test
+    void shouldReturnNoContentWhenShareDoesNotExistWithoutPublishingEvent() throws Exception {
+        var ownerId = UUID.randomUUID();
+        var postId = seedActivePost(ownerId).getId();
+
+        mockMvc.perform(delete("/api/posts/{postId}/share", postId)
+                        .with(jwtFor(SHARER_ID)))
+                .andExpect(status().isNoContent());
+
+        Thread.sleep(500L);
+
+        assertThat(postShareJpaRepository.count()).isEqualTo(0);
+        assertThat(outboxEventRepository.count()).isEqualTo(0);
     }
 
     private PostEntity seedActivePost(UUID ownerId) {
