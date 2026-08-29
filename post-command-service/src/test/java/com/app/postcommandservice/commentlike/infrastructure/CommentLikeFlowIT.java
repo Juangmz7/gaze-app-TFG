@@ -29,7 +29,10 @@ import com.app.postcommandservice.comment.domain.model.valueobj.CommentStatus;
 import com.app.postcommandservice.comment.infrastructure.entity.CommentEntity;
 import com.app.postcommandservice.comment.infrastructure.repository.CommentJpaRepository;
 import com.app.postcommandservice.commentlike.application.commands.ValidateCommentLikeCommand;
+import com.app.postcommandservice.commentlike.application.commands.ValidateCommentUnlikeCommand;
 import com.app.postcommandservice.commentlike.domain.model.CommentLikeSource;
+import com.app.postcommandservice.commentlike.infrastructure.entity.PostCommentLikeEntity;
+import com.app.postcommandservice.commentlike.infrastructure.entity.PostCommentLikeId;
 import com.app.postcommandservice.commentlike.infrastructure.repository.CommentLikeJpaRepository;
 import com.app.postcommandservice.post.domain.model.valueobj.PostStatus;
 import com.app.postcommandservice.post.infrastructure.entity.BlockReadModelEntity;
@@ -46,6 +49,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @ActiveProfiles("test")
@@ -176,6 +180,82 @@ class CommentLikeFlowIT {
     }
 
     @Test
+    void shouldReturnAcceptedAndPublishValidateCommentUnlikeCommand() throws Exception {
+        var mockMvc = MockMvcBuilders.webAppContextSetup(webApplicationContext)
+                .apply(springSecurity())
+                .build();
+        var queueName = "test.comment.unlike.command." + UUID.randomUUID();
+        var rabbitAdmin = new RabbitAdmin(connectionFactory);
+        bindQueue(rabbitAdmin, queueName, rabbitMQProperties.getExchange().getPost().getCommands(),
+                rabbitMQProperties.getRk().getPost().getComment().getLike().getDeleted());
+        var post = seedActivePost(UUID.randomUUID());
+        var comment = seedActiveComment(post.getId(), UUID.randomUUID());
+
+        mockMvc.perform(delete("/api/posts/{postId}/comments/{commentId}/like", post.getId(), comment.getId())
+                        .with(jwt().jwt(token -> token.subject(LIKER_ID.toString())))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(likeRequest("user_profile", 2)))
+                .andExpect(status().isAccepted());
+
+        var message = receiveMessage(queueName);
+        assertThat(message).isNotNull();
+        var commandPayload = objectMapper.readValue(message.getBody(), new TypeReference<Map<String, Object>>() { });
+        assertThat(commandPayload.get("postId")).isEqualTo(post.getId().toString());
+        assertThat(commandPayload.get("commentId")).isEqualTo(comment.getId().toString());
+        assertThat(commandPayload.get("userId")).isEqualTo(LIKER_ID.toString());
+        assertThat(commandPayload.get("source")).isEqualTo("USER_PROFILE");
+        assertThat(commandPayload.get("feedPosition")).isEqualTo(2);
+        waitUntil(() -> outboxEventRepository.findAll().stream()
+                .anyMatch(outboxEvent ->
+                        ValidateCommentUnlikeCommand.class.getSimpleName().equals(outboxEvent.getEventType())));
+        var commandOutboxEvent = outboxEventRepository.findAll().stream()
+                .filter(outboxEvent ->
+                        ValidateCommentUnlikeCommand.class.getSimpleName().equals(outboxEvent.getEventType()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(commandOutboxEvent.getStatus()).isEqualTo(EventStatus.PROCESSED);
+        assertThat(commandOutboxEvent.getCorrelationId()).isNotNull();
+
+        rabbitAdmin.deleteQueue(queueName);
+    }
+
+    @Test
+    void shouldProcessCommandDeleteCommentLikeAndPublishDeletedEvent() throws Exception {
+        var ownerId = UUID.randomUUID();
+        var post = seedActivePost(ownerId);
+        var comment = seedActiveComment(post.getId(), ownerId);
+        seedCommentLike(comment.getId(), LIKER_ID, CommentLikeSource.HOME_FEED, 10);
+        var queueName = "test.comment.like.deleted." + UUID.randomUUID();
+        var rabbitAdmin = new RabbitAdmin(connectionFactory);
+        bindQueue(rabbitAdmin, queueName, rabbitMQProperties.getExchange().getPost().getEvents(),
+                rabbitMQProperties.getRk().getPost().getComment().getLike().getDeleted());
+
+        rabbitTemplate.convertAndSend(
+                rabbitMQProperties.getExchange().getPost().getCommands(),
+                rabbitMQProperties.getRk().getPost().getComment().getLike().getDeleted(),
+                unlikeCommand(post.getId(), comment.getId(), LIKER_ID)
+        );
+
+        waitUntil(() -> commentLikeJpaRepository.count() == 0 && processedEventsRepository.count() == 1);
+
+        assertThat(commentLikeJpaRepository.count()).isEqualTo(0);
+        assertThat(outboxEventRepository.count()).isEqualTo(1);
+        assertThat(processedEventsRepository.count()).isEqualTo(1);
+
+        var eventMessage = receiveMessage(queueName);
+        assertThat(eventMessage).isNotNull();
+        var eventPayload = objectMapper.readValue(eventMessage.getBody(), new TypeReference<Map<String, Object>>() { });
+        assertThat(eventPayload.get("commentId")).isEqualTo(comment.getId().toString());
+        assertThat(eventPayload.get("userId")).isEqualTo(LIKER_ID.toString());
+        assertThat(eventPayload.get("occurredAt")).isNotNull();
+        assertThat(eventPayload.get("source")).isEqualTo("USER_PROFILE");
+        assertThat(eventPayload.get("feedPosition")).isEqualTo(2);
+        assertThat(eventPayload).doesNotContainKeys("postId", "createdAt");
+
+        rabbitAdmin.deleteQueue(queueName);
+    }
+
+    @Test
     void shouldDiscardCommentLikeCommandWhenUsersAreBlocked() {
         var ownerId = UUID.randomUUID();
         var post = seedActivePost(ownerId);
@@ -189,6 +269,27 @@ class CommentLikeFlowIT {
                 rabbitMQProperties.getExchange().getPost().getCommands(),
                 rabbitMQProperties.getRk().getPost().getComment().getLike().getValidate(),
                 command(post.getId(), comment.getId(), LIKER_ID)
+        );
+        waitUntil(() -> processedEventsRepository.count() == 1);
+
+        assertThat(commentLikeJpaRepository.count()).isEqualTo(0);
+        assertThat(outboxEventRepository.count()).isEqualTo(0);
+    }
+
+    @Test
+    void shouldDiscardCommentUnlikeCommandWhenLikeDoesNotExistEvenIfUsersAreBlocked() {
+        var ownerId = UUID.randomUUID();
+        var post = seedActivePost(ownerId);
+        var comment = seedActiveComment(post.getId(), ownerId);
+        blockReadModelJpaRepository.save(new BlockReadModelEntity(
+                new BlockReadModelId(LIKER_ID, ownerId),
+                Instant.now()
+        ));
+
+        rabbitTemplate.convertAndSend(
+                rabbitMQProperties.getExchange().getPost().getCommands(),
+                rabbitMQProperties.getRk().getPost().getComment().getLike().getDeleted(),
+                unlikeCommand(post.getId(), comment.getId(), LIKER_ID)
         );
         waitUntil(() -> processedEventsRepository.count() == 1);
 
@@ -226,6 +327,27 @@ class CommentLikeFlowIT {
                 CommentLikeSource.SEARCH,
                 7
         );
+    }
+
+    private ValidateCommentUnlikeCommand unlikeCommand(UUID postId, UUID commentId, UUID userId) {
+        return new ValidateCommentUnlikeCommand(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                Instant.now(),
+                postId,
+                commentId,
+                userId,
+                CommentLikeSource.USER_PROFILE,
+                2
+        );
+    }
+
+    private void seedCommentLike(UUID commentId, UUID userId, CommentLikeSource source, int feedPosition) {
+        commentLikeJpaRepository.save(PostCommentLikeEntity.builder()
+                .id(new PostCommentLikeId(commentId, userId))
+                .source(source)
+                .feedPosition(feedPosition)
+                .build());
     }
 
     private String likeRequest(String source, int feedPosition) {

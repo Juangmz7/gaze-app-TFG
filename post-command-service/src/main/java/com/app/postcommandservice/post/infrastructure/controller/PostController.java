@@ -21,6 +21,7 @@ import com.app.postcommandservice.comment.application.usecase.CreateCommentUseCa
 import com.app.postcommandservice.comment.application.usecase.DeleteCommentUseCase;
 import com.app.postcommandservice.comment.application.usecase.UpdateCommentUseCase;
 import com.app.postcommandservice.commentlike.application.usecase.DispatchValidateCommentLikeCommandUseCase;
+import com.app.postcommandservice.commentlike.application.usecase.DispatchValidateCommentUnlikeCommandUseCase;
 import com.app.postcommandservice.like.application.usecase.DispatchValidatePostLikeCommandUseCase;
 import com.app.postcommandservice.like.application.usecase.DispatchValidatePostUnlikeCommandUseCase;
 import com.app.postcommandservice.post.application.commands.CreatePostCommand;
@@ -45,6 +46,7 @@ public class PostController {
     private final DeleteCommentUseCase deleteCommentUseCase;
     private final UpdateCommentUseCase updateCommentUseCase;
     private final DispatchValidateCommentLikeCommandUseCase dispatchValidateCommentLikeCommandUseCase;
+    private final DispatchValidateCommentUnlikeCommandUseCase dispatchValidateCommentUnlikeCommandUseCase;
     private final DispatchValidatePostLikeCommandUseCase dispatchValidatePostLikeCommandUseCase;
     private final DispatchValidatePostUnlikeCommandUseCase dispatchValidatePostUnlikeCommandUseCase;
     private final DispatchProcessPostViewCommandUseCase dispatchProcessPostViewCommandUseCase;
@@ -162,6 +164,26 @@ public class PostController {
         }
 
         dispatchValidateCommentLikeCommandUseCase.dispatch(
+                postId,
+                commentId,
+                currentUserId,
+                request.context().toSource(),
+                request.context().feedPosition()
+        );
+        return ResponseEntity.accepted().build();
+    }
+
+    @DeleteMapping("/{postId}/comments/{commentId}/like")
+    public ResponseEntity<Void> unlikeComment(
+            @PathVariable("postId") java.util.UUID postId,
+            @PathVariable("commentId") java.util.UUID commentId,
+            @Valid @RequestBody CommentLikeRequest request) {
+        var currentUserId = securityUtils.getUserId();
+        if (currentUserId == null) {
+            throw new AuthenticationCredentialsNotFoundException("JWT subject claim is missing or invalid");
+        }
+
+        dispatchValidateCommentUnlikeCommandUseCase.dispatch(
                 postId,
                 commentId,
                 currentUserId,

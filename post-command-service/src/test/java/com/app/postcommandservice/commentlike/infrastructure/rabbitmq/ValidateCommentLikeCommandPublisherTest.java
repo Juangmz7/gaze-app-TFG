@@ -11,6 +11,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 
 import com.app.postcommandservice.commentlike.application.commands.ValidateCommentLikeCommand;
+import com.app.postcommandservice.commentlike.application.commands.ValidateCommentUnlikeCommand;
 import com.app.postcommandservice.commentlike.domain.model.CommentLikeSource;
 import com.app.postcommandservice.shared.infrastructure.entity.OutboxEvent;
 import com.app.postcommandservice.shared.infrastructure.mapper.JsonMapper;
@@ -54,8 +55,9 @@ class ValidateCommentLikeCommandPublisherTest {
     private ValidateCommentLikeCommandPublisher publisher;
 
     @Test
-    void shouldSupportCommentLikeCommandOutboxEventType() {
+    void shouldSupportCommentLikeAndUnlikeCommandOutboxEventTypes() {
         assertThat(publisher.supports(ValidateCommentLikeCommand.class.getSimpleName())).isTrue();
+        assertThat(publisher.supports(ValidateCommentUnlikeCommand.class.getSimpleName())).isTrue();
         assertThat(publisher.supports("PostCreatedEvent")).isFalse();
     }
 
@@ -118,5 +120,66 @@ class ValidateCommentLikeCommandPublisherTest {
         publisher.publish(outboxEvent);
 
         verify(rabbitTemplate).convertAndSend("x.post.commands", "rk.post.comment.like.validate", command);
+    }
+
+    @Test
+    void shouldPublishValidateCommentUnlikeCommandUsingConfiguredExchangeAndRoutingKey() {
+        var command = new ValidateCommentUnlikeCommand(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                Instant.now(),
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                CommentLikeSource.USER_PROFILE,
+                6
+        );
+
+        when(rabbitMQProperties.getExchange()).thenReturn(exchanges);
+        when(exchanges.getPost()).thenReturn(postExchange);
+        when(postExchange.getCommands()).thenReturn("x.post.commands");
+        when(rabbitMQProperties.getRk()).thenReturn(routingKeys);
+        when(routingKeys.getPost()).thenReturn(postRk);
+        when(postRk.getComment()).thenReturn(commentRk);
+        when(commentRk.getLike()).thenReturn(likeRk);
+        when(likeRk.getDeleted()).thenReturn("rk.post.comment.like.deleted");
+
+        publisher.publish(command);
+
+        verify(rabbitTemplate).convertAndSend("x.post.commands", "rk.post.comment.like.deleted", command);
+    }
+
+    @Test
+    void shouldPublishValidateCommentUnlikeCommandFromOutboxPayload() {
+        var command = new ValidateCommentUnlikeCommand(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                Instant.now(),
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                CommentLikeSource.SEARCH,
+                3
+        );
+        var outboxEvent = OutboxEvent.builder()
+                .id(UUID.randomUUID())
+                .correlationId(command.correlationId())
+                .payload("{\"type\":\"comment-unlike\"}")
+                .eventType(ValidateCommentUnlikeCommand.class.getSimpleName())
+                .build();
+
+        when(rabbitMQProperties.getExchange()).thenReturn(exchanges);
+        when(exchanges.getPost()).thenReturn(postExchange);
+        when(postExchange.getCommands()).thenReturn("x.post.commands");
+        when(rabbitMQProperties.getRk()).thenReturn(routingKeys);
+        when(routingKeys.getPost()).thenReturn(postRk);
+        when(postRk.getComment()).thenReturn(commentRk);
+        when(commentRk.getLike()).thenReturn(likeRk);
+        when(likeRk.getDeleted()).thenReturn("rk.post.comment.like.deleted");
+        when(jsonMapper.fromJson(outboxEvent.getPayload(), ValidateCommentUnlikeCommand.class)).thenReturn(command);
+
+        publisher.publish(outboxEvent);
+
+        verify(rabbitTemplate).convertAndSend("x.post.commands", "rk.post.comment.like.deleted", command);
     }
 }

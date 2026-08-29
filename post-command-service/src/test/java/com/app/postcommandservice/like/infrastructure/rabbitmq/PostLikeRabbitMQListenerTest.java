@@ -15,7 +15,9 @@ import com.app.postcommandservice.like.application.usecase.ValidatePostLikeUseCa
 import com.app.postcommandservice.like.application.usecase.ValidatePostUnlikeUseCase;
 import com.app.postcommandservice.like.domain.model.PostLikeSource;
 import com.app.postcommandservice.commentlike.application.commands.ValidateCommentLikeCommand;
+import com.app.postcommandservice.commentlike.application.commands.ValidateCommentUnlikeCommand;
 import com.app.postcommandservice.commentlike.application.usecase.ValidateCommentLikeUseCase;
+import com.app.postcommandservice.commentlike.application.usecase.ValidateCommentUnlikeUseCase;
 import com.app.postcommandservice.commentlike.domain.model.CommentLikeSource;
 import com.app.postcommandservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 import com.app.postcommandservice.shared.infrastructure.repository.ProcessedEventsRepository;
@@ -44,6 +46,9 @@ class PostLikeRabbitMQListenerTest {
     private ValidateCommentLikeUseCase validateCommentLikeUseCase;
 
     @Mock
+    private ValidateCommentUnlikeUseCase validateCommentUnlikeUseCase;
+
+    @Mock
     private ProcessedEventsRepository processedEventsRepository;
 
     @Mock
@@ -58,6 +63,7 @@ class PostLikeRabbitMQListenerTest {
                 validatePostUnlikeUseCase,
                 processPostViewUseCase,
                 validateCommentLikeUseCase,
+                validateCommentUnlikeUseCase,
                 processedEventsRepository,
                 rabbitMQProperties
         );
@@ -151,6 +157,36 @@ class PostLikeRabbitMQListenerTest {
     }
 
     @Test
+    void shouldProcessValidateCommentUnlikeCommandAndMarkItAsProcessed() {
+        var command = commentUnlikeCommand();
+        when(processedEventsRepository.existsById(command.id())).thenReturn(false);
+
+        listener.onValidateCommentUnlike(command);
+
+        verify(validateCommentUnlikeUseCase).validateAndDeleteLike(command);
+        verify(processedEventsRepository).insertIfAbsent(
+                command.id(),
+                command.correlationId(),
+                ValidateCommentUnlikeCommand.class.getSimpleName()
+        );
+    }
+
+    @Test
+    void shouldSkipDuplicateValidateCommentUnlikeCommand() {
+        var command = commentUnlikeCommand();
+        when(processedEventsRepository.existsById(command.id())).thenReturn(true);
+
+        listener.onValidateCommentUnlike(command);
+
+        verify(validateCommentUnlikeUseCase, never()).validateAndDeleteLike(command);
+        verify(processedEventsRepository, never()).insertIfAbsent(
+                command.id(),
+                command.correlationId(),
+                ValidateCommentUnlikeCommand.class.getSimpleName()
+        );
+    }
+
+    @Test
     void shouldProcessPostViewCommandAndMarkItAsProcessed() {
         var command = postViewCommand();
         when(processedEventsRepository.existsById(command.id())).thenReturn(false);
@@ -231,6 +267,19 @@ class PostLikeRabbitMQListenerTest {
                 UUID.randomUUID(),
                 CommentLikeSource.USER_PROFILE,
                 5
+        );
+    }
+
+    private ValidateCommentUnlikeCommand commentUnlikeCommand() {
+        return new ValidateCommentUnlikeCommand(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                Instant.now(),
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                CommentLikeSource.SEARCH,
+                7
         );
     }
 }

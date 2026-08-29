@@ -26,4 +26,9 @@ public class PostCommentLikeRepositoryImpl implements PostCommentLikeRepository 
     public PostCommentLike save(PostCommentLike commentLike) {
         return postCommentLikeMapper.toDomain(commentLikeJpaRepository.save(postCommentLikeMapper.toEntity(commentLike)));
     }
+
+    @Override
+    public void deleteByCommentIdAndUserId(UUID commentId, UUID userId) {
+        commentLikeJpaRepository.deleteById(new PostCommentLikeId(commentId, userId));
+    }
 }
