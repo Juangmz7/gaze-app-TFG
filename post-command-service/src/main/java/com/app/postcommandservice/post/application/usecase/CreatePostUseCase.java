@@ -26,6 +26,7 @@ import com.app.postcommandservice.post.domain.model.valueobj.PostDescription;
 import com.app.postcommandservice.post.domain.model.valueobj.PostId;
 import com.app.postcommandservice.post.domain.model.valueobj.PostTaggedUsers;
 import com.app.postcommandservice.post.domain.model.valueobj.PostTags;
+import com.app.postcommandservice.post.domain.model.valueobj.PostType;
 import com.app.postcommandservice.post.infrastructure.events.PostCreatedEvent;
 import com.app.postcommandservice.post.infrastructure.mapper.PostEventMapper;
 import com.app.postcommandservice.shared.domain.model.user.valueobj.UserId;
@@ -48,14 +49,31 @@ public class CreatePostUseCase {
 
     @Transactional
     public PostResponse createPost(CreatePostCommand command) {
-        postRequestIdempotencyRepository.acquireCorrelationLock(command.correlationId());
+        return createPost(command, true);
+    }
 
-        var existingPostId = postRequestIdempotencyRepository.findPostIdByCorrelationId(command.correlationId());
-        if (existingPostId.isPresent()) {
-            return postRepository.findById(existingPostId.get())
-                    .map(this::toResponse)
-                    .orElseThrow(() -> new IllegalStateException(
-                            "Idempotency record exists but post was not found: " + existingPostId.get()));
+    @Transactional
+    public PostResponse createPost(CreatePostCommand command, boolean publishCreatedEvent) {
+        return createPost(command, publishCreatedEvent, true);
+    }
+
+    @Transactional
+    public PostResponse createPost(
+            CreatePostCommand command,
+            boolean publishCreatedEvent,
+            boolean persistRequestIdempotency) {
+        if (persistRequestIdempotency) {
+            postRequestIdempotencyRepository.acquireCorrelationLock(command.correlationId());
+        }
+
+        if (persistRequestIdempotency) {
+            var existingPostId = postRequestIdempotencyRepository.findPostIdByCorrelationId(command.correlationId());
+            if (existingPostId.isPresent()) {
+                return postRepository.findById(existingPostId.get())
+                        .map(this::toResponse)
+                        .orElseThrow(() -> new IllegalStateException(
+                                "Idempotency record exists but post was not found: " + existingPostId.get()));
+            }
         }
 
         var taggedUsers = new PostTaggedUsers(normalizeSet(command.taggedUsers()));
@@ -67,21 +85,27 @@ public class CreatePostUseCase {
         var post = Post.create(
                 new PostId(UUID.randomUUID()),
                 new UserId(command.currentUserId()),
+                command.collabId(),
+                resolvePostType(command.postType()),
                 description,
                 taggedUsers,
                 postTags
         );
 
         var savedPost = postRepository.save(post);
-        postRequestIdempotencyRepository.save(command.correlationId(), savedPost.getId().value());
+        if (persistRequestIdempotency) {
+            postRequestIdempotencyRepository.save(command.correlationId(), savedPost.getId().value());
+        }
 
-        var outboxId = UUID.randomUUID();
-        var eventCorrelationId = UUID.randomUUID();
-        var occurredAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
-        var event = postEventMapper.toPostCreatedEvent(outboxId, eventCorrelationId, savedPost, occurredAt);
-        saveOutboxEvent(command.correlationId(), outboxId, event);
+        if (publishCreatedEvent) {
+            var outboxId = UUID.randomUUID();
+            var eventCorrelationId = UUID.randomUUID();
+            var occurredAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
+            var event = postEventMapper.toPostCreatedEvent(outboxId, eventCorrelationId, savedPost, occurredAt);
+            saveOutboxEvent(command.correlationId(), outboxId, event);
 
-        applicationEventPublisher.publishEvent(new PostCreatedDomainEvent(outboxId));
+            applicationEventPublisher.publishEvent(new PostCreatedDomainEvent(outboxId));
+        }
 
         return toResponse(savedPost);
     }
@@ -126,6 +150,8 @@ public class CreatePostUseCase {
         return new PostResponse(
                 post.getId().value(),
                 post.getUserId().value(),
+                post.getCollabId(),
+                post.getPostType(),
                 post.getDescription().value(),
                 post.getTaggedUsers().value(),
                 post.getTags().value(),
@@ -139,5 +165,9 @@ public class CreatePostUseCase {
             return Set.of();
         }
         return Collections.unmodifiableSet(new LinkedHashSet<>(values));
+    }
+
+    private PostType resolvePostType(PostType postType) {
+        return postType == null ? PostType.BASIC : postType;
     }
 }

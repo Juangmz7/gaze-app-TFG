@@ -29,6 +29,7 @@ import com.app.postcommandservice.post.domain.model.valueobj.PostId;
 import com.app.postcommandservice.post.domain.model.valueobj.PostStatus;
 import com.app.postcommandservice.post.domain.model.valueobj.PostTaggedUsers;
 import com.app.postcommandservice.post.domain.model.valueobj.PostTags;
+import com.app.postcommandservice.post.domain.model.valueobj.PostType;
 import com.app.postcommandservice.post.infrastructure.events.PostUpdatedEvent;
 import com.app.postcommandservice.post.infrastructure.mapper.PostEventMapper;
 import com.app.postcommandservice.shared.domain.model.user.valueobj.UserId;
@@ -198,6 +199,8 @@ class UpdatePostUseCaseTest {
         return new Post(
                 new PostId(POST_ID),
                 new UserId(ownerId),
+                null,
+                PostType.BASIC,
                 new PostDescription(description),
                 new PostTaggedUsers(new LinkedHashSet<>(taggedUsers)),
                 new PostTags(new LinkedHashSet<>(postTags)),
@@ -214,6 +217,8 @@ class UpdatePostUseCaseTest {
                 .occurredAt(Instant.now())
                 .postId(post.getId().value())
                 .userId(post.getUserId().value())
+                .collabId(post.getCollabId())
+                .postType(post.getPostType())
                 .description(post.getDescription().value())
                 .taggedUsers(post.getTaggedUsers().value())
                 .postTags(post.getTags().value())

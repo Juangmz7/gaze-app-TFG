@@ -31,4 +31,9 @@ public class PostRepositoryImpl implements PostRepository {
     public Optional<Post> findById(UUID postId) {
         return postJpaRepository.findById(postId).map(postMapper::toDomain);
     }
+
+    @Override
+    public Optional<Post> findByCollabId(UUID collabId) {
+        return postJpaRepository.findFirstByCollabId(collabId).map(postMapper::toDomain);
+    }
 }

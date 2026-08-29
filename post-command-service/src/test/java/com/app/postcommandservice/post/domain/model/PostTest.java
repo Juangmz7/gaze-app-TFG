@@ -12,6 +12,7 @@ import com.app.postcommandservice.post.domain.model.valueobj.PostId;
 import com.app.postcommandservice.post.domain.model.valueobj.PostStatus;
 import com.app.postcommandservice.post.domain.model.valueobj.PostTaggedUsers;
 import com.app.postcommandservice.post.domain.model.valueobj.PostTags;
+import com.app.postcommandservice.post.domain.model.valueobj.PostType;
 import com.app.postcommandservice.shared.domain.model.user.valueobj.UserId;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -68,6 +69,8 @@ class PostTest {
         var post = new Post(
                 new PostId(UUID.randomUUID()),
                 new UserId(UUID.randomUUID()),
+                null,
+                PostType.BASIC,
                 new PostDescription("description"),
                 new PostTaggedUsers(new LinkedHashSet<>(Set.of("alice"))),
                 new PostTags(new LinkedHashSet<>(Set.of("java"))),
@@ -81,11 +84,30 @@ class PostTest {
                 .hasMessageContaining("ACTIVE");
     }
 
+    @Test
+    void shouldRequireCollabIdWhenPostTypeIsColab() {
+        assertThatThrownBy(() -> new Post(
+                new PostId(UUID.randomUUID()),
+                new UserId(UUID.randomUUID()),
+                null,
+                PostType.COLAB,
+                new PostDescription("description"),
+                new PostTaggedUsers(Set.of()),
+                new PostTags(Set.of()),
+                PostStatus.ACTIVE,
+                Instant.now(),
+                Instant.now()
+        )).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Collab posts must reference a collab");
+    }
+
     private Post existingPost(String description, Set<String> taggedUsers, Set<String> tags) {
         var now = Instant.now();
         return new Post(
                 new PostId(UUID.randomUUID()),
                 new UserId(UUID.randomUUID()),
+                null,
+                PostType.BASIC,
                 new PostDescription(description),
                 new PostTaggedUsers(new LinkedHashSet<>(taggedUsers)),
                 new PostTags(new LinkedHashSet<>(tags)),
