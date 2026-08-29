@@ -10,6 +10,7 @@ import com.app.postcommandservice.comment.application.commands.CreateCommentComm
 import com.app.postcommandservice.comment.application.dto.CommentResponse;
 import com.app.postcommandservice.comment.application.repository.CommentRelationshipValidationRepository;
 import com.app.postcommandservice.comment.application.repository.CommentRepository;
+import com.app.postcommandservice.comment.application.repository.CommentRequestIdempotencyRepository;
 import com.app.postcommandservice.comment.domain.exception.CommentBlockedException;
 import com.app.postcommandservice.comment.domain.exception.CommentNotFoundException;
 import com.app.postcommandservice.comment.domain.model.Comment;
@@ -28,10 +29,21 @@ public class CreateCommentUseCase {
 
     private final PostRepository postRepository;
     private final CommentRepository commentRepository;
+    private final CommentRequestIdempotencyRepository commentRequestIdempotencyRepository;
     private final CommentRelationshipValidationRepository commentRelationshipValidationRepository;
 
     @Transactional
     public CommentResponse createComment(CreateCommentCommand command) {
+        commentRequestIdempotencyRepository.acquireCorrelationLock(command.correlationId());
+
+        var existingCommentId = commentRequestIdempotencyRepository.findCommentIdByCorrelationId(command.correlationId());
+        if (existingCommentId.isPresent()) {
+            return commentRepository.findById(existingCommentId.get())
+                    .map(this::toResponse)
+                    .orElseThrow(() -> new IllegalStateException(
+                            "Idempotency record exists but comment was not found: " + existingCommentId.get()));
+        }
+
         var post = postRepository.findById(command.postId())
                 .orElseThrow(() -> new PostNotFoundException(command.postId()));
 
@@ -47,7 +59,9 @@ public class CreateCommentUseCase {
                 command.replyTo()
         );
 
-        return toResponse(commentRepository.save(comment));
+        var savedComment = commentRepository.save(comment);
+        commentRequestIdempotencyRepository.save(command.correlationId(), savedComment.getId().value());
+        return toResponse(savedComment);
     }
 
     private void validatePostIsActive(UUID postId, PostStatus status) {

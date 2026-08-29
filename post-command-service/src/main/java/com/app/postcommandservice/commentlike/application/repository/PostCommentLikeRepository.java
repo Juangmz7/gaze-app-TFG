@@ -9,4 +9,6 @@ public interface PostCommentLikeRepository {
     boolean existsByCommentIdAndUserId(UUID commentId, UUID userId);
 
     PostCommentLike save(PostCommentLike commentLike);
+
+    void deleteByCommentIdAndUserId(UUID commentId, UUID userId);
 }

@@ -49,6 +49,7 @@ public class RabbitMQConfig {
         var postLikeValidateRk = props.getRk().getPost().getLike().getValidate();
         var postUnlikeValidateRk = props.getRk().getPost().getUnlike().getValidate();
         var commentLikeValidateRk = props.getRk().getPost().getComment().getLike().getValidate();
+        var commentLikeDeletedRk = props.getRk().getPost().getComment().getLike().getDeleted();
 
         var userBlockCreatedRk = props.getRk().getUser().getBlock().getCreated();
         var userRegisteredRk = props.getRk().getUser().getRegistered();
@@ -118,6 +119,11 @@ public class RabbitMQConfig {
                         .bind(postQueue)
                         .to(postCommandsExchange)
                         .with(commentLikeValidateRk),
+
+                BindingBuilder
+                        .bind(postQueue)
+                        .to(postCommandsExchange)
+                        .with(commentLikeDeletedRk),
 
                 // --- user.fast queue: 3 routing keys, same queue ---
                 BindingBuilder

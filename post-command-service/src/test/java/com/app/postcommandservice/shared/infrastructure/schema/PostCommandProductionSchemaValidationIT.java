@@ -79,7 +79,17 @@ class PostCommandProductionSchemaValidationIT {
         assertThatThrownBy(() -> bootstrapSchema("validate"))
                 .hasRootCauseInstanceOf(Exception.class)
                 .hasMessageContaining("post_shares");
+        applySchemaPatch("db/schema/post-command-service-prod.sql");
 
+        assertThatNoException().isThrownBy(() -> bootstrapSchema("validate"));
+    }
+    void shouldRequireTrackedSchemaPatchBeforeProductionValidationPassesForCommentRequestIdempotencyTable() {
+        bootstrapSchema("create");
+        execute("DROP TABLE IF EXISTS comment_request_idempotency");
+
+        assertThatThrownBy(() -> bootstrapSchema("validate"))
+                .hasRootCauseInstanceOf(Exception.class)
+                .hasMessageContaining("comment_request_idempotency");
         applySchemaPatch("db/schema/post-command-service-prod.sql");
 
         assertThatNoException().isThrownBy(() -> bootstrapSchema("validate"));

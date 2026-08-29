@@ -13,6 +13,7 @@ import com.app.postcommandservice.comment.application.dto.CommentResponse;
 import com.app.postcommandservice.comment.application.usecase.CreateCommentUseCase;
 import com.app.postcommandservice.comment.application.usecase.DeleteCommentUseCase;
 import com.app.postcommandservice.commentlike.application.usecase.DispatchValidateCommentLikeCommandUseCase;
+import com.app.postcommandservice.commentlike.application.usecase.DispatchValidateCommentUnlikeCommandUseCase;
 import com.app.postcommandservice.commentlike.domain.model.CommentLikeSource;
 import com.app.postcommandservice.like.application.usecase.DispatchValidatePostLikeCommandUseCase;
 import com.app.postcommandservice.like.application.usecase.DispatchValidatePostUnlikeCommandUseCase;
@@ -51,6 +52,9 @@ class PostLikeControllerIT {
 
     @Mock
     private DispatchValidateCommentLikeCommandUseCase dispatchValidateCommentLikeCommandUseCase;
+
+    @Mock
+    private DispatchValidateCommentUnlikeCommandUseCase dispatchValidateCommentUnlikeCommandUseCase;
 
     @Mock
     private DispatchValidatePostLikeCommandUseCase dispatchValidatePostLikeCommandUseCase;
@@ -115,19 +119,36 @@ class PostLikeControllerIT {
     }
 
     @Test
+    void shouldDispatchValidateCommentUnlikeCommandAndReturnAccepted() {
+        var postId = UUID.randomUUID();
+        var commentId = UUID.randomUUID();
+        var userId = UUID.randomUUID();
+        var request = new CommentLikeRequest(new CommentLikeContextRequest("search", 1));
+        when(securityUtils.getUserId()).thenReturn(userId);
+
+        var response = postController.unlikeComment(postId, commentId, request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+        verify(dispatchValidateCommentUnlikeCommandUseCase)
+                .dispatch(postId, commentId, userId, CommentLikeSource.SEARCH, 1);
+    }
+
+    @Test
     void shouldCreateCommentAndReturnOk() {
         var postId = UUID.randomUUID();
         var userId = UUID.randomUUID();
+        var correlationId = UUID.randomUUID();
         var responseBody = new CommentResponse(UUID.randomUUID(), postId, userId, "hello", null, null, null);
         when(securityUtils.getUserId()).thenReturn(userId);
         when(createCommentUseCase.createComment(new com.app.postcommandservice.comment.application.commands.CreateCommentCommand(
+                correlationId,
                 postId,
                 userId,
                 "hello",
                 null
         ))).thenReturn(responseBody);
 
-        var response = postController.createComment(postId, new CreateCommentRequest("hello", null));
+        var response = postController.createComment(postId, new CreateCommentRequest(correlationId, "hello", null));
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).isEqualTo(responseBody);
