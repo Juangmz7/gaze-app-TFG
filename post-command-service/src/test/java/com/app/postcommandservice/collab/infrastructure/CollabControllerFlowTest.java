@@ -2,9 +2,17 @@ package com.app.postcommandservice.collab.infrastructure;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -28,6 +36,12 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
 import com.app.postcommandservice.TestcontainersConfiguration;
+import com.app.postcommandservice.collab.domain.model.valueobj.ColabStatus;
+import com.app.postcommandservice.collab.domain.model.valueobj.CollabMemberRole;
+import com.app.postcommandservice.collab.domain.model.valueobj.CollabMemberStatus;
+import com.app.postcommandservice.collab.infrastructure.entity.CollabEntity;
+import com.app.postcommandservice.collab.infrastructure.entity.CollabMemberEntity;
+import com.app.postcommandservice.collab.infrastructure.entity.CollabMemberId;
 import com.app.postcommandservice.collab.infrastructure.repository.CollabJpaRepository;
 import com.app.postcommandservice.collab.infrastructure.repository.CollabMemberJpaRepository;
 import com.app.postcommandservice.collab.infrastructure.repository.CollabRequestIdempotencyJpaRepository;
@@ -44,6 +58,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -280,13 +295,185 @@ class CollabControllerFlowTest {
         assertThat(outboxEventRepository.count()).isEqualTo(1);
     }
 
+    @Test
+    void shouldAcceptPendingJoinRequestAndPublishEvent() throws Exception {
+        var collabId = UUID.randomUUID();
+        var targetUserId = UUID.randomUUID();
+        seedCollab(collabId, CREATOR_ID);
+        seedCollabMember(collabId, CREATOR_ID, CollabMemberStatus.ACCEPTED, CollabMemberRole.ADMIN);
+        seedCollabMember(collabId, targetUserId, CollabMemberStatus.PENDING, CollabMemberRole.MEMBER);
+
+        String queueName = "test.collab.request.accepted." + UUID.randomUUID();
+        RabbitAdmin rabbitAdmin = new RabbitAdmin(connectionFactory);
+        Queue queue = new Queue(queueName, false, true, true);
+        rabbitAdmin.declareQueue(queue);
+        rabbitAdmin.declareBinding(BindingBuilder.bind(queue)
+                .to(new org.springframework.amqp.core.TopicExchange(rabbitMQProperties.getExchange().getPost().getEvents()))
+                .with(rabbitMQProperties.getRk().getPost().getCollab().getRequest().getAccepted()));
+
+        mockMvc.perform(put("/api/collabs/{collabId}/requests/{userId}/accept", collabId, targetUserId)
+                        .with(jwtFor(CREATOR_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.collabId").value(collabId.toString()))
+                .andExpect(jsonPath("$.userId").value(targetUserId.toString()))
+                .andExpect(jsonPath("$.collabMemberStatus").value("ACCEPTED"))
+                .andExpect(jsonPath("$.role").value("MEMBER"));
+
+        var updatedMember = collabMemberJpaRepository.findById(new CollabMemberId(collabId, targetUserId)).orElseThrow();
+        assertThat(updatedMember.getCollabMemberStatus()).isEqualTo(CollabMemberStatus.ACCEPTED);
+        assertThat(outboxEventRepository.count()).isEqualTo(1);
+
+        Message message = receiveMessage(queueName);
+        assertThat(message).isNotNull();
+        var eventPayload = objectMapper.readValue(message.getBody(), new TypeReference<Map<String, Object>>() { });
+        assertThat(eventPayload.get("collabId")).isEqualTo(collabId.toString());
+        assertThat(eventPayload.get("userId")).isEqualTo(targetUserId.toString());
+        assertThat(eventPayload.get("acceptedBy")).isEqualTo(CREATOR_ID.toString());
+        assertThat(eventPayload.get("collabMemberStatus")).isEqualTo("ACCEPTED");
+
+        rabbitAdmin.deleteQueue(queueName);
+    }
+
+    @Test
+    void shouldReturnForbiddenWhenActioningUserIsNotAcceptedAdmin() throws Exception {
+        var collabId = UUID.randomUUID();
+        var targetUserId = UUID.randomUUID();
+        seedCollab(collabId, CREATOR_ID);
+        seedCollabMember(collabId, CREATOR_ID, CollabMemberStatus.ACCEPTED, CollabMemberRole.MEMBER);
+        seedCollabMember(collabId, targetUserId, CollabMemberStatus.PENDING, CollabMemberRole.MEMBER);
+
+        mockMvc.perform(put("/api/collabs/{collabId}/requests/{userId}/accept", collabId, targetUserId)
+                        .with(jwtFor(CREATOR_ID)))
+                .andExpect(status().isForbidden());
+
+        var unchangedMember = collabMemberJpaRepository.findById(new CollabMemberId(collabId, targetUserId)).orElseThrow();
+        assertThat(unchangedMember.getCollabMemberStatus()).isEqualTo(CollabMemberStatus.PENDING);
+        assertThat(outboxEventRepository.count()).isZero();
+    }
+
+    @Test
+    void shouldReturnBadRequestWhenTargetMemberIsNotPending() throws Exception {
+        var collabId = UUID.randomUUID();
+        var targetUserId = UUID.randomUUID();
+        seedCollab(collabId, CREATOR_ID);
+        seedCollabMember(collabId, CREATOR_ID, CollabMemberStatus.ACCEPTED, CollabMemberRole.ADMIN);
+        seedCollabMember(collabId, targetUserId, CollabMemberStatus.ACCEPTED, CollabMemberRole.MEMBER);
+
+        mockMvc.perform(put("/api/collabs/{collabId}/requests/{userId}/accept", collabId, targetUserId)
+                        .with(jwtFor(CREATOR_ID)))
+                .andExpect(status().isBadRequest());
+
+        assertThat(outboxEventRepository.count()).isZero();
+    }
+
+    @Test
+    void shouldReturnNotFoundWhenTargetMemberDoesNotExist() throws Exception {
+        var collabId = UUID.randomUUID();
+        var targetUserId = UUID.randomUUID();
+        seedCollab(collabId, CREATOR_ID);
+        seedCollabMember(collabId, CREATOR_ID, CollabMemberStatus.ACCEPTED, CollabMemberRole.ADMIN);
+
+        mockMvc.perform(put("/api/collabs/{collabId}/requests/{userId}/accept", collabId, targetUserId)
+                        .with(jwtFor(CREATOR_ID)))
+                .andExpect(status().isNotFound());
+
+        assertThat(outboxEventRepository.count()).isZero();
+    }
+
+    @Test
+    void shouldEmitOnlyOneAcceptedEventWhenTwoAdminsAcceptConcurrently() throws Exception {
+        var collabId = UUID.randomUUID();
+        var firstAdminId = CREATOR_ID;
+        var secondAdminId = UUID.randomUUID();
+        var targetUserId = UUID.randomUUID();
+        seedCollab(collabId, firstAdminId);
+        seedCollabMember(collabId, firstAdminId, CollabMemberStatus.ACCEPTED, CollabMemberRole.ADMIN);
+        seedCollabMember(collabId, secondAdminId, CollabMemberStatus.ACCEPTED, CollabMemberRole.ADMIN);
+        seedCollabMember(collabId, targetUserId, CollabMemberStatus.PENDING, CollabMemberRole.MEMBER);
+
+        String queueName = "test.collab.request.accepted.concurrent." + UUID.randomUUID();
+        RabbitAdmin rabbitAdmin = new RabbitAdmin(connectionFactory);
+        Queue queue = new Queue(queueName, false, true, true);
+        rabbitAdmin.declareQueue(queue);
+        rabbitAdmin.declareBinding(BindingBuilder.bind(queue)
+                .to(new org.springframework.amqp.core.TopicExchange(rabbitMQProperties.getExchange().getPost().getEvents()))
+                .with(rabbitMQProperties.getRk().getPost().getCollab().getRequest().getAccepted()));
+
+        var readyLatch = new CountDownLatch(2);
+        var startLatch = new CountDownLatch(1);
+
+        try (ExecutorService executorService = Executors.newFixedThreadPool(2)) {
+            List<Future<Integer>> futures = new ArrayList<>();
+            futures.add(executorService.submit(concurrentAcceptJoinRequest(collabId, targetUserId, firstAdminId, readyLatch,
+                    startLatch)));
+            futures.add(executorService.submit(concurrentAcceptJoinRequest(collabId, targetUserId, secondAdminId, readyLatch,
+                    startLatch)));
+
+            assertThat(readyLatch.await(5, TimeUnit.SECONDS)).isTrue();
+            startLatch.countDown();
+
+            List<Integer> statuses = new ArrayList<>();
+            for (Future<Integer> future : futures) {
+                statuses.add(future.get());
+            }
+
+            assertThat(statuses).containsExactlyInAnyOrder(200, 400);
+        }
+
+        var acceptedMember = collabMemberJpaRepository.findById(new CollabMemberId(collabId, targetUserId)).orElseThrow();
+        assertThat(acceptedMember.getCollabMemberStatus()).isEqualTo(CollabMemberStatus.ACCEPTED);
+        assertThat(outboxEventRepository.count()).isEqualTo(1);
+
+        List<Message> messages = receiveMessages(queueName, 2, 5000L);
+        assertThat(messages).hasSize(1);
+        var eventPayload = objectMapper.readValue(messages.getFirst().getBody(), new TypeReference<Map<String, Object>>() { });
+        assertThat(eventPayload.get("collabId")).isEqualTo(collabId.toString());
+        assertThat(eventPayload.get("userId")).isEqualTo(targetUserId.toString());
+        assertThat(Set.of(firstAdminId.toString(), secondAdminId.toString())).contains(String.valueOf(eventPayload.get("acceptedBy")));
+        rabbitAdmin.deleteQueue(queueName);
+    }
+
     private void seedUser(UUID userId, String username) {
         var now = Instant.now();
         userReadModelJpaRepository.save(new UserReadModelEntity(userId, username, now, now));
     }
 
+    private void seedCollab(UUID collabId, UUID createdBy) {
+        collabJpaRepository.save(new CollabEntity(collabId, "Open collab", createdBy, ColabStatus.OPEN, Instant.now()));
+    }
+
+    private void seedCollabMember(
+            UUID collabId,
+            UUID userId,
+            CollabMemberStatus status,
+            CollabMemberRole role) {
+        collabMemberJpaRepository.save(new CollabMemberEntity(
+                new CollabMemberId(collabId, userId),
+                status,
+                role,
+                Instant.now()
+        ));
+    }
+
     private SecurityMockMvcRequestPostProcessors.JwtRequestPostProcessor jwtFor(UUID userId) {
         return jwt().jwt(jwt -> jwt.subject(userId.toString()));
+    }
+
+    private Callable<Integer> concurrentAcceptJoinRequest(
+            UUID collabId,
+            UUID targetUserId,
+            UUID adminUserId,
+            CountDownLatch readyLatch,
+            CountDownLatch startLatch) {
+        return () -> {
+            readyLatch.countDown();
+            startLatch.await(5, TimeUnit.SECONDS);
+            return mockMvc.perform(put("/api/collabs/{collabId}/requests/{userId}/accept", collabId, targetUserId)
+                            .with(jwtFor(adminUserId)))
+                    .andReturn()
+                    .getResponse()
+                    .getStatus();
+        };
     }
 
     private Message receiveMessage(String queueName) throws InterruptedException {
@@ -301,6 +488,20 @@ class CollabControllerFlowTest {
         } while (System.currentTimeMillis() < deadline);
 
         return null;
+    }
+
+    private List<Message> receiveMessages(String queueName, int maxMessages, long timeoutMillis) throws InterruptedException {
+        long deadline = System.currentTimeMillis() + timeoutMillis;
+        List<Message> messages = new ArrayList<>();
+        while (System.currentTimeMillis() < deadline && messages.size() < maxMessages) {
+            Message message = rabbitTemplate.receive(queueName);
+            if (message != null) {
+                messages.add(message);
+                continue;
+            }
+            Thread.sleep(100L);
+        }
+        return messages;
     }
 
     private void assertTimestampEquivalent(Object firstValue, Object secondValue) {
