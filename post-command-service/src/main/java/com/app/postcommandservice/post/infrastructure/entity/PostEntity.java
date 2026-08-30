@@ -5,14 +5,17 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+import jakarta.persistence.FetchType;
 import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
 import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.ForeignKey;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
@@ -22,6 +25,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import com.app.postcommandservice.collab.infrastructure.entity.CollabEntity;
 import com.app.postcommandservice.post.domain.model.valueobj.PostStatus;
 
 @Builder
@@ -39,6 +43,17 @@ public class PostEntity {
 
     @Column(name = "user_id", nullable = false, updatable = false)
     private UUID userId;
+
+    @Column(name = "collab_id")
+    private UUID collabId;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "collab_id", foreignKey = @ForeignKey(name = "fk_posts_collab"), insertable = false, updatable = false)
+    private CollabEntity collab;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "post_type", nullable = false)
+    private com.app.postcommandservice.post.domain.model.valueobj.PostType postType;
 
     @Column(nullable = false, length = 4000)
     private String description;

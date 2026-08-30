@@ -30,6 +30,7 @@ import com.app.postcommandservice.post.domain.model.valueobj.PostId;
 import com.app.postcommandservice.post.domain.model.valueobj.PostStatus;
 import com.app.postcommandservice.post.domain.model.valueobj.PostTaggedUsers;
 import com.app.postcommandservice.post.domain.model.valueobj.PostTags;
+import com.app.postcommandservice.post.domain.model.valueobj.PostType;
 import com.app.postcommandservice.post.infrastructure.events.PostCreatedEvent;
 import com.app.postcommandservice.post.infrastructure.mapper.PostEventMapper;
 import com.app.postcommandservice.shared.domain.model.user.valueobj.UserId;
@@ -84,7 +85,7 @@ class CreatePostUseCaseTest {
 
     @Test
     void shouldCreatePostSuccessfullyWhenDescriptionIsBlankAndNoUsersAreTagged() {
-        var command = new CreatePostCommand(CORRELATION_ID, USER_ID, "", Set.of(), Set.of("java"));
+        var command = new CreatePostCommand(CORRELATION_ID, USER_ID, null, PostType.BASIC, "", Set.of(), Set.of("java"));
         var persistedPost = persistedPost("", Set.of(), Set.of("java"));
         var createdEvent = createdEvent(persistedPost);
 
@@ -97,6 +98,8 @@ class CreatePostUseCaseTest {
         var response = createPostUseCase.createPost(command);
 
         assertThat(response.userId()).isEqualTo(USER_ID);
+        assertThat(response.collabId()).isNull();
+        assertThat(response.postType()).isEqualTo(PostType.BASIC);
         assertThat(response.description()).isEmpty();
         assertThat(response.taggedUsers()).isEmpty();
         assertThat(response.postTags()).containsExactly("java");
@@ -113,7 +116,7 @@ class CreatePostUseCaseTest {
 
     @Test
     void shouldAcquireCorrelationLockBeforeCheckingExistingIdempotencyRecord() {
-        var command = new CreatePostCommand(CORRELATION_ID, USER_ID, "", Set.of(), Set.of("java"));
+        var command = new CreatePostCommand(CORRELATION_ID, USER_ID, null, PostType.BASIC, "", Set.of(), Set.of("java"));
         var persistedPost = persistedPost("", Set.of(), Set.of("java"));
         var createdEvent = createdEvent(persistedPost);
 
@@ -135,6 +138,8 @@ class CreatePostUseCaseTest {
         var command = new CreatePostCommand(
                 CORRELATION_ID,
                 USER_ID,
+                null,
+                PostType.BASIC,
                 "hello",
                 new LinkedHashSet<>(Set.of("alice", "bob")),
                 Set.of("spring", "rabbit")
@@ -170,6 +175,8 @@ class CreatePostUseCaseTest {
         var response = createPostUseCase.createPost(new CreatePostCommand(
                 CORRELATION_ID,
                 USER_ID,
+                null,
+                PostType.BASIC,
                 "new value",
                 Set.of("bob"),
                 Set.of("spring")
@@ -184,7 +191,15 @@ class CreatePostUseCaseTest {
 
     @Test
     void shouldThrowTaggedUserNotFoundExceptionWhenTaggedUserDoesNotExist() {
-        var command = new CreatePostCommand(CORRELATION_ID, USER_ID, "description", Set.of("missing"), Set.of());
+        var command = new CreatePostCommand(
+                CORRELATION_ID,
+                USER_ID,
+                null,
+                PostType.BASIC,
+                "description",
+                Set.of("missing"),
+                Set.of()
+        );
 
         when(postRequestIdempotencyRepository.findPostIdByCorrelationId(CORRELATION_ID)).thenReturn(Optional.empty());
         when(taggedUserValidationRepository.findUserIdsByUsernames(command.taggedUsers())).thenReturn(Map.of());
@@ -197,7 +212,15 @@ class CreatePostUseCaseTest {
     @Test
     void shouldThrowTaggedUserBlockedExceptionWhenTaggedUserHasBlockedThePostOwnerOrViceVersa() {
         var blockedUserId = UUID.randomUUID();
-        var command = new CreatePostCommand(CORRELATION_ID, USER_ID, "description", Set.of("alice"), Set.of());
+        var command = new CreatePostCommand(
+                CORRELATION_ID,
+                USER_ID,
+                null,
+                PostType.BASIC,
+                "description",
+                Set.of("alice"),
+                Set.of()
+        );
 
         when(postRequestIdempotencyRepository.findPostIdByCorrelationId(CORRELATION_ID)).thenReturn(Optional.empty());
         when(taggedUserValidationRepository.findUserIdsByUsernames(command.taggedUsers()))
@@ -210,11 +233,87 @@ class CreatePostUseCaseTest {
                 .hasMessageContaining("alice");
     }
 
+    @Test
+    void shouldCreateCollabPostWithoutPublishingPostCreatedEventWhenFlowRequestsSuppression() {
+        var collabId = UUID.randomUUID();
+        var command = new CreatePostCommand(
+                CORRELATION_ID,
+                USER_ID,
+                collabId,
+                PostType.COLAB,
+                "hello",
+                Set.of(),
+                Set.of("spring")
+        );
+        var persistedPost = new Post(
+                new PostId(UUID.randomUUID()),
+                new UserId(USER_ID),
+                collabId,
+                PostType.COLAB,
+                new PostDescription("hello"),
+                new PostTaggedUsers(Set.of()),
+                new PostTags(Set.of("spring")),
+                PostStatus.ACTIVE,
+                Instant.now(),
+                Instant.now()
+        );
+
+        when(postRequestIdempotencyRepository.findPostIdByCorrelationId(CORRELATION_ID)).thenReturn(Optional.empty());
+        when(postRepository.save(any(Post.class))).thenReturn(persistedPost);
+
+        var response = createPostUseCase.createPost(command, false);
+
+        assertThat(response.collabId()).isEqualTo(collabId);
+        assertThat(response.postType()).isEqualTo(PostType.COLAB);
+        verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
+        verify(applicationEventPublisher, never()).publishEvent(any(PostCreatedDomainEvent.class));
+    }
+
+    @Test
+    void shouldCreateCollabPostWithoutPersistingPostRequestIdempotencyWhenFlowDisablesIt() {
+        var collabId = UUID.randomUUID();
+        var command = new CreatePostCommand(
+                CORRELATION_ID,
+                USER_ID,
+                collabId,
+                PostType.COLAB,
+                "hello",
+                Set.of(),
+                Set.of("spring")
+        );
+        var persistedPost = new Post(
+                new PostId(UUID.randomUUID()),
+                new UserId(USER_ID),
+                collabId,
+                PostType.COLAB,
+                new PostDescription("hello"),
+                new PostTaggedUsers(Set.of()),
+                new PostTags(Set.of("spring")),
+                PostStatus.ACTIVE,
+                Instant.now(),
+                Instant.now()
+        );
+
+        when(postRepository.save(any(Post.class))).thenReturn(persistedPost);
+
+        var response = createPostUseCase.createPost(command, false, false);
+
+        assertThat(response.collabId()).isEqualTo(collabId);
+        assertThat(response.postType()).isEqualTo(PostType.COLAB);
+        verify(postRequestIdempotencyRepository, never()).acquireCorrelationLock(any(UUID.class));
+        verify(postRequestIdempotencyRepository, never()).findPostIdByCorrelationId(any(UUID.class));
+        verify(postRequestIdempotencyRepository, never()).save(any(UUID.class), any(UUID.class));
+        verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
+        verify(applicationEventPublisher, never()).publishEvent(any(PostCreatedDomainEvent.class));
+    }
+
     private Post persistedPost(String description, Set<String> taggedUsers, Set<String> postTags) {
         var now = Instant.now();
         return new Post(
                 new PostId(UUID.randomUUID()),
                 new UserId(USER_ID),
+                null,
+                PostType.BASIC,
                 new PostDescription(description),
                 new PostTaggedUsers(new LinkedHashSet<>(taggedUsers)),
                 new PostTags(new LinkedHashSet<>(postTags)),
@@ -231,6 +330,8 @@ class CreatePostUseCaseTest {
                 .occurredAt(Instant.now())
                 .postId(post.getId().value())
                 .userId(post.getUserId().value())
+                .collabId(post.getCollabId())
+                .postType(post.getPostType())
                 .description(post.getDescription().value())
                 .taggedUsers(post.getTaggedUsers().value())
                 .postTags(post.getTags().value())

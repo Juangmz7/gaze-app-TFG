@@ -3,6 +3,7 @@ package com.app.postcommandservice.shared.infrastructure.schema;
 import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.Map;
 
@@ -55,6 +56,7 @@ class PostCommandProductionSchemaValidationIT {
         applySchemaPatch("db/schema/post-command-service-prod.sql");
 
         assertThatNoException().isThrownBy(() -> bootstrapSchema("validate"));
+        assertForeignKeyExists("posts", "fk_posts_collab");
     }
 
     @Test
@@ -85,6 +87,25 @@ class PostCommandProductionSchemaValidationIT {
         assertThatNoException().isThrownBy(() -> bootstrapSchema("validate"));
     }
 
+    @Test
+    void shouldRequireTrackedSchemaPatchBeforeProductionValidationPassesForCollabTablesAndPostColumns() {
+        bootstrapSchema("create");
+        execute("DROP TABLE IF EXISTS collab_request_idempotency");
+        execute("DROP TABLE IF EXISTS collab_members");
+        execute("ALTER TABLE posts DROP CONSTRAINT IF EXISTS fk_posts_collab");
+        execute("DROP TABLE IF EXISTS collabs");
+        execute("ALTER TABLE posts DROP COLUMN collab_id");
+        execute("ALTER TABLE posts DROP COLUMN post_type");
+
+        assertThatThrownBy(() -> bootstrapSchema("validate"))
+                .hasRootCauseInstanceOf(Exception.class)
+                .hasMessageContaining("collab_members");
+
+        applySchemaPatch("db/schema/post-command-service-prod.sql");
+
+        assertThatNoException().isThrownBy(() -> bootstrapSchema("validate"));
+    }
+
     private void applySchemaPatch(String resourcePath) {
         ResourceDatabasePopulator populator = new ResourceDatabasePopulator(new ClassPathResource(resourcePath));
         populator.execute(dataSource());
@@ -99,6 +120,30 @@ class PostCommandProductionSchemaValidationIT {
             statement.execute(sql);
         } catch (Exception exception) {
             throw new IllegalStateException("Failed to execute SQL: " + sql, exception);
+        }
+    }
+
+    private void assertForeignKeyExists(String tableName, String constraintName) {
+        try (Connection connection = DriverManager.getConnection(
+                POSTGRES.getJdbcUrl(),
+                POSTGRES.getUsername(),
+                POSTGRES.getPassword());
+             ResultSet resultSet = connection.getMetaData().getImportedKeys(connection.getCatalog(), "public", tableName)) {
+            boolean found = false;
+            while (resultSet.next()) {
+                if (constraintName.equalsIgnoreCase(resultSet.getString("FK_NAME"))) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                throw new AssertionError("Missing foreign key " + constraintName + " on table " + tableName);
+            }
+        } catch (Exception exception) {
+            throw new IllegalStateException(
+                    "Failed to inspect foreign key " + constraintName + " on table " + tableName,
+                    exception
+            );
         }
     }
 

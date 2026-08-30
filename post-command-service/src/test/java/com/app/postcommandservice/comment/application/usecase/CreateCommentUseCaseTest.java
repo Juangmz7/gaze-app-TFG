@@ -32,6 +32,7 @@ import com.app.postcommandservice.post.domain.model.valueobj.PostId;
 import com.app.postcommandservice.post.domain.model.valueobj.PostStatus;
 import com.app.postcommandservice.post.domain.model.valueobj.PostTaggedUsers;
 import com.app.postcommandservice.post.domain.model.valueobj.PostTags;
+import com.app.postcommandservice.post.domain.model.valueobj.PostType;
 import com.app.postcommandservice.shared.domain.model.user.valueobj.UserId;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -241,6 +242,8 @@ class CreateCommentUseCaseTest {
         return new Post(
                 new PostId(POST_ID),
                 new UserId(ownerId),
+                null,
+                PostType.BASIC,
                 new PostDescription("post"),
                 new PostTaggedUsers(java.util.Set.of()),
                 new PostTags(java.util.Set.of()),

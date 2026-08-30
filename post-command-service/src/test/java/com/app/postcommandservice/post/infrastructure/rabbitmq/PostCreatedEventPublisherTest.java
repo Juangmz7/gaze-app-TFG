@@ -12,6 +12,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 
 import com.app.postcommandservice.post.infrastructure.events.PostCreatedEvent;
+import com.app.postcommandservice.post.domain.model.valueobj.PostType;
 import com.app.postcommandservice.shared.infrastructure.entity.OutboxEvent;
 import com.app.postcommandservice.shared.infrastructure.enums.EventStatus;
 import com.app.postcommandservice.shared.infrastructure.mapper.JsonMapper;
@@ -55,6 +56,8 @@ class PostCreatedEventPublisherTest {
                 .occurredAt(Instant.now())
                 .postId(UUID.randomUUID())
                 .userId(UUID.randomUUID())
+                .collabId(null)
+                .postType(PostType.BASIC)
                 .description("description")
                 .taggedUsers(Set.of("alice"))
                 .postTags(Set.of("spring"))
