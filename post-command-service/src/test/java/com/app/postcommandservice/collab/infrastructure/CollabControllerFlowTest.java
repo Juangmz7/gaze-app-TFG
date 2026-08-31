@@ -28,6 +28,12 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
 import com.app.postcommandservice.TestcontainersConfiguration;
+import com.app.postcommandservice.collab.domain.model.valueobj.ColabStatus;
+import com.app.postcommandservice.collab.domain.model.valueobj.CollabMemberRole;
+import com.app.postcommandservice.collab.domain.model.valueobj.CollabMemberStatus;
+import com.app.postcommandservice.collab.infrastructure.entity.CollabEntity;
+import com.app.postcommandservice.collab.infrastructure.entity.CollabMemberEntity;
+import com.app.postcommandservice.collab.infrastructure.entity.CollabMemberId;
 import com.app.postcommandservice.collab.infrastructure.repository.CollabJpaRepository;
 import com.app.postcommandservice.collab.infrastructure.repository.CollabMemberJpaRepository;
 import com.app.postcommandservice.collab.infrastructure.repository.CollabRequestIdempotencyJpaRepository;
@@ -41,6 +47,7 @@ import com.app.postcommandservice.shared.infrastructure.repository.OutboxEventRe
 import com.app.postcommandservice.shared.infrastructure.repository.ProcessedEventsRepository;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -280,13 +287,181 @@ class CollabControllerFlowTest {
         assertThat(outboxEventRepository.count()).isEqualTo(1);
     }
 
+    @Test
+    void shouldLeaveCollabViaPostAndPublishEvent() throws Exception {
+        String queueName = "test.collab.member.left." + UUID.randomUUID();
+        RabbitAdmin rabbitAdmin = new RabbitAdmin(connectionFactory);
+        Queue queue = new Queue(queueName, false, true, true);
+        rabbitAdmin.declareQueue(queue);
+        rabbitAdmin.declareBinding(BindingBuilder.bind(queue)
+                .to(new org.springframework.amqp.core.TopicExchange(rabbitMQProperties.getExchange().getPost().getEvents()))
+                .with(rabbitMQProperties.getRk().getPost().getCollab().getMember().getLeft()));
+
+        var collabId = seedCollab(CREATOR_ID);
+        seedMember(collabId, UUID.fromString("22222222-2222-2222-2222-222222222222"),
+                CollabMemberStatus.ACCEPTED, CollabMemberRole.MEMBER);
+
+        mockMvc.perform(post("/api/collabs/{collabId}/leave", collabId)
+                        .with(jwtFor(UUID.fromString("22222222-2222-2222-2222-222222222222"))))
+                .andExpect(status().isOk());
+
+        var persistedMember = collabMemberJpaRepository
+                .findById(new CollabMemberId(collabId, UUID.fromString("22222222-2222-2222-2222-222222222222")))
+                .orElseThrow();
+        assertThat(persistedMember.getCollabMemberStatus()).isEqualTo(CollabMemberStatus.LEFT);
+        assertThat(outboxEventRepository.count()).isEqualTo(1);
+
+        Message message = receiveMessage(queueName);
+        assertThat(message).isNotNull();
+        var eventPayload = objectMapper.readValue(message.getBody(), new TypeReference<Map<String, Object>>() { });
+        assertThat(eventPayload.get("collabId")).isEqualTo(collabId.toString());
+        assertThat(eventPayload.get("userId")).isEqualTo("22222222-2222-2222-2222-222222222222");
+        assertThat(eventPayload.get("collabMemberStatus")).isEqualTo("LEFT");
+
+        rabbitAdmin.deleteQueue(queueName);
+    }
+
+    @Test
+    void shouldLeaveCollabViaDeleteAndReturnNoContent() throws Exception {
+        var collabId = seedCollab(CREATOR_ID);
+        var memberId = UUID.fromString("33333333-3333-3333-3333-333333333333");
+        seedMember(collabId, memberId, CollabMemberStatus.ACCEPTED, CollabMemberRole.MEMBER);
+
+        mockMvc.perform(delete("/api/collabs/{collabId}/leave", collabId)
+                        .with(jwtFor(memberId)))
+                .andExpect(status().isNoContent());
+
+        var persistedMember = collabMemberJpaRepository.findById(new CollabMemberId(collabId, memberId)).orElseThrow();
+        assertThat(persistedMember.getCollabMemberStatus()).isEqualTo(CollabMemberStatus.LEFT);
+        assertThat(outboxEventRepository.count()).isEqualTo(1);
+    }
+
+    @Test
+    void shouldReturnBadRequestWhenAdminAttemptsToLeaveCollab() throws Exception {
+        var collabId = seedCollab(CREATOR_ID);
+        seedMember(collabId, CREATOR_ID, CollabMemberStatus.ACCEPTED, CollabMemberRole.ADMIN);
+
+        mockMvc.perform(post("/api/collabs/{collabId}/leave", collabId)
+                        .with(jwtFor(CREATOR_ID)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Admin user %s cannot leave collab %s"
+                        .formatted(CREATOR_ID, collabId)));
+
+        var persistedMember = collabMemberJpaRepository.findById(new CollabMemberId(collabId, CREATOR_ID)).orElseThrow();
+        assertThat(persistedMember.getCollabMemberStatus()).isEqualTo(CollabMemberStatus.ACCEPTED);
+        assertThat(outboxEventRepository.count()).isZero();
+    }
+
+    @Test
+    void shouldReturnBadRequestWhenMemberIsNotAccepted() throws Exception {
+        var collabId = seedCollab(CREATOR_ID);
+        var memberId = UUID.fromString("44444444-4444-4444-4444-444444444444");
+        seedMember(collabId, memberId, CollabMemberStatus.BANNED, CollabMemberRole.MEMBER);
+
+        mockMvc.perform(post("/api/collabs/{collabId}/leave", collabId)
+                        .with(jwtFor(memberId)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Collab member %s for collab %s must be ACCEPTED to leave, but was BANNED"
+                        .formatted(memberId, collabId)));
+
+        var persistedMember = collabMemberJpaRepository.findById(new CollabMemberId(collabId, memberId)).orElseThrow();
+        assertThat(persistedMember.getCollabMemberStatus()).isEqualTo(CollabMemberStatus.BANNED);
+        assertThat(outboxEventRepository.count()).isZero();
+    }
+
+    @Test
+    void shouldReturnNotFoundWhenCollabDoesNotExist() throws Exception {
+        var collabId = UUID.randomUUID();
+
+        mockMvc.perform(post("/api/collabs/{collabId}/leave", collabId)
+                        .with(jwtFor(CREATOR_ID)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value("Collab not found with id: %s".formatted(collabId)));
+
+        assertThat(outboxEventRepository.count()).isZero();
+    }
+
+    @Test
+    void shouldReturnNotFoundWhenMembershipDoesNotExist() throws Exception {
+        var collabId = seedCollab(CREATOR_ID);
+        var memberId = UUID.fromString("55555555-5555-5555-5555-555555555555");
+
+        mockMvc.perform(post("/api/collabs/{collabId}/leave", collabId)
+                        .with(jwtFor(memberId)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value("Collab member not found for collab %s and user %s"
+                        .formatted(collabId, memberId)));
+
+        assertThat(outboxEventRepository.count()).isZero();
+    }
+
+    @Test
+    void shouldRejectMalformedCollabIdOnPostLeaveWithoutCreatingOutboxOrMessage() throws Exception {
+        String queueName = declareMemberLeftQueue();
+
+        mockMvc.perform(post("/api/collabs/{collabId}/leave", "not-a-uuid")
+                        .with(jwtFor(CREATOR_ID)))
+                .andExpect(status().isBadRequest());
+
+        assertThat(outboxEventRepository.count()).isZero();
+        assertThat(receiveMessage(queueName)).isNull();
+
+        new RabbitAdmin(connectionFactory).deleteQueue(queueName);
+    }
+
+    @Test
+    void shouldRejectMalformedCollabIdOnDeleteLeaveWithoutCreatingOutboxOrMessage() throws Exception {
+        String queueName = declareMemberLeftQueue();
+
+        mockMvc.perform(delete("/api/collabs/{collabId}/leave", "not-a-uuid")
+                        .with(jwtFor(CREATOR_ID)))
+                .andExpect(status().isBadRequest());
+
+        assertThat(outboxEventRepository.count()).isZero();
+        assertThat(receiveMessage(queueName)).isNull();
+
+        new RabbitAdmin(connectionFactory).deleteQueue(queueName);
+    }
+
     private void seedUser(UUID userId, String username) {
         var now = Instant.now();
         userReadModelJpaRepository.save(new UserReadModelEntity(userId, username, now, now));
     }
 
+    private UUID seedCollab(UUID createdBy) {
+        var collabId = UUID.randomUUID();
+        collabJpaRepository.save(new CollabEntity(
+                collabId,
+                "Seeded collab",
+                createdBy,
+                ColabStatus.OPEN,
+                Instant.now()
+        ));
+        return collabId;
+    }
+
+    private void seedMember(UUID collabId, UUID userId, CollabMemberStatus status, CollabMemberRole role) {
+        collabMemberJpaRepository.save(new CollabMemberEntity(
+                new CollabMemberId(collabId, userId),
+                status,
+                role,
+                Instant.now()
+        ));
+    }
+
     private SecurityMockMvcRequestPostProcessors.JwtRequestPostProcessor jwtFor(UUID userId) {
         return jwt().jwt(jwt -> jwt.subject(userId.toString()));
+    }
+
+    private String declareMemberLeftQueue() {
+        String queueName = "test.collab.member.left." + UUID.randomUUID();
+        RabbitAdmin rabbitAdmin = new RabbitAdmin(connectionFactory);
+        Queue queue = new Queue(queueName, false, true, true);
+        rabbitAdmin.declareQueue(queue);
+        rabbitAdmin.declareBinding(BindingBuilder.bind(queue)
+                .to(new org.springframework.amqp.core.TopicExchange(rabbitMQProperties.getExchange().getPost().getEvents()))
+                .with(rabbitMQProperties.getRk().getPost().getCollab().getMember().getLeft()));
+        return queueName;
     }
 
     private Message receiveMessage(String queueName) throws InterruptedException {
