@@ -22,6 +22,8 @@ import com.app.postcommandservice.comment.domain.exception.CommentBlockedExcepti
 import com.app.postcommandservice.comment.domain.exception.CommentNotActiveException;
 import com.app.postcommandservice.comment.domain.exception.CommentNotFoundException;
 import com.app.postcommandservice.comment.domain.exception.CommentOwnershipException;
+import com.app.postcommandservice.collab.domain.exception.CollabMemberForbiddenException;
+import com.app.postcommandservice.collab.domain.exception.CollabMemberNotFoundException;
 import com.app.postcommandservice.post.domain.exception.TaggedUserBlockedException;
 import com.app.postcommandservice.post.domain.exception.TaggedUserNotFoundException;
 import com.app.postcommandservice.post.domain.exception.PostNotActiveException;
@@ -77,6 +79,14 @@ public class ApiExceptionHandler {
         return buildErrorResponse(HttpStatus.NOT_FOUND, ApiErrorCode.NOT_FOUND, exception.getMessage(), request);
     }
 
+    @ExceptionHandler(CollabMemberNotFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handleCollabMemberNotFoundException(
+            CollabMemberNotFoundException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(HttpStatus.NOT_FOUND, ApiErrorCode.NOT_FOUND, exception.getMessage(), request);
+    }
+
     @ExceptionHandler(CommentOwnershipException.class)
     public ResponseEntity<ApiErrorResponse> handleCommentOwnershipException(
             CommentOwnershipException exception,
@@ -112,6 +122,14 @@ public class ApiExceptionHandler {
     @ExceptionHandler(PostOwnershipException.class)
     public ResponseEntity<ApiErrorResponse> handlePostOwnershipException(
             PostOwnershipException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(HttpStatus.FORBIDDEN, ApiErrorCode.FORBIDDEN, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(CollabMemberForbiddenException.class)
+    public ResponseEntity<ApiErrorResponse> handleCollabMemberForbiddenException(
+            CollabMemberForbiddenException exception,
             HttpServletRequest request) {
 
         return buildErrorResponse(HttpStatus.FORBIDDEN, ApiErrorCode.FORBIDDEN, exception.getMessage(), request);

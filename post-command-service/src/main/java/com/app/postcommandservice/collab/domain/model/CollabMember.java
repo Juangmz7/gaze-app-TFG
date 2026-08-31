@@ -33,6 +33,18 @@ public class CollabMember {
         return new CollabMember(collabId, userId, CollabMemberStatus.ACCEPTED, CollabMemberRole.ADMIN, null);
     }
 
+    public boolean isAcceptedAdmin() {
+        return collabMemberStatus == CollabMemberStatus.ACCEPTED && role == CollabMemberRole.ADMIN;
+    }
+
+    public boolean isAccepted() {
+        return collabMemberStatus == CollabMemberStatus.ACCEPTED;
+    }
+
+    public CollabMember ban() {
+        return new CollabMember(collabId, userId, CollabMemberStatus.BANNED, role, createdAt);
+    }
+
     public UUID getCollabId() {
         return collabId;
     }

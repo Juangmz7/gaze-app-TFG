@@ -1,5 +1,8 @@
 package com.app.postcommandservice.collab.infrastructure.repository;
 
+import java.util.Optional;
+import java.util.UUID;
+
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
@@ -17,5 +20,11 @@ public class CollabMemberRepositoryImpl implements CollabMemberRepository {
     @Override
     public CollabMember save(CollabMember collabMember) {
         return collabMemberMapper.toDomain(collabMemberJpaRepository.save(collabMemberMapper.toEntity(collabMember)));
+    }
+
+    @Override
+    public Optional<CollabMember> findByCollabIdAndUserId(UUID collabId, UUID userId) {
+        return collabMemberJpaRepository.findByIdCollabIdAndIdUserId(collabId, userId)
+                .map(collabMemberMapper::toDomain);
     }
 }
