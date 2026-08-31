@@ -11,6 +11,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.amqp.core.BindingBuilder;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.Queue;
@@ -28,6 +30,12 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
 import com.app.postcommandservice.TestcontainersConfiguration;
+import com.app.postcommandservice.collab.domain.model.valueobj.ColabStatus;
+import com.app.postcommandservice.collab.domain.model.valueobj.CollabMemberRole;
+import com.app.postcommandservice.collab.domain.model.valueobj.CollabMemberStatus;
+import com.app.postcommandservice.collab.infrastructure.entity.CollabEntity;
+import com.app.postcommandservice.collab.infrastructure.entity.CollabMemberEntity;
+import com.app.postcommandservice.collab.infrastructure.entity.CollabMemberId;
 import com.app.postcommandservice.collab.infrastructure.repository.CollabJpaRepository;
 import com.app.postcommandservice.collab.infrastructure.repository.CollabMemberJpaRepository;
 import com.app.postcommandservice.collab.infrastructure.repository.CollabRequestIdempotencyJpaRepository;
@@ -44,6 +52,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -280,6 +289,247 @@ class CollabControllerFlowTest {
         assertThat(outboxEventRepository.count()).isEqualTo(1);
     }
 
+    @Test
+    void shouldCreatePendingJoinRequestAndPublishEvent() throws Exception {
+        var collabId = UUID.randomUUID();
+        var requesterId = UUID.randomUUID();
+        seedCollab(collabId, CREATOR_ID);
+        seedCollabMember(collabId, CREATOR_ID, CollabMemberStatus.ACCEPTED, CollabMemberRole.ADMIN);
+        seedCollabMember(collabId, UUID.randomUUID(), CollabMemberStatus.ACCEPTED, CollabMemberRole.MEMBER);
+
+        String queueName = declareEventQueue(
+                "test.collab.request.created.",
+                rabbitMQProperties.getRk().getPost().getCollab().getRequest().getCreated()
+        );
+
+        mockMvc.perform(post("/api/collabs/{collabId}/requests", collabId)
+                        .with(jwtFor(requesterId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.collabId").value(collabId.toString()))
+                .andExpect(jsonPath("$.userId").value(requesterId.toString()))
+                .andExpect(jsonPath("$.status").value("PENDING"))
+                .andExpect(jsonPath("$.role").value("MEMBER"));
+
+        var createdMember = collabMemberJpaRepository.findById(new CollabMemberId(collabId, requesterId)).orElseThrow();
+        assertThat(createdMember.getCollabMemberStatus()).isEqualTo(CollabMemberStatus.PENDING);
+        assertThat(outboxEventRepository.count()).isEqualTo(1);
+
+        Message message = receiveMessage(queueName);
+        assertThat(message).isNotNull();
+        var eventPayload = objectMapper.readValue(message.getBody(), new TypeReference<Map<String, Object>>() { });
+        assertThat(eventPayload.get("collabId")).isEqualTo(collabId.toString());
+        assertThat(eventPayload.get("userId")).isEqualTo(requesterId.toString());
+        assertThat(eventPayload.get("status")).isEqualTo("PENDING");
+
+        deleteQueue(queueName);
+    }
+
+    @Test
+    void shouldAcceptPendingJoinRequestAndPublishEvent() throws Exception {
+        var collabId = UUID.randomUUID();
+        var targetUserId = UUID.randomUUID();
+        seedCollab(collabId, CREATOR_ID);
+        seedCollabMember(collabId, CREATOR_ID, CollabMemberStatus.ACCEPTED, CollabMemberRole.ADMIN);
+        seedCollabMember(collabId, targetUserId, CollabMemberStatus.PENDING, CollabMemberRole.MEMBER);
+
+        String queueName = declareEventQueue(
+                "test.collab.request.accepted.",
+                rabbitMQProperties.getRk().getPost().getCollab().getRequest().getAccepted()
+        );
+
+        mockMvc.perform(put("/api/collabs/{collabId}/requests/{userId}/accept", collabId, targetUserId)
+                        .with(jwtFor(CREATOR_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.collabId").value(collabId.toString()))
+                .andExpect(jsonPath("$.userId").value(targetUserId.toString()))
+                .andExpect(jsonPath("$.collabMemberStatus").value("ACCEPTED"))
+                .andExpect(jsonPath("$.role").value("MEMBER"));
+
+        var updatedMember = collabMemberJpaRepository.findById(new CollabMemberId(collabId, targetUserId)).orElseThrow();
+        assertThat(updatedMember.getCollabMemberStatus()).isEqualTo(CollabMemberStatus.ACCEPTED);
+        assertThat(outboxEventRepository.count()).isEqualTo(1);
+
+        Message message = receiveMessage(queueName);
+        assertThat(message).isNotNull();
+        var eventPayload = objectMapper.readValue(message.getBody(), new TypeReference<Map<String, Object>>() { });
+        assertThat(eventPayload.get("collabId")).isEqualTo(collabId.toString());
+        assertThat(eventPayload.get("userId")).isEqualTo(targetUserId.toString());
+        assertThat(eventPayload.get("acceptedBy")).isEqualTo(CREATOR_ID.toString());
+        assertThat(eventPayload.get("collabMemberStatus")).isEqualTo("ACCEPTED");
+
+        deleteQueue(queueName);
+    }
+
+    @Test
+    void shouldDeclinePendingJoinRequestAndPublishEvent() throws Exception {
+        var collabId = UUID.randomUUID();
+        var targetUserId = UUID.randomUUID();
+        seedCollab(collabId, CREATOR_ID);
+        seedCollabMember(collabId, CREATOR_ID, CollabMemberStatus.ACCEPTED, CollabMemberRole.ADMIN);
+        seedCollabMember(collabId, targetUserId, CollabMemberStatus.PENDING, CollabMemberRole.MEMBER);
+
+        String queueName = declareEventQueue(
+                "test.collab.request.declined.",
+                rabbitMQProperties.getRk().getPost().getCollab().getRequest().getDeclined()
+        );
+
+        mockMvc.perform(put("/api/collabs/{collabId}/requests/{userId}/decline", collabId, targetUserId)
+                        .with(jwtFor(CREATOR_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.collabId").value(collabId.toString()))
+                .andExpect(jsonPath("$.userId").value(targetUserId.toString()))
+                .andExpect(jsonPath("$.collabMemberStatus").value("REJECTED"))
+                .andExpect(jsonPath("$.role").value("MEMBER"));
+
+        var updatedMember = collabMemberJpaRepository.findById(new CollabMemberId(collabId, targetUserId)).orElseThrow();
+        assertThat(updatedMember.getCollabMemberStatus()).isEqualTo(CollabMemberStatus.REJECTED);
+        assertThat(collabMemberJpaRepository.count()).isEqualTo(2);
+        assertThat(outboxEventRepository.count()).isEqualTo(1);
+
+        Message message = receiveMessage(queueName);
+        assertThat(message).isNotNull();
+        var eventPayload = objectMapper.readValue(message.getBody(), new TypeReference<Map<String, Object>>() { });
+        assertThat(eventPayload.get("collabId")).isEqualTo(collabId.toString());
+        assertThat(eventPayload.get("userId")).isEqualTo(targetUserId.toString());
+        assertThat(eventPayload.get("declinedBy")).isEqualTo(CREATOR_ID.toString());
+        assertThat(eventPayload.get("collabMemberStatus")).isEqualTo("REJECTED");
+
+        deleteQueue(queueName);
+    }
+
+    @Test
+    void shouldReturnForbiddenWhenDecliningUserMembershipIsMissing() throws Exception {
+        var collabId = UUID.randomUUID();
+        var actioningUserId = UUID.randomUUID();
+        var targetUserId = UUID.randomUUID();
+        seedCollab(collabId, CREATOR_ID);
+        seedCollabMember(collabId, targetUserId, CollabMemberStatus.PENDING, CollabMemberRole.MEMBER);
+
+        String queueName = declareEventQueue(
+                "test.collab.request.declined.missing-actor.",
+                rabbitMQProperties.getRk().getPost().getCollab().getRequest().getDeclined()
+        );
+
+        mockMvc.perform(put("/api/collabs/{collabId}/requests/{userId}/decline", collabId, targetUserId)
+                        .with(jwtFor(actioningUserId)))
+                .andExpect(status().isForbidden());
+
+        var unchangedMember = collabMemberJpaRepository.findById(new CollabMemberId(collabId, targetUserId)).orElseThrow();
+        assertThat(unchangedMember.getCollabMemberStatus()).isEqualTo(CollabMemberStatus.PENDING);
+        assertThat(outboxEventRepository.count()).isZero();
+        assertThat(receiveMessage(queueName)).isNull();
+
+        deleteQueue(queueName);
+    }
+
+    @Test
+    void shouldReturnForbiddenWhenDecliningUserIsNotAcceptedAdmin() throws Exception {
+        var collabId = UUID.randomUUID();
+        var targetUserId = UUID.randomUUID();
+        seedCollab(collabId, CREATOR_ID);
+        seedCollabMember(collabId, CREATOR_ID, CollabMemberStatus.ACCEPTED, CollabMemberRole.MEMBER);
+        seedCollabMember(collabId, targetUserId, CollabMemberStatus.PENDING, CollabMemberRole.MEMBER);
+
+        String queueName = declareEventQueue(
+                "test.collab.request.declined.not-admin.",
+                rabbitMQProperties.getRk().getPost().getCollab().getRequest().getDeclined()
+        );
+
+        mockMvc.perform(put("/api/collabs/{collabId}/requests/{userId}/decline", collabId, targetUserId)
+                        .with(jwtFor(CREATOR_ID)))
+                .andExpect(status().isForbidden());
+
+        var unchangedMember = collabMemberJpaRepository.findById(new CollabMemberId(collabId, targetUserId)).orElseThrow();
+        assertThat(unchangedMember.getCollabMemberStatus()).isEqualTo(CollabMemberStatus.PENDING);
+        assertThat(outboxEventRepository.count()).isZero();
+        assertThat(receiveMessage(queueName)).isNull();
+
+        deleteQueue(queueName);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = CollabMemberStatus.class, names = {"PENDING", "LEFT", "BANNED"})
+    void shouldReturnForbiddenWhenDecliningUserIsNotAccepted(CollabMemberStatus actioningStatus) throws Exception {
+        var collabId = UUID.randomUUID();
+        var targetUserId = UUID.randomUUID();
+        seedCollab(collabId, CREATOR_ID);
+        seedCollabMember(collabId, CREATOR_ID, actioningStatus, CollabMemberRole.ADMIN);
+        seedCollabMember(collabId, targetUserId, CollabMemberStatus.PENDING, CollabMemberRole.MEMBER);
+
+        String queueName = declareEventQueue(
+                "test.collab.request.declined.not-accepted.",
+                rabbitMQProperties.getRk().getPost().getCollab().getRequest().getDeclined()
+        );
+
+        mockMvc.perform(put("/api/collabs/{collabId}/requests/{userId}/decline", collabId, targetUserId)
+                        .with(jwtFor(CREATOR_ID)))
+                .andExpect(status().isForbidden());
+
+        var unchangedMember = collabMemberJpaRepository.findById(new CollabMemberId(collabId, targetUserId)).orElseThrow();
+        assertThat(unchangedMember.getCollabMemberStatus()).isEqualTo(CollabMemberStatus.PENDING);
+        assertThat(outboxEventRepository.count()).isZero();
+        assertThat(receiveMessage(queueName)).isNull();
+
+        deleteQueue(queueName);
+    }
+
+    @Test
+    void shouldReturnBadRequestWhenDeclineTargetMemberIsNotPending() throws Exception {
+        var collabId = UUID.randomUUID();
+        var targetUserId = UUID.randomUUID();
+        seedCollab(collabId, CREATOR_ID);
+        seedCollabMember(collabId, CREATOR_ID, CollabMemberStatus.ACCEPTED, CollabMemberRole.ADMIN);
+        seedCollabMember(collabId, targetUserId, CollabMemberStatus.ACCEPTED, CollabMemberRole.MEMBER);
+
+        String queueName = declareEventQueue(
+                "test.collab.request.declined.not-pending.",
+                rabbitMQProperties.getRk().getPost().getCollab().getRequest().getDeclined()
+        );
+
+        mockMvc.perform(put("/api/collabs/{collabId}/requests/{userId}/decline", collabId, targetUserId)
+                        .with(jwtFor(CREATOR_ID)))
+                .andExpect(status().isBadRequest());
+
+        var unchangedMember = collabMemberJpaRepository.findById(new CollabMemberId(collabId, targetUserId)).orElseThrow();
+        assertThat(unchangedMember.getCollabMemberStatus()).isEqualTo(CollabMemberStatus.ACCEPTED);
+        assertThat(outboxEventRepository.count()).isZero();
+        assertThat(receiveMessage(queueName)).isNull();
+
+        deleteQueue(queueName);
+    }
+
+    @Test
+    void shouldReturnNotFoundWhenDeclineTargetMembershipDoesNotExist() throws Exception {
+        var collabId = UUID.randomUUID();
+        var targetUserId = UUID.randomUUID();
+        seedCollab(collabId, CREATOR_ID);
+        seedCollabMember(collabId, CREATOR_ID, CollabMemberStatus.ACCEPTED, CollabMemberRole.ADMIN);
+
+        String queueName = declareEventQueue(
+                "test.collab.request.declined.missing-target.",
+                rabbitMQProperties.getRk().getPost().getCollab().getRequest().getDeclined()
+        );
+
+        mockMvc.perform(put("/api/collabs/{collabId}/requests/{userId}/decline", collabId, targetUserId)
+                        .with(jwtFor(CREATOR_ID)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("NOT_FOUND"));
+
+        assertThat(collabMemberJpaRepository.count()).isEqualTo(1);
+        assertThat(outboxEventRepository.count()).isZero();
+        assertThat(receiveMessage(queueName)).isNull();
+
+        deleteQueue(queueName);
+    }
+
+    private void seedCollab(UUID collabId, UUID createdBy) {
+        collabJpaRepository.save(new CollabEntity(collabId, "Collab", createdBy, ColabStatus.OPEN, Instant.now()));
+    }
+
+    private void seedCollabMember(UUID collabId, UUID userId, CollabMemberStatus status, CollabMemberRole role) {
+        collabMemberJpaRepository.save(new CollabMemberEntity(new CollabMemberId(collabId, userId), status, role, Instant.now()));
+    }
+
     private void seedUser(UUID userId, String username) {
         var now = Instant.now();
         userReadModelJpaRepository.save(new UserReadModelEntity(userId, username, now, now));
@@ -287,6 +537,21 @@ class CollabControllerFlowTest {
 
     private SecurityMockMvcRequestPostProcessors.JwtRequestPostProcessor jwtFor(UUID userId) {
         return jwt().jwt(jwt -> jwt.subject(userId.toString()));
+    }
+
+    private String declareEventQueue(String prefix, String routingKey) {
+        String queueName = prefix + UUID.randomUUID();
+        RabbitAdmin rabbitAdmin = new RabbitAdmin(connectionFactory);
+        Queue queue = new Queue(queueName, false, true, true);
+        rabbitAdmin.declareQueue(queue);
+        rabbitAdmin.declareBinding(BindingBuilder.bind(queue)
+                .to(new org.springframework.amqp.core.TopicExchange(rabbitMQProperties.getExchange().getPost().getEvents()))
+                .with(routingKey));
+        return queueName;
+    }
+
+    private void deleteQueue(String queueName) {
+        new RabbitAdmin(connectionFactory).deleteQueue(queueName);
     }
 
     private Message receiveMessage(String queueName) throws InterruptedException {

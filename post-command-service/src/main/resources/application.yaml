@@ -61,7 +61,7 @@ rabbitmq:
         request:
           created: rk.post.collab.request.created
           accepted: rk.post.collab.request.accepted
-          rejected: rk.post.collab.request.rejected
+          declined: rk.post.collab.request.declined
           deleted: rk.post.collab.request.deleted
         member:
           left: rk.post.collab.member.left

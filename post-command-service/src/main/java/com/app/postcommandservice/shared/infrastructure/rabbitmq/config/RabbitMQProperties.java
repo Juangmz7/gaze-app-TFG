@@ -132,7 +132,7 @@ public class RabbitMQProperties {
                 public static class RequestRk {
                     private String created;
                     private String accepted;
-                    private String rejected;
+                    private String declined;
                     private String deleted;
                 }
 

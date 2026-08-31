@@ -7,6 +7,9 @@ import org.springframework.stereotype.Component;
 
 import com.app.postcommandservice.collab.domain.model.Collab;
 import com.app.postcommandservice.collab.domain.model.CollabMember;
+import com.app.postcommandservice.collab.infrastructure.events.CollabJoinRequestAcceptedEvent;
+import com.app.postcommandservice.collab.infrastructure.events.CollabJoinRequestCreatedEvent;
+import com.app.postcommandservice.collab.infrastructure.events.CollabJoinRequestDeclinedEvent;
 import com.app.postcommandservice.collab.infrastructure.events.CollabOpenedEvent;
 import com.app.postcommandservice.post.domain.model.Post;
 
@@ -41,6 +44,61 @@ public class CollabEventMapper {
                 .postTags(post.getTags().value())
                 .postCreatedAt(post.getCreatedAt())
                 .postUpdatedAt(post.getUpdatedAt())
+                .build();
+    }
+
+    public CollabJoinRequestDeclinedEvent toCollabJoinRequestDeclinedEvent(
+            UUID eventId,
+            UUID correlationId,
+            UUID declinedBy,
+            CollabMember collabMember,
+            Instant occurredAt) {
+        return CollabJoinRequestDeclinedEvent.builder()
+                .id(eventId)
+                .correlationId(correlationId)
+                .occurredAt(occurredAt)
+                .collabId(collabMember.getCollabId())
+                .userId(collabMember.getUserId().value())
+                .declinedBy(declinedBy)
+                .collabMemberStatus(collabMember.getCollabMemberStatus())
+                .role(collabMember.getRole())
+                .memberCreatedAt(collabMember.getCreatedAt())
+                .build();
+    }
+
+    public CollabJoinRequestAcceptedEvent toCollabJoinRequestAcceptedEvent(
+            UUID eventId,
+            UUID correlationId,
+            UUID acceptedBy,
+            CollabMember collabMember,
+            Instant occurredAt) {
+        return CollabJoinRequestAcceptedEvent.builder()
+                .id(eventId)
+                .correlationId(correlationId)
+                .occurredAt(occurredAt)
+                .collabId(collabMember.getCollabId())
+                .userId(collabMember.getUserId().value())
+                .acceptedBy(acceptedBy)
+                .collabMemberStatus(collabMember.getCollabMemberStatus())
+                .role(collabMember.getRole())
+                .memberCreatedAt(collabMember.getCreatedAt())
+                .build();
+    }
+
+    public CollabJoinRequestCreatedEvent toCollabJoinRequestCreatedEvent(
+            UUID eventId,
+            UUID correlationId,
+            CollabMember collabMember,
+            Instant occurredAt) {
+        return CollabJoinRequestCreatedEvent.builder()
+                .id(eventId)
+                .correlationId(correlationId)
+                .occurredAt(occurredAt)
+                .collabId(collabMember.getCollabId())
+                .userId(collabMember.getUserId().value())
+                .status(collabMember.getCollabMemberStatus())
+                .role(collabMember.getRole())
+                .createdAt(collabMember.getCreatedAt())
                 .build();
     }
 }
