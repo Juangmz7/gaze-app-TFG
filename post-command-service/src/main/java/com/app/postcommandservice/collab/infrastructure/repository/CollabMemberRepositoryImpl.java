@@ -55,4 +55,14 @@ public class CollabMemberRepositoryImpl implements CollabMemberRepository {
                 CollabMemberStatus.REJECTED
         ) == 1;
     }
+
+    @Override
+    public boolean deletePendingMember(UUID collabId, UUID userId) {
+        return collabMemberJpaRepository.deletePendingMember(
+                collabId,
+                userId,
+                CollabMemberStatus.PENDING,
+                CollabMemberStatus.DELETED
+        ) == 1;
+    }
 }

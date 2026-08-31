@@ -9,6 +9,7 @@ import com.app.postcommandservice.collab.domain.model.Collab;
 import com.app.postcommandservice.collab.domain.model.CollabMember;
 import com.app.postcommandservice.collab.infrastructure.events.CollabJoinRequestAcceptedEvent;
 import com.app.postcommandservice.collab.infrastructure.events.CollabJoinRequestCreatedEvent;
+import com.app.postcommandservice.collab.infrastructure.events.CollabJoinRequestDeletedEvent;
 import com.app.postcommandservice.collab.infrastructure.events.CollabJoinRequestDeclinedEvent;
 import com.app.postcommandservice.collab.infrastructure.events.CollabOpenedEvent;
 import com.app.postcommandservice.post.domain.model.Post;
@@ -79,6 +80,25 @@ public class CollabEventMapper {
                 .collabId(collabMember.getCollabId())
                 .userId(collabMember.getUserId().value())
                 .acceptedBy(acceptedBy)
+                .collabMemberStatus(collabMember.getCollabMemberStatus())
+                .role(collabMember.getRole())
+                .memberCreatedAt(collabMember.getCreatedAt())
+                .build();
+    }
+
+    public CollabJoinRequestDeletedEvent toCollabJoinRequestDeletedEvent(
+            UUID eventId,
+            UUID correlationId,
+            UUID deletedBy,
+            CollabMember collabMember,
+            Instant occurredAt) {
+        return CollabJoinRequestDeletedEvent.builder()
+                .id(eventId)
+                .correlationId(correlationId)
+                .occurredAt(occurredAt)
+                .collabId(collabMember.getCollabId())
+                .userId(collabMember.getUserId().value())
+                .deletedBy(deletedBy)
                 .collabMemberStatus(collabMember.getCollabMemberStatus())
                 .role(collabMember.getRole())
                 .memberCreatedAt(collabMember.getCreatedAt())

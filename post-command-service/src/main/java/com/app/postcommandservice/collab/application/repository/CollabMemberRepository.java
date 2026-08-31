@@ -17,4 +17,6 @@ public interface CollabMemberRepository {
     boolean acceptPendingMember(UUID collabId, UUID userId);
 
     boolean rejectPendingMember(UUID collabId, UUID userId);
+
+    boolean deletePendingMember(UUID collabId, UUID userId);
 }
