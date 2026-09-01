@@ -7,6 +7,7 @@ import org.springframework.stereotype.Component;
 
 import com.app.postcommandservice.collab.domain.model.Collab;
 import com.app.postcommandservice.collab.domain.model.CollabMember;
+import com.app.postcommandservice.collab.infrastructure.events.CollabDeletedEvent;
 import com.app.postcommandservice.collab.infrastructure.events.CollabOpenedEvent;
 import com.app.postcommandservice.post.domain.model.Post;
 
@@ -41,6 +42,21 @@ public class CollabEventMapper {
                 .postTags(post.getTags().value())
                 .postCreatedAt(post.getCreatedAt())
                 .postUpdatedAt(post.getUpdatedAt())
+                .build();
+    }
+
+    public CollabDeletedEvent toCollabDeletedEvent(
+            UUID eventId,
+            UUID correlationId,
+            UUID collabId,
+            UUID actionedBy,
+            Instant occurredAt) {
+        return CollabDeletedEvent.builder()
+                .id(eventId)
+                .correlationId(correlationId)
+                .collabId(collabId)
+                .actionedBy(actionedBy)
+                .occurredAt(occurredAt)
                 .build();
     }
 }

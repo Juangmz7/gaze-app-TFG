@@ -28,6 +28,12 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
 import com.app.postcommandservice.TestcontainersConfiguration;
+import com.app.postcommandservice.collab.domain.model.valueobj.ColabStatus;
+import com.app.postcommandservice.collab.domain.model.valueobj.CollabMemberRole;
+import com.app.postcommandservice.collab.domain.model.valueobj.CollabMemberStatus;
+import com.app.postcommandservice.collab.infrastructure.entity.CollabEntity;
+import com.app.postcommandservice.collab.infrastructure.entity.CollabMemberEntity;
+import com.app.postcommandservice.collab.infrastructure.entity.CollabMemberId;
 import com.app.postcommandservice.collab.infrastructure.repository.CollabJpaRepository;
 import com.app.postcommandservice.collab.infrastructure.repository.CollabMemberJpaRepository;
 import com.app.postcommandservice.collab.infrastructure.repository.CollabRequestIdempotencyJpaRepository;
@@ -43,6 +49,7 @@ import com.app.postcommandservice.shared.infrastructure.repository.ProcessedEven
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -280,9 +287,112 @@ class CollabControllerFlowTest {
         assertThat(outboxEventRepository.count()).isEqualTo(1);
     }
 
+    @Test
+    void shouldDeleteCollabAndPublishEventWhenRequesterIsAcceptedAdmin() throws Exception {
+        String queueName = "test.collab.deleted." + UUID.randomUUID();
+        RabbitAdmin rabbitAdmin = new RabbitAdmin(connectionFactory);
+        Queue queue = new Queue(queueName, false, true, true);
+        rabbitAdmin.declareQueue(queue);
+        rabbitAdmin.declareBinding(BindingBuilder.bind(queue)
+                .to(new org.springframework.amqp.core.TopicExchange(rabbitMQProperties.getExchange().getPost().getEvents()))
+                .with(rabbitMQProperties.getRk().getPost().getCollab().getDeleted()));
+        var collabId = seedCollab(ColabStatus.OPEN, CREATOR_ID);
+        seedCollabMember(collabId, CREATOR_ID, CollabMemberStatus.ACCEPTED, CollabMemberRole.ADMIN);
+
+        mockMvc.perform(delete("/api/collabs/{collabId}", collabId)
+                        .with(jwtFor(CREATOR_ID)))
+                .andExpect(status().isAccepted());
+
+        var deletedCollab = collabJpaRepository.findById(collabId).orElseThrow();
+        assertThat(deletedCollab.getCollabStatus()).isEqualTo(ColabStatus.DELETED);
+        assertThat(outboxEventRepository.findAll()).hasSize(1);
+
+        Message message = receiveMessage(queueName);
+        assertThat(message).isNotNull();
+        var eventPayload = objectMapper.readValue(message.getBody(), new TypeReference<Map<String, Object>>() { });
+        assertThat(eventPayload).containsEntry("collabId", collabId.toString());
+        assertThat(eventPayload).containsEntry("actionedBy", CREATOR_ID.toString());
+        assertThat(eventPayload.get("occurredAt")).isNotNull();
+
+        rabbitAdmin.deleteQueue(queueName);
+    }
+
+    @Test
+    void shouldReturnForbiddenWhenRequesterIsNotAcceptedAdmin() throws Exception {
+        var collabId = seedCollab(ColabStatus.OPEN, UUID.randomUUID());
+        seedCollabMember(collabId, CREATOR_ID, CollabMemberStatus.ACCEPTED, CollabMemberRole.MEMBER);
+
+        mockMvc.perform(delete("/api/collabs/{collabId}", collabId)
+                        .with(jwtFor(CREATOR_ID)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("FORBIDDEN"));
+
+        assertThat(collabJpaRepository.findById(collabId).orElseThrow().getCollabStatus()).isEqualTo(ColabStatus.OPEN);
+        assertThat(outboxEventRepository.count()).isZero();
+    }
+
+    @Test
+    void shouldReturnForbiddenWhenRequesterIsNotAMember() throws Exception {
+        var collabId = seedCollab(ColabStatus.OPEN, UUID.randomUUID());
+
+        mockMvc.perform(delete("/api/collabs/{collabId}", collabId)
+                        .with(jwtFor(CREATOR_ID)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("FORBIDDEN"));
+
+        assertThat(collabJpaRepository.findById(collabId).orElseThrow().getCollabStatus()).isEqualTo(ColabStatus.OPEN);
+        assertThat(outboxEventRepository.count()).isZero();
+    }
+
+    @Test
+    void shouldReturnAcceptedWithoutPublishingDuplicateEventWhenCollabIsAlreadyDeleted() throws Exception {
+        String queueName = "test.collab.deleted.idempotent." + UUID.randomUUID();
+        RabbitAdmin rabbitAdmin = new RabbitAdmin(connectionFactory);
+        Queue queue = new Queue(queueName, false, true, true);
+        rabbitAdmin.declareQueue(queue);
+        rabbitAdmin.declareBinding(BindingBuilder.bind(queue)
+                .to(new org.springframework.amqp.core.TopicExchange(rabbitMQProperties.getExchange().getPost().getEvents()))
+                .with(rabbitMQProperties.getRk().getPost().getCollab().getDeleted()));
+        var collabId = seedCollab(ColabStatus.DELETED, CREATOR_ID);
+        seedCollabMember(collabId, CREATOR_ID, CollabMemberStatus.ACCEPTED, CollabMemberRole.ADMIN);
+
+        mockMvc.perform(delete("/api/collabs/{collabId}", collabId)
+                        .with(jwtFor(CREATOR_ID)))
+                .andExpect(status().isAccepted());
+
+        assertThat(collabJpaRepository.findById(collabId).orElseThrow().getCollabStatus()).isEqualTo(ColabStatus.DELETED);
+        assertThat(outboxEventRepository.count()).isZero();
+        assertThat(receiveMessage(queueName)).isNull();
+
+        rabbitAdmin.deleteQueue(queueName);
+    }
+
+    @Test
+    void shouldReturnNotFoundWhenDeletingUnknownCollab() throws Exception {
+        mockMvc.perform(delete("/api/collabs/{collabId}", UUID.randomUUID())
+                        .with(jwtFor(CREATOR_ID)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("NOT_FOUND"));
+    }
+
     private void seedUser(UUID userId, String username) {
         var now = Instant.now();
         userReadModelJpaRepository.save(new UserReadModelEntity(userId, username, now, now));
+    }
+
+    private UUID seedCollab(ColabStatus status, UUID createdBy) {
+        var collabId = UUID.randomUUID();
+        collabJpaRepository.save(new CollabEntity(collabId, "Delete me", createdBy, status, Instant.now()));
+        return collabId;
+    }
+
+    private void seedCollabMember(UUID collabId, UUID userId, CollabMemberStatus status, CollabMemberRole role) {
+        collabMemberJpaRepository.save(new CollabMemberEntity(
+                new CollabMemberId(collabId, userId),
+                status,
+                role,
+                Instant.now()
+        ));
     }
 
     private SecurityMockMvcRequestPostProcessors.JwtRequestPostProcessor jwtFor(UUID userId) {
