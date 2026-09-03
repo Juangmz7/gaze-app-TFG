@@ -1,5 +1,6 @@
 package com.app.postcommandservice.post.infrastructure.controller;
 
+import com.app.postcommandservice.post.domain.model.valueobj.PostType;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
