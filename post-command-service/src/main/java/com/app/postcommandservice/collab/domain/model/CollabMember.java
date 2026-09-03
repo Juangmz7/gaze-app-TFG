@@ -45,7 +45,15 @@ public class CollabMember {
 
         return new CollabMember(collabId, userId, CollabMemberStatus.ACCEPTED, role, createdAt);
     }
-  
+
+    public CollabMember reject() {
+        if (collabMemberStatus != CollabMemberStatus.PENDING) {
+            throw new CollabJoinRequestNotPendingException(collabId, userId.value(), collabMemberStatus, "decline");
+        }
+
+        return new CollabMember(collabId, userId, CollabMemberStatus.REJECTED, role, createdAt);
+    }
+
     public static CollabMember createPendingMember(UUID collabId, UserId userId) {
         return new CollabMember(collabId, userId, CollabMemberStatus.PENDING, CollabMemberRole.MEMBER, null);
     }
@@ -68,9 +76,5 @@ public class CollabMember {
 
     public Instant getCreatedAt() {
         return createdAt;
-    }
-
-    public boolean isAcceptedAdmin() {
-        return collabMemberStatus == CollabMemberStatus.ACCEPTED && role == CollabMemberRole.ADMIN;
     }
 }

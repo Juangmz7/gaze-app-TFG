@@ -8,10 +8,15 @@ import com.app.postcommandservice.shared.domain.exception.DomainException;
 public class CollabJoinRequestNotPendingException extends DomainException {
 
     public CollabJoinRequestNotPendingException(UUID collabId, UUID userId, CollabMemberStatus status) {
+        this(collabId, userId, status, "accept");
+    }
+
+    public CollabJoinRequestNotPendingException(UUID collabId, UUID userId, CollabMemberStatus status, String action) {
         super(String.format(
-                "Collab member %s for collab %s must be PENDING to accept the request, but was %s",
+                "Collab member %s for collab %s must be PENDING to %s the request, but was %s",
                 userId,
                 collabId,
+                action,
                 status
         ));
     }

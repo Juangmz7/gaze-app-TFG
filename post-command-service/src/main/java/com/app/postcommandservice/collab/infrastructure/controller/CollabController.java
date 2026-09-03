@@ -19,9 +19,12 @@ import com.app.postcommandservice.collab.application.commands.AcceptCollabJoinRe
 import com.app.postcommandservice.collab.application.dto.AcceptCollabJoinRequestResponse;
 import com.app.postcommandservice.collab.application.usecase.AcceptCollabJoinRequestUseCase;
 import com.app.postcommandservice.collab.application.commands.CloseCollabCommand;
+import com.app.postcommandservice.collab.application.commands.DeclineCollabJoinRequestCommand;
+import com.app.postcommandservice.collab.application.usecase.DeclineCollabJoinRequestUseCase;
 import com.app.postcommandservice.collab.application.commands.OpenCollabAndCreatePostCommand;
 import com.app.postcommandservice.collab.application.commands.RequestToJoinCollabCommand;
 import com.app.postcommandservice.collab.application.dto.CollabMemberResponse;
+import com.app.postcommandservice.collab.application.dto.DeclineCollabJoinRequestResponse;
 import com.app.postcommandservice.collab.application.dto.OpenCollabAndCreatePostResponse;
 import com.app.postcommandservice.collab.application.usecase.CloseCollabUseCase;
 import com.app.postcommandservice.collab.application.usecase.OpenCollabAndCreatePostUseCase;
@@ -35,6 +38,7 @@ public class CollabController {
 
     private final AcceptCollabJoinRequestUseCase acceptCollabJoinRequestUseCase;
     private final CloseCollabUseCase closeCollabUseCase;
+    private final DeclineCollabJoinRequestUseCase declineCollabJoinRequestUseCase;
     private final OpenCollabAndCreatePostUseCase openCollabAndCreatePostUseCase;
     private final RequestToJoinCollabUseCase requestToJoinCollabUseCase;
     private final SecurityUtils securityUtils;
@@ -124,5 +128,18 @@ public class CollabController {
 
         var command = new AcceptCollabJoinRequestCommand(collabId, userId, currentUserId);
         return ResponseEntity.ok(acceptCollabJoinRequestUseCase.accept(command));
+    }
+
+    @PutMapping("/{collabId}/requests/{userId}/decline")
+    public ResponseEntity<DeclineCollabJoinRequestResponse> declineJoinRequest(
+            @PathVariable UUID collabId,
+            @PathVariable UUID userId) {
+        var currentUserId = securityUtils.getUserId();
+        if (currentUserId == null) {
+            throw new AuthenticationCredentialsNotFoundException("JWT subject claim is missing or invalid");
+        }
+
+        var command = new DeclineCollabJoinRequestCommand(collabId, userId, currentUserId);
+        return ResponseEntity.ok(declineCollabJoinRequestUseCase.decline(command));
     }
 }
