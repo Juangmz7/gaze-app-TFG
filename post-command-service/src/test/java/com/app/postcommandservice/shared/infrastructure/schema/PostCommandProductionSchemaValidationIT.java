@@ -116,6 +116,25 @@ class PostCommandProductionSchemaValidationIT {
         assertThatNoException().isThrownBy(() -> bootstrapSchema("validate"));
     }
 
+    @Test
+    void shouldRequireTrackedSchemaPatchBeforeProductionValidationPassesForCollabTablesAndPostColumns() {
+        bootstrapSchema("create");
+        execute("DROP TABLE IF EXISTS collab_request_idempotency");
+        execute("DROP TABLE IF EXISTS collab_members");
+        execute("ALTER TABLE posts DROP CONSTRAINT IF EXISTS fk_posts_collab");
+        execute("DROP TABLE IF EXISTS collabs");
+        execute("ALTER TABLE posts DROP COLUMN collab_id");
+        execute("ALTER TABLE posts DROP COLUMN post_type");
+
+        assertThatThrownBy(() -> bootstrapSchema("validate"))
+                .hasRootCauseInstanceOf(Exception.class)
+                .hasMessageContaining("collab_members");
+
+        applySchemaPatch("db/schema/post-command-service-prod.sql");
+
+        assertThatNoException().isThrownBy(() -> bootstrapSchema("validate"));
+    }
+
     private void applySchemaPatch(String resourcePath) {
         ResourceDatabasePopulator populator = new ResourceDatabasePopulator(new ClassPathResource(resourcePath));
         populator.execute(dataSource());

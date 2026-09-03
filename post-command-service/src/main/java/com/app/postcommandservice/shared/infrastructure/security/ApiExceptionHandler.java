@@ -22,6 +22,8 @@ import com.app.postcommandservice.comment.domain.exception.CommentBlockedExcepti
 import com.app.postcommandservice.comment.domain.exception.CommentNotActiveException;
 import com.app.postcommandservice.comment.domain.exception.CommentNotFoundException;
 import com.app.postcommandservice.comment.domain.exception.CommentOwnershipException;
+import com.app.postcommandservice.collab.domain.exception.CollabAccessDeniedException;
+import com.app.postcommandservice.collab.domain.exception.CollabNotFoundException;
 import com.app.postcommandservice.post.domain.exception.TaggedUserBlockedException;
 import com.app.postcommandservice.post.domain.exception.TaggedUserNotFoundException;
 import com.app.postcommandservice.post.domain.exception.PostNotActiveException;
@@ -78,9 +80,25 @@ public class ApiExceptionHandler {
         return buildErrorResponse(HttpStatus.NOT_FOUND, ApiErrorCode.NOT_FOUND, exception.getMessage(), request);
     }
 
+    @ExceptionHandler(CollabNotFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handleCollabNotFoundException(
+            CollabNotFoundException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(HttpStatus.NOT_FOUND, ApiErrorCode.NOT_FOUND, exception.getMessage(), request);
+    }
+
     @ExceptionHandler(CommentOwnershipException.class)
     public ResponseEntity<ApiErrorResponse> handleCommentOwnershipException(
             CommentOwnershipException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(HttpStatus.FORBIDDEN, ApiErrorCode.FORBIDDEN, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(CollabAccessDeniedException.class)
+    public ResponseEntity<ApiErrorResponse> handleCollabAccessDeniedException(
+            CollabAccessDeniedException exception,
             HttpServletRequest request) {
 
         return buildErrorResponse(HttpStatus.FORBIDDEN, ApiErrorCode.FORBIDDEN, exception.getMessage(), request);

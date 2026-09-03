@@ -1,6 +1,5 @@
 package com.app.postcommandservice.post.infrastructure.controller;
 
-import com.app.postcommandservice.post.domain.model.valueobj.PostType;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -32,6 +31,7 @@ import com.app.postcommandservice.post.application.dto.PostResponse;
 import com.app.postcommandservice.post.application.usecase.CreatePostUseCase;
 import com.app.postcommandservice.post.application.usecase.DeletePostUseCase;
 import com.app.postcommandservice.post.application.usecase.UpdatePostUseCase;
+import com.app.postcommandservice.post.domain.model.valueobj.PostType;
 import com.app.postcommandservice.share.application.commands.CreatePostShareCommand;
 import com.app.postcommandservice.share.application.commands.DeletePostShareCommand;
 import com.app.postcommandservice.share.application.usecase.CreatePostShareUseCase;
