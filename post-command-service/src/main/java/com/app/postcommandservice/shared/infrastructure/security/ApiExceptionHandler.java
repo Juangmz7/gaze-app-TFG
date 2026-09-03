@@ -25,11 +25,13 @@ import com.app.postcommandservice.comment.domain.exception.CommentOwnershipExcep
 import com.app.postcommandservice.collab.domain.exception.CollabAdminAccessDeniedException;
 import com.app.postcommandservice.collab.domain.exception.CollabNotFoundException;
 import com.app.postcommandservice.collab.domain.exception.CollabNotOpenException;
+import com.app.postcommandservice.collab.domain.exception.CollabAccessDeniedException;
 import com.app.postcommandservice.post.domain.exception.TaggedUserBlockedException;
 import com.app.postcommandservice.post.domain.exception.TaggedUserNotFoundException;
 import com.app.postcommandservice.post.domain.exception.PostNotActiveException;
 import com.app.postcommandservice.post.domain.exception.PostNotFoundException;
 import com.app.postcommandservice.post.domain.exception.PostOwnershipException;
+import com.app.postcommandservice.share.domain.exception.PostShareBlockedException;
 import com.app.postcommandservice.shared.domain.exception.DomainException;
 
 @Slf4j
@@ -96,6 +98,14 @@ public class ApiExceptionHandler {
         return buildErrorResponse(HttpStatus.FORBIDDEN, ApiErrorCode.FORBIDDEN, exception.getMessage(), request);
     }
 
+    @ExceptionHandler(CollabAccessDeniedException.class)
+    public ResponseEntity<ApiErrorResponse> handleCollabAccessDeniedException(
+            CollabAccessDeniedException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(HttpStatus.FORBIDDEN, ApiErrorCode.FORBIDDEN, exception.getMessage(), request);
+    }
+
     @ExceptionHandler(TaggedUserBlockedException.class)
     public ResponseEntity<ApiErrorResponse> handleTaggedUserBlockedException(
             TaggedUserBlockedException exception,
@@ -107,6 +117,14 @@ public class ApiExceptionHandler {
     @ExceptionHandler(CommentBlockedException.class)
     public ResponseEntity<ApiErrorResponse> handleCommentBlockedException(
             CommentBlockedException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, ApiErrorCode.BLOCKED, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(PostShareBlockedException.class)
+    public ResponseEntity<ApiErrorResponse> handlePostShareBlockedException(
+            PostShareBlockedException exception,
             HttpServletRequest request) {
 
         return buildErrorResponse(HttpStatus.BAD_REQUEST, ApiErrorCode.BLOCKED, exception.getMessage(), request);
