@@ -25,7 +25,8 @@ public class CollabMemberRepositoryImpl implements CollabMemberRepository {
 
     @Override
     public Optional<CollabMember> findByCollabIdAndUserId(UUID collabId, UUID userId) {
-        return collabMemberJpaRepository.findByIdCollabIdAndIdUserId(collabId, userId).map(collabMemberMapper::toDomain);
+        return collabMemberJpaRepository.findByIdCollabIdAndIdUserId(collabId, userId)
+                .map(collabMemberMapper::toDomain);
     }
 
     @Override

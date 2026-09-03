@@ -23,12 +23,16 @@ import com.app.postcommandservice.comment.domain.exception.CommentNotActiveExcep
 import com.app.postcommandservice.comment.domain.exception.CommentNotFoundException;
 import com.app.postcommandservice.comment.domain.exception.CommentOwnershipException;
 import com.app.postcommandservice.collab.domain.exception.CollabJoinRequestBlockedException;
+import com.app.postcommandservice.collab.domain.exception.CollabAdminAccessDeniedException;
 import com.app.postcommandservice.collab.domain.exception.CollabNotFoundException;
+import com.app.postcommandservice.collab.domain.exception.CollabNotOpenException;
+import com.app.postcommandservice.collab.domain.exception.CollabAccessDeniedException;
 import com.app.postcommandservice.post.domain.exception.TaggedUserBlockedException;
 import com.app.postcommandservice.post.domain.exception.TaggedUserNotFoundException;
 import com.app.postcommandservice.post.domain.exception.PostNotActiveException;
 import com.app.postcommandservice.post.domain.exception.PostNotFoundException;
 import com.app.postcommandservice.post.domain.exception.PostOwnershipException;
+import com.app.postcommandservice.share.domain.exception.PostShareBlockedException;
 import com.app.postcommandservice.shared.domain.exception.DomainException;
 
 @Slf4j
@@ -95,6 +99,14 @@ public class ApiExceptionHandler {
         return buildErrorResponse(HttpStatus.FORBIDDEN, ApiErrorCode.FORBIDDEN, exception.getMessage(), request);
     }
 
+    @ExceptionHandler(CollabAccessDeniedException.class)
+    public ResponseEntity<ApiErrorResponse> handleCollabAccessDeniedException(
+            CollabAccessDeniedException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(HttpStatus.FORBIDDEN, ApiErrorCode.FORBIDDEN, exception.getMessage(), request);
+    }
+
     @ExceptionHandler(TaggedUserBlockedException.class)
     public ResponseEntity<ApiErrorResponse> handleTaggedUserBlockedException(
             TaggedUserBlockedException exception,
@@ -118,6 +130,13 @@ public class ApiExceptionHandler {
 
         return buildErrorResponse(HttpStatus.BAD_REQUEST, ApiErrorCode.BLOCKED, exception.getMessage(), request);
     }
+    @ExceptionHandler(PostShareBlockedException.class)
+    public ResponseEntity<ApiErrorResponse> handlePostShareBlockedException(
+            PostShareBlockedException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, ApiErrorCode.BLOCKED, exception.getMessage(), request);
+    }
 
     @ExceptionHandler(CommentNotActiveException.class)
     public ResponseEntity<ApiErrorResponse> handleCommentNotActiveException(
@@ -135,9 +154,25 @@ public class ApiExceptionHandler {
         return buildErrorResponse(HttpStatus.FORBIDDEN, ApiErrorCode.FORBIDDEN, exception.getMessage(), request);
     }
 
+    @ExceptionHandler(CollabAdminAccessDeniedException.class)
+    public ResponseEntity<ApiErrorResponse> handleCollabAdminAccessDeniedException(
+            CollabAdminAccessDeniedException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(HttpStatus.FORBIDDEN, ApiErrorCode.FORBIDDEN, exception.getMessage(), request);
+    }
+
     @ExceptionHandler(PostNotActiveException.class)
     public ResponseEntity<ApiErrorResponse> handlePostNotActiveException(
             PostNotActiveException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, ApiErrorCode.BAD_REQUEST, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(CollabNotOpenException.class)
+    public ResponseEntity<ApiErrorResponse> handleCollabNotOpenException(
+            CollabNotOpenException exception,
             HttpServletRequest request) {
 
         return buildErrorResponse(HttpStatus.BAD_REQUEST, ApiErrorCode.BAD_REQUEST, exception.getMessage(), request);

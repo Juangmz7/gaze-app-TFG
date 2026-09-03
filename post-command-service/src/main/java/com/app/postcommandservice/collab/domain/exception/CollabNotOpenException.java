@@ -7,7 +7,7 @@ import com.app.postcommandservice.shared.domain.exception.DomainException;
 
 public class CollabNotOpenException extends DomainException {
 
-    public CollabNotOpenException(UUID collabId, ColabStatus status) {
-        super(String.format("Collab %s must be OPEN to accept join requests, current status: %s", collabId, status));
+    public CollabNotOpenException(UUID collabId, ColabStatus currentStatus) {
+        super("Collab %s must be OPEN but was %s".formatted(collabId, currentStatus));
     }
 }

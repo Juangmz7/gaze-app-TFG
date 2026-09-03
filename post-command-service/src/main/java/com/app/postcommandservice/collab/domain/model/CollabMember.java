@@ -56,4 +56,8 @@ public class CollabMember {
     public Instant getCreatedAt() {
         return createdAt;
     }
+
+    public boolean isAcceptedAdmin() {
+        return collabMemberStatus == CollabMemberStatus.ACCEPTED && role == CollabMemberRole.ADMIN;
+    }
 }
