@@ -34,17 +34,13 @@ public class CollabMember {
         return new CollabMember(collabId, userId, CollabMemberStatus.ACCEPTED, CollabMemberRole.ADMIN, null);
     }
 
-    public static CollabMember createPendingMember(UUID collabId, UserId userId) {
-        return new CollabMember(collabId, userId, CollabMemberStatus.PENDING, CollabMemberRole.MEMBER, null);
-    }
-
     public boolean isAcceptedAdmin() {
         return collabMemberStatus == CollabMemberStatus.ACCEPTED && role == CollabMemberRole.ADMIN;
     }
 
     public CollabMember accept() {
         if (collabMemberStatus != CollabMemberStatus.PENDING) {
-            throw new CollabJoinRequestNotPendingException(collabId, userId.value(), collabMemberStatus, "accept");
+            throw new CollabJoinRequestNotPendingException(collabId, userId.value(), collabMemberStatus);
         }
 
         return new CollabMember(collabId, userId, CollabMemberStatus.ACCEPTED, role, createdAt);
@@ -56,6 +52,10 @@ public class CollabMember {
         }
 
         return new CollabMember(collabId, userId, CollabMemberStatus.REJECTED, role, createdAt);
+    }
+
+    public static CollabMember createPendingMember(UUID collabId, UserId userId) {
+        return new CollabMember(collabId, userId, CollabMemberStatus.PENDING, CollabMemberRole.MEMBER, null);
     }
 
     public UUID getCollabId() {

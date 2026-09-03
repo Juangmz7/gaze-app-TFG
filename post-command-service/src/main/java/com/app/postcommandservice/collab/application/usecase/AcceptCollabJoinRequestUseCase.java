@@ -38,15 +38,12 @@ public class AcceptCollabJoinRequestUseCase {
         assertAcceptedAdmin(command.collabId(), command.actioningUserId());
 
         var targetMember = getTargetMember(command.collabId(), command.targetUserId());
-        targetMember.accept();
-
         if (!collabMemberRepository.acceptPendingMember(command.collabId(), command.targetUserId())) {
             var latestTargetMember = getTargetMember(command.collabId(), command.targetUserId());
             throw new CollabJoinRequestNotPendingException(
                     command.collabId(),
                     command.targetUserId(),
-                    latestTargetMember.getCollabMemberStatus(),
-                    "accept"
+                    latestTargetMember.getCollabMemberStatus()
             );
         }
         var acceptedMember = getTargetMember(command.collabId(), command.targetUserId());

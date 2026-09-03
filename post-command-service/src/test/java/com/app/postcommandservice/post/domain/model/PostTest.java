@@ -101,6 +101,19 @@ class PostTest {
                 .hasMessageContaining("Collab posts must reference a collab");
     }
 
+    @Test
+    void shouldLinkPostToCollabAndForceColabPostType() {
+        var post = existingPost("description", Set.of("alice"), Set.of("java"));
+        var collabId = UUID.randomUUID();
+
+        var linkedPost = post.linkToCollab(collabId);
+
+        assertThat(linkedPost).isNotSameAs(post);
+        assertThat(linkedPost.getCollabId()).isEqualTo(collabId);
+        assertThat(linkedPost.getPostType()).isEqualTo(PostType.COLAB);
+        assertThat(linkedPost.getDescription()).isEqualTo(post.getDescription());
+    }
+
     private Post existingPost(String description, Set<String> taggedUsers, Set<String> tags) {
         var now = Instant.now();
         return new Post(

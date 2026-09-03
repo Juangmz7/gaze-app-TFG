@@ -28,6 +28,10 @@ public class Collab {
         return new Collab(id, title, createdBy, ColabStatus.OPEN, null);
     }
 
+    public Collab close() {
+        return new Collab(id, title, createdBy, ColabStatus.CLOSED, createdAt);
+    }
+
     public UUID getId() {
         return id;
     }

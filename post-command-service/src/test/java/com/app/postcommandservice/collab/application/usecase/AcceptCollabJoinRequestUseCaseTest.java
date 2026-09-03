@@ -14,7 +14,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 
 import com.app.postcommandservice.collab.application.commands.AcceptCollabJoinRequestCommand;
-import com.app.postcommandservice.collab.application.repository.CollabMemberRepository;
 import com.app.postcommandservice.collab.domain.events.CollabJoinRequestAcceptedDomainEvent;
 import com.app.postcommandservice.collab.domain.exception.CollabJoinRequestAccessDeniedException;
 import com.app.postcommandservice.collab.domain.exception.CollabJoinRequestNotPendingException;
@@ -46,7 +45,7 @@ class AcceptCollabJoinRequestUseCaseTest {
     private static final UUID TARGET_USER_ID = UUID.randomUUID();
 
     @Mock
-    private CollabMemberRepository collabMemberRepository;
+    private com.app.postcommandservice.collab.application.repository.CollabMemberRepository collabMemberRepository;
 
     @Mock
     private OutboxEventRepository outboxEventRepository;
@@ -84,9 +83,10 @@ class AcceptCollabJoinRequestUseCaseTest {
                 .build();
 
         when(collabMemberRepository.findByCollabIdAndUserId(COLLAB_ID, ACTIONING_USER_ID)).thenReturn(Optional.of(adminMember));
+        when(collabMemberRepository.findByCollabIdAndUserId(COLLAB_ID, TARGET_USER_ID)).thenReturn(Optional.of(pendingMember));
+        when(collabMemberRepository.acceptPendingMember(COLLAB_ID, TARGET_USER_ID)).thenReturn(true);
         when(collabMemberRepository.findByCollabIdAndUserId(COLLAB_ID, TARGET_USER_ID))
                 .thenReturn(Optional.of(pendingMember), Optional.of(acceptedMember));
-        when(collabMemberRepository.acceptPendingMember(COLLAB_ID, TARGET_USER_ID)).thenReturn(true);
         when(collabEventMapper.toCollabJoinRequestAcceptedEvent(any(UUID.class), any(UUID.class), eq(ACTIONING_USER_ID),
                 eq(acceptedMember), any(Instant.class))).thenReturn(event);
         when(jsonMapper.toJson(event)).thenReturn("{\"event\":\"payload\"}");
@@ -127,12 +127,13 @@ class AcceptCollabJoinRequestUseCaseTest {
 
         when(collabMemberRepository.findByCollabIdAndUserId(COLLAB_ID, ACTIONING_USER_ID)).thenReturn(Optional.of(adminMember));
         when(collabMemberRepository.findByCollabIdAndUserId(COLLAB_ID, TARGET_USER_ID)).thenReturn(Optional.of(acceptedMember));
+        when(collabMemberRepository.acceptPendingMember(COLLAB_ID, TARGET_USER_ID)).thenReturn(false);
 
         assertThatThrownBy(() -> acceptCollabJoinRequestUseCase.accept(
                 new AcceptCollabJoinRequestCommand(COLLAB_ID, TARGET_USER_ID, ACTIONING_USER_ID)
         )).isInstanceOf(CollabJoinRequestNotPendingException.class);
 
-        verify(collabMemberRepository, never()).acceptPendingMember(COLLAB_ID, TARGET_USER_ID);
+        verify(collabMemberRepository, never()).save(any(CollabMember.class));
         verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
     }
 
