@@ -7,6 +7,7 @@ import org.springframework.stereotype.Component;
 
 import com.app.postcommandservice.collab.domain.model.Collab;
 import com.app.postcommandservice.collab.domain.model.CollabMember;
+import com.app.postcommandservice.collab.infrastructure.events.CollabJoinRequestCreatedEvent;
 import com.app.postcommandservice.collab.infrastructure.events.CollabLinkedEvent;
 import com.app.postcommandservice.collab.infrastructure.events.CollabClosedEvent;
 import com.app.postcommandservice.collab.infrastructure.events.CollabOpenedEvent;
@@ -46,6 +47,22 @@ public class CollabEventMapper {
                 .build();
     }
 
+    public CollabJoinRequestCreatedEvent toCollabJoinRequestCreatedEvent(
+            UUID eventId,
+            UUID correlationId,
+            CollabMember collabMember,
+            Instant occurredAt) {
+        return CollabJoinRequestCreatedEvent.builder()
+                .id(eventId)
+                .correlationId(correlationId)
+                .occurredAt(occurredAt)
+                .collabId(collabMember.getCollabId())
+                .userId(collabMember.getUserId().value())
+                .status(collabMember.getCollabMemberStatus())
+                .role(collabMember.getRole())
+                .createdAt(collabMember.getCreatedAt())
+                .build();
+    }
     public CollabLinkedEvent toCollabLinkedEvent(UUID eventId, UUID correlationId, Post post, Instant occurredAt) {
         return CollabLinkedEvent.builder()
                 .id(eventId)

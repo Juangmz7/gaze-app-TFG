@@ -22,6 +22,7 @@ import com.app.postcommandservice.comment.domain.exception.CommentBlockedExcepti
 import com.app.postcommandservice.comment.domain.exception.CommentNotActiveException;
 import com.app.postcommandservice.comment.domain.exception.CommentNotFoundException;
 import com.app.postcommandservice.comment.domain.exception.CommentOwnershipException;
+import com.app.postcommandservice.collab.domain.exception.CollabJoinRequestBlockedException;
 import com.app.postcommandservice.collab.domain.exception.CollabAdminAccessDeniedException;
 import com.app.postcommandservice.collab.domain.exception.CollabNotFoundException;
 import com.app.postcommandservice.collab.domain.exception.CollabNotOpenException;
@@ -122,6 +123,13 @@ public class ApiExceptionHandler {
         return buildErrorResponse(HttpStatus.BAD_REQUEST, ApiErrorCode.BLOCKED, exception.getMessage(), request);
     }
 
+    @ExceptionHandler(CollabJoinRequestBlockedException.class)
+    public ResponseEntity<ApiErrorResponse> handleCollabJoinRequestBlockedException(
+            CollabJoinRequestBlockedException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, ApiErrorCode.BLOCKED, exception.getMessage(), request);
+    }
     @ExceptionHandler(PostShareBlockedException.class)
     public ResponseEntity<ApiErrorResponse> handlePostShareBlockedException(
             PostShareBlockedException exception,

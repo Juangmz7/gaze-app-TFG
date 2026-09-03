@@ -33,6 +33,10 @@ public class CollabMember {
         return new CollabMember(collabId, userId, CollabMemberStatus.ACCEPTED, CollabMemberRole.ADMIN, null);
     }
 
+    public static CollabMember createPendingMember(UUID collabId, UserId userId) {
+        return new CollabMember(collabId, userId, CollabMemberStatus.PENDING, CollabMemberRole.MEMBER, null);
+    }
+
     public UUID getCollabId() {
         return collabId;
     }

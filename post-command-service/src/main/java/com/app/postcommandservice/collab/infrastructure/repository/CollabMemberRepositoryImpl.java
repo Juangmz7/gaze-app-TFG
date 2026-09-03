@@ -1,6 +1,7 @@
 package com.app.postcommandservice.collab.infrastructure.repository;
 
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import lombok.RequiredArgsConstructor;
@@ -26,5 +27,10 @@ public class CollabMemberRepositoryImpl implements CollabMemberRepository {
     public Optional<CollabMember> findByCollabIdAndUserId(UUID collabId, UUID userId) {
         return collabMemberJpaRepository.findByIdCollabIdAndIdUserId(collabId, userId)
                 .map(collabMemberMapper::toDomain);
+    }
+
+    @Override
+    public Set<UUID> findUserIdsByCollabId(UUID collabId) {
+        return Set.copyOf(collabMemberJpaRepository.findUserIdsByCollabId(collabId));
     }
 }
