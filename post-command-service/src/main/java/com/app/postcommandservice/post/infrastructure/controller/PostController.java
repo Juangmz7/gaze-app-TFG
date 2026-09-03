@@ -68,6 +68,8 @@ public class PostController {
         var command = new CreatePostCommand(
                 request.correlationId(),
                 currentUserId,
+                null,
+                PostType.BASIC,
                 request.description(),
                 request.taggedUsers(),
                 request.postTags()

@@ -19,6 +19,8 @@ public class PostMapper {
         return PostEntity.builder()
                 .id(post.getId().value())
                 .userId(post.getUserId().value())
+                .collabId(post.getCollabId())
+                .postType(post.getPostType())
                 .description(post.getDescription().value())
                 .taggedUsers(new java.util.ArrayList<>(post.getTaggedUsers().value()))
                 .tags(new java.util.ArrayList<>(post.getTags().value()))
@@ -32,6 +34,8 @@ public class PostMapper {
         return new Post(
                 new PostId(entity.getId()),
                 new UserId(entity.getUserId()),
+                entity.getCollabId(),
+                entity.getPostType(),
                 new PostDescription(entity.getDescription()),
                 new PostTaggedUsers(new LinkedHashSet<>(entity.getTaggedUsers())),
                 new PostTags(new LinkedHashSet<>(entity.getTags())),

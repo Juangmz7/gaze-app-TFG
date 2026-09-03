@@ -12,4 +12,6 @@ public interface PostRepository {
     Post saveAndFlush(Post post);
 
     Optional<Post> findById(UUID postId);
+
+    Optional<Post> findByCollabId(UUID collabId);
 }

@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.LinkedHashSet;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 
 import com.app.postcommandservice.post.domain.exception.PostNotActiveException;
 import com.app.postcommandservice.post.domain.model.valueobj.PostDescription;
@@ -11,12 +12,15 @@ import com.app.postcommandservice.post.domain.model.valueobj.PostId;
 import com.app.postcommandservice.post.domain.model.valueobj.PostStatus;
 import com.app.postcommandservice.post.domain.model.valueobj.PostTaggedUsers;
 import com.app.postcommandservice.post.domain.model.valueobj.PostTags;
+import com.app.postcommandservice.post.domain.model.valueobj.PostType;
 import com.app.postcommandservice.shared.domain.model.user.valueobj.UserId;
 
 public class Post {
 
     private final PostId id;
     private final UserId userId;
+    private final UUID collabId;
+    private final PostType postType;
     private final PostDescription description;
     private final PostTaggedUsers taggedUsers;
     private final PostTags tags;
@@ -27,6 +31,8 @@ public class Post {
     public Post(
             PostId id,
             UserId userId,
+            UUID collabId,
+            PostType postType,
             PostDescription description,
             PostTaggedUsers taggedUsers,
             PostTags tags,
@@ -35,10 +41,13 @@ public class Post {
             Instant updatedAt) {
         this.id = Objects.requireNonNull(id, "id must not be null");
         this.userId = Objects.requireNonNull(userId, "userId must not be null");
+        this.postType = Objects.requireNonNull(postType, "postType must not be null");
         this.description = Objects.requireNonNull(description, "description must not be null");
         this.taggedUsers = Objects.requireNonNull(taggedUsers, "taggedUsers must not be null");
         this.tags = Objects.requireNonNull(tags, "tags must not be null");
         this.status = Objects.requireNonNull(status, "status must not be null");
+        validateCollabLink(postType, collabId);
+        this.collabId = collabId;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
     }
@@ -46,10 +55,12 @@ public class Post {
     public static Post create(
             PostId id,
             UserId userId,
+            UUID collabId,
+            PostType postType,
             PostDescription description,
             PostTaggedUsers taggedUsers,
             PostTags tags) {
-        return new Post(id, userId, description, taggedUsers, tags, PostStatus.ACTIVE, null, null);
+        return new Post(id, userId, collabId, postType, description, taggedUsers, tags, PostStatus.ACTIVE, null, null);
     }
 
     public PostUpdateResult update(
@@ -68,7 +79,7 @@ public class Post {
         newlyTaggedUsers.removeAll(this.taggedUsers.value());
 
         return new PostUpdateResult(
-                new Post(id, userId, description, taggedUsers, tags, status, createdAt, updatedAt),
+                new Post(id, userId, collabId, postType, description, taggedUsers, tags, status, createdAt, updatedAt),
                 true,
                 newlyTaggedUsers
         );
@@ -79,7 +90,8 @@ public class Post {
             throw new PostNotActiveException(id.value(), status);
         }
 
-        return new Post(id, userId, description, taggedUsers, tags, PostStatus.DELETED, createdAt, updatedAt);
+        return new Post(id, userId, collabId, postType, description, taggedUsers, tags, PostStatus.DELETED,
+                createdAt, updatedAt);
     }
 
     public PostId getId() {
@@ -88,6 +100,14 @@ public class Post {
 
     public UserId getUserId() {
         return userId;
+    }
+
+    public UUID getCollabId() {
+        return collabId;
+    }
+
+    public PostType getPostType() {
+        return postType;
     }
 
     public PostDescription getDescription() {
@@ -112,5 +132,14 @@ public class Post {
 
     public Instant getUpdatedAt() {
         return updatedAt;
+    }
+
+    private void validateCollabLink(PostType postType, UUID collabId) {
+        if (postType == PostType.BASIC && collabId != null) {
+            throw new IllegalArgumentException("Basic posts must not reference a collab");
+        }
+        if (postType == PostType.COLAB && collabId == null) {
+            throw new IllegalArgumentException("Collab posts must reference a collab");
+        }
     }
 }

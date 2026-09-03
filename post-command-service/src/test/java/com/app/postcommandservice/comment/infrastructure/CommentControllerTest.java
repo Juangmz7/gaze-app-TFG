@@ -34,6 +34,7 @@ import com.app.postcommandservice.comment.infrastructure.entity.CommentEntity;
 import com.app.postcommandservice.comment.infrastructure.repository.CommentJpaRepository;
 import com.app.postcommandservice.comment.infrastructure.repository.CommentRequestIdempotencyJpaRepository;
 import com.app.postcommandservice.post.domain.model.valueobj.PostStatus;
+import com.app.postcommandservice.post.domain.model.valueobj.PostType;
 import com.app.postcommandservice.post.infrastructure.entity.BlockReadModelEntity;
 import com.app.postcommandservice.post.infrastructure.entity.BlockReadModelId;
 import com.app.postcommandservice.post.infrastructure.entity.PostEntity;
@@ -1072,7 +1073,9 @@ class CommentControllerTest {
                 PostEntity.builder()
                         .id(UUID.randomUUID())
                         .userId(ownerId)
+                        .collabId(null)
                         .description("post")
+                        .postType(PostType.BASIC)
                         .taggedUsers(new java.util.ArrayList<>())
                         .tags(new java.util.ArrayList<>())
                         .status(status)

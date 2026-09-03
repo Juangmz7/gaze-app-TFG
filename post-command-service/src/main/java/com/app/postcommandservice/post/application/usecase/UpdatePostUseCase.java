@@ -122,6 +122,8 @@ public class UpdatePostUseCase {
         return new PostResponse(
                 post.getId().value(),
                 post.getUserId().value(),
+                post.getCollabId(),
+                post.getPostType(),
                 post.getDescription().value(),
                 post.getTaggedUsers().value(),
                 post.getTags().value(),

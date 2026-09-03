@@ -61,6 +61,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.app.postcommandservice.post.domain.model.valueobj.PostStatus;
+import com.app.postcommandservice.post.domain.model.valueobj.PostType;
 
 @ActiveProfiles("test")
 @Import(TestcontainersConfiguration.class)
@@ -148,6 +149,8 @@ class PostControllerIT {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.postId").exists())
                 .andExpect(jsonPath("$.userId").value(CREATOR_ID.toString()))
+                .andExpect(jsonPath("$.collabId").doesNotExist())
+                .andExpect(jsonPath("$.postType").value("BASIC"))
                 .andExpect(jsonPath("$.description").value(""))
                 .andExpect(jsonPath("$.taggedUsers").isArray())
                 .andExpect(jsonPath("$.postTags[0]").value("java"))
@@ -162,6 +165,8 @@ class PostControllerIT {
         assertThat(message).isNotNull();
         var eventPayload = objectMapper.readValue(message.getBody(), new TypeReference<Map<String, Object>>() { });
         assertThat(eventPayload.get("userId")).isEqualTo(CREATOR_ID.toString());
+        assertThat(eventPayload.get("collabId")).isNull();
+        assertThat(eventPayload.get("postType")).isEqualTo("BASIC");
         assertThat(eventPayload.get("description")).isEqualTo("");
 
         rabbitAdmin.deleteQueue(queueName);
@@ -406,6 +411,8 @@ class PostControllerIT {
         var existingPost = postJpaRepository.save(com.app.postcommandservice.post.infrastructure.entity.PostEntity.builder()
                 .id(UUID.randomUUID())
                 .userId(CREATOR_ID)
+                .collabId(null)
+                .postType(PostType.BASIC)
                 .description("before")
                 .taggedUsers(new ArrayList<>())
                 .tags(new ArrayList<>())
@@ -541,6 +548,8 @@ class PostControllerIT {
         return postJpaRepository.save(com.app.postcommandservice.post.infrastructure.entity.PostEntity.builder()
                 .id(UUID.randomUUID())
                 .userId(ownerId)
+                .collabId(null)
+                .postType(PostType.BASIC)
                 .description(description)
                 .taggedUsers(new ArrayList<>(taggedUsers))
                 .tags(new ArrayList<>(tags))
@@ -590,6 +599,8 @@ class PostControllerIT {
             Map<String, Object> secondBody) {
         assertThat(firstBody.get("postId")).isEqualTo(secondBody.get("postId"));
         assertThat(firstBody.get("userId")).isEqualTo(secondBody.get("userId"));
+        assertThat(firstBody.get("collabId")).isEqualTo(secondBody.get("collabId"));
+        assertThat(firstBody.get("postType")).isEqualTo(secondBody.get("postType"));
         assertThat(firstBody.get("description")).isEqualTo(secondBody.get("description"));
         assertThat(firstBody.get("taggedUsers")).isEqualTo(secondBody.get("taggedUsers"));
         assertThat(firstBody.get("postTags")).isEqualTo(secondBody.get("postTags"));
