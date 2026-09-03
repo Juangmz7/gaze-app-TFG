@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 
+import com.app.postcommandservice.collab.domain.exception.CollabJoinRequestNotPendingException;
 import com.app.postcommandservice.collab.domain.model.valueobj.CollabMemberRole;
 import com.app.postcommandservice.collab.domain.model.valueobj.CollabMemberStatus;
 import com.app.postcommandservice.shared.domain.model.user.valueobj.UserId;
@@ -33,6 +34,18 @@ public class CollabMember {
         return new CollabMember(collabId, userId, CollabMemberStatus.ACCEPTED, CollabMemberRole.ADMIN, null);
     }
 
+    public boolean isAcceptedAdmin() {
+        return collabMemberStatus == CollabMemberStatus.ACCEPTED && role == CollabMemberRole.ADMIN;
+    }
+
+    public CollabMember accept() {
+        if (collabMemberStatus != CollabMemberStatus.PENDING) {
+            throw new CollabJoinRequestNotPendingException(collabId, userId.value(), collabMemberStatus);
+        }
+
+        return new CollabMember(collabId, userId, CollabMemberStatus.ACCEPTED, role, createdAt);
+    }
+  
     public static CollabMember createPendingMember(UUID collabId, UserId userId) {
         return new CollabMember(collabId, userId, CollabMemberStatus.PENDING, CollabMemberRole.MEMBER, null);
     }

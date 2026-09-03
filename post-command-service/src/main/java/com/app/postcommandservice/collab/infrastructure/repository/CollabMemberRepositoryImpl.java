@@ -9,6 +9,8 @@ import org.springframework.stereotype.Repository;
 
 import com.app.postcommandservice.collab.application.repository.CollabMemberRepository;
 import com.app.postcommandservice.collab.domain.model.CollabMember;
+import com.app.postcommandservice.collab.domain.model.valueobj.CollabMemberStatus;
+import com.app.postcommandservice.collab.infrastructure.entity.CollabMemberId;
 import com.app.postcommandservice.collab.infrastructure.mapper.CollabMemberMapper;
 
 @Repository
@@ -30,6 +32,15 @@ public class CollabMemberRepositoryImpl implements CollabMemberRepository {
     }
 
     @Override
+    public boolean acceptPendingMember(UUID collabId, UUID userId) {
+        return collabMemberJpaRepository.acceptPendingMember(
+                collabId,
+                userId,
+                CollabMemberStatus.PENDING,
+                CollabMemberStatus.ACCEPTED
+        ) == 1;
+    }
+  
     public Set<UUID> findUserIdsByCollabId(UUID collabId) {
         return Set.copyOf(collabMemberJpaRepository.findUserIdsByCollabId(collabId));
     }

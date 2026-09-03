@@ -7,9 +7,10 @@ import org.springframework.stereotype.Component;
 
 import com.app.postcommandservice.collab.domain.model.Collab;
 import com.app.postcommandservice.collab.domain.model.CollabMember;
+import com.app.postcommandservice.collab.infrastructure.events.CollabClosedEvent;
+import com.app.postcommandservice.collab.infrastructure.events.CollabJoinRequestAcceptedEvent;
 import com.app.postcommandservice.collab.infrastructure.events.CollabJoinRequestCreatedEvent;
 import com.app.postcommandservice.collab.infrastructure.events.CollabLinkedEvent;
-import com.app.postcommandservice.collab.infrastructure.events.CollabClosedEvent;
 import com.app.postcommandservice.collab.infrastructure.events.CollabOpenedEvent;
 import com.app.postcommandservice.post.domain.model.Post;
 
@@ -23,6 +24,7 @@ public class CollabEventMapper {
             CollabMember collabMember,
             Post post,
             Instant occurredAt) {
+
         return CollabOpenedEvent.builder()
                 .id(eventId)
                 .correlationId(correlationId)
@@ -47,11 +49,32 @@ public class CollabEventMapper {
                 .build();
     }
 
+    public CollabJoinRequestAcceptedEvent toCollabJoinRequestAcceptedEvent(
+            UUID eventId,
+            UUID correlationId,
+            UUID acceptedBy,
+            CollabMember collabMember,
+            Instant occurredAt) {
+
+        return CollabJoinRequestAcceptedEvent.builder()
+                .id(eventId)
+                .correlationId(correlationId)
+                .occurredAt(occurredAt)
+                .collabId(collabMember.getCollabId())
+                .userId(collabMember.getUserId().value())
+                .acceptedBy(acceptedBy)
+                .collabMemberStatus(collabMember.getCollabMemberStatus())
+                .role(collabMember.getRole())
+                .memberCreatedAt(collabMember.getCreatedAt())
+                .build();
+    }
+
     public CollabJoinRequestCreatedEvent toCollabJoinRequestCreatedEvent(
             UUID eventId,
             UUID correlationId,
             CollabMember collabMember,
             Instant occurredAt) {
+
         return CollabJoinRequestCreatedEvent.builder()
                 .id(eventId)
                 .correlationId(correlationId)
@@ -63,7 +86,13 @@ public class CollabEventMapper {
                 .createdAt(collabMember.getCreatedAt())
                 .build();
     }
-    public CollabLinkedEvent toCollabLinkedEvent(UUID eventId, UUID correlationId, Post post, Instant occurredAt) {
+
+    public CollabLinkedEvent toCollabLinkedEvent(
+            UUID eventId,
+            UUID correlationId,
+            Post post,
+            Instant occurredAt) {
+
         return CollabLinkedEvent.builder()
                 .id(eventId)
                 .correlationId(correlationId)
@@ -79,13 +108,14 @@ public class CollabEventMapper {
                 .updatedAt(post.getUpdatedAt())
                 .build();
     }
-     
+
     public CollabClosedEvent toCollabClosedEvent(
             UUID eventId,
             UUID correlationId,
             Collab collab,
             UUID closedBy,
             Instant occurredAt) {
+
         return CollabClosedEvent.builder()
                 .id(eventId)
                 .correlationId(correlationId)
