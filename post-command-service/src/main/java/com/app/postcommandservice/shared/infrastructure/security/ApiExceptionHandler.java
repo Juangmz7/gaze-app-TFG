@@ -27,6 +27,7 @@ import com.app.postcommandservice.post.domain.exception.TaggedUserNotFoundExcept
 import com.app.postcommandservice.post.domain.exception.PostNotActiveException;
 import com.app.postcommandservice.post.domain.exception.PostNotFoundException;
 import com.app.postcommandservice.post.domain.exception.PostOwnershipException;
+import com.app.postcommandservice.share.domain.exception.PostShareBlockedException;
 import com.app.postcommandservice.shared.domain.exception.DomainException;
 
 @Slf4j
@@ -96,6 +97,14 @@ public class ApiExceptionHandler {
     @ExceptionHandler(CommentBlockedException.class)
     public ResponseEntity<ApiErrorResponse> handleCommentBlockedException(
             CommentBlockedException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, ApiErrorCode.BLOCKED, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(PostShareBlockedException.class)
+    public ResponseEntity<ApiErrorResponse> handlePostShareBlockedException(
+            PostShareBlockedException exception,
             HttpServletRequest request) {
 
         return buildErrorResponse(HttpStatus.BAD_REQUEST, ApiErrorCode.BLOCKED, exception.getMessage(), request);
