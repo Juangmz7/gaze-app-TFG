@@ -26,10 +26,12 @@ import com.app.postcommandservice.like.application.usecase.DispatchValidatePostL
 import com.app.postcommandservice.like.application.usecase.DispatchValidatePostUnlikeCommandUseCase;
 import com.app.postcommandservice.post.application.commands.CreatePostCommand;
 import com.app.postcommandservice.post.application.commands.DeletePostCommand;
+import com.app.postcommandservice.post.application.commands.LinkExistingPostToCollabCommand;
 import com.app.postcommandservice.post.application.commands.UpdatePostCommand;
 import com.app.postcommandservice.post.application.dto.PostResponse;
 import com.app.postcommandservice.post.application.usecase.CreatePostUseCase;
 import com.app.postcommandservice.post.application.usecase.DeletePostUseCase;
+import com.app.postcommandservice.post.application.usecase.LinkExistingPostToCollabUseCase;
 import com.app.postcommandservice.post.application.usecase.UpdatePostUseCase;
 import com.app.postcommandservice.post.domain.model.valueobj.PostType;
 import com.app.postcommandservice.share.application.commands.CreatePostShareCommand;
@@ -47,6 +49,7 @@ public class PostController {
     private final CreatePostUseCase createPostUseCase;
     private final UpdatePostUseCase updatePostUseCase;
     private final DeletePostUseCase deletePostUseCase;
+    private final LinkExistingPostToCollabUseCase linkExistingPostToCollabUseCase;
     private final CreateCommentUseCase createCommentUseCase;
     private final DeleteCommentUseCase deleteCommentUseCase;
     private final UpdateCommentUseCase updateCommentUseCase;
@@ -106,6 +109,20 @@ public class PostController {
 
         deletePostUseCase.deletePost(new DeletePostCommand(postId, currentUserId));
         return ResponseEntity.noContent().build();
+    }
+
+    @PutMapping("/{postId}/collabs/{collabId}/link")
+    public ResponseEntity<PostResponse> linkPostToCollab(
+            @PathVariable("postId") java.util.UUID postId,
+            @PathVariable("collabId") java.util.UUID collabId) {
+        var currentUserId = securityUtils.getUserId();
+        if (currentUserId == null) {
+            throw new AuthenticationCredentialsNotFoundException("JWT subject claim is missing or invalid");
+        }
+
+        return ResponseEntity.ok(linkExistingPostToCollabUseCase.link(
+                new LinkExistingPostToCollabCommand(postId, collabId, currentUserId)
+        ));
     }
 
     @PostMapping("/{postId}/like")
