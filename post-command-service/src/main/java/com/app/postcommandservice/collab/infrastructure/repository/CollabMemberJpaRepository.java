@@ -1,9 +1,11 @@
 package com.app.postcommandservice.collab.infrastructure.repository;
 
+import org.springframework.data.jpa.repository.Modifying;
+import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -27,4 +29,12 @@ public interface CollabMemberJpaRepository extends JpaRepository<CollabMemberEnt
             @Param("pendingStatus") CollabMemberStatus pendingStatus,
             @Param("acceptedStatus") CollabMemberStatus acceptedStatus
     );
+    Optional<CollabMemberEntity> findByIdCollabIdAndIdUserId(UUID collabId, UUID userId);
+
+    @Query("""
+            SELECT collabMember.id.userId
+            FROM CollabMemberEntity collabMember
+            WHERE collabMember.id.collabId = :collabId
+            """)
+    List<UUID> findUserIdsByCollabId(@Param("collabId") UUID collabId);
 }

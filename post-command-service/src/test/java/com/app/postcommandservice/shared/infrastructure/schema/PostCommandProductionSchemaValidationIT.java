@@ -74,6 +74,17 @@ class PostCommandProductionSchemaValidationIT {
     }
 
     @Test
+    void shouldRequireTrackedSchemaPatchBeforeProductionValidationPassesForPostSharesTable() {
+        bootstrapSchema("create");
+        execute("DROP TABLE IF EXISTS post_shares");
+
+        assertThatThrownBy(() -> bootstrapSchema("validate"))
+                .hasRootCauseInstanceOf(Exception.class)
+                .hasMessageContaining("post_shares");
+        applySchemaPatch("db/schema/post-command-service-prod.sql");
+
+        assertThatNoException().isThrownBy(() -> bootstrapSchema("validate"));
+    }
     void shouldRequireTrackedSchemaPatchBeforeProductionValidationPassesForCommentRequestIdempotencyTable() {
         bootstrapSchema("create");
         execute("DROP TABLE IF EXISTS comment_request_idempotency");
@@ -81,6 +92,24 @@ class PostCommandProductionSchemaValidationIT {
         assertThatThrownBy(() -> bootstrapSchema("validate"))
                 .hasRootCauseInstanceOf(Exception.class)
                 .hasMessageContaining("comment_request_idempotency");
+        applySchemaPatch("db/schema/post-command-service-prod.sql");
+
+        assertThatNoException().isThrownBy(() -> bootstrapSchema("validate"));
+    }
+
+    @Test
+    void shouldRequireTrackedSchemaPatchBeforeProductionValidationPassesForCollabTablesAndPostColumns() {
+        bootstrapSchema("create");
+        execute("DROP TABLE IF EXISTS collab_request_idempotency");
+        execute("DROP TABLE IF EXISTS collab_members");
+        execute("ALTER TABLE posts DROP CONSTRAINT IF EXISTS fk_posts_collab");
+        execute("DROP TABLE IF EXISTS collabs");
+        execute("ALTER TABLE posts DROP COLUMN collab_id");
+        execute("ALTER TABLE posts DROP COLUMN post_type");
+
+        assertThatThrownBy(() -> bootstrapSchema("validate"))
+                .hasRootCauseInstanceOf(Exception.class)
+                .hasMessageContaining("collab_members");
 
         applySchemaPatch("db/schema/post-command-service-prod.sql");
 

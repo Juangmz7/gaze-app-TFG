@@ -45,6 +45,8 @@ import com.app.postcommandservice.collab.infrastructure.entity.CollabMemberId;
 import com.app.postcommandservice.collab.infrastructure.repository.CollabJpaRepository;
 import com.app.postcommandservice.collab.infrastructure.repository.CollabMemberJpaRepository;
 import com.app.postcommandservice.collab.infrastructure.repository.CollabRequestIdempotencyJpaRepository;
+import com.app.postcommandservice.post.infrastructure.entity.BlockReadModelEntity;
+import com.app.postcommandservice.post.infrastructure.entity.BlockReadModelId;
 import com.app.postcommandservice.post.infrastructure.entity.UserReadModelEntity;
 import com.app.postcommandservice.post.infrastructure.repository.BlockReadModelJpaRepository;
 import com.app.postcommandservice.post.infrastructure.repository.PostJpaRepository;
@@ -57,6 +59,7 @@ import com.app.postcommandservice.shared.infrastructure.repository.ProcessedEven
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -67,7 +70,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 class CollabControllerFlowTest {
 
-    private static final UUID CREATOR_ID = UUID.fromString("11111111-1111-1111-1111-111111111111");
+    private static final UUID CREATOR_ID =
+            UUID.fromString("11111111-1111-1111-1111-111111111111");
 
     private MockMvc mockMvc;
 
@@ -135,12 +139,15 @@ class CollabControllerFlowTest {
     @Test
     void shouldOpenCollabPersistMemberPostAndPublishEvent() throws Exception {
         seedUser(UUID.randomUUID(), "alice");
+
         String queueName = "test.collab.opened." + UUID.randomUUID();
         RabbitAdmin rabbitAdmin = new RabbitAdmin(connectionFactory);
         Queue queue = new Queue(queueName, false, true, true);
+
         rabbitAdmin.declareQueue(queue);
         rabbitAdmin.declareBinding(BindingBuilder.bind(queue)
-                .to(new org.springframework.amqp.core.TopicExchange(rabbitMQProperties.getExchange().getPost().getEvents()))
+                .to(new org.springframework.amqp.core.TopicExchange(
+                        rabbitMQProperties.getExchange().getPost().getEvents()))
                 .with(rabbitMQProperties.getRk().getPost().getCollab().getOpened()));
 
         var correlationId = UUID.randomUUID();
@@ -170,14 +177,23 @@ class CollabControllerFlowTest {
         assertThat(postJpaRepository.count()).isEqualTo(1);
         assertThat(postRequestIdempotencyJpaRepository.count()).isZero();
         assertThat(outboxEventRepository.count()).isEqualTo(1);
-        assertThat(postJpaRepository.findAll().getFirst().getPostType().name()).isEqualTo("COLAB");
-        assertThat(collabJpaRepository.findAll().getFirst().getCollabStatus().name()).isEqualTo("OPEN");
-        assertThat(collabMemberJpaRepository.findAll().getFirst().getRole().name()).isEqualTo("ADMIN");
-        assertThat(collabMemberJpaRepository.findAll().getFirst().getCollabMemberStatus().name()).isEqualTo("ACCEPTED");
+        assertThat(postJpaRepository.findAll().getFirst().getPostType().name())
+                .isEqualTo("COLAB");
+        assertThat(collabJpaRepository.findAll().getFirst().getCollabStatus().name())
+                .isEqualTo("OPEN");
+        assertThat(collabMemberJpaRepository.findAll().getFirst().getRole().name())
+                .isEqualTo("ADMIN");
+        assertThat(collabMemberJpaRepository.findAll().getFirst().getCollabMemberStatus().name())
+                .isEqualTo("ACCEPTED");
 
         Message message = receiveMessage(queueName);
         assertThat(message).isNotNull();
-        var eventPayload = objectMapper.readValue(message.getBody(), new TypeReference<Map<String, Object>>() { });
+
+        var eventPayload = objectMapper.readValue(
+                message.getBody(),
+                new TypeReference<Map<String, Object>>() { }
+        );
+
         assertThat(eventPayload.get("title")).isEqualTo("Open collab");
         assertThat(eventPayload.get("postType")).isEqualTo("COLAB");
 
@@ -187,6 +203,7 @@ class CollabControllerFlowTest {
     @Test
     void shouldAllowStandardPostCreationWithSameCorrelationIdAfterOpeningCollab() throws Exception {
         var correlationId = UUID.randomUUID();
+
         var collabPayload = objectMapper.writeValueAsString(Map.of(
                 "correlationId", correlationId,
                 "title", "Open collab",
@@ -223,8 +240,16 @@ class CollabControllerFlowTest {
                 .getResponse()
                 .getContentAsString(StandardCharsets.UTF_8);
 
-        var collabBody = objectMapper.readValue(collabResponse, new TypeReference<Map<String, Object>>() { });
-        var basicBody = objectMapper.readValue(basicPostResponse, new TypeReference<Map<String, Object>>() { });
+        var collabBody = objectMapper.readValue(
+                collabResponse,
+                new TypeReference<Map<String, Object>>() { }
+        );
+
+        var basicBody = objectMapper.readValue(
+                basicPostResponse,
+                new TypeReference<Map<String, Object>>() { }
+        );
+
         @SuppressWarnings("unchecked")
         var collabPost = (Map<String, Object>) collabBody.get("post");
 
@@ -238,6 +263,7 @@ class CollabControllerFlowTest {
     @Test
     void shouldReturnSameResponseWithoutDuplicateInsertsWhenCorrelationIdIsReused() throws Exception {
         var correlationId = UUID.randomUUID();
+
         var payload = objectMapper.writeValueAsString(Map.of(
                 "correlationId", correlationId,
                 "title", "Replay collab",
@@ -264,8 +290,15 @@ class CollabControllerFlowTest {
                 .getResponse()
                 .getContentAsString(StandardCharsets.UTF_8);
 
-        var firstBody = objectMapper.readValue(firstResponse, new TypeReference<Map<String, Object>>() { });
-        var secondBody = objectMapper.readValue(secondResponse, new TypeReference<Map<String, Object>>() { });
+        var firstBody = objectMapper.readValue(
+                firstResponse,
+                new TypeReference<Map<String, Object>>() { }
+        );
+
+        var secondBody = objectMapper.readValue(
+                secondResponse,
+                new TypeReference<Map<String, Object>>() { }
+        );
 
         assertThat(secondBody.get("collabId")).isEqualTo(firstBody.get("collabId"));
         assertThat(secondBody.get("title")).isEqualTo(firstBody.get("title"));
@@ -275,6 +308,7 @@ class CollabControllerFlowTest {
 
         @SuppressWarnings("unchecked")
         var firstPost = (Map<String, Object>) firstBody.get("post");
+
         @SuppressWarnings("unchecked")
         var secondPost = (Map<String, Object>) secondBody.get("post");
 
@@ -287,6 +321,7 @@ class CollabControllerFlowTest {
         assertThat(secondPost.get("postTags")).isEqualTo(firstPost.get("postTags"));
         assertTimestampEquivalent(secondPost.get("createdAt"), firstPost.get("createdAt"));
         assertTimestampEquivalent(secondPost.get("updatedAt"), firstPost.get("updatedAt"));
+
         assertThat(collabJpaRepository.count()).isEqualTo(1);
         assertThat(collabMemberJpaRepository.count()).isEqualTo(1);
         assertThat(collabRequestIdempotencyJpaRepository.count()).isEqualTo(1);
@@ -433,9 +468,395 @@ class CollabControllerFlowTest {
         rabbitAdmin.deleteQueue(queueName);
     }
 
+    @Test
+    void shouldRequestToJoinCollabPersistPendingMemberAndPublishEvent() throws Exception {
+        var collabId = seedOpenCollab(CREATOR_ID);
+        seedAcceptedMember(collabId, CREATOR_ID, true);
+        seedAcceptedMember(collabId, UUID.randomUUID(), false);
+
+        String queueName = "test.collab.request.created." + UUID.randomUUID();
+        RabbitAdmin rabbitAdmin = new RabbitAdmin(connectionFactory);
+        Queue queue = new Queue(queueName, false, true, true);
+
+        rabbitAdmin.declareQueue(queue);
+        rabbitAdmin.declareBinding(BindingBuilder.bind(queue)
+                .to(new org.springframework.amqp.core.TopicExchange(
+                        rabbitMQProperties.getExchange().getPost().getEvents()))
+                .with(rabbitMQProperties.getRk().getPost().getCollab().getRequest().getCreated()));
+
+        var requesterId = UUID.randomUUID();
+
+        mockMvc.perform(post("/api/collabs/{collabId}/requests", collabId)
+                        .with(jwtFor(requesterId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.collabId").value(collabId.toString()))
+                .andExpect(jsonPath("$.userId").value(requesterId.toString()))
+                .andExpect(jsonPath("$.status").value("PENDING"))
+                .andExpect(jsonPath("$.role").value("MEMBER"))
+                .andExpect(jsonPath("$.createdAt").exists());
+
+        var members = collabMemberJpaRepository.findAll();
+
+        assertThat(members).hasSize(3);
+        assertThat(members.stream()
+                .filter(member -> member.getId().getUserId().equals(requesterId))
+                .findFirst()
+                .orElseThrow()
+                .getCollabMemberStatus()
+                .name())
+                .isEqualTo("PENDING");
+
+        assertThat(outboxEventRepository.count()).isEqualTo(1);
+
+        Message message = receiveMessage(queueName);
+        assertThat(message).isNotNull();
+
+        var eventPayload = objectMapper.readValue(
+                message.getBody(),
+                new TypeReference<Map<String, Object>>() { }
+        );
+
+        assertThat(eventPayload.get("collabId")).isEqualTo(collabId.toString());
+        assertThat(eventPayload.get("userId")).isEqualTo(requesterId.toString());
+        assertThat(eventPayload.get("status")).isEqualTo("PENDING");
+        assertThat(eventPayload.get("role")).isEqualTo("MEMBER");
+
+        rabbitAdmin.deleteQueue(queueName);
+    }
+
+    @Test
+    void shouldCloseOpenCollabAndPublishClosedEvent() throws Exception {
+        String queueName = "test.collab.closed." + UUID.randomUUID();
+        RabbitAdmin rabbitAdmin = new RabbitAdmin(connectionFactory);
+        Queue queue = new Queue(queueName, false, true, true);
+
+        rabbitAdmin.declareQueue(queue);
+        rabbitAdmin.declareBinding(BindingBuilder.bind(queue)
+                .to(new org.springframework.amqp.core.TopicExchange(
+                        rabbitMQProperties.getExchange().getPost().getEvents()))
+                .with(rabbitMQProperties.getRk().getPost().getCollab().getClosed()));
+
+        var collabId = seedCollab(ColabStatus.OPEN);
+        seedMember(
+                collabId,
+                CREATOR_ID,
+                CollabMemberRole.ADMIN,
+                CollabMemberStatus.ACCEPTED
+        );
+
+        mockMvc.perform(put("/api/collabs/{collabId}/close", collabId)
+                        .with(jwtFor(CREATOR_ID)))
+                .andExpect(status().isNoContent());
+
+        var savedCollab = collabJpaRepository.findById(collabId).orElseThrow();
+
+        assertThat(savedCollab.getCollabStatus()).isEqualTo(ColabStatus.CLOSED);
+        assertThat(outboxEventRepository.count()).isEqualTo(1);
+
+        Message message = receiveMessage(queueName);
+        assertThat(message).isNotNull();
+
+        var eventPayload = objectMapper.readValue(
+                message.getBody(),
+                new TypeReference<Map<String, Object>>() { }
+        );
+
+        assertThat(eventPayload.get("collabId")).isEqualTo(collabId.toString());
+        assertThat(eventPayload.get("closedBy")).isEqualTo(CREATOR_ID.toString());
+        assertThat(eventPayload.get("collabStatus")).isEqualTo("CLOSED");
+
+        rabbitAdmin.deleteQueue(queueName);
+    }
+
+    @Test
+    void shouldReturnExistingMemberIdempotentlyWhenRequestAlreadyExists() throws Exception {
+        var collabId = seedOpenCollab(CREATOR_ID);
+        var requesterId = UUID.randomUUID();
+
+        seedAcceptedMember(collabId, CREATOR_ID, true);
+
+        var createdAt = Instant.now().minusSeconds(60);
+
+        collabMemberJpaRepository.save(new CollabMemberEntity(
+                new CollabMemberId(collabId, requesterId),
+                CollabMemberStatus.PENDING,
+                CollabMemberRole.MEMBER,
+                createdAt
+        ));
+
+        var firstResponse = mockMvc.perform(post("/api/collabs/{collabId}/requests", collabId)
+                        .with(jwtFor(requesterId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PENDING"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString(StandardCharsets.UTF_8);
+
+        var secondResponse = mockMvc.perform(post("/api/collabs/{collabId}/requests", collabId)
+                        .with(jwtFor(requesterId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("PENDING"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString(StandardCharsets.UTF_8);
+
+        var firstBody = objectMapper.readValue(
+                firstResponse,
+                new TypeReference<Map<String, Object>>() { }
+        );
+
+        var secondBody = objectMapper.readValue(
+                secondResponse,
+                new TypeReference<Map<String, Object>>() { }
+        );
+
+        assertThat(secondBody).isEqualTo(firstBody);
+        assertThat(collabMemberJpaRepository.count()).isEqualTo(2);
+        assertThat(outboxEventRepository.count()).isZero();
+    }
+
+    @Test
+    void shouldReturnAcceptedWithoutSideEffectsWhenCollabIsAlreadyClosed() throws Exception {
+        var collabId = seedCollab(ColabStatus.CLOSED);
+
+        seedMember(
+                collabId,
+                CREATOR_ID,
+                CollabMemberRole.ADMIN,
+                CollabMemberStatus.ACCEPTED
+        );
+
+        mockMvc.perform(patch("/api/collabs/{collabId}/close", collabId)
+                        .with(jwtFor(CREATOR_ID)))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$").doesNotExist());
+
+        var savedCollab = collabJpaRepository.findById(collabId).orElseThrow();
+
+        assertThat(savedCollab.getCollabStatus()).isEqualTo(ColabStatus.CLOSED);
+        assertThat(outboxEventRepository.count()).isZero();
+    }
+
+    @Test
+    void shouldReturnBadRequestWhenBlockedRelationshipExistsWithAnyMember() throws Exception {
+        var collabId = seedOpenCollab(CREATOR_ID);
+        var requesterId = UUID.randomUUID();
+        var blockedMemberId = UUID.randomUUID();
+
+        seedAcceptedMember(collabId, CREATOR_ID, true);
+        seedAcceptedMember(collabId, blockedMemberId, false);
+
+        blockReadModelJpaRepository.save(new BlockReadModelEntity(
+                new BlockReadModelId(blockedMemberId, requesterId),
+                Instant.now()
+        ));
+
+        mockMvc.perform(post("/api/collabs/{collabId}/requests", collabId)
+                        .with(jwtFor(requesterId)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("BLOCKED"));
+
+        assertThat(collabMemberJpaRepository.count()).isEqualTo(2);
+        assertThat(outboxEventRepository.count()).isZero();
+    }
+
+    @Test
+    void shouldReturnForbiddenWhenRequesterIsNotAdminMember() throws Exception {
+        var collabId = seedCollab(ColabStatus.OPEN);
+
+        seedMember(
+                collabId,
+                CREATOR_ID,
+                CollabMemberRole.MEMBER,
+                CollabMemberStatus.ACCEPTED
+        );
+
+        mockMvc.perform(put("/api/collabs/{collabId}/close", collabId)
+                        .with(jwtFor(CREATOR_ID)))
+                .andExpect(status().isForbidden());
+
+        var savedCollab = collabJpaRepository.findById(collabId).orElseThrow();
+
+        assertThat(savedCollab.getCollabStatus()).isEqualTo(ColabStatus.OPEN);
+        assertThat(outboxEventRepository.count()).isZero();
+    }
+
+    @Test
+    void shouldReturnBadRequestWhenCollabCreatorRequestsToJoinOwnCollab() throws Exception {
+        var collabId = seedOpenCollab(CREATOR_ID);
+
+        seedAcceptedMember(collabId, CREATOR_ID, true);
+
+        mockMvc.perform(post("/api/collabs/{collabId}/requests", collabId)
+                        .with(jwtFor(CREATOR_ID)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("BAD_REQUEST"));
+
+        assertThat(collabMemberJpaRepository.count()).isEqualTo(1);
+        assertThat(outboxEventRepository.count()).isZero();
+    }
+
+    @Test
+    void shouldReturnForbiddenWhenRequesterHasNoMembershipRow() throws Exception {
+        var collabId = seedCollab(ColabStatus.OPEN);
+
+        mockMvc.perform(put("/api/collabs/{collabId}/close", collabId)
+                        .with(jwtFor(CREATOR_ID)))
+                .andExpect(status().isForbidden());
+
+        var savedCollab = collabJpaRepository.findById(collabId).orElseThrow();
+
+        assertThat(savedCollab.getCollabStatus()).isEqualTo(ColabStatus.OPEN);
+        assertThat(collabMemberJpaRepository.count()).isZero();
+        assertThat(outboxEventRepository.count()).isZero();
+    }
+
+    @Test
+    void shouldReturnBadRequestWhenCollabIsClosed() throws Exception {
+        var collabId = UUID.randomUUID();
+
+        collabJpaRepository.save(new CollabEntity(
+                collabId,
+                "Closed collab",
+                CREATOR_ID,
+                ColabStatus.CLOSED,
+                Instant.now()
+        ));
+
+        seedAcceptedMember(collabId, CREATOR_ID, true);
+
+        mockMvc.perform(post("/api/collabs/{collabId}/requests", collabId)
+                        .with(jwtFor(UUID.randomUUID())))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("BAD_REQUEST"));
+
+        assertThat(collabMemberJpaRepository.count()).isEqualTo(1);
+    }
+
+    @Test
+    void shouldReturnForbiddenWhenRequesterMembershipIsLeft() throws Exception {
+        var collabId = seedCollab(ColabStatus.OPEN);
+
+        seedMember(
+                collabId,
+                CREATOR_ID,
+                CollabMemberRole.ADMIN,
+                CollabMemberStatus.LEFT
+        );
+
+        mockMvc.perform(put("/api/collabs/{collabId}/close", collabId)
+                        .with(jwtFor(CREATOR_ID)))
+                .andExpect(status().isForbidden());
+
+        var savedCollab = collabJpaRepository.findById(collabId).orElseThrow();
+
+        assertThat(savedCollab.getCollabStatus()).isEqualTo(ColabStatus.OPEN);
+        assertThat(outboxEventRepository.count()).isZero();
+    }
+
+    @Test
+    void shouldReturnForbiddenWhenRequesterMembershipIsBanned() throws Exception {
+        var collabId = seedCollab(ColabStatus.OPEN);
+
+        seedMember(
+                collabId,
+                CREATOR_ID,
+                CollabMemberRole.ADMIN,
+                CollabMemberStatus.BANNED
+        );
+
+        mockMvc.perform(put("/api/collabs/{collabId}/close", collabId)
+                        .with(jwtFor(CREATOR_ID)))
+                .andExpect(status().isForbidden());
+
+        var savedCollab = collabJpaRepository.findById(collabId).orElseThrow();
+
+        assertThat(savedCollab.getCollabStatus()).isEqualTo(ColabStatus.OPEN);
+        assertThat(outboxEventRepository.count()).isZero();
+    }
+
+    @Test
+    void shouldReturnNotFoundWhenRequestingToJoinNonExistingCollab() throws Exception {
+        mockMvc.perform(post("/api/collabs/{collabId}/requests", UUID.randomUUID())
+                        .with(jwtFor(UUID.randomUUID())))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("NOT_FOUND"));
+    }
+
+    @Test
+    void shouldReturnNotFoundWhenClosingNonExistingCollab() throws Exception {
+        var collabId = UUID.randomUUID();
+
+        mockMvc.perform(put("/api/collabs/{collabId}/close", collabId)
+                        .with(jwtFor(CREATOR_ID)))
+                .andExpect(status().isNotFound());
+
+        assertThat(outboxEventRepository.count()).isZero();
+    }
+
     private void seedUser(UUID userId, String username) {
         var now = Instant.now();
-        userReadModelJpaRepository.save(new UserReadModelEntity(userId, username, now, now));
+
+        userReadModelJpaRepository.save(
+                new UserReadModelEntity(userId, username, now, now)
+        );
+    }
+
+    private UUID seedOpenCollab(UUID creatorId) {
+        var collabId = UUID.randomUUID();
+
+        collabJpaRepository.save(new CollabEntity(
+                collabId,
+                "Open collab",
+                creatorId,
+                ColabStatus.OPEN,
+                Instant.now()
+        ));
+
+        return collabId;
+    }
+
+    private UUID seedCollab(ColabStatus status) {
+        var collabId = UUID.randomUUID();
+
+        collabJpaRepository.save(new CollabEntity(
+                collabId,
+                "Close collab",
+                CREATOR_ID,
+                status,
+                Instant.now()
+        ));
+
+        return collabId;
+    }
+
+    private void seedAcceptedMember(
+            UUID collabId,
+            UUID userId,
+            boolean admin
+    ) {
+        collabMemberJpaRepository.save(new CollabMemberEntity(
+                new CollabMemberId(collabId, userId),
+                CollabMemberStatus.ACCEPTED,
+                admin
+                        ? CollabMemberRole.ADMIN
+                        : CollabMemberRole.MEMBER,
+                Instant.now()
+        ));
+    }
+
+    private void seedMember(
+            UUID collabId,
+            UUID userId,
+            CollabMemberRole role,
+            CollabMemberStatus status
+    ) {
+        collabMemberJpaRepository.save(new CollabMemberEntity(
+                new CollabMemberId(collabId, userId),
+                status,
+                role,
+                Instant.now()
+        ));
     }
 
     private void seedCollab(UUID collabId, UUID createdBy) {
@@ -479,11 +900,14 @@ class CollabControllerFlowTest {
     private Message receiveMessage(String queueName) throws InterruptedException {
         long deadline = System.currentTimeMillis() + 5000;
         Message message;
+
         do {
             message = rabbitTemplate.receive(queueName);
+
             if (message != null) {
                 return message;
             }
+
             Thread.sleep(200L);
         } while (System.currentTimeMillis() < deadline);
 
@@ -505,7 +929,12 @@ class CollabControllerFlowTest {
     }
 
     private void assertTimestampEquivalent(Object firstValue, Object secondValue) {
-        assertThat(Instant.parse(String.valueOf(firstValue)).truncatedTo(java.time.temporal.ChronoUnit.MILLIS))
-                .isEqualTo(Instant.parse(String.valueOf(secondValue)).truncatedTo(java.time.temporal.ChronoUnit.MILLIS));
+        assertThat(
+                Instant.parse(String.valueOf(firstValue))
+                        .truncatedTo(java.time.temporal.ChronoUnit.MILLIS)
+        ).isEqualTo(
+                Instant.parse(String.valueOf(secondValue))
+                        .truncatedTo(java.time.temporal.ChronoUnit.MILLIS)
+        );
     }
 }
