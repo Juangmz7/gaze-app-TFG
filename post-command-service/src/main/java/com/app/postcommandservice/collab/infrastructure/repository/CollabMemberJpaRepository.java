@@ -45,6 +45,20 @@ public interface CollabMemberJpaRepository extends JpaRepository<CollabMemberEnt
             @Param("rejectedStatus") CollabMemberStatus rejectedStatus
     );
 
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            update CollabMemberEntity member
+               set member.collabMemberStatus = :deletedStatus
+             where member.id.collabId = :collabId
+               and member.id.userId = :userId
+               and member.collabMemberStatus = :pendingStatus
+            """)
+    int deletePendingMember(
+            @Param("collabId") UUID collabId,
+            @Param("userId") UUID userId,
+            @Param("pendingStatus") CollabMemberStatus pendingStatus,
+            @Param("deletedStatus") CollabMemberStatus deletedStatus
+    );
     Optional<CollabMemberEntity> findByIdCollabIdAndIdUserId(UUID collabId, UUID userId);
 
     @Query("""

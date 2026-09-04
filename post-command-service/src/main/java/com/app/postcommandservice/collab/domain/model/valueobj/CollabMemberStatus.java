@@ -4,6 +4,7 @@ public enum CollabMemberStatus {
     PENDING,
     ACCEPTED,
     REJECTED,
+    DELETED,
     LEFT,
     BANNED
 }

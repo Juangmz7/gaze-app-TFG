@@ -51,6 +51,15 @@ public class CollabMemberRepositoryImpl implements CollabMemberRepository {
     }
 
     @Override
+    public boolean deletePendingMember(UUID collabId, UUID userId) {
+        return collabMemberJpaRepository.deletePendingMember(
+                collabId,
+                userId,
+                CollabMemberStatus.PENDING,
+                CollabMemberStatus.DELETED
+        ) == 1;
+    }
+  
     public Set<UUID> findUserIdsByCollabId(UUID collabId) {
         return Set.copyOf(collabMemberJpaRepository.findUserIdsByCollabId(collabId));
     }

@@ -54,6 +54,14 @@ public class CollabMember {
         return new CollabMember(collabId, userId, CollabMemberStatus.REJECTED, role, createdAt);
     }
 
+    public CollabMember cancelRequest() {
+        if (collabMemberStatus != CollabMemberStatus.PENDING) {
+            throw new CollabJoinRequestNotPendingException(collabId, userId.value(), collabMemberStatus, "cancel");
+        }
+
+        return new CollabMember(collabId, userId, CollabMemberStatus.DELETED, role, createdAt);
+    }
+  
     public static CollabMember createPendingMember(UUID collabId, UserId userId) {
         return new CollabMember(collabId, userId, CollabMemberStatus.PENDING, CollabMemberRole.MEMBER, null);
     }

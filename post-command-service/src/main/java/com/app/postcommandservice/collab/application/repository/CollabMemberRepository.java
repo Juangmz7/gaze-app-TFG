@@ -17,4 +17,6 @@ public interface CollabMemberRepository {
     Set<UUID> findUserIdsByCollabId(UUID collabId);
 
     boolean rejectPendingMember(UUID collabId, UUID userId);
+
+    boolean deletePendingMember(UUID collabId, UUID userId);
 }
