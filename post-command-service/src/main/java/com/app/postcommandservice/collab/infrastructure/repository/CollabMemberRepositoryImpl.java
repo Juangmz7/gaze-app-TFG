@@ -1,6 +1,7 @@
 package com.app.postcommandservice.collab.infrastructure.repository;
 
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import lombok.RequiredArgsConstructor;
@@ -8,6 +9,7 @@ import org.springframework.stereotype.Repository;
 
 import com.app.postcommandservice.collab.application.repository.CollabMemberRepository;
 import com.app.postcommandservice.collab.domain.model.CollabMember;
+import com.app.postcommandservice.collab.domain.model.valueobj.CollabMemberStatus;
 import com.app.postcommandservice.collab.infrastructure.mapper.CollabMemberMapper;
 
 @Repository
@@ -26,5 +28,39 @@ public class CollabMemberRepositoryImpl implements CollabMemberRepository {
     public Optional<CollabMember> findByCollabIdAndUserId(UUID collabId, UUID userId) {
         return collabMemberJpaRepository.findByIdCollabIdAndIdUserId(collabId, userId)
                 .map(collabMemberMapper::toDomain);
+    }
+
+    @Override
+    public boolean acceptPendingMember(UUID collabId, UUID userId) {
+        return collabMemberJpaRepository.acceptPendingMember(
+                collabId,
+                userId,
+                CollabMemberStatus.PENDING,
+                CollabMemberStatus.ACCEPTED
+        ) == 1;
+    }
+
+    @Override
+    public boolean rejectPendingMember(UUID collabId, UUID userId) {
+        return collabMemberJpaRepository.rejectPendingMember(
+                collabId,
+                userId,
+                CollabMemberStatus.PENDING,
+                CollabMemberStatus.REJECTED
+        ) == 1;
+    }
+
+    @Override
+    public boolean deletePendingMember(UUID collabId, UUID userId) {
+        return collabMemberJpaRepository.deletePendingMember(
+                collabId,
+                userId,
+                CollabMemberStatus.PENDING,
+                CollabMemberStatus.DELETED
+        ) == 1;
+    }
+  
+    public Set<UUID> findUserIdsByCollabId(UUID collabId) {
+        return Set.copyOf(collabMemberJpaRepository.findUserIdsByCollabId(collabId));
     }
 }
