@@ -15,6 +15,11 @@ import com.app.postcommandservice.collab.infrastructure.entity.CollabMemberId;
 
 public interface CollabMemberJpaRepository extends JpaRepository<CollabMemberEntity, CollabMemberId> {
 
+    @Modifying
+    @Query(value = "UPDATE collab_members SET collab_member_status = 'LEFT' "
+            + "WHERE collab_id = :collabId AND user_id = :userId AND collab_member_status = 'ACCEPTED'",
+            nativeQuery = true)
+    int leaveIfAccepted(@Param("collabId") UUID collabId, @Param("userId") UUID userId);
     Optional<CollabMemberEntity> findByIdCollabIdAndIdUserId(UUID collabId, UUID userId);
   
     @Modifying(flushAutomatically = true, clearAutomatically = true)

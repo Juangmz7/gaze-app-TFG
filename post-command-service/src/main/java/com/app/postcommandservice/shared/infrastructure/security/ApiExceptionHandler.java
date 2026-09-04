@@ -17,6 +17,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import com.app.postcommandservice.comment.domain.exception.CommentBlockedException;
 import com.app.postcommandservice.comment.domain.exception.CommentNotActiveException;
@@ -86,17 +87,16 @@ public class ApiExceptionHandler {
         return buildErrorResponse(HttpStatus.NOT_FOUND, ApiErrorCode.NOT_FOUND, exception.getMessage(), request);
     }
 
-    @ExceptionHandler(CollabMemberNotFoundException.class)
-    public ResponseEntity<ApiErrorResponse> handleCollabMemberNotFoundException(
-            CollabMemberNotFoundException exception,
+    @ExceptionHandler(CollabNotFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handleCollabNotFoundException(
+            CollabNotFoundException exception,
             HttpServletRequest request) {
 
         return buildErrorResponse(HttpStatus.NOT_FOUND, ApiErrorCode.NOT_FOUND, exception.getMessage(), request);
     }
-  
-    @ExceptionHandler(CollabNotFoundException.class)
-    public ResponseEntity<ApiErrorResponse> handleCollabNotFoundException(
-            CollabNotFoundException exception,
+    @ExceptionHandler(CollabMemberNotFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handleCollabMemberNotFoundException(
+            CollabMemberNotFoundException exception,
             HttpServletRequest request) {
 
         return buildErrorResponse(HttpStatus.NOT_FOUND, ApiErrorCode.NOT_FOUND, exception.getMessage(), request);
@@ -238,6 +238,7 @@ public class ApiExceptionHandler {
             MethodArgumentNotValidException.class,
             HandlerMethodValidationException.class,
             BindException.class,
+            MethodArgumentTypeMismatchException.class,
     })
     public ResponseEntity<ApiErrorResponse> handleRequestValidationException(
             Exception exception,

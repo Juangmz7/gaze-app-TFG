@@ -34,6 +34,10 @@ public class CollabMember {
         return new CollabMember(collabId, userId, CollabMemberStatus.ACCEPTED, CollabMemberRole.ADMIN, null);
     }
 
+    public CollabMember leave() {
+        return new CollabMember(collabId, userId, CollabMemberStatus.LEFT, role, createdAt);
+    }
+  
     public boolean isAcceptedAdmin() {
         return collabMemberStatus == CollabMemberStatus.ACCEPTED && role == CollabMemberRole.ADMIN;
     }

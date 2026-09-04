@@ -14,6 +14,7 @@ import com.app.postcommandservice.collab.infrastructure.events.CollabJoinRequest
 import com.app.postcommandservice.collab.infrastructure.events.CollabJoinRequestDeclinedEvent;
 import com.app.postcommandservice.collab.infrastructure.events.CollabLinkedEvent;
 import com.app.postcommandservice.collab.infrastructure.events.CollabMemberBannedEvent;
+import com.app.postcommandservice.collab.infrastructure.events.CollabMemberLeftEvent;
 import com.app.postcommandservice.collab.infrastructure.events.CollabOpenedEvent;
 import com.app.postcommandservice.post.domain.model.Post;
 
@@ -49,6 +50,24 @@ public class CollabEventMapper {
                 .postTags(post.getTags().value())
                 .postCreatedAt(post.getCreatedAt())
                 .postUpdatedAt(post.getUpdatedAt())
+                .build();
+    }
+
+    public CollabMemberLeftEvent toCollabMemberLeftEvent(
+            UUID eventId,
+            UUID correlationId,
+            CollabMember collabMember,
+            Instant occurredAt) {
+
+        return CollabMemberLeftEvent.builder()
+                .id(eventId)
+                .correlationId(correlationId)
+                .occurredAt(occurredAt)
+                .collabId(collabMember.getCollabId())
+                .userId(collabMember.getUserId().value())
+                .collabMemberStatus(collabMember.getCollabMemberStatus())
+                .role(collabMember.getRole())
+                .createdAt(collabMember.getCreatedAt())
                 .build();
     }
 

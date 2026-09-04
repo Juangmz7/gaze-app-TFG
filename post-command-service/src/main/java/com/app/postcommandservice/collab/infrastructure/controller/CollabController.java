@@ -7,7 +7,6 @@ import lombok.RequiredArgsConstructor;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
-import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -17,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.app.postcommandservice.collab.application.commands.LeaveCollabCommand;
 import com.app.postcommandservice.collab.application.commands.BanCollabMemberCommand;
 import com.app.postcommandservice.collab.application.commands.AcceptCollabJoinRequestCommand;
 import com.app.postcommandservice.collab.application.commands.CancelCollabJoinRequestCommand;
@@ -34,6 +34,7 @@ import com.app.postcommandservice.collab.application.commands.RequestToJoinColla
 import com.app.postcommandservice.collab.application.dto.CollabMemberResponse;
 import com.app.postcommandservice.collab.application.dto.DeclineCollabJoinRequestResponse;
 import com.app.postcommandservice.collab.application.dto.OpenCollabAndCreatePostResponse;
+import com.app.postcommandservice.collab.application.usecase.LeaveCollabUseCase;
 import com.app.postcommandservice.collab.application.usecase.BanCollabMemberUseCase;
 import com.app.postcommandservice.collab.application.usecase.CloseCollabUseCase;
 import com.app.postcommandservice.collab.application.usecase.OpenCollabAndCreatePostUseCase;
@@ -50,6 +51,7 @@ public class CollabController {
     private final CloseCollabUseCase closeCollabUseCase;
     private final DeclineCollabJoinRequestUseCase declineCollabJoinRequestUseCase;
     private final OpenCollabAndCreatePostUseCase openCollabAndCreatePostUseCase;
+    private final LeaveCollabUseCase leaveCollabUseCase;
     private final BanCollabMemberUseCase banCollabMemberUseCase;
     private final RequestToJoinCollabUseCase requestToJoinCollabUseCase;
     private final SecurityUtils securityUtils;
@@ -177,5 +179,26 @@ public class CollabController {
 
         banCollabMemberUseCase.ban(new BanCollabMemberCommand(collabId, userId, currentUserId));
         return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/{collabId}/leave")
+    public ResponseEntity<Void> leaveCollab(@PathVariable("collabId") java.util.UUID collabId) {
+        leaveCollabUseCase.leave(buildLeaveCommand(collabId));
+        return ResponseEntity.ok().build();
+    }
+
+    @DeleteMapping("/{collabId}/leave")
+    public ResponseEntity<Void> leaveCollabDelete(@PathVariable("collabId") java.util.UUID collabId) {
+        leaveCollabUseCase.leave(buildLeaveCommand(collabId));
+        return ResponseEntity.noContent().build();
+    }
+
+    private LeaveCollabCommand buildLeaveCommand(java.util.UUID collabId) {
+        var currentUserId = securityUtils.getUserId();
+        if (currentUserId == null) {
+            throw new AuthenticationCredentialsNotFoundException("JWT subject claim is missing or invalid");
+        }
+
+        return new LeaveCollabCommand(collabId, currentUserId);
     }
 }
