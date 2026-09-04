@@ -38,6 +38,14 @@ public class CollabMember {
         return collabMemberStatus == CollabMemberStatus.ACCEPTED && role == CollabMemberRole.ADMIN;
     }
 
+    public boolean isAccepted() {
+        return collabMemberStatus == CollabMemberStatus.ACCEPTED;
+    }
+
+    public CollabMember ban() {
+        return new CollabMember(collabId, userId, CollabMemberStatus.BANNED, role, createdAt);
+    }
+  
     public CollabMember accept() {
         if (collabMemberStatus != CollabMemberStatus.PENDING) {
             throw new CollabJoinRequestNotPendingException(collabId, userId.value(), collabMemberStatus);

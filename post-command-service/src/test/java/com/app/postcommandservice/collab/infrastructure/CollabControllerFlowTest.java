@@ -75,6 +75,12 @@ class CollabControllerFlowTest {
 
     private static final UUID CREATOR_ID =
             UUID.fromString("11111111-1111-1111-1111-111111111111");
+    private static final UUID ADMIN_ID =
+            UUID.fromString("22222222-2222-2222-2222-222222222222");
+    private static final UUID MEMBER_ID =
+            UUID.fromString("33333333-3333-3333-3333-333333333333");
+    private static final UUID OTHER_ADMIN_ID =
+            UUID.fromString("44444444-4444-4444-4444-444444444444");
 
     private MockMvc mockMvc;
 
@@ -331,6 +337,100 @@ class CollabControllerFlowTest {
         assertThat(postJpaRepository.count()).isEqualTo(1);
         assertThat(postRequestIdempotencyJpaRepository.count()).isZero();
         assertThat(outboxEventRepository.count()).isEqualTo(1);
+    }
+
+    @Test
+    void shouldBanAcceptedMemberAndPublishEventWhenPutRequestIsValid() throws Exception {
+        String queueName = "test.collab.member.banned." + UUID.randomUUID();
+        RabbitAdmin rabbitAdmin = new RabbitAdmin(connectionFactory);
+        Queue queue = new Queue(queueName, false, true, true);
+        rabbitAdmin.declareQueue(queue);
+        rabbitAdmin.declareBinding(BindingBuilder.bind(queue)
+                .to(new org.springframework.amqp.core.TopicExchange(
+                        rabbitMQProperties.getExchange().getPost().getEvents()))
+                .with(rabbitMQProperties.getRk().getPost().getCollab().getMember().getBanned()));
+
+        var collabId = seedOpenCollab(CREATOR_ID);
+        seedMember(collabId, ADMIN_ID, CollabMemberRole.ADMIN, CollabMemberStatus.ACCEPTED);
+        seedMember(collabId, MEMBER_ID, CollabMemberRole.MEMBER, CollabMemberStatus.ACCEPTED);
+
+        mockMvc.perform(put("/api/collabs/{collabId}/members/{userId}/ban", collabId, MEMBER_ID)
+                        .with(jwtFor(ADMIN_ID)))
+                .andExpect(status().isNoContent());
+
+        var bannedMember = collabMemberJpaRepository
+                .findById(new CollabMemberId(collabId, MEMBER_ID))
+                .orElseThrow();
+        assertThat(bannedMember.getCollabMemberStatus()).isEqualTo(CollabMemberStatus.BANNED);
+        assertThat(outboxEventRepository.count()).isEqualTo(1);
+
+        Message message = receiveMessage(queueName);
+        assertThat(message).isNotNull();
+        var eventPayload = objectMapper.readValue(
+                message.getBody(),
+                new TypeReference<Map<String, Object>>() { }
+        );
+        assertThat(eventPayload.get("collabId")).isEqualTo(collabId.toString());
+        assertThat(eventPayload.get("userId")).isEqualTo(MEMBER_ID.toString());
+        assertThat(eventPayload.get("collabMemberStatus")).isEqualTo("BANNED");
+        assertThat(eventPayload.get("role")).isEqualTo("MEMBER");
+
+        rabbitAdmin.deleteQueue(queueName);
+    }
+
+    @Test
+    void shouldBanAcceptedMemberWhenPatchRequestIsValid() throws Exception {
+        var collabId = seedOpenCollab(CREATOR_ID);
+        seedMember(collabId, ADMIN_ID, CollabMemberRole.ADMIN, CollabMemberStatus.ACCEPTED);
+        seedMember(collabId, MEMBER_ID, CollabMemberRole.MEMBER, CollabMemberStatus.ACCEPTED);
+
+        mockMvc.perform(patch("/api/collabs/{collabId}/members/{userId}/ban", collabId, MEMBER_ID)
+                        .with(jwtFor(ADMIN_ID)))
+                .andExpect(status().isNoContent());
+
+        var bannedMember = collabMemberJpaRepository
+                .findById(new CollabMemberId(collabId, MEMBER_ID))
+                .orElseThrow();
+        assertThat(bannedMember.getCollabMemberStatus()).isEqualTo(CollabMemberStatus.BANNED);
+        assertThat(outboxEventRepository.count()).isEqualTo(1);
+    }
+
+    @Test
+    void shouldReturnBadRequestWhenAdminTargetsAnotherAdmin() throws Exception {
+        var collabId = seedOpenCollab(CREATOR_ID);
+        seedMember(collabId, ADMIN_ID, CollabMemberRole.ADMIN, CollabMemberStatus.ACCEPTED);
+        seedMember(collabId, OTHER_ADMIN_ID, CollabMemberRole.ADMIN, CollabMemberStatus.ACCEPTED);
+
+        mockMvc.perform(put("/api/collabs/{collabId}/members/{userId}/ban", collabId, OTHER_ADMIN_ID)
+                        .with(jwtFor(ADMIN_ID)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message")
+                        .value(org.hamcrest.Matchers.containsString("cannot ban admin")));
+
+        var targetMember = collabMemberJpaRepository
+                .findById(new CollabMemberId(collabId, OTHER_ADMIN_ID))
+                .orElseThrow();
+        assertThat(targetMember.getCollabMemberStatus()).isEqualTo(CollabMemberStatus.ACCEPTED);
+        assertThat(outboxEventRepository.count()).isZero();
+    }
+
+    @Test
+    void shouldReturnForbiddenWhenNonAdminAttemptsToBanMember() throws Exception {
+        var collabId = seedOpenCollab(CREATOR_ID);
+        seedMember(collabId, ADMIN_ID, CollabMemberRole.ADMIN, CollabMemberStatus.ACCEPTED);
+        seedMember(collabId, MEMBER_ID, CollabMemberRole.MEMBER, CollabMemberStatus.ACCEPTED);
+
+        mockMvc.perform(put("/api/collabs/{collabId}/members/{userId}/ban", collabId, ADMIN_ID)
+                        .with(jwtFor(MEMBER_ID)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.message")
+                        .value(org.hamcrest.Matchers.containsString("accepted admin")));
+
+        var targetMember = collabMemberJpaRepository
+                .findById(new CollabMemberId(collabId, ADMIN_ID))
+                .orElseThrow();
+        assertThat(targetMember.getCollabMemberStatus()).isEqualTo(CollabMemberStatus.ACCEPTED);
+        assertThat(outboxEventRepository.count()).isZero();
     }
 
     @Test
@@ -988,10 +1088,6 @@ class CollabControllerFlowTest {
         deleteQueue(queueName);
     }
 
-    private void seedCollab(UUID collabId, UUID createdBy) {
-        collabJpaRepository.save(new CollabEntity(collabId, "Collab", createdBy, ColabStatus.OPEN, Instant.now()));
-    }
-  
     @Test
     void shouldReturnNotFoundWhenRequestingToJoinNonExistingCollab() throws Exception {
         mockMvc.perform(post("/api/collabs/{collabId}/requests", UUID.randomUUID())
@@ -1091,6 +1187,22 @@ class CollabControllerFlowTest {
                 role,
                 Instant.now()
         ));
+    }
+
+    private String declareEventQueue(String prefix, String routingKey) {
+        String queueName = prefix + UUID.randomUUID();
+        RabbitAdmin rabbitAdmin = new RabbitAdmin(connectionFactory);
+        Queue queue = new Queue(queueName, false, true, true);
+        rabbitAdmin.declareQueue(queue);
+        rabbitAdmin.declareBinding(BindingBuilder.bind(queue)
+                .to(new org.springframework.amqp.core.TopicExchange(
+                        rabbitMQProperties.getExchange().getPost().getEvents()))
+                .with(routingKey));
+        return queueName;
+    }
+
+    private void deleteQueue(String queueName) {
+        new RabbitAdmin(connectionFactory).deleteQueue(queueName);
     }
 
     private SecurityMockMvcRequestPostProcessors.JwtRequestPostProcessor jwtFor(UUID userId) {

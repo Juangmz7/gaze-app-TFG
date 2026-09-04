@@ -22,6 +22,7 @@ import com.app.postcommandservice.comment.domain.exception.CommentBlockedExcepti
 import com.app.postcommandservice.comment.domain.exception.CommentNotActiveException;
 import com.app.postcommandservice.comment.domain.exception.CommentNotFoundException;
 import com.app.postcommandservice.comment.domain.exception.CommentOwnershipException;
+import com.app.postcommandservice.collab.domain.exception.CollabMemberForbiddenException;
 import com.app.postcommandservice.collab.domain.exception.CollabJoinRequestAccessDeniedException;
 import com.app.postcommandservice.collab.domain.exception.CollabMemberNotFoundException;
 import com.app.postcommandservice.collab.domain.exception.CollabJoinRequestBlockedException;
@@ -85,6 +86,14 @@ public class ApiExceptionHandler {
         return buildErrorResponse(HttpStatus.NOT_FOUND, ApiErrorCode.NOT_FOUND, exception.getMessage(), request);
     }
 
+    @ExceptionHandler(CollabMemberNotFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handleCollabMemberNotFoundException(
+            CollabMemberNotFoundException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(HttpStatus.NOT_FOUND, ApiErrorCode.NOT_FOUND, exception.getMessage(), request);
+    }
+  
     @ExceptionHandler(CollabNotFoundException.class)
     public ResponseEntity<ApiErrorResponse> handleCollabNotFoundException(
             CollabNotFoundException exception,
@@ -172,6 +181,14 @@ public class ApiExceptionHandler {
         return buildErrorResponse(HttpStatus.FORBIDDEN, ApiErrorCode.FORBIDDEN, exception.getMessage(), request);
     }
 
+    @ExceptionHandler(CollabMemberForbiddenException.class)
+    public ResponseEntity<ApiErrorResponse> handleCollabMemberForbiddenException(
+            CollabMemberForbiddenException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(HttpStatus.FORBIDDEN, ApiErrorCode.FORBIDDEN, exception.getMessage(), request);
+    }
+  
     @ExceptionHandler(CollabAdminAccessDeniedException.class)
     public ResponseEntity<ApiErrorResponse> handleCollabAdminAccessDeniedException(
             CollabAdminAccessDeniedException exception,

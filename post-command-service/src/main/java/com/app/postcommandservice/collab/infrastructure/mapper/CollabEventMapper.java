@@ -13,6 +13,7 @@ import com.app.postcommandservice.collab.infrastructure.events.CollabJoinRequest
 import com.app.postcommandservice.collab.infrastructure.events.CollabJoinRequestDeletedEvent;
 import com.app.postcommandservice.collab.infrastructure.events.CollabJoinRequestDeclinedEvent;
 import com.app.postcommandservice.collab.infrastructure.events.CollabLinkedEvent;
+import com.app.postcommandservice.collab.infrastructure.events.CollabMemberBannedEvent;
 import com.app.postcommandservice.collab.infrastructure.events.CollabOpenedEvent;
 import com.app.postcommandservice.post.domain.model.Post;
 
@@ -51,12 +52,31 @@ public class CollabEventMapper {
                 .build();
     }
 
+    public CollabMemberBannedEvent toCollabMemberBannedEvent(
+            UUID eventId,
+            UUID correlationId,
+            CollabMember collabMember,
+            Instant occurredAt) {
+
+        return CollabMemberBannedEvent.builder()
+                .id(eventId)
+                .correlationId(correlationId)
+                .occurredAt(occurredAt)
+                .collabId(collabMember.getCollabId())
+                .userId(collabMember.getUserId().value())
+                .collabMemberStatus(collabMember.getCollabMemberStatus())
+                .role(collabMember.getRole())
+                .memberCreatedAt(collabMember.getCreatedAt())
+                .build();
+    }
+
     public CollabJoinRequestDeclinedEvent toCollabJoinRequestDeclinedEvent(
             UUID eventId,
             UUID correlationId,
             UUID declinedBy,
             CollabMember collabMember,
             Instant occurredAt) {
+
         return CollabJoinRequestDeclinedEvent.builder()
                 .id(eventId)
                 .correlationId(correlationId)
@@ -96,6 +116,7 @@ public class CollabEventMapper {
             UUID deletedBy,
             CollabMember collabMember,
             Instant occurredAt) {
+
         return CollabJoinRequestDeletedEvent.builder()
                 .id(eventId)
                 .correlationId(correlationId)
