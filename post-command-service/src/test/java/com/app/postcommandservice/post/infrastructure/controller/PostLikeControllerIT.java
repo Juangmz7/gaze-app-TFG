@@ -21,6 +21,8 @@ import com.app.postcommandservice.like.domain.model.PostLikeSource;
 import com.app.postcommandservice.post.application.usecase.CreatePostUseCase;
 import com.app.postcommandservice.post.application.usecase.DeletePostUseCase;
 import com.app.postcommandservice.post.application.usecase.UpdatePostUseCase;
+import com.app.postcommandservice.share.application.usecase.CreatePostShareUseCase;
+import com.app.postcommandservice.share.application.usecase.DeletePostShareUseCase;
 import com.app.postcommandservice.shared.infrastructure.security.SecurityUtils;
 import com.app.postcommandservice.view.application.usecase.DispatchProcessPostViewCommandUseCase;
 import com.app.postcommandservice.view.domain.model.PostViewExitReason;
@@ -62,6 +64,12 @@ class PostLikeControllerIT {
 
     @Mock
     private DispatchProcessPostViewCommandUseCase dispatchProcessPostViewCommandUseCase;
+
+    @Mock
+    private CreatePostShareUseCase createPostShareUseCase;
+
+    @Mock
+    private DeletePostShareUseCase deletePostShareUseCase;
 
     @Mock
     private SecurityUtils securityUtils;
@@ -158,6 +166,20 @@ class PostLikeControllerIT {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
         verify(deleteCommentUseCase).deleteComment(
                 new com.app.postcommandservice.comment.application.commands.DeleteCommentCommand(postId, commentId, userId)
+        );
+    }
+
+    @Test
+    void shouldDeletePostShareAndReturnNoContent() {
+        var postId = UUID.randomUUID();
+        var userId = UUID.randomUUID();
+        when(securityUtils.getUserId()).thenReturn(userId);
+
+        var response = postController.deletePostShare(postId);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        verify(deletePostShareUseCase).delete(
+                new com.app.postcommandservice.share.application.commands.DeletePostShareCommand(postId, userId)
         );
     }
   
