@@ -125,6 +125,7 @@ public class RabbitMQProperties {
             public static class CollabRk {
                 private String opened;
                 private String closed;
+                private String linked;
                 private RequestRk request = new RequestRk();
                 private MemberRk member = new MemberRk();
 

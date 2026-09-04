@@ -12,9 +12,9 @@ public interface CollabMemberRepository {
 
     Optional<CollabMember> findByCollabIdAndUserId(UUID collabId, UUID userId);
 
-    Set<UUID> findUserIdsByCollabId(UUID collabId);
-
     boolean acceptPendingMember(UUID collabId, UUID userId);
+
+    Set<UUID> findUserIdsByCollabId(UUID collabId);
 
     boolean rejectPendingMember(UUID collabId, UUID userId);
 

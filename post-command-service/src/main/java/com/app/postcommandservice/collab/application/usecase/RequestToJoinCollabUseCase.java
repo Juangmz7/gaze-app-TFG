@@ -47,12 +47,8 @@ public class RequestToJoinCollabUseCase {
         var collab = collabRepository.findById(command.collabId())
                 .orElseThrow(() -> new CollabNotFoundException(command.collabId()));
 
-        validateCollabCanReceiveRequest(
-                collab.getId(),
-                collab.getCollabStatus(),
-                collab.getCreatedBy().value(),
-                command.currentUserId()
-        );
+        validateCollabCanReceiveRequest(collab.getId(), collab.getCollabStatus(), collab.getCreatedBy().value(),
+                command.currentUserId());
 
         var existingMember = collabMemberRepository.findByCollabIdAndUserId(command.collabId(), command.currentUserId());
         if (existingMember.isPresent()) {
@@ -96,7 +92,10 @@ public class RequestToJoinCollabUseCase {
         }
     }
 
-    private void saveOutboxEvent(UUID outboxId, UUID correlationId, CollabJoinRequestCreatedEvent event) {
+    private void saveOutboxEvent(
+            UUID outboxId,
+            UUID correlationId,
+            CollabJoinRequestCreatedEvent event) {
         outboxEventRepository.save(
                 OutboxEvent.builder()
                         .id(outboxId)

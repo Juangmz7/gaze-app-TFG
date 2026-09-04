@@ -1,6 +1,7 @@
 package com.app.postcommandservice.collab.infrastructure.repository;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -13,13 +14,6 @@ import com.app.postcommandservice.collab.infrastructure.entity.CollabMemberEntit
 import com.app.postcommandservice.collab.infrastructure.entity.CollabMemberId;
 
 public interface CollabMemberJpaRepository extends JpaRepository<CollabMemberEntity, CollabMemberId> {
-
-    @Query("""
-            SELECT collabMember.id.userId
-            FROM CollabMemberEntity collabMember
-            WHERE collabMember.id.collabId = :collabId
-            """)
-    List<UUID> findUserIdsByCollabId(@Param("collabId") UUID collabId);
 
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("""
@@ -65,4 +59,12 @@ public interface CollabMemberJpaRepository extends JpaRepository<CollabMemberEnt
             @Param("pendingStatus") CollabMemberStatus pendingStatus,
             @Param("deletedStatus") CollabMemberStatus deletedStatus
     );
+    Optional<CollabMemberEntity> findByIdCollabIdAndIdUserId(UUID collabId, UUID userId);
+
+    @Query("""
+            SELECT collabMember.id.userId
+            FROM CollabMemberEntity collabMember
+            WHERE collabMember.id.collabId = :collabId
+            """)
+    List<UUID> findUserIdsByCollabId(@Param("collabId") UUID collabId);
 }
