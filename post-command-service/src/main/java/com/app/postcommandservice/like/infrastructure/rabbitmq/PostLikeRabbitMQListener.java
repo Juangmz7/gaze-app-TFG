@@ -23,6 +23,8 @@ import com.app.postcommandservice.commentlike.application.commands.ValidateComme
 import com.app.postcommandservice.commentlike.application.commands.ValidateCommentUnlikeCommand;
 import com.app.postcommandservice.commentlike.application.usecase.ValidateCommentLikeUseCase;
 import com.app.postcommandservice.commentlike.application.usecase.ValidateCommentUnlikeUseCase;
+import com.app.postcommandservice.share.application.commands.CreatePostShareCommand;
+import com.app.postcommandservice.share.application.usecase.CreatePostShareUseCase;
 
 @Slf4j
 @Component
@@ -34,6 +36,7 @@ public class PostLikeRabbitMQListener extends AbstractRabbitMQListenerSupport {
     private final ProcessPostViewUseCase processPostViewUseCase;
     private final ValidateCommentLikeUseCase validateCommentLikeUseCase;
     private final ValidateCommentUnlikeUseCase validateCommentUnlikeUseCase;
+    private final CreatePostShareUseCase createPostShareUseCase;
 
     public PostLikeRabbitMQListener(
             ValidatePostLikeUseCase validatePostLikeUseCase,
@@ -41,6 +44,7 @@ public class PostLikeRabbitMQListener extends AbstractRabbitMQListenerSupport {
             ProcessPostViewUseCase processPostViewUseCase,
             ValidateCommentLikeUseCase validateCommentLikeUseCase,
             ValidateCommentUnlikeUseCase validateCommentUnlikeUseCase,
+            CreatePostShareUseCase createPostShareUseCase,
             ProcessedEventsRepository processedEventsRepository,
             RabbitMQProperties rabbitMQProperties) {
         super(processedEventsRepository, rabbitMQProperties);
@@ -49,6 +53,7 @@ public class PostLikeRabbitMQListener extends AbstractRabbitMQListenerSupport {
         this.processPostViewUseCase = processPostViewUseCase;
         this.validateCommentLikeUseCase = validateCommentLikeUseCase;
         this.validateCommentUnlikeUseCase = validateCommentUnlikeUseCase;
+        this.createPostShareUseCase = createPostShareUseCase;
     }
 
     @Transactional
@@ -114,6 +119,19 @@ public class PostLikeRabbitMQListener extends AbstractRabbitMQListenerSupport {
 
         processPostViewUseCase.process(command);
         setEventAsProcessed(command.id(), command.correlationId(), ProcessPostViewCommand.class.getSimpleName());
+    }
+
+    @Transactional
+    @RabbitHandler
+    public void onCreatePostShare(CreatePostShareCommand command) {
+        validateCommand(command);
+        if (isEventAlreadyProcessed(command.id(), command.correlationId())) {
+            log.warn("Detected duplicate create post share command {}, skipping", command.id());
+            return;
+        }
+
+        createPostShareUseCase.share(command);
+        setEventAsProcessed(command.id(), command.correlationId(), CreatePostShareCommand.class.getSimpleName());
     }
 
     @RabbitHandler(isDefault = true)
@@ -227,6 +245,16 @@ public class PostLikeRabbitMQListener extends AbstractRabbitMQListenerSupport {
         if (command.completionPercent() < 0 || command.completionPercent() > 100) {
             throw new IllegalArgumentException("command.completionPercent must be between 0 and 100");
         }
+    }
+
+    private void validateCommand(CreatePostShareCommand command) {
+        validateCommand(
+                command == null ? null : command.id(),
+                command == null ? null : command.correlationId(),
+                command == null ? null : command.occurredAt(),
+                command == null ? null : command.postId(),
+                command == null ? null : command.userId()
+        );
     }
 
     private void validateCommand(

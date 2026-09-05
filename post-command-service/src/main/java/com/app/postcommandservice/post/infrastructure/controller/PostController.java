@@ -41,7 +41,7 @@ import com.app.postcommandservice.post.application.usecase.UpdatePostUseCase;
 import com.app.postcommandservice.post.domain.model.valueobj.PostType;
 import com.app.postcommandservice.share.application.commands.CreatePostShareCommand;
 import com.app.postcommandservice.share.application.commands.DeletePostShareCommand;
-import com.app.postcommandservice.share.application.usecase.CreatePostShareUseCase;
+import com.app.postcommandservice.share.application.usecase.DispatchCreatePostShareCommandUseCase;
 import com.app.postcommandservice.share.application.usecase.DeletePostShareUseCase;
 import com.app.postcommandservice.shared.infrastructure.security.SecurityUtils;
 import com.app.postcommandservice.view.application.usecase.DispatchProcessPostViewCommandUseCase;
@@ -64,7 +64,7 @@ public class PostController {
     private final DispatchValidatePostLikeCommandUseCase dispatchValidatePostLikeCommandUseCase;
     private final DispatchValidatePostUnlikeCommandUseCase dispatchValidatePostUnlikeCommandUseCase;
     private final DispatchProcessPostViewCommandUseCase dispatchProcessPostViewCommandUseCase;
-    private final CreatePostShareUseCase createPostShareUseCase;
+    private final DispatchCreatePostShareCommandUseCase dispatchCreatePostShareCommandUseCase;
     private final DeletePostShareUseCase deletePostShareUseCase;
     private final SecurityUtils securityUtils;
 
@@ -190,8 +190,8 @@ public class PostController {
             throw new AuthenticationCredentialsNotFoundException("JWT subject claim is missing or invalid");
         }
 
-        createPostShareUseCase.share(new CreatePostShareCommand(postId, currentUserId));
-        return ResponseEntity.ok().build();
+        dispatchCreatePostShareCommandUseCase.dispatch(postId, currentUserId);
+        return ResponseEntity.accepted().build();
     }
 
     @DeleteMapping("/{postId}/share")
