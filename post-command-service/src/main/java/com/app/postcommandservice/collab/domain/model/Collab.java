@@ -28,6 +28,10 @@ public class Collab {
         return new Collab(id, title, createdBy, ColabStatus.OPEN, null);
     }
 
+    public Collab close() {
+        return new Collab(id, title, createdBy, ColabStatus.CLOSED, createdAt);
+    }
+
     public UUID getId() {
         return id;
     }
@@ -46,5 +50,13 @@ public class Collab {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public boolean isDeleted() {
+        return collabStatus == ColabStatus.DELETED;
+    }
+
+    public Collab delete() {
+        return new Collab(id, title, createdBy, ColabStatus.DELETED, createdAt);
     }
 }
