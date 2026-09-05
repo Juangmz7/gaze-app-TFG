@@ -11,9 +11,11 @@ import org.mockito.Captor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 
 import com.app.postcommandservice.comment.application.commands.UpdateCommentCommand;
 import com.app.postcommandservice.comment.application.repository.CommentRepository;
+import com.app.postcommandservice.comment.domain.events.CommentUpdatedDomainEvent;
 import com.app.postcommandservice.comment.domain.exception.CommentNotActiveException;
 import com.app.postcommandservice.comment.domain.exception.CommentNotFoundException;
 import com.app.postcommandservice.comment.domain.exception.CommentOwnershipException;
@@ -21,8 +23,14 @@ import com.app.postcommandservice.comment.domain.model.Comment;
 import com.app.postcommandservice.comment.domain.model.valueobj.CommentContent;
 import com.app.postcommandservice.comment.domain.model.valueobj.CommentId;
 import com.app.postcommandservice.comment.domain.model.valueobj.CommentStatus;
+import com.app.postcommandservice.comment.infrastructure.events.CommentUpdatedEvent;
+import com.app.postcommandservice.comment.infrastructure.mapper.CommentEventMapper;
 import com.app.postcommandservice.post.domain.model.valueobj.PostId;
 import com.app.postcommandservice.shared.domain.model.user.valueobj.UserId;
+import com.app.postcommandservice.shared.infrastructure.entity.OutboxEvent;
+import com.app.postcommandservice.shared.infrastructure.enums.EventStatus;
+import com.app.postcommandservice.shared.infrastructure.mapper.JsonMapper;
+import com.app.postcommandservice.shared.infrastructure.repository.OutboxEventRepository;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -42,8 +50,26 @@ class UpdateCommentUseCaseTest {
     @Mock
     private CommentRepository commentRepository;
 
+    @Mock
+    private OutboxEventRepository outboxEventRepository;
+
+    @Mock
+    private CommentEventMapper commentEventMapper;
+
+    @Mock
+    private JsonMapper jsonMapper;
+
+    @Mock
+    private ApplicationEventPublisher applicationEventPublisher;
+
     @Captor
     private ArgumentCaptor<Comment> commentCaptor;
+
+    @Captor
+    private ArgumentCaptor<OutboxEvent> outboxEventCaptor;
+
+    @Captor
+    private ArgumentCaptor<CommentUpdatedDomainEvent> domainEventCaptor;
 
     @InjectMocks
     private UpdateCommentUseCase updateCommentUseCase;
@@ -64,6 +90,7 @@ class UpdateCommentUseCaseTest {
 
         when(commentRepository.findByIdAndPostId(COMMENT_ID, POST_ID)).thenReturn(Optional.of(existingComment));
         when(commentRepository.saveAndFlush(any(Comment.class))).thenReturn(savedComment);
+        stubUpdatedEvent(savedComment);
 
         var response = updateCommentUseCase.updateComment(command);
 
@@ -76,6 +103,13 @@ class UpdateCommentUseCaseTest {
         verify(commentRepository).saveAndFlush(commentCaptor.capture());
         assertThat(commentCaptor.getValue().getContent().value()).isEqualTo("updated");
         assertThat(commentCaptor.getValue().getUpdatedAt()).isEqualTo(existingComment.getUpdatedAt());
+        verify(outboxEventRepository).save(outboxEventCaptor.capture());
+        assertThat(outboxEventCaptor.getValue().getCorrelationId()).isNotNull();
+        assertThat(outboxEventCaptor.getValue().getEventType()).isEqualTo(CommentUpdatedEvent.class.getSimpleName());
+        assertThat(outboxEventCaptor.getValue().getPayload()).isEqualTo("{json}");
+        assertThat(outboxEventCaptor.getValue().getStatus()).isEqualTo(EventStatus.PENDING);
+        verify(applicationEventPublisher).publishEvent(domainEventCaptor.capture());
+        assertThat(domainEventCaptor.getValue().id()).isEqualTo(outboxEventCaptor.getValue().getId());
     }
 
     @Test
@@ -92,6 +126,8 @@ class UpdateCommentUseCaseTest {
         assertThat(response.updatedAt()).isEqualTo(existingComment.getUpdatedAt());
         verify(commentRepository, never()).save(any(Comment.class));
         verify(commentRepository, never()).saveAndFlush(any(Comment.class));
+        verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
+        verify(applicationEventPublisher, never()).publishEvent(any(CommentUpdatedDomainEvent.class));
     }
 
     @Test
@@ -105,6 +141,8 @@ class UpdateCommentUseCaseTest {
 
         verify(commentRepository, never()).save(any(Comment.class));
         verify(commentRepository, never()).saveAndFlush(any(Comment.class));
+        verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
+        verify(applicationEventPublisher, never()).publishEvent(any(CommentUpdatedDomainEvent.class));
     }
 
     @Test
@@ -119,6 +157,8 @@ class UpdateCommentUseCaseTest {
 
         verify(commentRepository, never()).save(any(Comment.class));
         verify(commentRepository, never()).saveAndFlush(any(Comment.class));
+        verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
+        verify(applicationEventPublisher, never()).publishEvent(any(CommentUpdatedDomainEvent.class));
     }
 
     @Test
@@ -133,6 +173,8 @@ class UpdateCommentUseCaseTest {
 
         verify(commentRepository, never()).save(any(Comment.class));
         verify(commentRepository, never()).saveAndFlush(any(Comment.class));
+        verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
+        verify(applicationEventPublisher, never()).publishEvent(any(CommentUpdatedDomainEvent.class));
     }
 
     private Comment persistedComment(UUID commentId, UUID postId, UUID authorId, String content, CommentStatus status) {
@@ -159,5 +201,19 @@ class UpdateCommentUseCaseTest {
                 updatedAt,
                 status == CommentStatus.ACTIVE ? null : updatedAt
         );
+    }
+
+    private void stubUpdatedEvent(Comment comment) {
+        var event = CommentUpdatedEvent.builder()
+                .commentId(comment.getId().value())
+                .postId(comment.getPostId().value())
+                .userId(comment.getUserId().value())
+                .content(comment.getContent().value())
+                .replyTo(comment.getReplyTo())
+                .createdAt(comment.getCreatedAt())
+                .updatedAt(comment.getUpdatedAt())
+                .build();
+        when(commentEventMapper.toCommentUpdatedEvent(comment)).thenReturn(event);
+        when(jsonMapper.toJson(event)).thenReturn("{json}");
     }
 }

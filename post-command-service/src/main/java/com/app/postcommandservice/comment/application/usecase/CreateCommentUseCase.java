@@ -3,6 +3,7 @@ package com.app.postcommandservice.comment.application.usecase;
 import java.util.UUID;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -13,15 +14,22 @@ import com.app.postcommandservice.comment.application.repository.CommentReposito
 import com.app.postcommandservice.comment.application.repository.CommentRequestIdempotencyRepository;
 import com.app.postcommandservice.comment.domain.exception.CommentBlockedException;
 import com.app.postcommandservice.comment.domain.exception.CommentNotFoundException;
+import com.app.postcommandservice.comment.domain.events.CommentCreatedDomainEvent;
 import com.app.postcommandservice.comment.domain.model.Comment;
 import com.app.postcommandservice.comment.domain.model.valueobj.CommentContent;
 import com.app.postcommandservice.comment.domain.model.valueobj.CommentId;
+import com.app.postcommandservice.comment.infrastructure.events.CommentCreatedEvent;
+import com.app.postcommandservice.comment.infrastructure.mapper.CommentEventMapper;
 import com.app.postcommandservice.post.application.repository.PostRepository;
 import com.app.postcommandservice.post.domain.exception.PostNotActiveException;
 import com.app.postcommandservice.post.domain.exception.PostNotFoundException;
 import com.app.postcommandservice.post.domain.model.valueobj.PostId;
 import com.app.postcommandservice.post.domain.model.valueobj.PostStatus;
 import com.app.postcommandservice.shared.domain.model.user.valueobj.UserId;
+import com.app.postcommandservice.shared.infrastructure.entity.OutboxEvent;
+import com.app.postcommandservice.shared.infrastructure.enums.EventStatus;
+import com.app.postcommandservice.shared.infrastructure.mapper.JsonMapper;
+import com.app.postcommandservice.shared.infrastructure.repository.OutboxEventRepository;
 
 @Service
 @RequiredArgsConstructor
@@ -31,6 +39,10 @@ public class CreateCommentUseCase {
     private final CommentRepository commentRepository;
     private final CommentRequestIdempotencyRepository commentRequestIdempotencyRepository;
     private final CommentRelationshipValidationRepository commentRelationshipValidationRepository;
+    private final OutboxEventRepository outboxEventRepository;
+    private final CommentEventMapper commentEventMapper;
+    private final JsonMapper jsonMapper;
+    private final ApplicationEventPublisher applicationEventPublisher;
 
     @Transactional
     public CommentResponse createComment(CreateCommentCommand command) {
@@ -61,6 +73,12 @@ public class CreateCommentUseCase {
 
         var savedComment = commentRepository.save(comment);
         commentRequestIdempotencyRepository.save(command.correlationId(), savedComment.getId().value());
+
+        var outboxId = UUID.randomUUID();
+        var event = commentEventMapper.toCommentCreatedEvent(savedComment);
+        saveOutboxEvent(command.correlationId(), outboxId, event);
+        applicationEventPublisher.publishEvent(new CommentCreatedDomainEvent(outboxId));
+
         return toResponse(savedComment);
     }
 
@@ -88,6 +106,18 @@ public class CreateCommentUseCase {
         if (commentRelationshipValidationRepository.existsBlockRelationship(requesterUserId, targetUserId)) {
             throw new CommentBlockedException(target);
         }
+    }
+
+    private void saveOutboxEvent(UUID correlationId, UUID outboxId, CommentCreatedEvent event) {
+        outboxEventRepository.save(
+                OutboxEvent.builder()
+                        .id(outboxId)
+                        .correlationId(correlationId)
+                        .payload(jsonMapper.toJson(event))
+                        .eventType(CommentCreatedEvent.class.getSimpleName())
+                        .status(EventStatus.PENDING)
+                        .build()
+        );
     }
 
     private CommentResponse toResponse(Comment comment) {

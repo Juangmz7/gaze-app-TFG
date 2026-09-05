@@ -12,12 +12,20 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.hamcrest.Matchers;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.amqp.core.BindingBuilder;
+import org.springframework.amqp.core.Message;
+import org.springframework.amqp.core.Queue;
+import org.springframework.amqp.core.TopicExchange;
+import org.springframework.amqp.rabbit.connection.ConnectionFactory;
+import org.springframework.amqp.rabbit.core.RabbitAdmin;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
@@ -40,6 +48,8 @@ import com.app.postcommandservice.post.infrastructure.entity.BlockReadModelId;
 import com.app.postcommandservice.post.infrastructure.entity.PostEntity;
 import com.app.postcommandservice.post.infrastructure.repository.BlockReadModelJpaRepository;
 import com.app.postcommandservice.post.infrastructure.repository.PostJpaRepository;
+import com.app.postcommandservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
+import com.app.postcommandservice.shared.infrastructure.repository.OutboxEventRepository;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
@@ -77,6 +87,18 @@ class CommentControllerTest {
     @Autowired
     private BlockReadModelJpaRepository blockReadModelJpaRepository;
 
+    @Autowired
+    private OutboxEventRepository outboxEventRepository;
+
+    @Autowired
+    private RabbitTemplate rabbitTemplate;
+
+    @Autowired
+    private ConnectionFactory connectionFactory;
+
+    @Autowired
+    private RabbitMQProperties rabbitMQProperties;
+
     private MockMvc mockMvc;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -95,6 +117,7 @@ class CommentControllerTest {
         commentRequestIdempotencyJpaRepository.deleteAll();
         commentJpaRepository.deleteAll();
         postJpaRepository.deleteAll();
+        outboxEventRepository.deleteAll();
     }
 
     @Test
@@ -157,6 +180,48 @@ class CommentControllerTest {
                 .get()
                 .extracting(idempotency -> idempotency.getCommentId())
                 .isEqualTo(persistedComment.getId());
+    }
+
+    @Test
+    void shouldPublishCommentCreatedEventWithSafePayloadWhenCommentIsCreated() throws Exception {
+        var postEntity = seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+        var parentComment = seedComment(postEntity.getId(), UUID.randomUUID(), "parent", null);
+        var queueName = "test.comment.created." + UUID.randomUUID();
+        var rabbitAdmin = new RabbitAdmin(connectionFactory);
+        bindQueue(rabbitAdmin, queueName, rabbitMQProperties.getExchange().getPost().getEvents(),
+                rabbitMQProperties.getRk().getPost().getComment().getCreated());
+
+        mockMvc.perform(
+                        post("/api/posts/{postId}/comments", postEntity.getId())
+                                .with(jwtFor(COMMENTER_ID))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(Map.of(
+                                        "correlationId", UUID.randomUUID(),
+                                        "content", "created event",
+                                        "replyTo", parentComment.getId()
+                                )))
+                )
+                .andExpect(status().isOk());
+
+        waitUntil(() -> outboxEventRepository.count() == 1);
+
+        var outboxEvent = outboxEventRepository.findAll().getFirst();
+        assertThat(outboxEvent.getEventType()).isEqualTo("CommentCreatedEvent");
+        var message = receiveMessage(queueName);
+        assertThat(message).isNotNull();
+        var eventPayload = objectMapper.readValue(message.getBody(), new TypeReference<Map<String, Object>>() { });
+        assertThat(eventPayload.keySet()).containsExactlyInAnyOrder(
+                "commentId", "postId", "userId", "content", "replyTo", "createdAt", "updatedAt"
+        );
+        assertThat(eventPayload.get("commentId")).isNotNull();
+        assertThat(eventPayload.get("postId")).isEqualTo(postEntity.getId().toString());
+        assertThat(eventPayload.get("userId")).isEqualTo(COMMENTER_ID.toString());
+        assertThat(eventPayload.get("content")).isEqualTo("created event");
+        assertThat(eventPayload.get("replyTo")).isEqualTo(parentComment.getId().toString());
+        assertThat(eventPayload.get("createdAt")).isNotNull();
+        assertThat(eventPayload.get("updatedAt")).isNotNull();
+
+        rabbitAdmin.deleteQueue(queueName);
     }
 
     @Test
@@ -750,6 +815,69 @@ class CommentControllerTest {
     }
 
     @Test
+    void shouldPublishCommentUpdatedEventWithSafePayloadWhenContentChanges()
+            throws Exception {
+
+        var postEntity =
+                seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+
+        var parentComment =
+                seedComment(
+                        postEntity.getId(),
+                        UUID.randomUUID(),
+                        "parent",
+                        null
+                );
+
+        var comment =
+                seedComment(
+                        postEntity.getId(),
+                        COMMENTER_ID,
+                        "before",
+                        parentComment.getId()
+                );
+
+        var queueName = "test.comment.updated." + UUID.randomUUID();
+        var rabbitAdmin = new RabbitAdmin(connectionFactory);
+        bindQueue(rabbitAdmin, queueName, rabbitMQProperties.getExchange().getPost().getEvents(),
+                rabbitMQProperties.getRk().getPost().getComment().getUpdated());
+
+        Thread.sleep(5L);
+
+        mockMvc.perform(
+                        put(
+                                "/api/posts/{postId}/comments/{commentId}",
+                                postEntity.getId(),
+                                comment.getId()
+                        )
+                                .with(jwtFor(COMMENTER_ID))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(Map.of("content", "after event")))
+                )
+                .andExpect(status().isOk());
+
+        waitUntil(() -> outboxEventRepository.count() == 1);
+
+        var outboxEvent = outboxEventRepository.findAll().getFirst();
+        assertThat(outboxEvent.getEventType()).isEqualTo("CommentUpdatedEvent");
+        var message = receiveMessage(queueName);
+        assertThat(message).isNotNull();
+        var eventPayload = objectMapper.readValue(message.getBody(), new TypeReference<Map<String, Object>>() { });
+        assertThat(eventPayload.keySet()).containsExactlyInAnyOrder(
+                "commentId", "postId", "userId", "content", "replyTo", "createdAt", "updatedAt"
+        );
+        assertThat(eventPayload.get("commentId")).isEqualTo(comment.getId().toString());
+        assertThat(eventPayload.get("postId")).isEqualTo(postEntity.getId().toString());
+        assertThat(eventPayload.get("userId")).isEqualTo(COMMENTER_ID.toString());
+        assertThat(eventPayload.get("content")).isEqualTo("after event");
+        assertThat(eventPayload.get("replyTo")).isEqualTo(parentComment.getId().toString());
+        assertThat(eventPayload.get("createdAt")).isNotNull();
+        assertThat(eventPayload.get("updatedAt")).isNotNull();
+
+        rabbitAdmin.deleteQueue(queueName);
+    }
+
+    @Test
     void shouldUpdateCommentWhenOwnerUsesPatch()
             throws Exception {
 
@@ -836,6 +964,11 @@ class CommentControllerTest {
         var originalPersistedComment =
                 refreshedComment(comment.getId());
 
+        var queueName = "test.comment.updated.noop." + UUID.randomUUID();
+        var rabbitAdmin = new RabbitAdmin(connectionFactory);
+        bindQueue(rabbitAdmin, queueName, rabbitMQProperties.getExchange().getPost().getEvents(),
+                rabbitMQProperties.getRk().getPost().getComment().getUpdated());
+
         var result =
                 mockMvc.perform(
                                 put(
@@ -894,6 +1027,15 @@ class CommentControllerTest {
                                 .getUpdatedAt()
                                 .toString()
                 );
+
+        Thread.sleep(500L);
+
+        assertThat(outboxEventRepository.count())
+                .isEqualTo(0);
+        assertThat(receiveMessage(queueName))
+                .isNull();
+
+        rabbitAdmin.deleteQueue(queueName);
     }
 
     @Test
@@ -1151,11 +1293,44 @@ class CommentControllerTest {
         assertThat(firstBody.get("deletedAt")).isNull();
     }
 
+    private void bindQueue(RabbitAdmin rabbitAdmin, String queueName, String exchangeName, String routingKey) {
+        var queue = new Queue(queueName, false, true, true);
+        var exchange = new TopicExchange(exchangeName);
+        rabbitAdmin.declareQueue(queue);
+        rabbitAdmin.declareExchange(exchange);
+        rabbitAdmin.declareBinding(BindingBuilder.bind(queue).to(exchange).with(routingKey));
+    }
+
+    private Message receiveMessage(String queueName) {
+        return rabbitTemplate.receive(queueName, 10_000);
+    }
+
+    private void waitUntil(Check check) {
+        var deadline = System.nanoTime() + 10_000_000_000L;
+        while (System.nanoTime() < deadline) {
+            if (check.matches()) {
+                return;
+            }
+            try {
+                Thread.sleep(100L);
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Interrupted while waiting for async processing", exception);
+            }
+        }
+        throw new AssertionError("Condition was not met before timeout");
+    }
+
     private SecurityMockMvcRequestPostProcessors.JwtRequestPostProcessor jwtFor(
             UUID userId
     ) {
         return jwt().jwt(
                 jwt -> jwt.subject(userId.toString())
         );
+    }
+
+    @FunctionalInterface
+    private interface Check {
+        boolean matches();
     }
 }
