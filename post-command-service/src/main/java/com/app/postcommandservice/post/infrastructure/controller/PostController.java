@@ -5,9 +5,10 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -22,13 +23,17 @@ import com.app.postcommandservice.comment.application.usecase.DeleteCommentUseCa
 import com.app.postcommandservice.comment.application.usecase.UpdateCommentUseCase;
 import com.app.postcommandservice.commentlike.application.usecase.DispatchValidateCommentLikeCommandUseCase;
 import com.app.postcommandservice.commentlike.application.usecase.DispatchValidateCommentUnlikeCommandUseCase;
+import com.app.postcommandservice.collab.application.dto.CollabResponse;
+import com.app.postcommandservice.post.application.commands.CheckPostCollabLinkStatusCommand;
 import com.app.postcommandservice.like.application.usecase.DispatchValidatePostLikeCommandUseCase;
 import com.app.postcommandservice.like.application.usecase.DispatchValidatePostUnlikeCommandUseCase;
 import com.app.postcommandservice.post.application.commands.CreatePostCommand;
 import com.app.postcommandservice.post.application.commands.DeletePostCommand;
 import com.app.postcommandservice.post.application.commands.LinkExistingPostToCollabCommand;
 import com.app.postcommandservice.post.application.commands.UpdatePostCommand;
+import com.app.postcommandservice.post.application.dto.PostCollabLinkStatusResponse;
 import com.app.postcommandservice.post.application.dto.PostResponse;
+import com.app.postcommandservice.post.application.usecase.CheckPostCollabLinkStatusUseCase;
 import com.app.postcommandservice.post.application.usecase.CreatePostUseCase;
 import com.app.postcommandservice.post.application.usecase.DeletePostUseCase;
 import com.app.postcommandservice.post.application.usecase.LinkExistingPostToCollabUseCase;
@@ -47,6 +52,7 @@ import com.app.postcommandservice.view.application.usecase.DispatchProcessPostVi
 public class PostController {
 
     private final CreatePostUseCase createPostUseCase;
+    private final CheckPostCollabLinkStatusUseCase checkPostCollabLinkStatusUseCase;
     private final UpdatePostUseCase updatePostUseCase;
     private final DeletePostUseCase deletePostUseCase;
     private final LinkExistingPostToCollabUseCase linkExistingPostToCollabUseCase;
@@ -80,6 +86,22 @@ public class PostController {
         );
 
         return ResponseEntity.ok(createPostUseCase.createPost(command));
+    }
+
+    @GetMapping("/{postId}/collab-status")
+    public ResponseEntity<PostCollabLinkStatusResponse> checkPostCollabLinkStatus(
+            @PathVariable("postId") java.util.UUID postId) {
+        var currentUserId = securityUtils.getUserId();
+        if (currentUserId == null) {
+            throw new AuthenticationCredentialsNotFoundException("JWT subject claim is missing or invalid");
+        }
+
+        var result = checkPostCollabLinkStatusUseCase.check(new CheckPostCollabLinkStatusCommand(postId, currentUserId));
+
+        return ResponseEntity.ok(new PostCollabLinkStatusResponse(
+                result.linked(),
+                result.collab()
+        ));
     }
 
     @PutMapping
