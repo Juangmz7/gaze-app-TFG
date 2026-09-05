@@ -6,17 +6,10 @@ from uuid import UUID
 from rabbitmq.model.event_message import EventMessage
 
 
-class PostLikeSource(str, Enum):
+class InteractionSource(str, Enum):
     HOME_FEED = "HOME_FEED"
     USER_PROFILE = "USER_PROFILE"
     SEARCH = "SEARCH"
-
-
-class PostViewSource(str, Enum):
-    HOME_FEED = "HOME_FEED"
-    USER_PROFILE = "USER_PROFILE"
-    SEARCH = "SEARCH"
-
 
 class PostViewExitReason(str, Enum):
     SCROLL_NEXT = "SCROLL_NEXT"
@@ -25,40 +18,82 @@ class PostViewExitReason(str, Enum):
     NAVIGATED_AWAY = "NAVIGATED_AWAY"
 
 
-class PostShareDeletedEvent(EventMessage):
-    pass
+class PostType(str, Enum):
+    BASIC = "BASIC"
+    COLAB = "COLAB"
 
+
+class CollabMemberStatus(str, Enum):
+    PENDING = "PENDING"
+    ACCEPTED = "ACCEPTED"
+    REJECTED = "REJECTED"
+    DELETED = "DELETED"
+    LEFT = "LEFT"
+    BANNED = "BANNED"
+
+
+class CollabMemberRole(str, Enum):
+    ADMIN = "ADMIN"
+    MEMBER = "MEMBER"
+
+
+class PostShareDeletedEvent(EventMessage):
+    postId: UUID
+    userId: UUID
 
 class PostShareCreatedEvent(EventMessage):
-    pass
+    postId: UUID
+    userId: UUID
+    createdAt: datetime
 
 
 class PostCollabRequestCreatedEvent(EventMessage):
-    pass
+    collabId: UUID
+    userId: UUID
+    status: CollabMemberStatus
+    role: CollabMemberRole
+    createdAt: datetime
 
 
 class PostCollabRequestDeletedEvent(EventMessage):
-    pass
+    collabId: UUID
+    userId: UUID
+    deletedBy: UUID
+    collabMemberStatus: CollabMemberStatus
+    role: CollabMemberRole
+    memberCreatedAt: datetime
 
 
 class PostCommentLikeDeletedEvent(EventMessage):
-    pass
+    commentId: UUID
+    userId: UUID
+    source: InteractionSource
+    feedPosition: int
 
 
 class PostCommentLikeCreatedEvent(EventMessage):
     postId: UUID
+    commentId: UUID
     userId: UUID
-    source: PostLikeSource
+    source: InteractionSource
     feedPosition: int
     createdAt: datetime
 
 
 class PostCommentDeletedEvent(EventMessage):
-    pass
+    commentId: UUID
+    postId: UUID
+    userId: UUID
 
 
 class PostCommentCreatedEvent(EventMessage):
-    pass
+    commentId: UUID
+    postId: UUID
+    userId: UUID
+    content: str
+    replyTo: Optional[UUID] = None
+    createdAt: datetime
+    updatedAt: datetime
 
 
 class PostViewedEvent(EventMessage):
@@ -78,14 +113,14 @@ class PostViewedEvent(EventMessage):
 class PostLikeDeletedEvent(EventMessage):
     postId: UUID
     userId: UUID
-    source: PostLikeSource
+    source: InteractionSource
     feedPosition: int
 
 
 class PostLikeCreatedEvent(EventMessage):
     postId: UUID
     userId: UUID
-    source: PostLikeSource
+    source: InteractionSource
     feedPosition: int
     createdAt: datetime
 
@@ -102,6 +137,8 @@ class PostDeletedEvent(EventMessage):
 class PostUpdatedEvent(EventMessage):
     postId: UUID
     userId: UUID
+    collabId: Optional[UUID] = None
+    postType: PostType
     description: Optional[str] = None
     taggedUsers: set[str] = set()
     postTags: set[str] = set()
@@ -112,6 +149,8 @@ class PostUpdatedEvent(EventMessage):
 class PostCreatedEvent(EventMessage):
     postId: UUID
     userId: UUID
+    collabId: Optional[UUID] = None
+    postType: PostType
     description: Optional[str] = None
     taggedUsers: set[str] = set()
     postTags: set[str] = set()

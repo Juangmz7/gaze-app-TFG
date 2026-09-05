@@ -4,9 +4,8 @@ from typing import Optional
 from uuid import UUID
 
 from rabbitmq.event.post.post_events import (
-    PostLikeSource,
+    InteractionSource,
     PostViewExitReason,
-    PostViewSource,
 )
 
 
@@ -50,7 +49,7 @@ class CreatePostCommentLikeCommand:
     occurred_at: datetime
     post_id: UUID
     user_id: UUID
-    source: PostLikeSource
+    source: InteractionSource
     feed_position: int
     created_at: datetime
 
@@ -75,7 +74,7 @@ class RegisterPostViewCommand:
     view_id: UUID
     post_id: UUID
     user_id: UUID
-    source: PostViewSource
+    source: InteractionSource
     feed_position: int
     duration_ms: int
     time_watched_ms: int
@@ -92,7 +91,7 @@ class DeletePostLikeCommand:
     occurred_at: datetime
     post_id: UUID
     user_id: UUID
-    source: PostLikeSource
+    source: InteractionSource
     feed_position: int
 
 
@@ -101,7 +100,7 @@ class CreatePostLikeCommand:
     occurred_at: datetime
     post_id: UUID
     user_id: UUID
-    source: PostLikeSource
+    source: InteractionSource
     feed_position: int
     created_at: datetime
 
