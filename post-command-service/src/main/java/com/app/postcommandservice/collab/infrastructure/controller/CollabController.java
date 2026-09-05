@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.app.postcommandservice.collab.application.commands.DeleteCollabCommand;
 import com.app.postcommandservice.collab.application.commands.LeaveCollabCommand;
 import com.app.postcommandservice.collab.application.commands.BanCollabMemberCommand;
 import com.app.postcommandservice.collab.application.commands.AcceptCollabJoinRequestCommand;
@@ -34,6 +35,7 @@ import com.app.postcommandservice.collab.application.commands.RequestToJoinColla
 import com.app.postcommandservice.collab.application.dto.CollabMemberResponse;
 import com.app.postcommandservice.collab.application.dto.DeclineCollabJoinRequestResponse;
 import com.app.postcommandservice.collab.application.dto.OpenCollabAndCreatePostResponse;
+import com.app.postcommandservice.collab.application.usecase.DeleteCollabUseCase;
 import com.app.postcommandservice.collab.application.usecase.LeaveCollabUseCase;
 import com.app.postcommandservice.collab.application.usecase.BanCollabMemberUseCase;
 import com.app.postcommandservice.collab.application.usecase.CloseCollabUseCase;
@@ -51,6 +53,7 @@ public class CollabController {
     private final CloseCollabUseCase closeCollabUseCase;
     private final DeclineCollabJoinRequestUseCase declineCollabJoinRequestUseCase;
     private final OpenCollabAndCreatePostUseCase openCollabAndCreatePostUseCase;
+    private final DeleteCollabUseCase deleteCollabUseCase;
     private final LeaveCollabUseCase leaveCollabUseCase;
     private final BanCollabMemberUseCase banCollabMemberUseCase;
     private final RequestToJoinCollabUseCase requestToJoinCollabUseCase;
@@ -200,5 +203,16 @@ public class CollabController {
         }
 
         return new LeaveCollabCommand(collabId, currentUserId);
+    }
+
+    @DeleteMapping("/{collabId}")
+    public ResponseEntity<Void> deleteCollab(@PathVariable("collabId") java.util.UUID collabId) {
+        var currentUserId = securityUtils.getUserId();
+        if (currentUserId == null) {
+            throw new AuthenticationCredentialsNotFoundException("JWT subject claim is missing or invalid");
+        }
+
+        deleteCollabUseCase.delete(new DeleteCollabCommand(collabId, currentUserId));
+        return ResponseEntity.accepted().build();
     }
 }
