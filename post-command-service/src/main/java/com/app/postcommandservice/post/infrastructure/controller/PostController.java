@@ -23,7 +23,6 @@ import com.app.postcommandservice.comment.application.usecase.DeleteCommentUseCa
 import com.app.postcommandservice.comment.application.usecase.UpdateCommentUseCase;
 import com.app.postcommandservice.commentlike.application.usecase.DispatchValidateCommentLikeCommandUseCase;
 import com.app.postcommandservice.commentlike.application.usecase.DispatchValidateCommentUnlikeCommandUseCase;
-import com.app.postcommandservice.collab.application.dto.CollabResponse;
 import com.app.postcommandservice.post.application.commands.CheckPostCollabLinkStatusCommand;
 import com.app.postcommandservice.like.application.usecase.DispatchValidatePostLikeCommandUseCase;
 import com.app.postcommandservice.like.application.usecase.DispatchValidatePostUnlikeCommandUseCase;
