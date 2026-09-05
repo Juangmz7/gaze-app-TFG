@@ -94,6 +94,12 @@ public class Post {
                 createdAt, updatedAt);
     }
 
+    public Post linkToCollab(UUID targetCollabId) {
+        Objects.requireNonNull(targetCollabId, "targetCollabId must not be null");
+
+        return new Post(id, userId, targetCollabId, PostType.COLAB, description, taggedUsers, tags, status, createdAt, updatedAt);
+    }
+
     public PostId getId() {
         return id;
     }
