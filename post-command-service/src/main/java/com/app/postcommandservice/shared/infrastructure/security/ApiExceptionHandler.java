@@ -174,14 +174,6 @@ public class ApiExceptionHandler {
         return buildErrorResponse(HttpStatus.BAD_REQUEST, ApiErrorCode.BAD_REQUEST, exception.getMessage(), request);
     }
 
-    @ExceptionHandler(CollabMemberNotFoundException.class)
-    public ResponseEntity<ApiErrorResponse> handleCollabMemberNotFoundException(
-            CollabMemberNotFoundException exception,
-            HttpServletRequest request) {
-
-        return buildErrorResponse(HttpStatus.NOT_FOUND, ApiErrorCode.NOT_FOUND, exception.getMessage(), request);
-    }
-
     @ExceptionHandler(PostOwnershipException.class)
     public ResponseEntity<ApiErrorResponse> handlePostOwnershipException(
             PostOwnershipException exception,

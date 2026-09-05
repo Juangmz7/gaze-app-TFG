@@ -246,11 +246,12 @@ class PostControllerIT {
         mockMvc.perform(get("/api/posts/{postId}/collab-status", linkedPost.getId())
                         .with(jwtFor(CREATOR_ID)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.collabId").value(collab.getId().toString()))
-                .andExpect(jsonPath("$.title").value("Team up"))
-                .andExpect(jsonPath("$.createdBy").value(CREATOR_ID.toString()))
-                .andExpect(jsonPath("$.collabStatus").value("OPEN"))
-                .andExpect(jsonPath("$.createdAt").exists());
+                .andExpect(jsonPath("$.linked").value(true))
+                .andExpect(jsonPath("$.collab.collabId").value(collab.getId().toString()))
+                .andExpect(jsonPath("$.collab.title").value("Team up"))
+                .andExpect(jsonPath("$.collab.createdBy").value(CREATOR_ID.toString()))
+                .andExpect(jsonPath("$.collab.collabStatus").value("OPEN"))
+                .andExpect(jsonPath("$.collab.createdAt").exists());
     }
 
     @Test

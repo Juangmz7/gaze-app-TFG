@@ -20,8 +20,7 @@ public interface CollabMemberJpaRepository extends JpaRepository<CollabMemberEnt
             + "WHERE collab_id = :collabId AND user_id = :userId AND collab_member_status = 'ACCEPTED'",
             nativeQuery = true)
     int leaveIfAccepted(@Param("collabId") UUID collabId, @Param("userId") UUID userId);
-    Optional<CollabMemberEntity> findByIdCollabIdAndIdUserId(UUID collabId, UUID userId);
-  
+
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("""
             update CollabMemberEntity member
@@ -66,6 +65,7 @@ public interface CollabMemberJpaRepository extends JpaRepository<CollabMemberEnt
             @Param("pendingStatus") CollabMemberStatus pendingStatus,
             @Param("deletedStatus") CollabMemberStatus deletedStatus
     );
+
     Optional<CollabMemberEntity> findByIdCollabIdAndIdUserId(UUID collabId, UUID userId);
 
     @Query("""

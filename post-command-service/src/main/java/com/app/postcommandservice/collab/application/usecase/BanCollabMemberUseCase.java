@@ -46,9 +46,7 @@ public class BanCollabMemberUseCase {
         }
 
         var targetMember = collabMemberRepository.findByCollabIdAndUserId(command.collabId(), command.targetUserId())
-                .orElseThrow(() -> new CollabMemberNotFoundException(
-                        String.format("Collab member not found for collab %s and user %s",
-                                command.collabId(), command.targetUserId())));
+                .orElseThrow(() -> new CollabMemberNotFoundException(command.collabId(), command.targetUserId()));
         validateTargetMember(targetMember);
 
         var bannedMember = collabMemberRepository.save(targetMember.ban());
