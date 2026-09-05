@@ -85,6 +85,8 @@ class PostCommandProductionSchemaValidationIT {
 
         assertThatNoException().isThrownBy(() -> bootstrapSchema("validate"));
     }
+
+    @Test
     void shouldRequireTrackedSchemaPatchBeforeProductionValidationPassesForCommentRequestIdempotencyTable() {
         bootstrapSchema("create");
         execute("DROP TABLE IF EXISTS comment_request_idempotency");

@@ -125,6 +125,8 @@ public class RabbitMQProperties {
             public static class CollabRk {
                 private String opened;
                 private String closed;
+                private String deleted;
+                private String linked;
                 private RequestRk request = new RequestRk();
                 private MemberRk member = new MemberRk();
 
@@ -132,7 +134,7 @@ public class RabbitMQProperties {
                 public static class RequestRk {
                     private String created;
                     private String accepted;
-                    private String rejected;
+                    private String declined;
                     private String deleted;
                 }
 
@@ -146,7 +148,6 @@ public class RabbitMQProperties {
 
         @Data
         public static class UserRk {
-            // incoming (consumed from x.user.events)
             private String deleted;
             private String registered;
             private String updated;

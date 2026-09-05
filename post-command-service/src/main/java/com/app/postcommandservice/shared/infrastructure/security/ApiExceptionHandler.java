@@ -17,11 +17,21 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import com.app.postcommandservice.comment.domain.exception.CommentBlockedException;
 import com.app.postcommandservice.comment.domain.exception.CommentNotActiveException;
 import com.app.postcommandservice.comment.domain.exception.CommentNotFoundException;
 import com.app.postcommandservice.comment.domain.exception.CommentOwnershipException;
+import com.app.postcommandservice.collab.domain.exception.CollabDeleteForbiddenException;
+import com.app.postcommandservice.collab.domain.exception.CollabMemberForbiddenException;
+import com.app.postcommandservice.collab.domain.exception.CollabJoinRequestAccessDeniedException;
+import com.app.postcommandservice.collab.domain.exception.CollabMemberNotFoundException;
+import com.app.postcommandservice.collab.domain.exception.CollabJoinRequestBlockedException;
+import com.app.postcommandservice.collab.domain.exception.CollabAdminAccessDeniedException;
+import com.app.postcommandservice.collab.domain.exception.CollabNotFoundException;
+import com.app.postcommandservice.collab.domain.exception.CollabNotOpenException;
+import com.app.postcommandservice.collab.domain.exception.CollabAccessDeniedException;
 import com.app.postcommandservice.post.domain.exception.TaggedUserBlockedException;
 import com.app.postcommandservice.post.domain.exception.TaggedUserNotFoundException;
 import com.app.postcommandservice.post.domain.exception.PostNotActiveException;
@@ -78,9 +88,48 @@ public class ApiExceptionHandler {
         return buildErrorResponse(HttpStatus.NOT_FOUND, ApiErrorCode.NOT_FOUND, exception.getMessage(), request);
     }
 
+    @ExceptionHandler(CollabNotFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handleCollabNotFoundException(
+            CollabNotFoundException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(HttpStatus.NOT_FOUND, ApiErrorCode.NOT_FOUND, exception.getMessage(), request);
+    }
+    @ExceptionHandler(CollabMemberNotFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handleCollabMemberNotFoundException(
+            CollabMemberNotFoundException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(HttpStatus.NOT_FOUND, ApiErrorCode.NOT_FOUND, exception.getMessage(), request);
+    }
+
     @ExceptionHandler(CommentOwnershipException.class)
     public ResponseEntity<ApiErrorResponse> handleCommentOwnershipException(
             CommentOwnershipException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(HttpStatus.FORBIDDEN, ApiErrorCode.FORBIDDEN, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(CollabDeleteForbiddenException.class)
+    public ResponseEntity<ApiErrorResponse> handleCollabDeleteForbiddenException(
+            CollabDeleteForbiddenException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(HttpStatus.FORBIDDEN, ApiErrorCode.FORBIDDEN, exception.getMessage(), request);
+    }
+  
+    @ExceptionHandler(CollabJoinRequestAccessDeniedException.class)
+    public ResponseEntity<ApiErrorResponse> handleCollabJoinRequestAccessDeniedException(
+            CollabJoinRequestAccessDeniedException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(HttpStatus.FORBIDDEN, ApiErrorCode.FORBIDDEN, exception.getMessage(), request);
+    }
+  
+    @ExceptionHandler(CollabAccessDeniedException.class)
+    public ResponseEntity<ApiErrorResponse> handleCollabAccessDeniedException(
+            CollabAccessDeniedException exception,
             HttpServletRequest request) {
 
         return buildErrorResponse(HttpStatus.FORBIDDEN, ApiErrorCode.FORBIDDEN, exception.getMessage(), request);
@@ -102,6 +151,13 @@ public class ApiExceptionHandler {
         return buildErrorResponse(HttpStatus.BAD_REQUEST, ApiErrorCode.BLOCKED, exception.getMessage(), request);
     }
 
+    @ExceptionHandler(CollabJoinRequestBlockedException.class)
+    public ResponseEntity<ApiErrorResponse> handleCollabJoinRequestBlockedException(
+            CollabJoinRequestBlockedException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, ApiErrorCode.BLOCKED, exception.getMessage(), request);
+    }
     @ExceptionHandler(PostShareBlockedException.class)
     public ResponseEntity<ApiErrorResponse> handlePostShareBlockedException(
             PostShareBlockedException exception,
@@ -118,6 +174,14 @@ public class ApiExceptionHandler {
         return buildErrorResponse(HttpStatus.BAD_REQUEST, ApiErrorCode.BAD_REQUEST, exception.getMessage(), request);
     }
 
+    @ExceptionHandler(CollabMemberNotFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handleCollabMemberNotFoundException(
+            CollabMemberNotFoundException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(HttpStatus.NOT_FOUND, ApiErrorCode.NOT_FOUND, exception.getMessage(), request);
+    }
+
     @ExceptionHandler(PostOwnershipException.class)
     public ResponseEntity<ApiErrorResponse> handlePostOwnershipException(
             PostOwnershipException exception,
@@ -126,9 +190,33 @@ public class ApiExceptionHandler {
         return buildErrorResponse(HttpStatus.FORBIDDEN, ApiErrorCode.FORBIDDEN, exception.getMessage(), request);
     }
 
+    @ExceptionHandler(CollabMemberForbiddenException.class)
+    public ResponseEntity<ApiErrorResponse> handleCollabMemberForbiddenException(
+            CollabMemberForbiddenException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(HttpStatus.FORBIDDEN, ApiErrorCode.FORBIDDEN, exception.getMessage(), request);
+    }
+  
+    @ExceptionHandler(CollabAdminAccessDeniedException.class)
+    public ResponseEntity<ApiErrorResponse> handleCollabAdminAccessDeniedException(
+            CollabAdminAccessDeniedException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(HttpStatus.FORBIDDEN, ApiErrorCode.FORBIDDEN, exception.getMessage(), request);
+    }
+
     @ExceptionHandler(PostNotActiveException.class)
     public ResponseEntity<ApiErrorResponse> handlePostNotActiveException(
             PostNotActiveException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, ApiErrorCode.BAD_REQUEST, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(CollabNotOpenException.class)
+    public ResponseEntity<ApiErrorResponse> handleCollabNotOpenException(
+            CollabNotOpenException exception,
             HttpServletRequest request) {
 
         return buildErrorResponse(HttpStatus.BAD_REQUEST, ApiErrorCode.BAD_REQUEST, exception.getMessage(), request);
@@ -159,6 +247,7 @@ public class ApiExceptionHandler {
             MethodArgumentNotValidException.class,
             HandlerMethodValidationException.class,
             BindException.class,
+            MethodArgumentTypeMismatchException.class,
     })
     public ResponseEntity<ApiErrorResponse> handleRequestValidationException(
             Exception exception,

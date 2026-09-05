@@ -39,6 +39,11 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.context.WebApplicationContext;
 
 import com.app.postcommandservice.TestcontainersConfiguration;
+import com.app.postcommandservice.collab.domain.model.valueobj.ColabStatus;
+import com.app.postcommandservice.collab.infrastructure.entity.CollabEntity;
+import com.app.postcommandservice.collab.infrastructure.repository.CollabJpaRepository;
+import com.app.postcommandservice.collab.infrastructure.repository.CollabMemberJpaRepository;
+import com.app.postcommandservice.collab.infrastructure.repository.CollabRequestIdempotencyJpaRepository;
 import com.app.postcommandservice.post.infrastructure.entity.BlockReadModelEntity;
 import com.app.postcommandservice.post.infrastructure.entity.BlockReadModelId;
 import com.app.postcommandservice.post.infrastructure.entity.UserReadModelEntity;
@@ -46,6 +51,10 @@ import com.app.postcommandservice.post.infrastructure.repository.BlockReadModelJ
 import com.app.postcommandservice.post.infrastructure.repository.PostJpaRepository;
 import com.app.postcommandservice.post.infrastructure.repository.PostRequestIdempotencyJpaRepository;
 import com.app.postcommandservice.post.infrastructure.repository.UserReadModelJpaRepository;
+import com.app.postcommandservice.collab.domain.model.valueobj.CollabMemberRole;
+import com.app.postcommandservice.collab.domain.model.valueobj.CollabMemberStatus;
+import com.app.postcommandservice.collab.infrastructure.entity.CollabMemberEntity;
+import com.app.postcommandservice.collab.infrastructure.entity.CollabMemberId;
 import com.app.postcommandservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 import com.app.postcommandservice.shared.infrastructure.repository.OutboxEventRepository;
 import com.app.postcommandservice.shared.infrastructure.repository.ProcessedEventsRepository;
@@ -55,6 +64,7 @@ import static org.assertj.core.api.Assertions.entry;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -81,7 +91,17 @@ class PostControllerIT {
     private PostJpaRepository postJpaRepository;
 
     @Autowired
+    private CollabJpaRepository collabJpaRepository;
+
+    @Autowired
+    private CollabMemberJpaRepository collabMemberJpaRepository;
+
+    @Autowired
+    private CollabRequestIdempotencyJpaRepository collabRequestIdempotencyJpaRepository;
+
+    @Autowired
     private PostRequestIdempotencyJpaRepository postRequestIdempotencyJpaRepository;
+
 
     @Autowired
     private UserReadModelJpaRepository userReadModelJpaRepository;
@@ -120,6 +140,9 @@ class PostControllerIT {
         userReadModelJpaRepository.deleteAll();
         postRequestIdempotencyJpaRepository.deleteAll();
         postJpaRepository.deleteAll();
+        collabMemberJpaRepository.deleteAll();
+        collabRequestIdempotencyJpaRepository.deleteAll();
+        collabJpaRepository.deleteAll();
         outboxEventRepository.deleteAll();
         processedEventsRepository.deleteAll();
     }
@@ -194,6 +217,58 @@ class PostControllerIT {
                 .andExpect(jsonPath("$.taggedUsers").isArray());
 
         assertThat(postJpaRepository.findAll()).hasSize(1);
+    }
+
+    @Test
+    void shouldReturnLinkedFalseWhenPostHasNoCollabId() throws Exception {
+        var existingPost = seedPost(CREATOR_ID, "standalone", Set.of(), Set.of());
+
+        mockMvc.perform(get("/api/posts/{postId}/collab-status", existingPost.getId())
+                        .with(jwtFor(CREATOR_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.linked").value(false));
+    }
+
+    @Test
+    void shouldReturnCollabBodyWhenPostIsLinked() throws Exception {
+        var collab = seedCollab(CREATOR_ID, "Team up");
+        var linkedPost = postJpaRepository.save(com.app.postcommandservice.post.infrastructure.entity.PostEntity.builder()
+                .id(UUID.randomUUID())
+                .userId(CREATOR_ID)
+                .collabId(collab.getId())
+                .postType(PostType.COLAB)
+                .description("linked")
+                .taggedUsers(new ArrayList<>())
+                .tags(new ArrayList<>())
+                .status(PostStatus.ACTIVE)
+                .build());
+
+        mockMvc.perform(get("/api/posts/{postId}/collab-status", linkedPost.getId())
+                        .with(jwtFor(CREATOR_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.collabId").value(collab.getId().toString()))
+                .andExpect(jsonPath("$.title").value("Team up"))
+                .andExpect(jsonPath("$.createdBy").value(CREATOR_ID.toString()))
+                .andExpect(jsonPath("$.collabStatus").value("OPEN"))
+                .andExpect(jsonPath("$.createdAt").exists());
+    }
+
+    @Test
+    void shouldReturnForbiddenWhenCheckingCollabStatusOfAnotherUsersPost() throws Exception {
+        var existingPost = seedPost(UUID.randomUUID(), "hidden", Set.of(), Set.of());
+
+        mockMvc.perform(get("/api/posts/{postId}/collab-status", existingPost.getId())
+                        .with(jwtFor(CREATOR_ID)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("FORBIDDEN"));
+    }
+
+    @Test
+    void shouldReturnNotFoundWhenCheckingCollabStatusOfMissingPost() throws Exception {
+        mockMvc.perform(get("/api/posts/{postId}/collab-status", UUID.randomUUID())
+                        .with(jwtFor(CREATOR_ID)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("NOT_FOUND"));
     }
 
     @Test
@@ -389,6 +464,102 @@ class PostControllerIT {
     }
 
     @Test
+    void shouldLinkExistingPostToCollabOverwritePreviousCollabAndPublishEvent() throws Exception {
+        String queueName = "test.post.collab.linked." + UUID.randomUUID();
+        RabbitAdmin rabbitAdmin = new RabbitAdmin(connectionFactory);
+        Queue queue = new Queue(queueName, false, true, true);
+        rabbitAdmin.declareQueue(queue);
+        rabbitAdmin.declareBinding(BindingBuilder.bind(queue)
+                .to(new org.springframework.amqp.core.TopicExchange(rabbitMQProperties.getExchange().getPost().getEvents()))
+                .with(rabbitMQProperties.getRk().getPost().getCollab().getLinked()));
+
+        var previousCollab = seedCollab(ColabStatus.OPEN);
+        var targetCollab = seedCollab(ColabStatus.OPEN);
+        seedAcceptedAdminMember(targetCollab.getId(), CREATOR_ID, CollabMemberRole.ADMIN, CollabMemberStatus.ACCEPTED);
+        var existingPost = seedPost(CREATOR_ID, "before", Set.of("alice"), Set.of("java"));
+        existingPost.setCollabId(previousCollab.getId());
+        existingPost.setPostType(PostType.COLAB);
+        postJpaRepository.saveAndFlush(existingPost);
+
+        mockMvc.perform(put("/api/posts/{postId}/collabs/{collabId}/link", existingPost.getId(), targetCollab.getId())
+                        .with(jwtFor(CREATOR_ID)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.postId").value(existingPost.getId().toString()))
+                .andExpect(jsonPath("$.collabId").value(targetCollab.getId().toString()))
+                .andExpect(jsonPath("$.postType").value("COLAB"));
+
+        var updatedPost = postJpaRepository.findById(existingPost.getId()).orElseThrow();
+        assertThat(updatedPost.getCollabId()).isEqualTo(targetCollab.getId());
+        assertThat(updatedPost.getPostType()).isEqualTo(PostType.COLAB);
+        assertThat(outboxEventRepository.findAll()).hasSize(1);
+
+        Message message = receiveMessage(queueName);
+        assertThat(message).isNotNull();
+        var eventPayload = objectMapper.readValue(message.getBody(), new TypeReference<Map<String, Object>>() { });
+        assertThat(eventPayload.get("postId")).isEqualTo(existingPost.getId().toString());
+        assertThat(eventPayload.get("collabId")).isEqualTo(targetCollab.getId().toString());
+        assertThat(eventPayload.get("postType")).isEqualTo("COLAB");
+
+        rabbitAdmin.deleteQueue(queueName);
+    }
+
+    @Test
+    void shouldReturnNotFoundWhenLinkingMissingPost() throws Exception {
+        var targetCollab = seedCollab(ColabStatus.OPEN);
+        seedAcceptedAdminMember(targetCollab.getId(), CREATOR_ID, CollabMemberRole.ADMIN, CollabMemberStatus.ACCEPTED);
+
+        mockMvc.perform(put("/api/posts/{postId}/collabs/{collabId}/link", UUID.randomUUID(), targetCollab.getId())
+                        .with(jwtFor(CREATOR_ID)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("NOT_FOUND"));
+    }
+
+    @Test
+    void shouldReturnNotFoundWhenLinkingToMissingCollab() throws Exception {
+        var existingPost = seedPost(CREATOR_ID, "before", Set.of(), Set.of());
+
+        mockMvc.perform(put("/api/posts/{postId}/collabs/{collabId}/link", existingPost.getId(), UUID.randomUUID())
+                        .with(jwtFor(CREATOR_ID)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("NOT_FOUND"));
+    }
+
+    @Test
+    void shouldReturnForbiddenWhenRequesterOwnsPostButIsNotAcceptedAdminInCollab() throws Exception {
+        var targetCollab = seedCollab(ColabStatus.OPEN);
+        seedAcceptedAdminMember(targetCollab.getId(), CREATOR_ID, CollabMemberRole.MEMBER, CollabMemberStatus.ACCEPTED);
+        var existingPost = seedPost(CREATOR_ID, "before", Set.of(), Set.of());
+
+        mockMvc.perform(put("/api/posts/{postId}/collabs/{collabId}/link", existingPost.getId(), targetCollab.getId())
+                        .with(jwtFor(CREATOR_ID)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("FORBIDDEN"));
+    }
+
+    @Test
+    void shouldReturnForbiddenWhenRequesterIsAcceptedAdminButNotPostOwner() throws Exception {
+        var targetCollab = seedCollab(ColabStatus.OPEN);
+        seedAcceptedAdminMember(targetCollab.getId(), CREATOR_ID, CollabMemberRole.ADMIN, CollabMemberStatus.ACCEPTED);
+        var existingPost = seedPost(UUID.randomUUID(), "before", Set.of(), Set.of());
+
+        mockMvc.perform(put("/api/posts/{postId}/collabs/{collabId}/link", existingPost.getId(), targetCollab.getId())
+                        .with(jwtFor(CREATOR_ID)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("FORBIDDEN"));
+    }
+
+    @Test
+    void shouldReturnBadRequestWhenLinkingPostToClosedCollab() throws Exception {
+        var targetCollab = seedCollab(ColabStatus.CLOSED);
+        var existingPost = seedPost(CREATOR_ID, "before", Set.of(), Set.of());
+
+        mockMvc.perform(put("/api/posts/{postId}/collabs/{collabId}/link", existingPost.getId(), targetCollab.getId())
+                        .with(jwtFor(CREATOR_ID)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("BAD_REQUEST"));
+    }
+
+    @Test
     void shouldReturnForbiddenWhenDeletingPostOwnedByAnotherUser() throws Exception {
         var existingPost = seedPost(UUID.randomUUID(), "before", Set.of(), Set.of());
 
@@ -555,6 +726,39 @@ class PostControllerIT {
                 .tags(new ArrayList<>(tags))
                 .status(PostStatus.ACTIVE)
                 .build());
+    }
+
+    private CollabEntity seedCollab(UUID createdBy, String title) {
+        return collabJpaRepository.save(new CollabEntity(
+                UUID.randomUUID(),
+                title,
+                createdBy,
+                ColabStatus.OPEN,
+                null
+        ));
+    }
+
+    private CollabEntity seedCollab(ColabStatus collabStatus) {
+        return collabJpaRepository.save(new CollabEntity(
+                UUID.randomUUID(),
+                "Open collab",
+                CREATOR_ID,
+                collabStatus,
+                null
+        ));
+    }
+
+    private void seedAcceptedAdminMember(
+            UUID collabId,
+            UUID userId,
+            CollabMemberRole role,
+            CollabMemberStatus status) {
+        collabMemberJpaRepository.save(new CollabMemberEntity(
+                new CollabMemberId(collabId, userId),
+                status,
+                role,
+                null
+        ));
     }
 
     private Callable<String> concurrentCreatePostRequest(
