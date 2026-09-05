@@ -89,19 +89,19 @@ public class PostController {
     }
 
     @GetMapping("/{postId}/collab-status")
-    public ResponseEntity<?> checkPostCollabLinkStatus(@PathVariable("postId") java.util.UUID postId) {
+    public ResponseEntity<PostCollabLinkStatusResponse> checkPostCollabLinkStatus(
+            @PathVariable("postId") java.util.UUID postId) {
         var currentUserId = securityUtils.getUserId();
         if (currentUserId == null) {
             throw new AuthenticationCredentialsNotFoundException("JWT subject claim is missing or invalid");
         }
 
         var result = checkPostCollabLinkStatusUseCase.check(new CheckPostCollabLinkStatusCommand(postId, currentUserId));
-        if (!result.linked()) {
-            return ResponseEntity.ok(new PostCollabLinkStatusResponse(false));
-        }
 
-        CollabResponse collab = result.collab();
-        return ResponseEntity.ok(collab);
+        return ResponseEntity.ok(new PostCollabLinkStatusResponse(
+                result.linked(),
+                result.collab()
+        ));
     }
 
     @PutMapping
