@@ -38,6 +38,26 @@ class DeletePostCollabRequestCommand:
 
 
 @dataclass(frozen=True)
+class CreatePostCollabCommand:
+    event_id: UUID
+    correlation_id: UUID
+    occurred_at: datetime
+    collab_id: UUID
+    post_id: UUID
+    user_id: UUID
+    created_by: UUID
+
+
+@dataclass(frozen=True)
+class DeletePostCollabCommand:
+    event_id: UUID
+    correlation_id: UUID
+    occurred_at: datetime
+    collab_id: UUID
+    actioned_by: UUID
+
+
+@dataclass(frozen=True)
 class DeletePostCommentLikeCommand:
     event_id: UUID
     correlation_id: UUID

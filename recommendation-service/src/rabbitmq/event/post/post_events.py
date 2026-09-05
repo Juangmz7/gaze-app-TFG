@@ -11,6 +11,7 @@ class InteractionSource(str, Enum):
     USER_PROFILE = "USER_PROFILE"
     SEARCH = "SEARCH"
 
+
 class PostViewExitReason(str, Enum):
     SCROLL_NEXT = "SCROLL_NEXT"
     VIDEO_COMPLETED = "VIDEO_COMPLETED"
@@ -21,6 +22,12 @@ class PostViewExitReason(str, Enum):
 class PostType(str, Enum):
     BASIC = "BASIC"
     COLAB = "COLAB"
+
+
+class CollabStatus(str, Enum):
+    OPEN = "OPEN"
+    CLOSED = "CLOSED"
+    DELETED = "DELETED"
 
 
 class CollabMemberStatus(str, Enum):
@@ -41,10 +48,36 @@ class PostShareDeletedEvent(EventMessage):
     postId: UUID
     userId: UUID
 
+
 class PostShareCreatedEvent(EventMessage):
     postId: UUID
     userId: UUID
     createdAt: datetime
+
+
+class PostCollabCreatedEvent(EventMessage):
+    collabId: UUID
+    title: str
+    createdBy: UUID
+    collabStatus: CollabStatus
+    collabCreatedAt: datetime
+    creatorMemberStatus: CollabMemberStatus
+    creatorRole: CollabMemberRole
+    creatorMemberCreatedAt: datetime
+    postId: UUID
+    userId: UUID
+    postCollabId: UUID
+    postType: PostType
+    description: Optional[str] = None
+    taggedUsers: set[str] = set()
+    postTags: set[str] = set()
+    postCreatedAt: datetime
+    postUpdatedAt: datetime
+
+
+class PostCollabDeletedEvent(EventMessage):
+    collabId: UUID
+    actionedBy: UUID
 
 
 class PostCollabRequestCreatedEvent(EventMessage):
@@ -100,7 +133,7 @@ class PostViewedEvent(EventMessage):
     viewId: UUID
     postId: UUID
     userId: UUID
-    source: PostViewSource
+    source: InteractionSource
     feedPosition: int
     durationMs: int
     timeWatchedMs: int

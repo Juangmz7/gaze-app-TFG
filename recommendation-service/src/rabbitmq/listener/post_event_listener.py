@@ -10,6 +10,12 @@ from rabbitmq.handler.post.post_collab_request_created_event_handler import (
 from rabbitmq.handler.post.post_collab_request_deleted_event_handler import (
     PostCollabRequestDeletedEventHandler,
 )
+from rabbitmq.handler.post.post_collab_created_event_handler import (
+    PostCollabCreatedEventHandler,
+)
+from rabbitmq.handler.post.post_collab_deleted_event_handler import (
+    PostCollabDeletedEventHandler,
+)
 from rabbitmq.handler.post.post_comment_created_event_handler import PostCommentCreatedEventHandler
 from rabbitmq.handler.post.post_comment_deleted_event_handler import PostCommentDeletedEventHandler
 from rabbitmq.handler.post.post_comment_like_created_event_handler import (
@@ -34,6 +40,8 @@ from rabbitmq.config.constants import (
 )
 from rabbitmq.event.post.post_events import (
     PostBannedEvent,
+    PostCollabCreatedEvent,
+    PostCollabDeletedEvent,
     PostCollabRequestCreatedEvent,
     PostCollabRequestDeletedEvent,
     PostCommentCreatedEvent,
@@ -103,6 +111,16 @@ class PostEventListener:
             case PostRoutingKey.SHARE_CREATED:
                 return await PostShareCreatedEventHandler.handle(
                     PostShareCreatedEvent.model_validate(event)
+                )
+
+            case PostRoutingKey.COLLAB_CREATED:
+                return await PostCollabCreatedEventHandler.handle(
+                    PostCollabCreatedEvent.model_validate(event)
+                )
+
+            case PostRoutingKey.COLLAB_DELETED:
+                return await PostCollabDeletedEventHandler.handle(
+                    PostCollabDeletedEvent.model_validate(event)
                 )
 
             case PostRoutingKey.COLLAB_REQUEST_CREATED:
