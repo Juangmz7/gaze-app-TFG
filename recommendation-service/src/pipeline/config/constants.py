@@ -1,4 +1,6 @@
-# Events weights for each interaction type
+from enum import Enum
+
+
 POST_VIEW_WEIGHT = 1.0
 FAST_SKIP_WEIGHT = -1.0
 
@@ -7,7 +9,12 @@ POST_COMMENT_LIKE_WEIGHT = 1.0
 
 POST_COMMENT_WEIGHT = 2.5
 POST_SHARE_WEIGHT = 3.5
-COLLAB_REQUEST_REQUEST_WEIGHT = 2.0 
+
+COLLAB_REQUEST_WEIGHT = 2.0
 COLLAB_REQUEST_ACCEPT_WEIGHT = 3.0
 
 
+class InteractionSourceMultiplier(float, Enum):
+    HOME_FEED = 1.0
+    USER_PROFILE = 1.15
+    SEARCH = 1.25
