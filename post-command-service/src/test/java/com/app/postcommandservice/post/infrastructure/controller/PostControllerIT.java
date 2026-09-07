@@ -273,6 +273,176 @@ class PostControllerIT {
     }
 
     @Test
+    void shouldOpenCollabForExistingPostCreateMemberUpdatePostAndPublishEvent() throws Exception {
+        String queueName = "test.post.collab.opened." + UUID.randomUUID();
+        RabbitAdmin rabbitAdmin = new RabbitAdmin(connectionFactory);
+        Queue queue = new Queue(queueName, false, true, true);
+        rabbitAdmin.declareQueue(queue);
+        rabbitAdmin.declareBinding(BindingBuilder.bind(queue)
+                .to(new org.springframework.amqp.core.TopicExchange(
+                        rabbitMQProperties.getExchange().getPost().getEvents()))
+                .with(rabbitMQProperties.getRk().getPost().getCollab().getOpened()));
+        var existingPost = seedPost(CREATOR_ID, "standalone", Set.of("alice"), Set.of("java"));
+        var correlationId = UUID.randomUUID();
+        var payload = objectMapper.writeValueAsString(Map.of(
+                "correlationId", correlationId,
+                "title", "Existing post collab"
+        ));
+
+        var response = mockMvc.perform(post("/api/posts/{postId}/collabs", existingPost.getId())
+                        .with(jwtFor(CREATOR_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.collabId").exists())
+                .andExpect(jsonPath("$.title").value("Existing post collab"))
+                .andExpect(jsonPath("$.createdBy").value(CREATOR_ID.toString()))
+                .andExpect(jsonPath("$.collabStatus").value("OPEN"))
+                .andExpect(jsonPath("$.post.postId").value(existingPost.getId().toString()))
+                .andExpect(jsonPath("$.post.collabId").exists())
+                .andExpect(jsonPath("$.post.postType").value("COLAB"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString(StandardCharsets.UTF_8);
+
+        var responsePayload = objectMapper.readValue(response, new TypeReference<Map<String, Object>>() { });
+        var collabId = UUID.fromString(String.valueOf(responsePayload.get("collabId")));
+        var persistedPost = postJpaRepository.findById(existingPost.getId()).orElseThrow();
+
+        assertThat(collabJpaRepository.count()).isEqualTo(1);
+        assertThat(collabMemberJpaRepository.count()).isEqualTo(1);
+        assertThat(collabRequestIdempotencyJpaRepository.findById(correlationId)).isPresent();
+        assertThat(collabRequestIdempotencyJpaRepository.findById(correlationId).orElseThrow().getEntityId())
+                .isEqualTo(collabId);
+        assertThat(postJpaRepository.count()).isEqualTo(1);
+        assertThat(persistedPost.getCollabId()).isEqualTo(collabId);
+        assertThat(persistedPost.getPostType()).isEqualTo(PostType.COLAB);
+        assertThat(collabMemberJpaRepository.findAll().getFirst().getCollabMemberStatus())
+                .isEqualTo(CollabMemberStatus.ACCEPTED);
+        assertThat(collabMemberJpaRepository.findAll().getFirst().getRole()).isEqualTo(CollabMemberRole.ADMIN);
+        assertThat(outboxEventRepository.count()).isEqualTo(1);
+
+        Message message = receiveMessage(queueName);
+        assertThat(message).isNotNull();
+        var eventPayload = objectMapper.readValue(message.getBody(), new TypeReference<Map<String, Object>>() { });
+        assertThat(eventPayload).contains(
+                entry("correlationId", correlationId.toString()),
+                entry("collabId", collabId.toString()),
+                entry("postId", existingPost.getId().toString()),
+                entry("postCollabId", collabId.toString()),
+                entry("postType", "COLAB")
+        );
+
+        rabbitAdmin.deleteQueue(queueName);
+    }
+
+    @Test
+    void shouldHandleDuplicateOpenCollabForExistingPostCorrelationIdWithoutSideEffects() throws Exception {
+        var existingPost = seedPost(CREATOR_ID, "standalone", Set.of(), Set.of("java"));
+        var correlationId = UUID.randomUUID();
+        var payload = objectMapper.writeValueAsString(Map.of(
+                "correlationId", correlationId,
+                "title", "Existing post collab"
+        ));
+
+        var firstResponse = mockMvc.perform(post("/api/posts/{postId}/collabs", existingPost.getId())
+                        .with(jwtFor(CREATOR_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString(StandardCharsets.UTF_8);
+
+        var secondResponse = mockMvc.perform(post("/api/posts/{postId}/collabs", existingPost.getId())
+                        .with(jwtFor(CREATOR_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString(StandardCharsets.UTF_8);
+
+        var firstBody = objectMapper.readValue(firstResponse, new TypeReference<Map<String, Object>>() { });
+        var secondBody = objectMapper.readValue(secondResponse, new TypeReference<Map<String, Object>>() { });
+
+        assertCollabOpenBodiesEqualIgnoringTimestampPrecision(firstBody, secondBody);
+        assertThat(collabJpaRepository.count()).isEqualTo(1);
+        assertThat(collabMemberJpaRepository.count()).isEqualTo(1);
+        assertThat(postJpaRepository.count()).isEqualTo(1);
+        assertThat(collabRequestIdempotencyJpaRepository.count()).isEqualTo(1);
+        assertThat(outboxEventRepository.count()).isEqualTo(1);
+    }
+
+    @Test
+    void shouldReturnForbiddenWhenOpeningCollabForPostOwnedByAnotherUser() throws Exception {
+        var existingPost = seedPost(UUID.randomUUID(), "not yours", Set.of(), Set.of());
+        var payload = objectMapper.writeValueAsString(Map.of(
+                "correlationId", UUID.randomUUID(),
+                "title", "Existing post collab"
+        ));
+
+        mockMvc.perform(post("/api/posts/{postId}/collabs", existingPost.getId())
+                        .with(jwtFor(CREATOR_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("FORBIDDEN"));
+
+        assertThat(collabJpaRepository.count()).isZero();
+        assertThat(collabMemberJpaRepository.count()).isZero();
+        assertThat(outboxEventRepository.count()).isZero();
+    }
+
+    @Test
+    void shouldReturnBadRequestWhenOpeningCollabForDeletedPost() throws Exception {
+        var deletedPost = postJpaRepository.save(com.app.postcommandservice.post.infrastructure.entity.PostEntity.builder()
+                .id(UUID.randomUUID())
+                .userId(CREATOR_ID)
+                .collabId(null)
+                .postType(PostType.BASIC)
+                .description("deleted")
+                .taggedUsers(new ArrayList<>())
+                .tags(new ArrayList<>())
+                .status(PostStatus.DELETED)
+                .build());
+        var payload = objectMapper.writeValueAsString(Map.of(
+                "correlationId", UUID.randomUUID(),
+                "title", "Existing post collab"
+        ));
+
+        mockMvc.perform(post("/api/posts/{postId}/collabs", deletedPost.getId())
+                        .with(jwtFor(CREATOR_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("BAD_REQUEST"));
+
+        assertThat(collabJpaRepository.count()).isZero();
+        assertThat(collabMemberJpaRepository.count()).isZero();
+        assertThat(outboxEventRepository.count()).isZero();
+    }
+
+    @Test
+    void shouldReturnNotFoundWhenOpeningCollabForMissingPost() throws Exception {
+        var payload = objectMapper.writeValueAsString(Map.of(
+                "correlationId", UUID.randomUUID(),
+                "title", "Existing post collab"
+        ));
+
+        mockMvc.perform(post("/api/posts/{postId}/collabs", UUID.randomUUID())
+                        .with(jwtFor(CREATOR_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("NOT_FOUND"));
+
+        assertThat(collabJpaRepository.count()).isZero();
+        assertThat(collabMemberJpaRepository.count()).isZero();
+        assertThat(outboxEventRepository.count()).isZero();
+    }
+
+    @Test
     void shouldUpdatePostAndPublishEventWhenRequestIsValid() throws Exception {
         String queueName = "test.post.updated." + UUID.randomUUID();
         RabbitAdmin rabbitAdmin = new RabbitAdmin(connectionFactory);
@@ -811,6 +981,21 @@ class PostControllerIT {
         assertThat(firstBody.get("postTags")).isEqualTo(secondBody.get("postTags"));
         assertTimestampsEquivalent(firstBody.get("createdAt"), secondBody.get("createdAt"));
         assertTimestampsEquivalent(firstBody.get("updatedAt"), secondBody.get("updatedAt"));
+    }
+
+    @SuppressWarnings("unchecked")
+    private void assertCollabOpenBodiesEqualIgnoringTimestampPrecision(
+            Map<String, Object> firstBody,
+            Map<String, Object> secondBody) {
+        assertThat(firstBody.get("collabId")).isEqualTo(secondBody.get("collabId"));
+        assertThat(firstBody.get("title")).isEqualTo(secondBody.get("title"));
+        assertThat(firstBody.get("createdBy")).isEqualTo(secondBody.get("createdBy"));
+        assertThat(firstBody.get("collabStatus")).isEqualTo(secondBody.get("collabStatus"));
+        assertTimestampsEquivalent(firstBody.get("createdAt"), secondBody.get("createdAt"));
+        assertPostBodiesEqualIgnoringTimestampPrecision(
+                (Map<String, Object>) firstBody.get("post"),
+                (Map<String, Object>) secondBody.get("post")
+        );
     }
 
     private Instant parseInstant(Object value) {

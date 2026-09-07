@@ -23,6 +23,9 @@ import com.app.postcommandservice.comment.application.usecase.DeleteCommentUseCa
 import com.app.postcommandservice.comment.application.usecase.UpdateCommentUseCase;
 import com.app.postcommandservice.commentlike.application.usecase.DispatchValidateCommentLikeCommandUseCase;
 import com.app.postcommandservice.commentlike.application.usecase.DispatchValidateCommentUnlikeCommandUseCase;
+import com.app.postcommandservice.collab.application.commands.OpenCollabForExistingPostCommand;
+import com.app.postcommandservice.collab.application.dto.OpenCollabAndCreatePostResponse;
+import com.app.postcommandservice.collab.application.usecase.OpenCollabForExistingPostUseCase;
 import com.app.postcommandservice.post.application.commands.CheckPostCollabLinkStatusCommand;
 import com.app.postcommandservice.like.application.usecase.DispatchValidatePostLikeCommandUseCase;
 import com.app.postcommandservice.like.application.usecase.DispatchValidatePostUnlikeCommandUseCase;
@@ -55,6 +58,7 @@ public class PostController {
     private final UpdatePostUseCase updatePostUseCase;
     private final DeletePostUseCase deletePostUseCase;
     private final LinkExistingPostToCollabUseCase linkExistingPostToCollabUseCase;
+    private final OpenCollabForExistingPostUseCase openCollabForExistingPostUseCase;
     private final CreateCommentUseCase createCommentUseCase;
     private final DeleteCommentUseCase deleteCommentUseCase;
     private final UpdateCommentUseCase updateCommentUseCase;
@@ -143,6 +147,25 @@ public class PostController {
 
         return ResponseEntity.ok(linkExistingPostToCollabUseCase.link(
                 new LinkExistingPostToCollabCommand(postId, collabId, currentUserId)
+        ));
+    }
+
+    @PostMapping("/{postId}/collabs")
+    public ResponseEntity<OpenCollabAndCreatePostResponse> openCollabForExistingPost(
+            @PathVariable("postId") java.util.UUID postId,
+            @Valid @RequestBody OpenCollabForExistingPostRequest request) {
+        var currentUserId = securityUtils.getUserId();
+        if (currentUserId == null) {
+            throw new AuthenticationCredentialsNotFoundException("JWT subject claim is missing or invalid");
+        }
+
+        return ResponseEntity.ok(openCollabForExistingPostUseCase.open(
+                new OpenCollabForExistingPostCommand(
+                        postId,
+                        request.correlationId(),
+                        currentUserId,
+                        request.title()
+                )
         ));
     }
 
