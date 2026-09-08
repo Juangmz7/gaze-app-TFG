@@ -1,23 +1,49 @@
 import logging
 
+from pipeline.config.constants import POST_LIKE_WEIGHT, POST_UNLIKE_PENALISATION_WEIGHT
 from post.command.post_commands import DeletePostLikeCommand
-
+from post.model.user_post_interactions import UserPostInteractions
+from post.repository.user_post_interactions_repository import UserPostInteractionsRepository
+from post.usecase.post_interaction_updater import PostInteractionUpdater
 
 logger = logging.getLogger(__name__)
 
 
-class DeletePostLikeUsecase:
-    def execute(command: DeletePostLikeCommand) -> None:
-        logger.info(
-            "Processing post like deletion: event_id=%s, correlation_id=%s, post_id=%s, user_id=%s",
-            command.event_id,
-            command.correlation_id,
-            command.post_id,
-            command.user_id,
+class DeletePostLikeInteractionUsecase:
+    def __init__(
+            self,
+            post_interaction_updater: PostInteractionUpdater,
+            user_post_interactions_repository: UserPostInteractionsRepository,
+    ):
+        self.post_interaction_updater = post_interaction_updater
+        self.user_post_interactions_repository = user_post_interactions_repository
+
+    def execute(self, command: DeletePostLikeCommand) -> None:
+        interaction = self._get_or_create_interaction(command.post_id, command.user_id)
+        if interaction.ever_unliked:
+            logger.info(
+                "Ignoring duplicate post unlike interaction: post_id=%s, user_id=%s",
+                command.post_id,
+                command.user_id,
+            )
+            return
+
+        self.post_interaction_updater.apply(
+            post_id=command.post_id,
+            user_id=command.user_id,
+            metric_name="likes",
+            raw_delta=-1,
+            embedding_weight=-(POST_LIKE_WEIGHT * POST_UNLIKE_PENALISATION_WEIGHT),
+            source=command.source,
         )
-        logger.debug(
-            "Post like deletion has no recommendation projection update: event_id=%s, correlation_id=%s",
-            command.event_id,
-            command.correlation_id,
+        interaction.ever_unliked = True
+        self.user_post_interactions_repository.save(interaction)
+
+    def _get_or_create_interaction(self, post_id, user_id) -> UserPostInteractions:
+        return (
+            self.user_post_interactions_repository.get(post_id, user_id)
+            or UserPostInteractions(post_id=post_id, user_id=user_id)
         )
-        pass
+
+
+DeletePostLikeUsecase = DeletePostLikeInteractionUsecase

@@ -4,6 +4,7 @@ from typing import Optional
 from uuid import UUID
 
 from rabbitmq.event.post.post_events import (
+    CollabStatus,
     InteractionSource,
     PostViewExitReason,
 )
@@ -14,6 +15,8 @@ class DeletePostShareCommand:
     event_id: UUID
     correlation_id: UUID
     occurred_at: datetime
+    post_id: UUID
+    user_id: UUID
 
 
 @dataclass(frozen=True)
@@ -21,6 +24,8 @@ class CreatePostShareCommand:
     event_id: UUID
     correlation_id: UUID
     occurred_at: datetime
+    post_id: UUID
+    user_id: UUID
 
 
 @dataclass(frozen=True)
@@ -28,6 +33,8 @@ class CreatePostCollabRequestCommand:
     event_id: UUID
     correlation_id: UUID
     occurred_at: datetime
+    collab_id: UUID
+    user_id: UUID
 
 
 @dataclass(frozen=True)
@@ -35,6 +42,8 @@ class DeletePostCollabRequestCommand:
     event_id: UUID
     correlation_id: UUID
     occurred_at: datetime
+    collab_id: UUID
+    user_id: UUID
 
 
 @dataclass(frozen=True)
@@ -43,9 +52,32 @@ class CreatePostCollabCommand:
     correlation_id: UUID
     occurred_at: datetime
     collab_id: UUID
+    title: str
+    collab_status: CollabStatus
     post_id: UUID
     user_id: UUID
     created_by: UUID
+    collab_created_at: datetime
+    description: Optional[str]
+    tagged_users: set[str]
+    post_tags: set[str]
+    post_created_at: datetime
+    post_updated_at: datetime
+
+
+@dataclass(frozen=True)
+class LinkPostCollabCommand:
+    event_id: UUID
+    correlation_id: UUID
+    occurred_at: datetime
+    post_id: UUID
+    user_id: UUID
+    collab_id: UUID
+    description: Optional[str]
+    tagged_users: set[str]
+    post_tags: set[str]
+    created_at: datetime
+    updated_at: datetime
 
 
 @dataclass(frozen=True)
@@ -62,16 +94,22 @@ class DeletePostCommentLikeCommand:
     event_id: UUID
     correlation_id: UUID
     occurred_at: datetime
+    comment_id: UUID
+    user_id: UUID
+    source: InteractionSource
+    feed_position: int
 
 
 @dataclass(frozen=True)
 class CreatePostCommentLikeCommand:
+    event_id: UUID
+    correlation_id: UUID
     occurred_at: datetime
     post_id: UUID
+    comment_id: UUID
     user_id: UUID
     source: InteractionSource
     feed_position: int
-    created_at: datetime
 
 
 @dataclass(frozen=True)
@@ -79,6 +117,9 @@ class DeletePostCommentCommand:
     event_id: UUID
     correlation_id: UUID
     occurred_at: datetime
+    comment_id: UUID
+    post_id: UUID
+    user_id: UUID
 
 
 @dataclass(frozen=True)
@@ -86,10 +127,15 @@ class CreatePostCommentCommand:
     event_id: UUID
     correlation_id: UUID
     occurred_at: datetime
+    comment_id: UUID
+    post_id: UUID
+    user_id: UUID
 
 
 @dataclass(frozen=True)
 class RegisterPostViewCommand:
+    event_id: UUID
+    correlation_id: UUID
     occurred_at: datetime
     view_id: UUID
     post_id: UUID
@@ -117,12 +163,13 @@ class DeletePostLikeCommand:
 
 @dataclass(frozen=True)
 class CreatePostLikeCommand:
+    event_id: UUID
+    correlation_id: UUID
     occurred_at: datetime
     post_id: UUID
     user_id: UUID
     source: InteractionSource
     feed_position: int
-    created_at: datetime
 
 
 @dataclass(frozen=True)
@@ -148,6 +195,7 @@ class UpdatePostCommand:
     occurred_at: datetime
     post_id: UUID
     user_id: UUID
+    collab_id: Optional[UUID]
     description: Optional[str]
     tagged_users: set[str]
     post_tags: set[str]
@@ -162,6 +210,7 @@ class CreatePostCommand:
     occurred_at: datetime
     post_id: UUID
     user_id: UUID
+    collab_id: Optional[UUID]
     description: Optional[str]
     tagged_users: set[str]
     post_tags: set[str]

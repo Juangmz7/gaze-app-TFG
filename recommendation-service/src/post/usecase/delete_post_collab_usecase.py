@@ -1,22 +1,23 @@
-import logging
-
+from pipeline.repository.post_features_repository import PostFeaturesRepository
 from post.command.post_commands import DeletePostCollabCommand
-
-
-logger = logging.getLogger(__name__)
+from post.repository.collab_repository import CollabRepository
 
 
 class DeletePostCollabUsecase:
-    def execute(command: DeletePostCollabCommand) -> None:
-        logger.info(
-            "Processing post collab deletion: event_id=%s, correlation_id=%s, collab_id=%s, actioned_by=%s",
-            command.event_id,
-            command.correlation_id,
-            command.collab_id,
-            command.actioned_by,
-        )
-        logger.debug(
-            "Post collab deletion has no recommendation projection update: event_id=%s, correlation_id=%s",
-            command.event_id,
-            command.correlation_id,
-        )
+    def __init__(
+            self,
+            collab_repository: CollabRepository,
+            post_features_repository: PostFeaturesRepository,
+    ):
+        self.collab_repository = collab_repository
+        self.post_features_repository = post_features_repository
+
+    def execute(self, command: DeletePostCollabCommand) -> None:
+        post_id = self.collab_repository.find_post_id_by_collab_id(command.collab_id)
+        self.collab_repository.delete(command.collab_id)
+        if post_id is not None:
+            self.post_features_repository.update_post_collab(
+                post_id=post_id,
+                collab_id=None,
+                collab_title=None,
+            )

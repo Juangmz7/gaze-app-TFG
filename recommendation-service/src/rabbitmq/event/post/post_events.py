@@ -52,7 +52,6 @@ class PostShareDeletedEvent(EventMessage):
 class PostShareCreatedEvent(EventMessage):
     postId: UUID
     userId: UUID
-    createdAt: datetime
 
 
 class PostCollabCreatedEvent(EventMessage):
@@ -75,6 +74,18 @@ class PostCollabCreatedEvent(EventMessage):
     postUpdatedAt: datetime
 
 
+class PostCollabLinkedEvent(EventMessage):
+    postId: UUID
+    userId: UUID
+    collabId: UUID
+    postType: PostType
+    description: Optional[str] = None
+    taggedUsers: set[str] = set()
+    postTags: set[str] = set()
+    createdAt: datetime
+    updatedAt: datetime
+
+
 class PostCollabDeletedEvent(EventMessage):
     collabId: UUID
     actionedBy: UUID
@@ -85,7 +96,6 @@ class PostCollabRequestCreatedEvent(EventMessage):
     userId: UUID
     status: CollabMemberStatus
     role: CollabMemberRole
-    createdAt: datetime
 
 
 class PostCollabRequestDeletedEvent(EventMessage):
@@ -110,7 +120,6 @@ class PostCommentLikeCreatedEvent(EventMessage):
     userId: UUID
     source: InteractionSource
     feedPosition: int
-    createdAt: datetime
 
 
 class PostCommentDeletedEvent(EventMessage):
@@ -155,7 +164,6 @@ class PostLikeCreatedEvent(EventMessage):
     userId: UUID
     source: InteractionSource
     feedPosition: int
-    createdAt: datetime
 
 
 class PostBannedEvent(EventMessage):

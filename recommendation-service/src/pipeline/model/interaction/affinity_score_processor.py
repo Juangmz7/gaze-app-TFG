@@ -1,6 +1,6 @@
 from pipeline.config.constants import (
     COLLAB_REQUEST_ACCEPT_WEIGHT,
-    COLLAB_REQUEST_REQUEST_WEIGHT,
+    COLLAB_REQUEST_WEIGHT,
     FAST_SKIP_WEIGHT,
     POST_COMMENT_LIKE_WEIGHT,
     POST_COMMENT_WEIGHT,
@@ -34,7 +34,7 @@ class AffinityScoreProcessor:
             )
 
         social_affinity = (
-            stats.collab_requests * COLLAB_REQUEST_REQUEST_WEIGHT
+            stats.collab_requests * COLLAB_REQUEST_WEIGHT
             + stats.collab_requests_accepted * COLLAB_REQUEST_ACCEPT_WEIGHT
         )
 
