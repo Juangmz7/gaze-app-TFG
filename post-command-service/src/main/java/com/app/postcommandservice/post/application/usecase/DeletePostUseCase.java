@@ -42,9 +42,16 @@ public class DeletePostUseCase {
         var deletedPost = postRepository.saveAndFlush(existingPost.delete());
 
         var outboxId = UUID.randomUUID();
+        var correlationId = UUID.randomUUID();
         var occurredAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
-        var event = postEventMapper.toPostDeletedEvent(deletedPost.getId().value(), occurredAt);
-        saveOutboxEvent(outboxId, event);
+        var event = postEventMapper.toPostDeletedEvent(
+                outboxId,
+                correlationId,
+                deletedPost.getId().value(),
+                deletedPost.getUserId().value(),
+                occurredAt
+        );
+        saveOutboxEvent(outboxId, correlationId, event);
 
         applicationEventPublisher.publishEvent(new PostDeletedDomainEvent(outboxId));
     }
@@ -55,11 +62,11 @@ public class DeletePostUseCase {
         }
     }
 
-    private void saveOutboxEvent(UUID outboxId, PostDeletedEvent event) {
+    private void saveOutboxEvent(UUID outboxId, UUID correlationId, PostDeletedEvent event) {
         outboxEventRepository.save(
                 OutboxEvent.builder()
                         .id(outboxId)
-                        .correlationId(UUID.randomUUID())
+                        .correlationId(correlationId)
                         .payload(jsonMapper.toJson(event))
                         .eventType(PostDeletedEvent.class.getSimpleName())
                         .status(EventStatus.PENDING)

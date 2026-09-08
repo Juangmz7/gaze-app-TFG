@@ -1,6 +1,8 @@
 package com.app.postcommandservice.comment.application.usecase;
 
 import java.util.UUID;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
@@ -75,7 +77,13 @@ public class CreateCommentUseCase {
         commentRequestIdempotencyRepository.save(command.correlationId(), savedComment.getId().value());
 
         var outboxId = UUID.randomUUID();
-        var event = commentEventMapper.toCommentCreatedEvent(savedComment);
+        var occurredAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        var event = commentEventMapper.toCommentCreatedEvent(
+                outboxId,
+                command.correlationId(),
+                savedComment,
+                occurredAt
+        );
         saveOutboxEvent(command.correlationId(), outboxId, event);
         applicationEventPublisher.publishEvent(new CommentCreatedDomainEvent(outboxId));
 
