@@ -1,23 +1,22 @@
+from pipeline.entity.post.post_features_entity import PostFeaturesRecord
+from pipeline.entity.post.post_tag_features_entity import PostTagFeaturesRecord
+from pipeline.entity.user.user_creator_features_entity import UserCreatorFeaturesRecord
+from pipeline.entity.user.user_features_entity import UserFeaturesRecord
 from pipeline.model.interaction.decayed_interaction_stats import DecayedInteractionStats
 from pipeline.model.interaction.raw_interaction_stats import RawInteractionStats
 from pipeline.model.post.post_features import PostFeatures
 from pipeline.model.post.post_tag_features import PostTagFeatures
 from pipeline.model.user.user_creator_features import UserCreatorFeatures
 from pipeline.model.user.user_features import UserFeatures
+from post.entity.collab_entity import CollabRecord
+from post.entity.user_post_comment_interaction_entity import (
+    UserPostCommentInteractionRecord,
+)
+from post.entity.user_post_interactions_entity import UserPostInteractionsRecord
 from post.model.collab import Collab
 from post.model.user_post_comment_interaction import UserPostCommentInteraction
 from post.model.user_post_interactions import UserPostInteractions
 from rabbitmq.event.post.post_events import CollabStatus
-
-from impl.repo_impl.models import (
-    CollabRecord,
-    PostFeaturesRecord,
-    PostTagFeaturesRecord,
-    UserCreatorFeaturesRecord,
-    UserFeaturesRecord,
-    UserPostCommentInteractionRecord,
-    UserPostInteractionsRecord,
-)
 
 
 def raw_stats_from_record(record) -> RawInteractionStats:

@@ -33,7 +33,6 @@ def _connect_args(database_url: str) -> dict[str, object]:
 
 engine = create_engine(
     DATABASE_URL,
-    future=True,
     pool_pre_ping=True,
     connect_args=_connect_args(DATABASE_URL),
 )
@@ -42,7 +41,6 @@ SessionFactory = sessionmaker(
     bind=engine,
     autoflush=False,
     expire_on_commit=False,
-    future=True,
 )
 
 _current_session: ContextVar[Session | None] = ContextVar("current_session", default=None)
@@ -85,6 +83,30 @@ class SQLAlchemyTransactionManager:
 
 
 def initialize_database(db_engine: Engine = engine) -> None:
-    from impl.repo_impl.models import Base
+    from block.entity import block_entity
+    from follow.entity import follow_entity
+    from pipeline.entity.post import post_features_entity, post_tag_features_entity
+    from pipeline.entity.user import user_creator_features_entity, user_features_entity
+    from post.entity import (
+        collab_entity,
+        comment_post_entity,
+        user_post_comment_interaction_entity,
+        user_post_interactions_entity,
+    )
+    from shared.entity import processed_event_entity
+    from shared.entity.base import Base
 
+    _ = (
+        block_entity,
+        follow_entity,
+        post_features_entity,
+        post_tag_features_entity,
+        user_creator_features_entity,
+        user_features_entity,
+        collab_entity,
+        comment_post_entity,
+        user_post_comment_interaction_entity,
+        user_post_interactions_entity,
+        processed_event_entity,
+    )
     Base.metadata.create_all(db_engine)

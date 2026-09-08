@@ -4,25 +4,41 @@ from block.usecase.delete_block_usecase import DeleteBlockUsecase
 from follow.service.follow_service import FollowService
 from follow.usecase.create_follow_usecase import CreateFollowUsecase
 from follow.usecase.delete_follow_usecase import DeleteFollowUsecase
-from impl.repo_impl.database import (
+from block.repository.impl.sql_alchemy_block_repository import SqlAlchemyBlockRepository
+from follow.repository.impl.sql_alchemy_follow_repository import SqlAlchemyFollowRepository
+from pipeline.repository.impl.sql_alchemy_post_features_repository import (
+    SqlAlchemyPostFeaturesRepository,
+)
+from pipeline.repository.impl.sql_alchemy_post_tag_features_repository import (
+    SqlAlchemyPostTagFeaturesRepository,
+)
+from pipeline.repository.impl.sql_alchemy_user_creator_features_repository import (
+    SqlAlchemyUserCreatorFeaturesRepository,
+)
+from pipeline.repository.impl.sql_alchemy_user_features_repository import (
+    SqlAlchemyUserFeaturesRepository,
+)
+from post.repository.impl.sql_alchemy_collab_repository import SqlAlchemyCollabRepository
+from post.repository.impl.sql_alchemy_comment_post_repository import (
+    SqlAlchemyCommentPostRepository,
+)
+from post.repository.impl.sql_alchemy_user_post_comment_interaction_repository import (
+    SqlAlchemyUserPostCommentInteractionRepository,
+)
+from post.repository.impl.sql_alchemy_user_post_interactions_repository import (
+    SqlAlchemyUserPostInteractionsRepository,
+)
+from shared.config.database import (
     SQLAlchemySessionProvider,
     SQLAlchemyTransactionManager,
     initialize_database,
 )
-from impl.repo_impl.repositories import (
-    SqlAlchemyBlockRepository,
-    SqlAlchemyCollabRepository,
-    SqlAlchemyCommentPostRepository,
-    SqlAlchemyFollowRepository,
-    SqlAlchemyPostFeaturesRepository,
-    SqlAlchemyPostTagFeaturesRepository,
+from shared.repository.impl.sql_alchemy_processed_events_repository import (
     SqlAlchemyProcessedEventsRepository,
-    SqlAlchemyUserCreatorFeaturesRepository,
-    SqlAlchemyUserFeaturesRepository,
-    SqlAlchemyUserPostCommentInteractionRepository,
-    SqlAlchemyUserPostInteractionsRepository,
 )
-from impl.repo_impl.semantic_embedding_repository_impl import HashSemanticEmbeddingRepository
+from pipeline.repository.impl.semantic_embedding_repository_impl import (
+    Queen06SemanticEmbeddingRepository,
+)
 from post.usecase.ban_post_usecase import BanPostUsecase
 from post.usecase.create_post_collab_request_usecase import CreatePostCollabRequestUsecase
 from post.usecase.create_post_collab_usecase import CreatePostCollabUsecase
@@ -127,7 +143,7 @@ class Container:
         self.block_repository = SqlAlchemyBlockRepository(self.session_provider)
         self.post_features_repository = SqlAlchemyPostFeaturesRepository(self.session_provider)
         self.post_tag_features_repository = SqlAlchemyPostTagFeaturesRepository(self.session_provider)
-        self.semantic_embedding_repository = HashSemanticEmbeddingRepository()
+        self.semantic_embedding_repository = Queen06SemanticEmbeddingRepository()
         self.user_creator_features_repository = SqlAlchemyUserCreatorFeaturesRepository(
             self.session_provider
         )
