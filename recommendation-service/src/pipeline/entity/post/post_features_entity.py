@@ -1,6 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import DateTime, Index, JSON, String
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import Uuid
@@ -19,5 +20,5 @@ class PostFeaturesRecord(Base):
     description: Mapped[str | None] = mapped_column(String, nullable=True)
     tags: Mapped[list[str]] = mapped_column(JSON, nullable=False)
     tagged_users_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False)
-    semantic_embedding: Mapped[list[float]] = mapped_column(JSON, nullable=False)
+    semantic_embedding: Mapped[list[float]] = mapped_column(Vector(1024), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
