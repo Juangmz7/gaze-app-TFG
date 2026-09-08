@@ -18,6 +18,7 @@ from pipeline.repository.impl.sql_alchemy_user_creator_features_repository impor
 from pipeline.repository.impl.sql_alchemy_user_features_repository import (
     SqlAlchemyUserFeaturesRepository,
 )
+from pipeline.service.semantic_embedding_model_service import SemanticEmbeddingModelService
 from post.repository.impl.sql_alchemy_collab_repository import SqlAlchemyCollabRepository
 from post.repository.impl.sql_alchemy_comment_post_repository import (
     SqlAlchemyCommentPostRepository,
@@ -35,9 +36,6 @@ from shared.config.database import (
 )
 from shared.repository.impl.sql_alchemy_processed_events_repository import (
     SqlAlchemyProcessedEventsRepository,
-)
-from pipeline.repository.impl.semantic_embedding_repository_impl import (
-    Queen06SemanticEmbeddingRepository,
 )
 from post.usecase.ban_post_usecase import BanPostUsecase
 from post.usecase.create_post_collab_request_usecase import CreatePostCollabRequestUsecase
@@ -143,7 +141,7 @@ class Container:
         self.block_repository = SqlAlchemyBlockRepository(self.session_provider)
         self.post_features_repository = SqlAlchemyPostFeaturesRepository(self.session_provider)
         self.post_tag_features_repository = SqlAlchemyPostTagFeaturesRepository(self.session_provider)
-        self.semantic_embedding_repository = Queen06SemanticEmbeddingRepository()
+        self.semantic_embedding_model_service = SemanticEmbeddingModelService()
         self.user_creator_features_repository = SqlAlchemyUserCreatorFeaturesRepository(
             self.session_provider
         )
@@ -176,11 +174,11 @@ class Container:
 
         self.create_post_usecase = CreatePostUsecase(
             self.post_features_repository,
-            self.semantic_embedding_repository,
+            self.semantic_embedding_model_service,
         )
         self.update_post_usecase = UpdatePostUsecase(
             self.post_features_repository,
-            self.semantic_embedding_repository,
+            self.semantic_embedding_model_service,
             self.collab_repository,
         )
         self.delete_post_usecase = DeletePostUsecase(self.post_features_repository)
@@ -194,12 +192,12 @@ class Container:
         self.create_post_collab_usecase = CreatePostCollabUsecase(
             self.collab_repository,
             self.post_features_repository,
-            self.semantic_embedding_repository,
+            self.semantic_embedding_model_service,
         )
         self.link_post_collab_usecase = LinkPostCollabUsecase(
             self.collab_repository,
             self.post_features_repository,
-            self.semantic_embedding_repository,
+            self.semantic_embedding_model_service,
         )
         self.delete_post_collab_usecase = DeletePostCollabUsecase(
             self.collab_repository,

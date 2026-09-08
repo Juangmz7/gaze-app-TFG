@@ -2,7 +2,7 @@ import logging
 
 from pipeline.model.post.post_features import PostFeatures
 from pipeline.repository.post_features_repository import PostFeaturesRepository
-from pipeline.repository.semantic_embedding_repository import SemanticEmbeddingRepository
+from pipeline.service.semantic_embedding_model_service import SemanticEmbeddingModelService
 from post.command.post_commands import LinkPostCollabCommand
 from post.repository.collab_repository import CollabRepository
 from shared.helpers import build_post_semantic_text
@@ -15,11 +15,11 @@ class LinkPostCollabUsecase:
             self,
             collab_repository: CollabRepository,
             post_features_repository: PostFeaturesRepository,
-            semantic_embedding_repository: SemanticEmbeddingRepository,
+            semantic_embedding_model_service: SemanticEmbeddingModelService,
     ):
         self.collab_repository = collab_repository
         self.post_features_repository = post_features_repository
-        self.semantic_embedding_repository = semantic_embedding_repository
+        self.semantic_embedding_model_service = semantic_embedding_model_service
 
     def execute(self, command: LinkPostCollabCommand) -> None:
         post_features = self.post_features_repository.get_post_features(command.post_id)
@@ -47,7 +47,7 @@ class LinkPostCollabUsecase:
                 description=command.description,
                 tags=list(command.post_tags),
                 tagged_users_ids=list(command.tagged_users),
-                semantic_embedding=self.semantic_embedding_repository.embed_post(semantic_text),
+                semantic_embedding=self.semantic_embedding_model_service.encode(semantic_text),
                 created_at=command.created_at,
             )
         )
