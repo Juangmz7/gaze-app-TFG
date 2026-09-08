@@ -32,7 +32,6 @@ from post.repository.impl.sql_alchemy_user_post_interactions_repository import (
 from shared.config.database import (
     SQLAlchemySessionProvider,
     SQLAlchemyTransactionManager,
-    initialize_database,
 )
 from shared.repository.impl.sql_alchemy_processed_events_repository import (
     SqlAlchemyProcessedEventsRepository,
@@ -131,7 +130,6 @@ from user.usecase.update_user_usecase import UpdateUserUsecase
 
 class Container:
     def __init__(self):
-        initialize_database()
         self.session_provider = SQLAlchemySessionProvider()
         self.transaction_manager = SQLAlchemyTransactionManager()
 
