@@ -1,22 +1,28 @@
-from block.repository.block_repository import BlockRepository
 from block.service.block_service import BlockService
 from block.usecase.create_block_usecase import CreateBlockUsecase
 from block.usecase.delete_block_usecase import DeleteBlockUsecase
-from follow.repository.follow_repository import FollowRepository
 from follow.service.follow_service import FollowService
 from follow.usecase.create_follow_usecase import CreateFollowUsecase
 from follow.usecase.delete_follow_usecase import DeleteFollowUsecase
-from pipeline.repository.post_features_repository import PostFeaturesRepository
-from pipeline.repository.post_tag_features_repository import PostTagFeaturesRepository
-from pipeline.repository.semantic_embedding_repository import SemanticEmbeddingRepository
-from pipeline.repository.user_creator_features_repository import UserCreatorFeaturesRepository
-from pipeline.repository.user_features_repository import UserFeaturesRepository
-from post.repository.collab_repository import CollabRepository
-from post.repository.comment_post_repository import CommentPostRepository
-from post.repository.user_post_comment_interaction_repository import (
-    UserPostCommentInteractionRepository,
+from impl.repo_impl.database import (
+    SQLAlchemySessionProvider,
+    SQLAlchemyTransactionManager,
+    initialize_database,
 )
-from post.repository.user_post_interactions_repository import UserPostInteractionsRepository
+from impl.repo_impl.repositories import (
+    SqlAlchemyBlockRepository,
+    SqlAlchemyCollabRepository,
+    SqlAlchemyCommentPostRepository,
+    SqlAlchemyFollowRepository,
+    SqlAlchemyPostFeaturesRepository,
+    SqlAlchemyPostTagFeaturesRepository,
+    SqlAlchemyProcessedEventsRepository,
+    SqlAlchemyUserCreatorFeaturesRepository,
+    SqlAlchemyUserFeaturesRepository,
+    SqlAlchemyUserPostCommentInteractionRepository,
+    SqlAlchemyUserPostInteractionsRepository,
+)
+from impl.repo_impl.semantic_embedding_repository_impl import HashSemanticEmbeddingRepository
 from post.usecase.ban_post_usecase import BanPostUsecase
 from post.usecase.create_post_collab_request_usecase import CreatePostCollabRequestUsecase
 from post.usecase.create_post_collab_usecase import CreatePostCollabUsecase
@@ -104,7 +110,6 @@ from rabbitmq.handler.user.user_registered_event_handler import UserRegisteredEv
 from rabbitmq.handler.user.user_updated_event_handler import UserUpdatedEventHandler
 from rabbitmq.listener.post_event_listener import PostEventListener
 from rabbitmq.listener.user_event_listener import UserEventListener
-from shared.repository.processed_events_repository import ProcessedEventsRepository
 from user.usecase.delete_user_usecase import DeleteUserUsecase
 from user.usecase.register_user_usecase import RegisterUserUsecase
 from user.usecase.update_user_usecase import UpdateUserUsecase
@@ -112,19 +117,29 @@ from user.usecase.update_user_usecase import UpdateUserUsecase
 
 class Container:
     def __init__(self):
-        self.processed_events_repository = ProcessedEventsRepository()
+        initialize_database()
+        self.session_provider = SQLAlchemySessionProvider()
+        self.transaction_manager = SQLAlchemyTransactionManager()
 
-        self.follow_repository = FollowRepository()
-        self.block_repository = BlockRepository()
-        self.post_features_repository = PostFeaturesRepository()
-        self.post_tag_features_repository = PostTagFeaturesRepository()
-        self.semantic_embedding_repository = SemanticEmbeddingRepository()
-        self.user_creator_features_repository = UserCreatorFeaturesRepository()
-        self.user_features_repository = UserFeaturesRepository()
-        self.collab_repository = CollabRepository()
-        self.comment_post_repository = CommentPostRepository()
-        self.user_post_interactions_repository = UserPostInteractionsRepository()
-        self.user_post_comment_interaction_repository = UserPostCommentInteractionRepository()
+        self.processed_events_repository = SqlAlchemyProcessedEventsRepository(self.session_provider)
+
+        self.follow_repository = SqlAlchemyFollowRepository(self.session_provider)
+        self.block_repository = SqlAlchemyBlockRepository(self.session_provider)
+        self.post_features_repository = SqlAlchemyPostFeaturesRepository(self.session_provider)
+        self.post_tag_features_repository = SqlAlchemyPostTagFeaturesRepository(self.session_provider)
+        self.semantic_embedding_repository = HashSemanticEmbeddingRepository()
+        self.user_creator_features_repository = SqlAlchemyUserCreatorFeaturesRepository(
+            self.session_provider
+        )
+        self.user_features_repository = SqlAlchemyUserFeaturesRepository(self.session_provider)
+        self.collab_repository = SqlAlchemyCollabRepository(self.session_provider)
+        self.comment_post_repository = SqlAlchemyCommentPostRepository(self.session_provider)
+        self.user_post_interactions_repository = SqlAlchemyUserPostInteractionsRepository(
+            self.session_provider
+        )
+        self.user_post_comment_interaction_repository = (
+            SqlAlchemyUserPostCommentInteractionRepository(self.session_provider)
+        )
 
         self.follow_service = FollowService(self.follow_repository)
         self.block_service = BlockService(self.block_repository, self.follow_service)
@@ -388,12 +403,13 @@ class Container:
         self.user_event_listener = UserEventListener(
             self.processed_events_repository,
             self.user_event_handlers,
+            self.transaction_manager,
         )
         self.post_event_listener = PostEventListener(
             self.processed_events_repository,
             self.post_event_handlers,
+            self.transaction_manager,
         )
 
 
 container = Container()
-

@@ -10,4 +10,5 @@ class CreateFollowUsecase:
         self.follow_service.create_follow(
             follower_user_id=command.follower_user_id,
             followed_user_id=command.followed_user_id,
+            created_at=command.occurred_at,
         )

@@ -1,4 +1,5 @@
 import logging
+from contextlib import nullcontext
 from typing import Any, Mapping
 
 from faststream.rabbit import RabbitMessage
@@ -18,9 +19,11 @@ class PostEventListener:
             self,
             processed_events_repository: ProcessedEventsRepository,
             handlers: Mapping[PostRoutingKey, tuple[type[EventMessage], Any]],
+            transaction_manager: Any | None = None,
     ):
         self.processed_events_repository = processed_events_repository
         self.handlers = handlers
+        self.transaction_manager = transaction_manager
 
     async def handle_event(
         self,
@@ -38,22 +41,28 @@ class PostEventListener:
                 f"Unsupported post routing key: {raw_routing_key}"
             ) from exc
 
-        if self.processed_events_repository.isAlreadyProcessed(
-            correlation_id=event.correlationId,
-            event_id=event.id,
-        ):
-            logger.warning("Duplicate post event detected, discarding: event_id=%s, correlation_id=%s",
-                            event.id, event.correlationId)
-            return
-
-        logger.debug("Dispatching to handler for routing_key=%s", raw_routing_key)
-        event_name = await self._match_routing_key_handler(routing_key, event)
-        
-        self.processed_events_repository.setEventAsProcessed(
-            correlation_id=event.correlationId,
-            event_id=event.id,
-            event_name=event_name,
+        transaction = (
+            self.transaction_manager.transaction()
+            if self.transaction_manager is not None
+            else nullcontext()
         )
+        with transaction:
+            if self.processed_events_repository.isAlreadyProcessed(
+                correlation_id=event.correlationId,
+                event_id=event.id,
+            ):
+                logger.warning("Duplicate post event detected, discarding: event_id=%s, correlation_id=%s",
+                                event.id, event.correlationId)
+                return
+
+            logger.debug("Dispatching to handler for routing_key=%s", raw_routing_key)
+            event_name = await self._match_routing_key_handler(routing_key, event)
+
+            self.processed_events_repository.setEventAsProcessed(
+                correlation_id=event.correlationId,
+                event_id=event.id,
+                event_name=event_name,
+            )
         logger.info("Post event processed successfully: event_name=%s, event_id=%s, correlation_id=%s",
                       event_name, event.id, event.correlationId)
 

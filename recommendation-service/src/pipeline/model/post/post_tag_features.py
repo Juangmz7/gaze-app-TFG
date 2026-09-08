@@ -19,7 +19,7 @@ class PostTagFeatures:
         self.tag_name = tag_name
         self.raw_interaction_stats = raw_interaction_stats
         self.decayed_interaction_stats = decayed_interaction_stats
-        self.affinity_score = self.calculate_affinity_score(self.decayed_interaction_stats)
+        self.affinity_score = self.calculate_affinity_score()
         self.last_updated_at = last_updated_at
 
     def calculate_affinity_score(self) -> float:
@@ -28,4 +28,3 @@ class PostTagFeatures:
 
     def recalculate_affinity_score(self) -> None:
         self.affinity_score = self.calculate_affinity_score()
-

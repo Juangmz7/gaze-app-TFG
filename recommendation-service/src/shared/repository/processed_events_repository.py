@@ -1,12 +1,12 @@
+from abc import ABC, abstractmethod
 from uuid import UUID
 
 
-class ProcessedEventsRepository:
-    def __init__(self):
+class ProcessedEventsRepository(ABC):
+    @abstractmethod
+    def isAlreadyProcessed(self, event_id: UUID, correlation_id: UUID) -> bool:
         pass
 
-    def isAlreadyProcessed(self, event_id: UUID, correlation_id: UUID) -> bool:
-        return False
-
+    @abstractmethod
     def setEventAsProcessed(self, event_id: UUID, correlation_id: UUID, event_name: str) -> None:
         pass

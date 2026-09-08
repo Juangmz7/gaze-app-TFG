@@ -1,10 +1,15 @@
 
+from abc import ABC, abstractmethod
+from uuid import UUID
+
 from pipeline.model.user.user_features import UserFeatures
 
 
-class UserFeaturesRepository:
-    def get_user_features(self, user_id: str) -> UserFeatures:
+class UserFeaturesRepository(ABC):
+    @abstractmethod
+    def get_user_features(self, user_id: UUID) -> UserFeatures | None:
         pass
 
+    @abstractmethod
     def save(self, user_features: UserFeatures) -> None:
         pass

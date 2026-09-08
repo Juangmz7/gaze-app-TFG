@@ -20,6 +20,7 @@ class RawInteractionStats():
         self.comments = comments
         self.commentsLikes = commentsLikes
         self.shares = shares
+        self.fast_skips = fast_skips
         self.skips = fast_skips
         self.collab_requests = collab_requests
         self.collab_requests_accepted = collab_requests_accepted

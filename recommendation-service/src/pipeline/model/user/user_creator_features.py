@@ -17,7 +17,7 @@ class UserCreatorFeatures:
         self.creator_id = creator_id
         self.raw_interaction_stats = raw_interaction_stats
         self.decayed_interaction_stats = decayed_interaction_stats
-        self.affinity_score = self.calculate_affinity_score(self.decayed_interaction_stats)
+        self.affinity_score = self.calculate_affinity_score()
         self.last_updated_at = last_updated_at
 
     def calculate_affinity_score(self) -> float:
@@ -26,4 +26,3 @@ class UserCreatorFeatures:
 
     def recalculate_affinity_score(self) -> None:
         self.affinity_score = self.calculate_affinity_score()
-
