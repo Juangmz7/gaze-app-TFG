@@ -4,7 +4,10 @@ from rabbitmq.event.post.post_events import PostCollabDeletedEvent
 
 
 class PostCollabDeletedEventHandler:
-    async def handle(event: PostCollabDeletedEvent) -> str:
+    def __init__(self, delete_post_collab_usecase: DeletePostCollabUsecase):
+        self.delete_post_collab_usecase = delete_post_collab_usecase
+
+    async def handle(self, event: PostCollabDeletedEvent) -> str:
         command = DeletePostCollabCommand(
             event_id=event.id,
             correlation_id=event.correlationId,
@@ -12,5 +15,5 @@ class PostCollabDeletedEventHandler:
             collab_id=event.collabId,
             actioned_by=event.actionedBy,
         )
-        DeletePostCollabUsecase.execute(command)
+        self.delete_post_collab_usecase.execute(command)
         return event.__class__.__name__

@@ -4,7 +4,10 @@ from rabbitmq.event.user.user_events import UserFollowDeletedEvent
 
 
 class FollowDeletedEventHandler:
-    async def handle(event: UserFollowDeletedEvent) -> str:
+    def __init__(self, delete_follow_usecase: DeleteFollowUsecase):
+        self.delete_follow_usecase = delete_follow_usecase
+
+    async def handle(self, event: UserFollowDeletedEvent) -> str:
         command = DeleteFollowCommand(
             event_id=event.id,
             correlation_id=event.correlationId,
@@ -12,5 +15,5 @@ class FollowDeletedEventHandler:
             follower_user_id=event.followerUserId,
             followed_user_id=event.followedUserId,
         )
-        DeleteFollowUsecase.execute(command)
+        self.delete_follow_usecase.execute(command)
         return event.__class__.__name__

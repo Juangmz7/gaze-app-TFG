@@ -4,7 +4,10 @@ from rabbitmq.event.post.post_events import PostViewedEvent
 
 
 class PostViewedEventHandler:
-    async def handle(event: PostViewedEvent) -> str:
+    def __init__(self, register_post_view_usecase: RegisterPostViewUsecase):
+        self.register_post_view_usecase = register_post_view_usecase
+
+    async def handle(self, event: PostViewedEvent) -> str:
         command = RegisterPostViewCommand(
             event_id=event.id,
             correlation_id=event.correlationId,
@@ -21,5 +24,5 @@ class PostViewedEventHandler:
             server_timestamp=event.serverTimestamp,
             replay_count=event.replayCount,
         )
-        RegisterPostViewUsecase.execute(command)
+        self.register_post_view_usecase.execute(command)
         return event.__class__.__name__

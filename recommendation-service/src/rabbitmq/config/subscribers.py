@@ -5,12 +5,11 @@ from rabbitmq.config.constants import (
     USER_QUEUE,
 )
 from rabbitmq.config.connection import broker
-from rabbitmq.listener.post_event_listener import PostEventListener
-from rabbitmq.listener.user_event_listener import UserEventListener
+from shared.config.containers import container
 
 
-user_event_handler = UserEventListener()
-post_event_handler = PostEventListener()
+user_event_listener = container.user_event_listener
+post_event_listener = container.post_event_listener
 
 
 broker.subscriber(
@@ -18,7 +17,7 @@ broker.subscriber(
         USER_QUEUE,
         declare=False,
     )
-)(user_event_handler.handle_event)
+)(user_event_listener.handle_event)
 
 
 broker.subscriber(
@@ -26,4 +25,4 @@ broker.subscriber(
         POST_QUEUE,
         declare=False,
     )
-)(post_event_handler.handle_event)
+)(post_event_listener.handle_event)

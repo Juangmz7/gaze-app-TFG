@@ -4,11 +4,14 @@ from rabbitmq.event.post.post_events import PostFeedExhaustedEvent
 
 
 class PostFeedExhaustedEventHandler:
-    async def handle(event: PostFeedExhaustedEvent) -> str:
+    def __init__(self, exhaust_post_feed_usecase: ExhaustPostFeedUsecase):
+        self.exhaust_post_feed_usecase = exhaust_post_feed_usecase
+
+    async def handle(self, event: PostFeedExhaustedEvent) -> str:
         command = ExhaustPostFeedCommand(
             event_id=event.id,
             correlation_id=event.correlationId,
             occurred_at=event.occurredAt,
         )
-        ExhaustPostFeedUsecase.execute(command)
+        self.exhaust_post_feed_usecase.execute(command)
         return event.__class__.__name__

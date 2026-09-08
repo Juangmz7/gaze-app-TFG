@@ -10,8 +10,7 @@ logger = logging.getLogger(__name__)
 
 class PostLikeCreatedEventHandler:
     def __init__(self, create_post_like_usecase: CreatePostLikeUsecase):
-        self.createPostLikeUsecase = create_post_like_usecase
-
+        self.create_post_like_usecase = create_post_like_usecase
 
     async def handle(self, event: PostLikeCreatedEvent) -> str:
         command = CreatePostLikeCommand(
@@ -22,10 +21,9 @@ class PostLikeCreatedEventHandler:
             user_id=event.userId,
             source=event.source,
             feed_position=event.feedPosition,
-            created_at=event.createdAt,
         )
         try:
-            self.createPostLikeUsecase.execute(command)
+            self.create_post_like_usecase.execute(command)
 
         except DontRequeuePipelineException as exc:
             logger.warning("Pipeline exception: %s", exc)

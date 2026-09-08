@@ -4,7 +4,10 @@ from rabbitmq.event.user.user_events import UserBlockDeletedEvent
 
 
 class BlockDeletedEventHandler:
-    async def handle(event: UserBlockDeletedEvent) -> str:
+    def __init__(self, delete_block_usecase: DeleteBlockUsecase):
+        self.delete_block_usecase = delete_block_usecase
+
+    async def handle(self, event: UserBlockDeletedEvent) -> str:
         command = DeleteBlockCommand(
             event_id=event.id,
             correlation_id=event.correlationId,
@@ -12,5 +15,5 @@ class BlockDeletedEventHandler:
             blocker_user_id=event.blockerUserId,
             blocked_user_id=event.blockedUserId,
         )
-        DeleteBlockUsecase.execute(command)
+        self.delete_block_usecase.execute(command)
         return event.__class__.__name__

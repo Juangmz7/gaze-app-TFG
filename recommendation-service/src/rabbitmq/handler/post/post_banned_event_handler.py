@@ -4,11 +4,14 @@ from rabbitmq.event.post.post_events import PostBannedEvent
 
 
 class PostBannedEventHandler:
-    async def handle(event: PostBannedEvent) -> str:
+    def __init__(self, ban_post_usecase: BanPostUsecase):
+        self.ban_post_usecase = ban_post_usecase
+
+    async def handle(self, event: PostBannedEvent) -> str:
         command = BanPostCommand(
             event_id=event.id,
             correlation_id=event.correlationId,
             occurred_at=event.occurredAt,
         )
-        BanPostUsecase.execute(command)
+        self.ban_post_usecase.execute(command)
         return event.__class__.__name__
