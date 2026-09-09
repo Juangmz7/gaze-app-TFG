@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from sqlalchemy import insert, update
+from sqlalchemy import insert, select, update
 
 from pipeline.entity.user.user_features_entity import UserFeaturesRecord
 from pipeline.model.user.user_features import UserFeatures
@@ -14,8 +14,18 @@ class SqlAlchemyUserFeaturesRepository(UserFeaturesRepository):
         self.session_provider = session_provider
 
     def get_user_features(self, user_id: UUID) -> UserFeatures | None:
+        return self._get_user_features(user_id, for_update=False)
+
+    def get_user_features_for_update(self, user_id: UUID) -> UserFeatures | None:
+        return self._get_user_features(user_id, for_update=True)
+
+    def _get_user_features(self, user_id: UUID, *, for_update: bool) -> UserFeatures | None:
         with self.session_provider.session() as session:
-            record = session.get(UserFeaturesRecord, user_id)
+            statement = select(UserFeaturesRecord).where(UserFeaturesRecord.user_id == user_id)
+            if for_update:
+                statement = statement.with_for_update()
+
+            record = session.scalar(statement)
             return user_features_from_record(record) if record is not None else None
 
     def save(self, user_features: UserFeatures) -> None:

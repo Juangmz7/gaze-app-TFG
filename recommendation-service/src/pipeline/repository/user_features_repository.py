@@ -11,5 +11,9 @@ class UserFeaturesRepository(ABC):
         pass
 
     @abstractmethod
+    def get_user_features_for_update(self, user_id: UUID) -> UserFeatures | None:
+        pass
+
+    @abstractmethod
     def save(self, user_features: UserFeatures) -> None:
         pass

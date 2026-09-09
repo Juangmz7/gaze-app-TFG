@@ -16,17 +16,42 @@ class SqlAlchemyPostTagFeaturesRepository(PostTagFeaturesRepository):
     def __init__(self, session_provider: SQLAlchemySessionProvider):
         self.session_provider = session_provider
 
+    def get_post_tag_features(self, user_id: UUID, tags: list[str]) -> list[PostTagFeatures]:
+        return self._get_post_tag_features(user_id, tags, for_update=False)
+
+    def get_post_tag_features_for_update(
+        self,
+        user_id: UUID,
+        tags: list[str],
+    ) -> list[PostTagFeatures]:
+        return self._get_post_tag_features(user_id, tags, for_update=True)
+
     def getPostsTagsFeatures(self, user_id: UUID, tags: list[str]) -> list[PostTagFeatures]:
+        return self.get_post_tag_features(user_id, tags)
+
+    def _get_post_tag_features(
+        self,
+        user_id: UUID,
+        tags: list[str],
+        *,
+        for_update: bool,
+    ) -> list[PostTagFeatures]:
         if not tags:
             return []
 
         with self.session_provider.session() as session:
-            records = session.scalars(
-                select(PostTagFeaturesRecord).where(
+            statement = (
+                select(PostTagFeaturesRecord)
+                .where(
                     PostTagFeaturesRecord.user_id == user_id,
                     PostTagFeaturesRecord.tag_name.in_(tags),
                 )
-            ).all()
+                .order_by(PostTagFeaturesRecord.tag_name)
+            )
+            if for_update:
+                statement = statement.with_for_update()
+
+            records = session.scalars(statement).all()
             return [post_tag_features_from_record(record) for record in records]
 
     def save_all(self, post_tag_features: list[PostTagFeatures]) -> None:

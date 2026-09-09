@@ -2,7 +2,6 @@ from uuid import UUID
 
 from sqlalchemy import insert, select, update
 
-from pipeline.entity.post.post_features_entity import PostFeaturesRecord
 from pipeline.entity.user.user_creator_features_entity import UserCreatorFeaturesRecord
 from pipeline.model.user.user_creator_features import UserCreatorFeatures
 from pipeline.repository.user_creator_features_repository import UserCreatorFeaturesRepository
@@ -19,22 +18,38 @@ class SqlAlchemyUserCreatorFeaturesRepository(UserCreatorFeaturesRepository):
 
     def get_user_creator_features(
         self,
-        post_id: UUID,
         user_id: UUID,
+        creator_id: UUID,
+    ) -> UserCreatorFeatures | None:
+        return self._get_user_creator_features(user_id, creator_id, for_update=False)
+
+    def get_user_creator_features_for_update(
+        self,
+        user_id: UUID,
+        creator_id: UUID,
+    ) -> UserCreatorFeatures | None:
+        return self._get_user_creator_features(user_id, creator_id, for_update=True)
+
+    def _get_user_creator_features(
+        self,
+        user_id: UUID,
+        creator_id: UUID,
+        *,
+        for_update: bool,
     ) -> UserCreatorFeatures | None:
         with self.session_provider.session() as session:
-            record = session.scalars(
+            statement = (
                 select(UserCreatorFeaturesRecord)
-                .join(
-                    PostFeaturesRecord,
-                    PostFeaturesRecord.creator_id == UserCreatorFeaturesRecord.creator_id,
-                )
                 .where(
-                    PostFeaturesRecord.post_id == post_id,
                     UserCreatorFeaturesRecord.user_id == user_id,
+                    UserCreatorFeaturesRecord.creator_id == creator_id,
                 )
                 .limit(1)
-            ).first()
+            )
+            if for_update:
+                statement = statement.with_for_update()
+
+            record = session.scalars(statement).first()
             return user_creator_features_from_record(record) if record is not None else None
 
     def save(self, user_creator_features: UserCreatorFeatures) -> None:
