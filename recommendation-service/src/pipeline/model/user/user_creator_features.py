@@ -4,6 +4,8 @@ from uuid import UUID
 from pipeline.model.interaction.decayed_interaction_stats import DecayedInteractionStats
 from pipeline.model.interaction.raw_interaction_stats import RawInteractionStats
 from pipeline.model.interaction.affinity_score_processor import AffinityScoreProcessor
+from pipeline.model.interaction.interaction_metric_update import InteractionMetricUpdate
+from shared.helpers import decay
 
 class UserCreatorFeatures:
     def __init__(
@@ -26,3 +28,21 @@ class UserCreatorFeatures:
 
     def recalculate_affinity_score(self) -> None:
         self.affinity_score = self.calculate_affinity_score()
+
+    def apply_interaction_updates(
+            self,
+            updates: list[InteractionMetricUpdate],
+            occurred_at: datetime,
+    ) -> None:
+        for update in updates:
+            if update.raw_delta is not None:
+                self.raw_interaction_stats.increment(update.metric, update.raw_delta)
+
+        factor = decay(self.last_updated_at, occurred_at)
+        self.decayed_interaction_stats.apply_decay(factor)
+        for update in updates:
+            if update.decayed_delta is not None:
+                self.decayed_interaction_stats.increment(update.metric, update.decayed_delta)
+
+        self.recalculate_affinity_score()
+        self.last_updated_at = occurred_at

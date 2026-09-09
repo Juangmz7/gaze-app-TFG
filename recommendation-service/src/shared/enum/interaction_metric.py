@@ -31,7 +31,4 @@ class InteractionMetric(StrEnum):
 
     @property
     def _stats_attribute(self) -> str:
-        if self is InteractionMetric.COMMENT_LIKES:
-            return "commentsLikes"
-
         return self.value
