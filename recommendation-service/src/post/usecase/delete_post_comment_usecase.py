@@ -10,6 +10,7 @@ from post.model.user_post_interactions import UserPostInteractions
 from post.repository.comment_post_repository import CommentPostRepository
 from post.repository.user_post_interactions_repository import UserPostInteractionsRepository
 from post.usecase.post_interaction_updater import PostInteractionUpdater
+from shared.enum.interaction_metric import InteractionMetric
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +45,7 @@ class DeletePostCommentInteractionUsecase:
         self.post_interaction_updater.apply(
             post_id=command.post_id,
             user_id=command.user_id,
-            metric_name="comments",
+            metric_name=InteractionMetric.COMMENTS,
             raw_delta=-1,
             embedding_weight=weight,
         )

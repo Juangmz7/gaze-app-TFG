@@ -11,6 +11,7 @@ from post.repository.user_post_comment_interaction_repository import (
     UserPostCommentInteractionRepository,
 )
 from post.usecase.post_interaction_updater import PostInteractionUpdater
+from shared.enum.interaction_metric import InteractionMetric
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +45,7 @@ class DeletePostCommentLikeInteractionUsecase:
         self.post_interaction_updater.apply(
             post_id=post_id,
             user_id=command.user_id,
-            metric_name="commentsLikes",
+            metric_name=InteractionMetric.COMMENT_LIKES,
             raw_delta=-1,
             embedding_weight=-(POST_COMMENT_LIKE_WEIGHT * POST_COMMENT_UNLIKE_PENALISATION_WEIGHT),
             source=command.source,

@@ -6,6 +6,7 @@ from post.model.user_post_interactions import UserPostInteractions
 from post.repository.collab_repository import CollabRepository
 from post.repository.user_post_interactions_repository import UserPostInteractionsRepository
 from post.usecase.post_interaction_updater import PostInteractionUpdater
+from shared.enum.interaction_metric import InteractionMetric
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,7 @@ class CreatePostCollabRequestInteractionUsecase:
         self.post_interaction_updater.apply(
             post_id=post_id,
             user_id=command.user_id,
-            metric_name="collab_requests",
+            metric_name=InteractionMetric.COLLAB_REQUESTS,
             raw_delta=1,
             embedding_weight=COLLAB_REQUEST_WEIGHT,
         )

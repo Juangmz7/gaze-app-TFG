@@ -14,6 +14,7 @@ from pipeline.repository.post_tag_features_repository import PostTagFeaturesRepo
 from pipeline.repository.user_creator_features_repository import UserCreatorFeaturesRepository
 from pipeline.repository.user_features_repository import UserFeaturesRepository
 from rabbitmq.event.post.post_events import InteractionSource
+from shared.enum.interaction_metric import InteractionMetric
 from shared.helpers import decay, get_view_source_weight
 
 logger = logging.getLogger(__name__)
@@ -36,7 +37,7 @@ class PostInteractionUpdater:
             self,
             post_id: UUID,
             user_id: UUID,
-            metric_name: str,
+            metric_name: InteractionMetric,
             raw_delta: int,
             embedding_weight: float,
             source: InteractionSource | None = None,
@@ -95,23 +96,25 @@ class PostInteractionUpdater:
     def _update_raw_interaction_stats(
             self,
             interaction_stats: list[RawInteractionStats],
-            metric_name: str,
+            metric_name: InteractionMetric,
             raw_delta: int,
     ) -> None:
+        metric_attribute = metric_name.raw_stats_attribute
         for stats in interaction_stats:
-            setattr(stats, metric_name, getattr(stats, metric_name) + raw_delta)
+            setattr(stats, metric_attribute, getattr(stats, metric_attribute) + raw_delta)
 
     def _update_decayed_interaction_stats(
             self,
             decayed_interaction_stats: list[tuple[DecayedInteractionStats, datetime]],
-            metric_name: str,
+            metric_name: InteractionMetric,
             weight: float,
     ) -> None:
+        metric_attribute = metric_name.decayed_stats_attribute
         for stats, last_updated_at in decayed_interaction_stats:
             setattr(
                 stats,
-                metric_name,
-                getattr(stats, metric_name) * decay(last_updated_at) + weight,
+                metric_attribute,
+                getattr(stats, metric_attribute) * decay(last_updated_at) + weight,
             )
 
     def _update_user_semantic_embedding(
