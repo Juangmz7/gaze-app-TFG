@@ -160,6 +160,7 @@ class Container:
             post_tag_features_repository=self.post_tag_features_repository,
             user_features_repository=self.user_features_repository,
             post_features_repository=self.post_features_repository,
+            transaction_manager=self.transaction_manager,
         )
 
         self.create_follow_usecase = CreateFollowUsecase(self.follow_service)

@@ -1,5 +1,7 @@
 from datetime import datetime
 import logging
+from contextlib import nullcontext
+from typing import Any, Sequence
 from uuid import UUID
 
 from pipeline.exceptions.exceptions import (
@@ -7,15 +9,13 @@ from pipeline.exceptions.exceptions import (
     PostTagFeaturesNotFoundException,
     UserCreatorFeaturesNotFoundException,
 )
-from pipeline.model.interaction.decayed_interaction_stats import DecayedInteractionStats
-from pipeline.model.interaction.raw_interaction_stats import RawInteractionStats
+from pipeline.model.interaction.interaction_metric_update import InteractionMetricUpdate
 from pipeline.repository.post_features_repository import PostFeaturesRepository
 from pipeline.repository.post_tag_features_repository import PostTagFeaturesRepository
 from pipeline.repository.user_creator_features_repository import UserCreatorFeaturesRepository
 from pipeline.repository.user_features_repository import UserFeaturesRepository
 from rabbitmq.event.post.post_events import InteractionSource
-from shared.enum.interaction_metric import InteractionMetric
-from shared.helpers import decay, get_view_source_weight
+from shared.helpers import get_view_source_weight
 
 logger = logging.getLogger(__name__)
 
@@ -27,95 +27,75 @@ class PostInteractionUpdater:
             post_tag_features_repository: PostTagFeaturesRepository,
             user_features_repository: UserFeaturesRepository,
             post_features_repository: PostFeaturesRepository,
+            transaction_manager: Any | None = None,
     ):
         self.user_creator_features_repository = user_creator_features_repository
         self.post_tag_features_repository = post_tag_features_repository
         self.user_features_repository = user_features_repository
         self.post_features_repository = post_features_repository
+        self.transaction_manager = transaction_manager
 
     def apply(
             self,
             post_id: UUID,
             user_id: UUID,
-            metric_name: InteractionMetric,
-            raw_delta: int,
+            metric_updates: Sequence[InteractionMetricUpdate],
             embedding_weight: float,
+            occurred_at: datetime,
             source: InteractionSource | None = None,
     ) -> None:
-        user_creator_features = self.user_creator_features_repository.get_user_creator_features(
-            post_id, user_id
+        updates = list(metric_updates)
+        if not updates:
+            raise ValueError("At least one interaction metric update is required")
+
+        transaction = (
+            self.transaction_manager.transaction()
+            if self.transaction_manager is not None
+            else nullcontext()
         )
-        if user_creator_features is None:
-            raise UserCreatorFeaturesNotFoundException(post_id, user_id)
+        with transaction:
+            post_features = self.post_features_repository.get_post_features(post_id)
+            if post_features is None:
+                raise PostFeaturesNotFoundException(post_id)
 
-        post_features = self.post_features_repository.get_post_features(post_id)
-        if post_features is None:
-            raise PostFeaturesNotFoundException(post_id)
-
-        post_tags_features = self.post_tag_features_repository.getPostsTagsFeatures(
-            user_id,
-            post_features.tags,
-        )
-        if post_tags_features is None:
-            raise PostTagFeaturesNotFoundException(post_id)
-
-        raw_stats = [tag_features.raw_interaction_stats for tag_features in post_tags_features]
-        raw_stats.append(user_creator_features.raw_interaction_stats)
-        self._update_raw_interaction_stats(raw_stats, metric_name, raw_delta)
-
-        decayed_stats = [
-            (tag_features.decayed_interaction_stats, tag_features.last_updated_at)
-            for tag_features in post_tags_features
-        ]
-        decayed_stats.append(
-            (
-                user_creator_features.decayed_interaction_stats,
-                user_creator_features.last_updated_at,
+            user_creator_features = (
+                self.user_creator_features_repository.get_user_creator_features_for_update(
+                    user_id,
+                    post_features.creator_id,
+                )
             )
-        )
-        self._update_decayed_interaction_stats(
-            decayed_stats,
-            metric_name,
-            embedding_weight,
-        )
+            if user_creator_features is None:
+                raise UserCreatorFeaturesNotFoundException(post_id, user_id)
 
-        user_creator_features.recalculate_affinity_score()
-        for post_tag_feature in post_tags_features:
-            post_tag_feature.recalculate_affinity_score()
-
-        self._update_user_semantic_embedding(
-            user_id,
-            post_features.semantic_embedding,
-            embedding_weight,
-            source,
-        )
-
-        self.user_creator_features_repository.save(user_creator_features)
-        self.post_tag_features_repository.save_all(post_tags_features)
-
-    def _update_raw_interaction_stats(
-            self,
-            interaction_stats: list[RawInteractionStats],
-            metric_name: InteractionMetric,
-            raw_delta: int,
-    ) -> None:
-        metric_attribute = metric_name.raw_stats_attribute
-        for stats in interaction_stats:
-            setattr(stats, metric_attribute, getattr(stats, metric_attribute) + raw_delta)
-
-    def _update_decayed_interaction_stats(
-            self,
-            decayed_interaction_stats: list[tuple[DecayedInteractionStats, datetime]],
-            metric_name: InteractionMetric,
-            weight: float,
-    ) -> None:
-        metric_attribute = metric_name.decayed_stats_attribute
-        for stats, last_updated_at in decayed_interaction_stats:
-            setattr(
-                stats,
-                metric_attribute,
-                getattr(stats, metric_attribute) * decay(last_updated_at) + weight,
+            post_tags_features = self.post_tag_features_repository.get_post_tag_features_for_update(
+                user_id,
+                post_features.tags,
             )
+            expected_tags = set(post_features.tags)
+            found_tags = {features.tag_name for features in post_tags_features}
+            if found_tags != expected_tags:
+                raise PostTagFeaturesNotFoundException(post_id)
+
+            user_creator_features.apply_interaction_updates(
+                updates,
+                occurred_at,
+            )
+            for post_tag_feature in post_tags_features:
+                post_tag_feature.apply_interaction_updates(
+                    updates,
+                    occurred_at,
+                )
+
+            self._update_user_semantic_embedding(
+                user_id,
+                post_features.semantic_embedding,
+                embedding_weight,
+                source,
+                occurred_at,
+            )
+
+            self.user_creator_features_repository.save(user_creator_features)
+            self.post_tag_features_repository.save_all(post_tags_features)
 
     def _update_user_semantic_embedding(
             self,
@@ -123,28 +103,18 @@ class PostInteractionUpdater:
             post_semantic_embedding: list[float],
             weight: float,
             source: InteractionSource | None,
+            occurred_at: datetime,
     ) -> None:
-        user_features = self.user_features_repository.get_user_features(user_id)
+        user_features = self.user_features_repository.get_user_features_for_update(user_id)
         if user_features is None:
             logger.warning("User features not found for interaction embedding: user_id=%s", user_id)
             return
 
         source_weight = get_view_source_weight(source) if source is not None else 1.0
-        decayed_user_embedding = [
-            value * decay(user_features.last_updated_at)
-            for value in user_features.semantic_embedding
-        ]
-        weighted_post_embedding = [
-            value * weight * source_weight
-            for value in post_semantic_embedding
-        ]
-
-        user_features.semantic_embedding = [
-            user_value + post_value
-            for user_value, post_value in zip(
-                decayed_user_embedding,
-                weighted_post_embedding,
-                strict=True,
-            )
-        ]
+        user_features.apply_semantic_interaction(
+            post_semantic_embedding=post_semantic_embedding,
+            embedding_weight=weight,
+            source_weight=source_weight,
+            occurred_at=occurred_at,
+        )
         self.user_features_repository.save(user_features)
