@@ -76,7 +76,8 @@ public class CollabController {
                 request.title(),
                 request.description(),
                 request.taggedUsers(),
-                request.postTags()
+                request.postTags(),
+                request.media().stream().map(com.app.postcommandservice.post.infrastructure.controller.PostMediaRequest::toDomain).toList()
         );
 
         return ResponseEntity.ok(

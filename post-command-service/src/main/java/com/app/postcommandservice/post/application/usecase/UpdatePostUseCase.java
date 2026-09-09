@@ -23,6 +23,7 @@ import com.app.postcommandservice.post.domain.exception.PostOwnershipException;
 import com.app.postcommandservice.post.domain.exception.TaggedUserBlockedException;
 import com.app.postcommandservice.post.domain.exception.TaggedUserNotFoundException;
 import com.app.postcommandservice.post.domain.model.Post;
+import com.app.postcommandservice.post.domain.model.PostInfo;
 import com.app.postcommandservice.post.domain.model.valueobj.PostDescription;
 import com.app.postcommandservice.post.domain.model.valueobj.PostTaggedUsers;
 import com.app.postcommandservice.post.domain.model.valueobj.PostTags;
@@ -52,9 +53,9 @@ public class UpdatePostUseCase {
         assertOwnership(existingPost, command.currentUserId());
 
         var updateResult = existingPost.update(
-                new PostDescription(command.description() == null ? "" : command.description()),
-                new PostTaggedUsers(normalizeSet(command.taggedUsers())),
-                new PostTags(normalizeSet(command.postTags()))
+                new PostInfo(command.title(), new PostDescription(command.description() == null ? "" : command.description()),
+                        new PostTaggedUsers(normalizeSet(command.taggedUsers())), new PostTags(normalizeSet(command.postTags())), existingPost.getPostType()),
+                command.media() == null ? existingPost.getMedia() : command.media()
         );
 
         if (!updateResult.changed()) {
@@ -127,6 +128,8 @@ public class UpdatePostUseCase {
                 post.getDescription().value(),
                 post.getTaggedUsers().value(),
                 post.getTags().value(),
+                post.getInfo().title(),
+                post.getMedia(),
                 post.getCreatedAt(),
                 post.getUpdatedAt()
         );

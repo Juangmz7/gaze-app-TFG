@@ -19,6 +19,8 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.OrderBy;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -58,6 +60,9 @@ public class PostEntity {
     @Column(nullable = false, length = 4000)
     private String description;
 
+    @Column(length = 255)
+    private String title;
+
     @ElementCollection
     @CollectionTable(name = "post_tagged_users", joinColumns = @JoinColumn(name = "post_id"))
     @Column(name = "username", nullable = false)
@@ -69,6 +74,19 @@ public class PostEntity {
     @Column(name = "tag_value", nullable = false)
     @Builder.Default
     private List<String> tags = new ArrayList<>();
+
+    @OneToMany(mappedBy = "post", cascade = jakarta.persistence.CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("order ASC")
+    @Builder.Default
+    private List<PostMediaEntity> media = new ArrayList<>();
+
+    public void replaceMedia(List<PostMediaEntity> replacement) {
+        media.clear();
+        replacement.forEach(item -> {
+            item.setPost(this);
+            media.add(item);
+        });
+    }
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
