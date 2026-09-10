@@ -27,7 +27,6 @@ class SqlAlchemyCommentPostRepository(CommentPostRepository):
             return session.scalar(
                 select(CommentPostRecord.post_id)
                 .where(CommentPostRecord.comment_id == comment_id)
-                .limit(1)
             )
 
     def delete_comment_post(self, comment_id: UUID) -> None:
