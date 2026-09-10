@@ -28,7 +28,7 @@ class AffinityScoreProcessor:
                 (stats.views_engagement / stats.impressions) * POST_VIEW_WEIGHT
                 + (stats.likes / stats.impressions) * POST_LIKE_WEIGHT
                 + (stats.comments / stats.impressions) * POST_COMMENT_WEIGHT
-                + (stats.commentsLikes / stats.impressions) * POST_COMMENT_LIKE_WEIGHT
+                + (stats.comments_likes / stats.impressions) * POST_COMMENT_LIKE_WEIGHT
                 + (stats.shares / stats.impressions) * POST_SHARE_WEIGHT
                 + (stats.fast_skips / stats.impressions) * FAST_SKIP_WEIGHT
             )

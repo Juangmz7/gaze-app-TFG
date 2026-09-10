@@ -1,6 +1,6 @@
 from pipeline.model.post.post_features import PostFeatures
 from pipeline.repository.post_features_repository import PostFeaturesRepository
-from pipeline.repository.semantic_embedding_repository import SemanticEmbeddingRepository
+from pipeline.service.semantic_embedding_model_service import SemanticEmbeddingModelService
 from post.command.post_commands import CreatePostCommand
 from shared.helpers import build_post_semantic_text
 
@@ -9,10 +9,10 @@ class CreatePostUsecase:
     def __init__(
             self,
             post_features_repository: PostFeaturesRepository,
-            semantic_embedding_repository: SemanticEmbeddingRepository,
+            semantic_embedding_model_service: SemanticEmbeddingModelService,
     ):
         self.post_features_repository = post_features_repository
-        self.semantic_embedding_repository = semantic_embedding_repository
+        self.semantic_embedding_model_service = semantic_embedding_model_service
 
     def execute(self, command: CreatePostCommand) -> None:
         semantic_text = build_post_semantic_text(
@@ -28,7 +28,7 @@ class CreatePostUsecase:
             description=command.description,
             tags=list(command.post_tags),
             tagged_users_ids=list(command.tagged_users),
-            semantic_embedding=self.semantic_embedding_repository.embed_post(semantic_text),
+            semantic_embedding=self.semantic_embedding_model_service.encode(semantic_text),
             created_at=command.created_at,
         )
         self.post_features_repository.save(post_features)
