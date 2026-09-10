@@ -18,5 +18,5 @@ class CollabRepository(ABC):
         pass
 
     @abstractmethod
-    def find_post_id_by_collab_id(self, collab_id: UUID) -> UUID | None:
+    def find_posts_id_by_collab_id(self, collab_id: UUID) -> list[UUID]:
         pass

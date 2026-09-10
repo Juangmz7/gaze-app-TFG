@@ -27,38 +27,39 @@ class DeletePostCollabRequestInteractionUsecase:
         self.collab_repository = collab_repository
 
     def execute(self, command: DeletePostCollabRequestCommand) -> None:
-        post_id = self.collab_repository.find_post_id_by_collab_id(command.collab_id)
-        if post_id is None:
+        post_ids = self.collab_repository.find_posts_id_by_collab_id(command.collab_id)
+        if not post_ids:
             logger.warning(
                 "Post id not found for collab request deletion: collab_id=%s",
                 command.collab_id,
             )
             return
 
-        interaction = self._get_or_create_interaction(post_id, command.user_id)
-        if interaction.ever_request_collab_deleted:
-            logger.info(
-                "Ignoring duplicate collab request deletion interaction: post_id=%s, user_id=%s",
-                post_id,
-                command.user_id,
-            )
-            return
-
-        self.post_interaction_updater.apply(
-            post_id=post_id,
-            user_id=command.user_id,
-            metric_updates=[
-                InteractionMetricUpdate(
-                    metric=InteractionMetric.COLLAB_REQUESTS,
-                    raw_delta=-1,
-                    decayed_delta=-1,
+        for post_id in post_ids:
+            interaction = self._get_or_create_interaction(post_id, command.user_id)
+            if interaction.ever_request_collab_deleted:
+                logger.info(
+                    "Ignoring duplicate collab request deletion interaction: post_id=%s, user_id=%s",
+                    post_id,
+                    command.user_id,
                 )
-            ],
-            embedding_weight=-(COLLAB_REQUEST_WEIGHT * COLLAB_REQUEST_DELETED_PENALISATION_WEIGHT),
-            occurred_at=command.occurred_at,
-        )
-        interaction.ever_request_collab_deleted = True
-        self.user_post_interactions_repository.save(interaction)
+                continue
+
+            self.post_interaction_updater.apply(
+                post_id=post_id,
+                user_id=command.user_id,
+                metric_updates=[
+                    InteractionMetricUpdate(
+                        metric=InteractionMetric.COLLAB_REQUESTS,
+                        raw_delta=-1,
+                        decayed_delta=-1,
+                    )
+                ],
+                embedding_weight=-(COLLAB_REQUEST_WEIGHT * COLLAB_REQUEST_DELETED_PENALISATION_WEIGHT),
+                occurred_at=command.occurred_at,
+            )
+            interaction.ever_request_collab_deleted = True
+            self.user_post_interactions_repository.save(interaction)
 
     def _get_or_create_interaction(self, post_id, user_id) -> UserPostInteractions:
         return (

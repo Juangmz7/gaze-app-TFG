@@ -24,35 +24,36 @@ class CreatePostCollabRequestInteractionUsecase:
         self.collab_repository = collab_repository
 
     def execute(self, command: CreatePostCollabRequestCommand) -> None:
-        post_id = self.collab_repository.find_post_id_by_collab_id(command.collab_id)
-        if post_id is None:
+        post_ids = self.collab_repository.find_posts_id_by_collab_id(command.collab_id)
+        if not post_ids:
             logger.warning("Post id not found for collab request: collab_id=%s", command.collab_id)
             return
 
-        interaction = self._get_or_create_interaction(post_id, command.user_id)
-        if interaction.ever_requested_collab:
-            logger.info(
-                "Ignoring duplicate collab request interaction: post_id=%s, user_id=%s",
-                post_id,
-                command.user_id,
-            )
-            return
-
-        self.post_interaction_updater.apply(
-            post_id=post_id,
-            user_id=command.user_id,
-            metric_updates=[
-                InteractionMetricUpdate(
-                    metric=InteractionMetric.COLLAB_REQUESTS,
-                    raw_delta=1,
-                    decayed_delta=1,
+        for post_id in post_ids:
+            interaction = self._get_or_create_interaction(post_id, command.user_id)
+            if interaction.ever_requested_collab:
+                logger.info(
+                    "Ignoring duplicate collab request interaction: post_id=%s, user_id=%s",
+                    post_id,
+                    command.user_id,
                 )
-            ],
-            embedding_weight=COLLAB_REQUEST_WEIGHT,
-            occurred_at=command.occurred_at,
-        )
-        interaction.ever_requested_collab = True
-        self.user_post_interactions_repository.save(interaction)
+                continue
+
+            self.post_interaction_updater.apply(
+                post_id=post_id,
+                user_id=command.user_id,
+                metric_updates=[
+                    InteractionMetricUpdate(
+                        metric=InteractionMetric.COLLAB_REQUESTS,
+                        raw_delta=1,
+                        decayed_delta=1,
+                    )
+                ],
+                embedding_weight=COLLAB_REQUEST_WEIGHT,
+                occurred_at=command.occurred_at,
+            )
+            interaction.ever_requested_collab = True
+            self.user_post_interactions_repository.save(interaction)
 
     def _get_or_create_interaction(self, post_id, user_id) -> UserPostInteractions:
         return (

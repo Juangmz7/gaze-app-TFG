@@ -34,10 +34,9 @@ class SqlAlchemyCollabRepository(CollabRepository):
         with self.session_provider.session() as session:
             session.execute(delete(CollabRecord).where(CollabRecord.collab_id == collab_id))
 
-    def find_post_id_by_collab_id(self, collab_id: UUID) -> UUID | None:
+    def find_posts_id_by_collab_id(self, collab_id: UUID) -> list[UUID]:
         with self.session_provider.session() as session:
-            return session.scalar(
+            return session.scalars(
                 select(PostFeaturesRecord.post_id)
                 .where(PostFeaturesRecord.collab_id == collab_id)
-                .limit(1)
-            )
+            ).all()
