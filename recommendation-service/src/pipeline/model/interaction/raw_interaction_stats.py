@@ -29,6 +29,22 @@ class RawInteractionStats:
         self.watch_time_average_percent = watch_time_average_percent
         self.watch_time = watch_time
 
+    @classmethod
+    def empty(cls) -> "RawInteractionStats":
+        return cls(
+            impressions=0,
+            views=0,
+            likes=0,
+            comments=0,
+            comments_likes=0,
+            shares=0,
+            fast_skips=0,
+            collab_requests=0,
+            collab_requests_accepted=0,
+            watch_time_average_percent=0.0,
+            watch_time=0.0,
+        )
+
     def increment(self, metric: InteractionMetric, delta: int | float) -> None:
         attribute = metric.raw_stats_attribute
         if not hasattr(self, attribute):
