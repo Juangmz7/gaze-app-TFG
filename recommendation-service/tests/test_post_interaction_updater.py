@@ -59,7 +59,6 @@ def decayed_stats(**overrides) -> DecayedInteractionStats:
         "fast_skips": 1.0,
         "collab_requests": 0.0,
         "collab_requests_accepted": 0.0,
-        "watch_time_average_percent": 0.0,
         "watch_time": 0.0,
     }
     values.update(overrides)
@@ -75,16 +74,41 @@ class FakePostFeaturesRepository:
 
 
 class FakeUserCreatorFeaturesRepository:
-    def __init__(self, features: UserCreatorFeatures):
+    def __init__(self, features: UserCreatorFeatures | None = None):
         self.features = features
         self.locked_with = None
         self.saved = None
+        self.created_if_absent: list[UserCreatorFeatures] = []
+        # Snapshots (user_id, creator_id, likes) taken at the moment of insertion
+        self.created_if_absent_likes_snapshots: list[int] = []
+
+    def _match(self, stored: UserCreatorFeatures, user_id, creator_id) -> bool:
+        return stored.user_id == user_id and stored.creator_id == creator_id
+
+    def get_user_creator_features(self, user_id, creator_id):
+        if self.features is not None and self._match(self.features, user_id, creator_id):
+            return self.features
+        return None
 
     def get_user_creator_features_for_update(self, user_id, creator_id):
         self.locked_with = (user_id, creator_id)
-        if self.features.user_id == user_id and self.features.creator_id == creator_id:
+        if self.features is not None and self._match(self.features, user_id, creator_id):
             return self.features
         return None
+
+    def create_if_absent(self, user_creator_features: UserCreatorFeatures):
+        # Snapshot immutable numeric state before the object gets mutated later
+        self.created_if_absent_likes_snapshots.append(
+            user_creator_features.raw_interaction_stats.likes
+        )
+        self.created_if_absent.append(user_creator_features)
+        # Simulate ON CONFLICT DO NOTHING: only store if not already present
+        if self.features is None or not self._match(
+            self.features,
+            user_creator_features.user_id,
+            user_creator_features.creator_id,
+        ):
+            self.features = user_creator_features
 
     def save(self, user_creator_features):
         self.saved = user_creator_features
@@ -92,17 +116,36 @@ class FakeUserCreatorFeaturesRepository:
 
 class FakePostTagFeaturesRepository:
     def __init__(self, features: list[PostTagFeatures]):
-        self.features = features
+        self.features = list(features)
         self.locked_with = None
         self.saved = None
+        self.created_if_absent: list[PostTagFeatures] = []
+        # Snapshots of likes taken at the exact moment each row is passed to create_if_absent
+        self.created_if_absent_likes_snapshots: list[int] = []
+
+    def _matching(self, user_id, tags):
+        return [f for f in self.features if f.user_id == user_id and f.tag_name in tags]
+
+    def get_post_tag_features(self, user_id, tags):
+        return self._matching(user_id, tags)
 
     def get_post_tag_features_for_update(self, user_id, tags):
         self.locked_with = (user_id, tags)
-        return [
-            feature
-            for feature in self.features
-            if feature.user_id == user_id and feature.tag_name in tags
-        ]
+        return self._matching(user_id, tags)
+
+    def create_if_absent(self, post_tag_features: list[PostTagFeatures]):
+        for feature in post_tag_features:
+            # Snapshot before any later mutation
+            self.created_if_absent_likes_snapshots.append(
+                feature.raw_interaction_stats.likes
+            )
+        self.created_if_absent.extend(post_tag_features)
+        # Simulate ON CONFLICT DO NOTHING: insert only truly missing rows
+        existing_keys = {(f.user_id, f.tag_name) for f in self.features}
+        for feature in post_tag_features:
+            if (feature.user_id, feature.tag_name) not in existing_keys:
+                self.features.append(feature)
+                existing_keys.add((feature.user_id, feature.tag_name))
 
     def save_all(self, post_tag_features):
         self.saved = post_tag_features
@@ -406,6 +449,199 @@ class PostInteractionUpdaterTests(unittest.TestCase):
             creator_features.decayed_interaction_stats.views_engagement,
             2.0 * factor + 0.5,
         )
+
+    def test_missing_user_creator_relation_uses_create_if_absent_then_locks_for_update(self):
+        t0 = datetime(2026, 1, 1, 12, 0, 0)
+        t1 = t0 + timedelta(seconds=1)
+        post_id = uuid4()
+        user_id = uuid4()
+        creator_id = uuid4()
+        post_features = PostFeatures(
+            post_id=post_id,
+            creator_id=creator_id,
+            collab_id=None,
+            collab_title=None,
+            description="post",
+            tags=["music"],
+            tagged_users_ids=[],
+            semantic_embedding=[0.1, 0.2, 0.4],
+            created_at=t0,
+        )
+        user_features = UserFeatures(
+            user_id=user_id,
+            semantic_embedding=[0.3, 0.4, 0.5],
+            last_updated_at=t0,
+        )
+        tag_features = PostTagFeatures(
+            user_id=user_id,
+            tag_name="music",
+            raw_interaction_stats=raw_stats(),
+            decayed_interaction_stats=decayed_stats(),
+            last_updated_at=t0,
+        )
+        # No existing user-creator relation
+        creator_repository = FakeUserCreatorFeaturesRepository(features=None)
+        tag_repository = FakePostTagFeaturesRepository([tag_features])
+        user_repository = FakeUserFeaturesRepository(user_features)
+        updater = PostInteractionUpdater(
+            user_creator_features_repository=creator_repository,
+            post_tag_features_repository=tag_repository,
+            user_features_repository=user_repository,
+            post_features_repository=FakePostFeaturesRepository(post_features),
+        )
+
+        updater.apply(
+            post_id=post_id,
+            user_id=user_id,
+            metric_updates=[
+                InteractionMetricUpdate(
+                    metric=InteractionMetric.LIKES,
+                    raw_delta=1,
+                    decayed_delta=1,
+                )
+            ],
+            embedding_weight=POST_LIKE_WEIGHT,
+            occurred_at=t1,
+        )
+
+        # create_if_absent must have been called once with the empty row
+        self.assertEqual(len(creator_repository.created_if_absent), 1)
+        created = creator_repository.created_if_absent[0]
+        self.assertEqual(created.user_id, user_id)
+        self.assertEqual(created.creator_id, creator_id)
+        # Snapshot taken at insertion time must show zero likes (empty row)
+        self.assertEqual(creator_repository.created_if_absent_likes_snapshots[0], 0)
+
+        # After create_if_absent the locked read must have fetched and the
+        # interaction was applied on top of the zero-initialized row.
+        saved = creator_repository.saved
+        self.assertIsNotNone(saved)
+        self.assertEqual(saved.user_id, user_id)
+        self.assertEqual(saved.creator_id, creator_id)
+        # Started from zero, so raw likes == 1
+        self.assertEqual(saved.raw_interaction_stats.likes, 1)
+        self.assertAlmostEqual(saved.decayed_interaction_stats.likes, 1.0)
+
+    def test_missing_post_tag_relation_uses_create_if_absent_then_locks_for_update(self):
+        t0 = datetime(2026, 1, 1, 12, 0, 0)
+        t1 = t0 + timedelta(seconds=1)
+        post_id = uuid4()
+        user_id = uuid4()
+        creator_id = uuid4()
+        post_features = PostFeatures(
+            post_id=post_id,
+            creator_id=creator_id,
+            collab_id=None,
+            collab_title=None,
+            description="post",
+            tags=["music", "art"],
+            tagged_users_ids=[],
+            semantic_embedding=[0.1, 0.2, 0.4],
+            created_at=t0,
+        )
+        creator_features = UserCreatorFeatures(
+            user_id=user_id,
+            creator_id=creator_id,
+            raw_interaction_stats=raw_stats(),
+            decayed_interaction_stats=decayed_stats(),
+            last_updated_at=t0,
+        )
+        # Only "music" exists – "art" is missing
+        music_tag_features = PostTagFeatures(
+            user_id=user_id,
+            tag_name="music",
+            raw_interaction_stats=raw_stats(),
+            decayed_interaction_stats=decayed_stats(),
+            last_updated_at=t0,
+        )
+        user_features = UserFeatures(
+            user_id=user_id,
+            semantic_embedding=[0.3, 0.4, 0.5],
+            last_updated_at=t0,
+        )
+        creator_repository = FakeUserCreatorFeaturesRepository(creator_features)
+        tag_repository = FakePostTagFeaturesRepository([music_tag_features])
+        user_repository = FakeUserFeaturesRepository(user_features)
+        updater = PostInteractionUpdater(
+            user_creator_features_repository=creator_repository,
+            post_tag_features_repository=tag_repository,
+            user_features_repository=user_repository,
+            post_features_repository=FakePostFeaturesRepository(post_features),
+        )
+
+        updater.apply(
+            post_id=post_id,
+            user_id=user_id,
+            metric_updates=[
+                InteractionMetricUpdate(
+                    metric=InteractionMetric.LIKES,
+                    raw_delta=1,
+                    decayed_delta=1,
+                )
+            ],
+            embedding_weight=POST_LIKE_WEIGHT,
+            occurred_at=t1,
+        )
+
+        # create_if_absent must have been called with the one missing tag
+        self.assertEqual(len(tag_repository.created_if_absent), 1)
+        self.assertEqual(tag_repository.created_if_absent[0].tag_name, "art")
+        # Snapshot taken at insertion time must show zero likes (empty row)
+        self.assertEqual(tag_repository.created_if_absent_likes_snapshots[0], 0)
+
+        # Both tags must appear in the final save
+        saved_tags = tag_repository.saved
+        self.assertIsNotNone(saved_tags)
+        tag_names = {t.tag_name for t in saved_tags}
+        self.assertIn("music", tag_names)
+        self.assertIn("art", tag_names)
+        art_tag = next(t for t in saved_tags if t.tag_name == "art")
+        # Started from zero, so raw likes == 1
+        self.assertEqual(art_tag.raw_interaction_stats.likes, 1)
+        self.assertAlmostEqual(art_tag.decayed_interaction_stats.likes, 1.0)
+
+    def test_concurrent_create_if_absent_calls_are_idempotent(self):
+        """Simulate A and B both calling create_if_absent for the same row.
+        Only one row must be stored (ON CONFLICT DO NOTHING semantics).
+        """
+        t0 = datetime(2026, 1, 1, 12, 0, 0)
+        user_id = uuid4()
+        creator_id = uuid4()
+
+        creator_repository = FakeUserCreatorFeaturesRepository(features=None)
+
+        empty_a = UserCreatorFeatures.initialize_empty(user_id, creator_id, t0)
+        empty_b = UserCreatorFeatures.initialize_empty(user_id, creator_id, t0)
+
+        # Transaction A inserts
+        creator_repository.create_if_absent(empty_a)
+        # Transaction B races – the DB silently ignores the duplicate
+        creator_repository.create_if_absent(empty_b)
+
+        # Two calls were made …
+        self.assertEqual(len(creator_repository.created_if_absent), 2)
+        # … but only one row exists
+        self.assertIs(creator_repository.features, empty_a)
+
+    def test_concurrent_create_if_absent_for_tags_are_idempotent(self):
+        """Simulate A and B both calling create_if_absent for the same tag row."""
+        t0 = datetime(2026, 1, 1, 12, 0, 0)
+        user_id = uuid4()
+
+        tag_repository = FakePostTagFeaturesRepository([])
+
+        empty_a = PostTagFeatures.initialize_empty(user_id, "music", t0)
+        empty_b = PostTagFeatures.initialize_empty(user_id, "music", t0)
+
+        tag_repository.create_if_absent([empty_a])
+        tag_repository.create_if_absent([empty_b])
+
+        # Two calls were made …
+        self.assertEqual(len(tag_repository.created_if_absent), 2)
+        # … but only one row exists in the store
+        music_rows = [f for f in tag_repository.features if f.tag_name == "music"]
+        self.assertEqual(len(music_rows), 1)
+        self.assertIs(music_rows[0], empty_a)
 
 
 class CapturingSession:

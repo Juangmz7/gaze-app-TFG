@@ -1,6 +1,7 @@
 from uuid import UUID
 
 from sqlalchemy import insert, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from pipeline.entity.user.user_creator_features_entity import UserCreatorFeaturesRecord
 from pipeline.model.user.user_creator_features import UserCreatorFeatures
@@ -50,7 +51,22 @@ class SqlAlchemyUserCreatorFeaturesRepository(UserCreatorFeaturesRepository):
                 statement = statement.with_for_update()
 
             record = session.scalars(statement).first()
-            return user_creator_features_from_record(record) if record is not None else None
+
+            if record is not None:
+                return user_creator_features_from_record(record)
+            else:
+                return None
+
+    def create_if_absent(self, user_creator_features: UserCreatorFeatures) -> None:
+        values = user_creator_features_values(user_creator_features)
+        with self.session_provider.session() as session:
+            session.execute(
+                pg_insert(UserCreatorFeaturesRecord)
+                .values(**values)
+                .on_conflict_do_nothing(
+                    index_elements=["user_id", "creator_id"],
+                )
+            )
 
     def save(self, user_creator_features: UserCreatorFeatures) -> None:
         values = user_creator_features_values(user_creator_features)

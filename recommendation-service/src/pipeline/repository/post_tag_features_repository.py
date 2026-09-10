@@ -19,5 +19,14 @@ class PostTagFeaturesRepository(ABC):
         pass
 
     @abstractmethod
+    def create_if_absent(self, post_tag_features: list[PostTagFeatures]) -> None:
+        """Insert each row only if it does not already exist (INSERT … ON CONFLICT DO NOTHING).
+
+        Safe to call concurrently: races are resolved at the database level and
+        the loser is silently ignored.
+        """
+        pass
+
+    @abstractmethod
     def save_all(self, post_tag_features: list[PostTagFeatures]) -> None:
         pass

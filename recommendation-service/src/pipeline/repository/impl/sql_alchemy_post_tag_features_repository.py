@@ -1,6 +1,7 @@
 from uuid import UUID
 
 from sqlalchemy import insert, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from pipeline.entity.post.post_tag_features_entity import PostTagFeaturesRecord
 from pipeline.model.post.post_tag_features import PostTagFeatures
@@ -54,17 +55,49 @@ class SqlAlchemyPostTagFeaturesRepository(PostTagFeaturesRepository):
             records = session.scalars(statement).all()
             return [post_tag_features_from_record(record) for record in records]
 
-    def save_all(self, post_tag_features: list[PostTagFeatures]) -> None:
+    def create_if_absent(
+        self,
+        post_tag_features: list[PostTagFeatures],
+    ) -> None:
+        if not post_tag_features:
+            return
+
+        values = [
+            post_tag_features_values(features)
+            for features in post_tag_features
+        ]
+
         with self.session_provider.session() as session:
-            for features in post_tag_features:
-                values = post_tag_features_values(features)
-                result = session.execute(
-                    update(PostTagFeaturesRecord)
-                    .where(
-                        PostTagFeaturesRecord.user_id == features.user_id,
-                        PostTagFeaturesRecord.tag_name == features.tag_name,
-                    )
-                    .values(**values)
+            session.execute(
+                pg_insert(PostTagFeaturesRecord)
+                .values(values)
+                .on_conflict_do_nothing(
+                    index_elements=["user_id", "tag_name"],
                 )
-                if result.rowcount == 0:
-                    session.execute(insert(PostTagFeaturesRecord).values(**values))
+            )
+
+    def save_all(
+        self,
+        post_tag_features: list[PostTagFeatures],
+    ) -> None:
+        if not post_tag_features:
+            return
+
+        values = [
+            post_tag_features_values(features)
+            for features in post_tag_features
+        ]
+
+        with self.session_provider.session() as session:
+            stmt = pg_insert(PostTagFeaturesRecord).values(values)
+
+            session.execute(
+                stmt.on_conflict_do_update(
+                    index_elements=["user_id", "tag_name"],
+                    set_={
+                        key: getattr(stmt.excluded, key)
+                        for key in values[0]
+                        if key not in {"user_id", "tag_name"}
+                    },
+                )
+            )

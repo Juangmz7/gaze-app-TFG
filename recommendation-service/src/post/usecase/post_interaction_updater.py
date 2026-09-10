@@ -6,10 +6,11 @@ from uuid import UUID
 
 from pipeline.exceptions.exceptions import (
     PostFeaturesNotFoundException,
-    PostTagFeaturesNotFoundException,
-    UserCreatorFeaturesNotFoundException,
 )
 from pipeline.model.interaction.interaction_metric_update import InteractionMetricUpdate
+from pipeline.model.post.post_features import PostFeatures
+from pipeline.model.post.post_tag_features import PostTagFeatures
+from pipeline.model.user.user_creator_features import UserCreatorFeatures
 from pipeline.repository.post_features_repository import PostFeaturesRepository
 from pipeline.repository.post_tag_features_repository import PostTagFeaturesRepository
 from pipeline.repository.user_creator_features_repository import UserCreatorFeaturesRepository
@@ -58,23 +59,9 @@ class PostInteractionUpdater:
             if post_features is None:
                 raise PostFeaturesNotFoundException(post_id)
 
-            user_creator_features = (
-                self.user_creator_features_repository.get_user_creator_features_for_update(
-                    user_id,
-                    post_features.creator_id,
-                )
-            )
-            if user_creator_features is None:
-                raise UserCreatorFeaturesNotFoundException(post_id, user_id)
+            
 
-            post_tags_features = self.post_tag_features_repository.get_post_tag_features_for_update(
-                user_id,
-                post_features.tags,
-            )
-            expected_tags = set(post_features.tags)
-            found_tags = {features.tag_name for features in post_tags_features}
-            if found_tags != expected_tags:
-                raise PostTagFeaturesNotFoundException(post_id)
+            
 
             user_creator_features.apply_interaction_updates(
                 updates,
@@ -97,6 +84,70 @@ class PostInteractionUpdater:
             self.user_creator_features_repository.save(user_creator_features)
             self.post_tag_features_repository.save_all(post_tags_features)
 
+    def _get_user_creator_features_for_update(
+            self,
+            user_id: UUID,
+            post_features: PostFeatures,
+            occurred_at: datetime,
+    ) -> UserCreatorFeatures:
+        user_creator_features = self.user_creator_features_repository.get_user_creator_features(
+            user_id,
+            post_features.creator_id,
+        )
+        if user_creator_features is None:
+            logger.info(
+                "No user-creator relation found, inserting empty row: user_id=%s creator_id=%s",
+                user_id,
+                post_features.creator_id,
+            )
+            self.user_creator_features_repository.create_if_absent(
+                UserCreatorFeatures.initialize_empty(
+                    user_id=user_id,
+                    creator_id=post_features.creator_id,
+                    occurred_at=occurred_at,
+                )
+            )
+        
+        user_creator_features = (
+            self.user_creator_features_repository.get_user_creator_features_for_update(
+            user_id,
+            post_features.creator_id,
+        )
+    )
+
+    def _get_post_tag_features_for_update(self, 
+            user_id: UUID,
+            post_features: PostFeatures,
+            occurred_at: datetime,
+    ) -> list[PostTagFeatures]:
+        existing_tags = {
+            f.tag_name
+            for f in self.post_tag_features_repository.get_post_tag_features(
+                user_id,
+                post_features.tags,
+            )
+        }
+        missing_tags = set(post_features.tags) - existing_tags
+        if missing_tags:
+            logger.info(
+                "Missing tag features, inserting empty rows: user_id=%s tags=%s",
+                user_id,
+                missing_tags,
+            )
+            self.post_tag_features_repository.create_if_absent(
+                PostTagFeatures.initialize_empty(
+                    user_id=user_id,
+                    tag_name=tag_name,
+                    occurred_at=occurred_at,
+                )
+                for tag_name in missing_tags
+            )
+                    
+        return self.post_tag_features_repository.get_post_tag_features_for_update(
+            user_id,
+            post_features.tags,
+        )
+        
     def _update_user_semantic_embedding(
             self,
             user_id: UUID,
