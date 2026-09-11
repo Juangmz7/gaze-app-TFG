@@ -6,10 +6,9 @@ import java.util.List;
 import java.util.UUID;
 
 import jakarta.persistence.FetchType;
-import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
-import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
+import jakarta.persistence.Embedded;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.ForeignKey;
@@ -19,6 +18,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.OrderBy;
 import lombok.AllArgsConstructor;
@@ -53,27 +53,8 @@ public class PostEntity {
     @JoinColumn(name = "collab_id", foreignKey = @ForeignKey(name = "fk_posts_collab"), insertable = false, updatable = false)
     private CollabEntity collab;
 
-    @Enumerated(EnumType.STRING)
-    @Column(name = "post_type", nullable = false)
-    private com.app.postcommandservice.post.domain.model.valueobj.PostType postType;
-
-    @Column(nullable = false, length = 4000)
-    private String description;
-
-    @Column(length = 255)
-    private String title;
-
-    @ElementCollection
-    @CollectionTable(name = "post_tagged_users", joinColumns = @JoinColumn(name = "post_id"))
-    @Column(name = "username", nullable = false)
-    @Builder.Default
-    private List<String> taggedUsers = new ArrayList<>();
-
-    @ElementCollection
-    @CollectionTable(name = "post_tags", joinColumns = @JoinColumn(name = "post_id"))
-    @Column(name = "tag_value", nullable = false)
-    @Builder.Default
-    private List<String> tags = new ArrayList<>();
+    @Embedded
+    private PostInfoEmbeddable postInfo;
 
     @OneToMany(mappedBy = "post", cascade = jakarta.persistence.CascadeType.ALL, orphanRemoval = true)
     @OrderBy("order ASC")
@@ -88,6 +69,22 @@ public class PostEntity {
         });
     }
 
+    public void touch() {
+        updatedAt = Instant.now();
+    }
+
+    public String getTitle() {
+        return postInfo.getTitle();
+    }
+
+    public String getDescription() {
+        return postInfo.getDescription();
+    }
+
+    public com.app.postcommandservice.post.domain.model.valueobj.PostType getPostType() {
+        return postInfo.getPostType();
+    }
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private PostStatus status;
@@ -98,8 +95,13 @@ public class PostEntity {
     @Column(nullable = false)
     private Instant updatedAt;
 
+    @Version
+    @Column(nullable = false)
+    private long version;
+
     @PrePersist
     void onCreate() {
+        synchronizeMediaOwnership();
         var now = Instant.now();
         createdAt = now;
         updatedAt = now;
@@ -107,6 +109,11 @@ public class PostEntity {
 
     @PreUpdate
     void onUpdate() {
+        synchronizeMediaOwnership();
         updatedAt = Instant.now();
+    }
+
+    private void synchronizeMediaOwnership() {
+        media.forEach(item -> item.setPost(this));
     }
 }

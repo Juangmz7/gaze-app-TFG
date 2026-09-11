@@ -202,7 +202,8 @@ class PostLikeFlowIT {
         var inactivePost = postJpaRepository.save(PostEntity.builder()
                 .id(UUID.randomUUID())
                 .userId(UUID.randomUUID())
-                .description("inactive")
+                .postInfo(com.app.postcommandservice.post.infrastructure.entity.PostInfoEmbeddable.builder()
+                        .description("inactive").postType(com.app.postcommandservice.post.domain.model.valueobj.PostType.BASIC).build())
                 .status(PostStatus.DELETED)
                 .build());
 
@@ -241,7 +242,8 @@ class PostLikeFlowIT {
         return postJpaRepository.save(PostEntity.builder()
                 .id(UUID.randomUUID())
                 .userId(ownerId)
-                .description("active")
+                .postInfo(com.app.postcommandservice.post.infrastructure.entity.PostInfoEmbeddable.builder()
+                        .description("active").postType(com.app.postcommandservice.post.domain.model.valueobj.PostType.BASIC).build())
                 .status(PostStatus.ACTIVE)
                 .build());
     }

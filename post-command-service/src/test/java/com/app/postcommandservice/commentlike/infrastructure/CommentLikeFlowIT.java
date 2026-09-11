@@ -301,7 +301,8 @@ class CommentLikeFlowIT {
         return postJpaRepository.save(PostEntity.builder()
                 .id(UUID.randomUUID())
                 .userId(ownerId)
-                .description("active")
+                .postInfo(com.app.postcommandservice.post.infrastructure.entity.PostInfoEmbeddable.builder()
+                        .description("active").postType(com.app.postcommandservice.post.domain.model.valueobj.PostType.BASIC).build())
                 .status(PostStatus.ACTIVE)
                 .build());
     }

@@ -53,7 +53,7 @@ public class UpdatePostUseCase {
         assertOwnership(existingPost, command.currentUserId());
 
         var updateResult = existingPost.update(
-                new PostInfo(command.title(), new PostDescription(command.description() == null ? "" : command.description()),
+                new PostInfo(command.title() == null ? existingPost.getInfo().title() : command.title(), new PostDescription(command.description() == null ? "" : command.description()),
                         new PostTaggedUsers(normalizeSet(command.taggedUsers())), new PostTags(normalizeSet(command.postTags())), existingPost.getPostType()),
                 command.media() == null ? existingPost.getMedia() : command.media()
         );

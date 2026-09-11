@@ -165,7 +165,8 @@ class CollabControllerFlowTest {
                 "title", "Open collab",
                 "description", "hello",
                 "taggedUsers", Set.of("alice"),
-                "postTags", Set.of("spring")
+                "postTags", Set.of("spring"),
+                "media", mediaPayload()
         ));
 
         mockMvc.perform(post("/api/collabs")
@@ -218,7 +219,8 @@ class CollabControllerFlowTest {
                 "title", "Open collab",
                 "description", "collab post",
                 "taggedUsers", Set.of(),
-                "postTags", Set.of("collab")
+                "postTags", Set.of("collab"),
+                "media", mediaPayload()
         ));
 
         var collabResponse = mockMvc.perform(post("/api/collabs")
@@ -235,7 +237,8 @@ class CollabControllerFlowTest {
                 "correlationId", correlationId,
                 "description", "basic post",
                 "taggedUsers", Set.of(),
-                "postTags", Set.of("basic")
+                "postTags", Set.of("basic"),
+                "media", mediaPayload()
         ));
 
         var basicPostResponse = mockMvc.perform(post("/api/posts")
@@ -278,7 +281,8 @@ class CollabControllerFlowTest {
                 "title", "Replay collab",
                 "description", "hello",
                 "taggedUsers", Set.of(),
-                "postTags", Set.of("spring")
+                "postTags", Set.of("spring"),
+                "media", mediaPayload()
         ));
 
         var firstResponse = mockMvc.perform(post("/api/collabs")
@@ -1547,5 +1551,14 @@ class CollabControllerFlowTest {
                 Instant.parse(String.valueOf(secondValue))
                         .truncatedTo(java.time.temporal.ChronoUnit.MILLIS)
         );
+    }
+
+    private List<Map<String, Object>> mediaPayload() {
+        return List.of(Map.of(
+                "id", UUID.randomUUID(),
+                "url", "https://cdn.example.test/post.jpg",
+                "mediaType", "IMAGE",
+                "order", 1
+        ));
     }
 }

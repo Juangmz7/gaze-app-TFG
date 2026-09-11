@@ -39,7 +39,11 @@ public class Post {
         this.id = Objects.requireNonNull(id, "id must not be null");
         this.userId = Objects.requireNonNull(userId, "userId must not be null");
         this.info = Objects.requireNonNull(info, "info must not be null");
-        this.media = List.copyOf(Objects.requireNonNull(media, "media must not be null"));
+        if (media == null || media.stream().anyMatch(Objects::isNull)) {
+            throw new com.app.postcommandservice.post.domain.exception.InvalidPostMediaException(
+                    "media must not contain null values");
+        }
+        this.media = media.stream().sorted(java.util.Comparator.comparingInt(PostMedia::order)).toList();
         this.status = Objects.requireNonNull(status, "status must not be null");
         validateCollabLink(info.postType(), collabId);
         validateMedia(this.media, status);
@@ -64,7 +68,7 @@ public class Post {
 
     public PostUpdateResult update(
             PostInfo info, List<PostMedia> media) {
-        if (this.info.equals(info) && this.media.equals(media)) {
+        if (this.info.equals(info) && canonicalMedia(media).equals(this.media)) {
             return new PostUpdateResult(this, false, Set.of());
         }
 
@@ -72,7 +76,7 @@ public class Post {
         newlyTaggedUsers.removeAll(this.info.taggedUsers().value());
 
         return new PostUpdateResult(
-                new Post(id, userId, collabId, info, media, status, createdAt, updatedAt),
+                new Post(id, userId, collabId, info, canonicalMedia(media), status, createdAt, updatedAt),
                 true,
                 newlyTaggedUsers
         );
@@ -147,13 +151,28 @@ public class Post {
 
     private void validateMedia(List<PostMedia> items, PostStatus status) {
         if (status != PostStatus.DELETED && items.isEmpty()) {
-            throw new IllegalArgumentException("Active posts must contain at least one media item");
+            throw new com.app.postcommandservice.post.domain.exception.InvalidPostMediaException(
+                    "Active posts must contain at least one media item");
         }
         var orders = items.stream().map(PostMedia::order).sorted().toList();
+        var ids = items.stream().map(PostMedia::id).collect(java.util.stream.Collectors.toSet());
+        if (ids.size() != items.size()) {
+            throw new com.app.postcommandservice.post.domain.exception.InvalidPostMediaException(
+                    "media ids must be unique");
+        }
         for (int index = 0; index < orders.size(); index++) {
             if (orders.get(index) != index + 1) {
-                throw new IllegalArgumentException("media orders must be contiguous from 1");
+                throw new com.app.postcommandservice.post.domain.exception.InvalidPostMediaException(
+                        "media orders must be contiguous from 1");
             }
         }
+    }
+
+    private List<PostMedia> canonicalMedia(List<PostMedia> items) {
+        if (items == null || items.stream().anyMatch(Objects::isNull)) {
+            throw new com.app.postcommandservice.post.domain.exception.InvalidPostMediaException(
+                    "media must not contain null values");
+        }
+        return items.stream().sorted(java.util.Comparator.comparingInt(PostMedia::order)).toList();
     }
 }

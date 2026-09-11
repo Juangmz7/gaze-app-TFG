@@ -197,8 +197,8 @@ class PostViewFlowTest {
                 .id(UUID.randomUUID())
                 .userId(UUID.randomUUID())
                 .collabId(null)
-                .description("inactive")
-                .postType(PostType.BASIC)
+                .postInfo(com.app.postcommandservice.post.infrastructure.entity.PostInfoEmbeddable.builder()
+                        .description("inactive").postType(PostType.BASIC).build())
                 .status(PostStatus.DELETED)
                 .build());
 
@@ -266,8 +266,8 @@ class PostViewFlowTest {
                 .id(UUID.randomUUID())
                 .userId(ownerId)
                 .collabId(null)
-                .description("active")
-                .postType(PostType.BASIC)
+                .postInfo(com.app.postcommandservice.post.infrastructure.entity.PostInfoEmbeddable.builder()
+                        .description("active").postType(PostType.BASIC).build())
                 .status(PostStatus.ACTIVE)
                 .build());
     }

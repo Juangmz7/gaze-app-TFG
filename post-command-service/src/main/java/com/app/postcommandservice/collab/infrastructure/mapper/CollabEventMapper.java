@@ -49,6 +49,8 @@ public class CollabEventMapper {
                 .description(post.getDescription().value())
                 .taggedUsers(post.getTaggedUsers().value())
                 .postTags(post.getTags().value())
+                .postTitle(post.getInfo().title())
+                .media(post.getMedia())
                 .postCreatedAt(post.getCreatedAt())
                 .postUpdatedAt(post.getUpdatedAt())
                 .build();
@@ -200,6 +202,8 @@ public class CollabEventMapper {
                 .description(post.getDescription().value())
                 .taggedUsers(post.getTaggedUsers().value())
                 .postTags(post.getTags().value())
+                .title(post.getInfo().title())
+                .media(post.getMedia())
                 .createdAt(post.getCreatedAt())
                 .updatedAt(post.getUpdatedAt())
                 .build();

@@ -100,6 +100,22 @@ class PostCommandProductionSchemaValidationIT {
     }
 
     @Test
+    void shouldRestorePostMediaConstraintsAndOptimisticVersionColumn() {
+        bootstrapSchema("create");
+        execute("DROP TABLE IF EXISTS post_media");
+        execute("ALTER TABLE posts DROP COLUMN version");
+
+        assertThatThrownBy(() -> bootstrapSchema("validate"))
+                .hasRootCauseInstanceOf(Exception.class);
+
+        applySchemaPatch("db/schema/post-command-service-prod.sql");
+
+        assertThatNoException().isThrownBy(() -> bootstrapSchema("validate"));
+        assertForeignKeyExists("post_media", "fk_post_media_post");
+        assertUniqueConstraintExists("post_media", "uk_post_media_post_order");
+    }
+
+    @Test
     void shouldRequireTrackedSchemaPatchBeforeProductionValidationPassesForCollabTablesAndPostColumns() {
         bootstrapSchema("create");
         execute("DROP TABLE IF EXISTS collab_request_idempotency");
@@ -156,6 +172,20 @@ class PostCommandProductionSchemaValidationIT {
                     "Failed to inspect foreign key " + constraintName + " on table " + tableName,
                     exception
             );
+        }
+    }
+
+    private void assertUniqueConstraintExists(String tableName, String constraintName) {
+        try (Connection connection = DriverManager.getConnection(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+             ResultSet resultSet = connection.getMetaData().getIndexInfo(connection.getCatalog(), "public", tableName, true, false)) {
+            while (resultSet.next()) {
+                if (constraintName.equalsIgnoreCase(resultSet.getString("INDEX_NAME"))) {
+                    return;
+                }
+            }
+            throw new AssertionError("Missing unique constraint " + constraintName + " on " + tableName);
+        } catch (Exception exception) {
+            throw new IllegalStateException("Failed to inspect unique constraint " + constraintName, exception);
         }
     }
 

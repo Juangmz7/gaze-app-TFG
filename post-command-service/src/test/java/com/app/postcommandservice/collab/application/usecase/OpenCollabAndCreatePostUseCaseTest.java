@@ -117,6 +117,8 @@ class OpenCollabAndCreatePostUseCaseTest {
                 "hello",
                 Set.of("alice"),
                 Set.of("spring"),
+                null,
+                media(),
                 Instant.now(),
                 Instant.now()
         );
@@ -161,7 +163,8 @@ class OpenCollabAndCreatePostUseCaseTest {
                 "New collab",
                 "hello",
                 Set.of("alice"),
-                Set.of("spring")
+                Set.of("spring"),
+                media()
         ));
 
         assertThat(response.collabId()).isEqualTo(collabId);
@@ -200,7 +203,8 @@ class OpenCollabAndCreatePostUseCaseTest {
                 "ignored",
                 "ignored",
                 Set.of(),
-                Set.of()
+                Set.of(),
+                media()
         ));
 
         assertThat(response.collabId()).isEqualTo(collabId);
@@ -217,13 +221,18 @@ class OpenCollabAndCreatePostUseCaseTest {
                 new PostId(postId),
                 new UserId(USER_ID),
                 collabId,
-                PostType.COLAB,
-                new PostDescription("hello"),
-                new PostTaggedUsers(Set.of("alice")),
-                new PostTags(Set.of("spring")),
+                new com.app.postcommandservice.post.domain.model.PostInfo(null, new PostDescription("hello"),
+                        new PostTaggedUsers(Set.of("alice")), new PostTags(Set.of("spring")), PostType.COLAB),
+                media(),
                 PostStatus.ACTIVE,
                 now,
                 now
         );
+    }
+
+    private java.util.List<com.app.postcommandservice.post.domain.model.PostMedia> media() {
+        return java.util.List.of(new com.app.postcommandservice.post.domain.model.PostMedia(UUID.randomUUID(),
+                "https://cdn.test/post.jpg", null,
+                com.app.postcommandservice.post.domain.model.valueobj.MediaType.IMAGE, null, 1));
     }
 }

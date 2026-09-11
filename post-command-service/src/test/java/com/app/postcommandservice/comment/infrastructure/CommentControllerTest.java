@@ -46,6 +46,7 @@ import com.app.postcommandservice.post.domain.model.valueobj.PostType;
 import com.app.postcommandservice.post.infrastructure.entity.BlockReadModelEntity;
 import com.app.postcommandservice.post.infrastructure.entity.BlockReadModelId;
 import com.app.postcommandservice.post.infrastructure.entity.PostEntity;
+import com.app.postcommandservice.post.infrastructure.entity.PostMediaEntity;
 import com.app.postcommandservice.post.infrastructure.repository.BlockReadModelJpaRepository;
 import com.app.postcommandservice.post.infrastructure.repository.PostJpaRepository;
 import com.app.postcommandservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
@@ -1211,18 +1212,24 @@ class CommentControllerTest {
             UUID ownerId,
             PostStatus status
     ) {
-        return postJpaRepository.save(
-                PostEntity.builder()
-                        .id(UUID.randomUUID())
-                        .userId(ownerId)
-                        .collabId(null)
-                        .description("post")
-                        .postType(PostType.BASIC)
-                        .taggedUsers(new java.util.ArrayList<>())
-                        .tags(new java.util.ArrayList<>())
-                        .status(status)
-                        .build()
-        );
+        var post = PostEntity.builder()
+                .id(UUID.randomUUID())
+                .userId(ownerId)
+                .collabId(null)
+                .postInfo(com.app.postcommandservice.post.infrastructure.entity.PostInfoEmbeddable.builder()
+                        .description("post").postType(PostType.BASIC)
+                        .taggedUsers(new java.util.ArrayList<>()).tags(new java.util.ArrayList<>()).build())
+                .status(status)
+                .build();
+        if (status == PostStatus.ACTIVE) {
+            post.replaceMedia(List.of(PostMediaEntity.builder()
+                    .id(UUID.randomUUID())
+                    .url("https://cdn.example.test/post.jpg")
+                    .mediaType(com.app.postcommandservice.post.domain.model.valueobj.MediaType.IMAGE)
+                    .order(1)
+                    .build()));
+        }
+        return postJpaRepository.save(post);
     }
 
     private CommentEntity seedComment(
