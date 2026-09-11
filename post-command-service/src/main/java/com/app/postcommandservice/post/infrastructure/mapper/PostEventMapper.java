@@ -25,6 +25,8 @@ public class PostEventMapper {
                 .description(post.getDescription().value())
                 .taggedUsers(post.getTaggedUsers().value())
                 .postTags(post.getTags().value())
+                .title(post.getInfo().title())
+                .media(post.getMedia())
                 .createdAt(post.getCreatedAt())
                 .updatedAt(post.getUpdatedAt())
                 .build();
@@ -42,6 +44,8 @@ public class PostEventMapper {
                 .description(post.getDescription().value())
                 .taggedUsers(post.getTaggedUsers().value())
                 .postTags(post.getTags().value())
+                .title(post.getInfo().title())
+                .media(post.getMedia())
                 .createdAt(post.getCreatedAt())
                 .updatedAt(post.getUpdatedAt())
                 .build();

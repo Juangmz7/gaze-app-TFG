@@ -101,6 +101,8 @@ public class LinkExistingPostToCollabUseCase {
                 post.getDescription().value(),
                 post.getTaggedUsers().value(),
                 post.getTags().value(),
+                post.getInfo().title(),
+                post.getMedia(),
                 post.getCreatedAt(),
                 post.getUpdatedAt()
         );

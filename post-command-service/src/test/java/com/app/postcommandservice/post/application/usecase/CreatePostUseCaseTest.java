@@ -5,6 +5,7 @@ import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.List;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -25,6 +26,9 @@ import com.app.postcommandservice.post.domain.events.PostCreatedDomainEvent;
 import com.app.postcommandservice.post.domain.exception.TaggedUserBlockedException;
 import com.app.postcommandservice.post.domain.exception.TaggedUserNotFoundException;
 import com.app.postcommandservice.post.domain.model.Post;
+import com.app.postcommandservice.post.domain.model.PostInfo;
+import com.app.postcommandservice.post.domain.model.PostMedia;
+import com.app.postcommandservice.post.domain.model.valueobj.MediaType;
 import com.app.postcommandservice.post.domain.model.valueobj.PostDescription;
 import com.app.postcommandservice.post.domain.model.valueobj.PostId;
 import com.app.postcommandservice.post.domain.model.valueobj.PostStatus;
@@ -85,7 +89,7 @@ class CreatePostUseCaseTest {
 
     @Test
     void shouldCreatePostSuccessfullyWhenDescriptionIsBlankAndNoUsersAreTagged() {
-        var command = new CreatePostCommand(CORRELATION_ID, USER_ID, null, PostType.BASIC, "", Set.of(), Set.of("java"));
+        var command = command("", Set.of(), Set.of("java"));
         var persistedPost = persistedPost("", Set.of(), Set.of("java"));
         var createdEvent = createdEvent(persistedPost);
 
@@ -116,7 +120,7 @@ class CreatePostUseCaseTest {
 
     @Test
     void shouldAcquireCorrelationLockBeforeCheckingExistingIdempotencyRecord() {
-        var command = new CreatePostCommand(CORRELATION_ID, USER_ID, null, PostType.BASIC, "", Set.of(), Set.of("java"));
+        var command = command("", Set.of(), Set.of("java"));
         var persistedPost = persistedPost("", Set.of(), Set.of("java"));
         var createdEvent = createdEvent(persistedPost);
 
@@ -135,15 +139,7 @@ class CreatePostUseCaseTest {
 
     @Test
     void shouldCreatePostSuccessfullyWhenTaggedUsersExistAndAreNotBlocked() {
-        var command = new CreatePostCommand(
-                CORRELATION_ID,
-                USER_ID,
-                null,
-                PostType.BASIC,
-                "hello",
-                new LinkedHashSet<>(Set.of("alice", "bob")),
-                Set.of("spring", "rabbit")
-        );
+        var command = command("hello", new LinkedHashSet<>(Set.of("alice", "bob")), Set.of("spring", "rabbit"));
         var persistedPost = persistedPost("hello", command.taggedUsers(), command.postTags());
         var createdEvent = createdEvent(persistedPost);
         var usersByUsername = Map.of("alice", UUID.randomUUID(), "bob", UUID.randomUUID());
@@ -172,15 +168,7 @@ class CreatePostUseCaseTest {
                 .thenReturn(Optional.of(existingPost.getId().value()));
         when(postRepository.findById(existingPost.getId().value())).thenReturn(Optional.of(existingPost));
 
-        var response = createPostUseCase.createPost(new CreatePostCommand(
-                CORRELATION_ID,
-                USER_ID,
-                null,
-                PostType.BASIC,
-                "new value",
-                Set.of("bob"),
-                Set.of("spring")
-        ));
+        var response = createPostUseCase.createPost(command("new value", Set.of("bob"), Set.of("spring")));
 
         assertThat(response.postId()).isEqualTo(existingPost.getId().value());
         assertThat(response.description()).isEqualTo("existing");
@@ -191,15 +179,7 @@ class CreatePostUseCaseTest {
 
     @Test
     void shouldThrowTaggedUserNotFoundExceptionWhenTaggedUserDoesNotExist() {
-        var command = new CreatePostCommand(
-                CORRELATION_ID,
-                USER_ID,
-                null,
-                PostType.BASIC,
-                "description",
-                Set.of("missing"),
-                Set.of()
-        );
+        var command = command("description", Set.of("missing"), Set.of());
 
         when(postRequestIdempotencyRepository.findPostIdByCorrelationId(CORRELATION_ID)).thenReturn(Optional.empty());
         when(taggedUserValidationRepository.findUserIdsByUsernames(command.taggedUsers())).thenReturn(Map.of());
@@ -212,15 +192,7 @@ class CreatePostUseCaseTest {
     @Test
     void shouldThrowTaggedUserBlockedExceptionWhenTaggedUserHasBlockedThePostOwnerOrViceVersa() {
         var blockedUserId = UUID.randomUUID();
-        var command = new CreatePostCommand(
-                CORRELATION_ID,
-                USER_ID,
-                null,
-                PostType.BASIC,
-                "description",
-                Set.of("alice"),
-                Set.of()
-        );
+        var command = command("description", Set.of("alice"), Set.of());
 
         when(postRequestIdempotencyRepository.findPostIdByCorrelationId(CORRELATION_ID)).thenReturn(Optional.empty());
         when(taggedUserValidationRepository.findUserIdsByUsernames(command.taggedUsers()))
@@ -243,16 +215,17 @@ class CreatePostUseCaseTest {
                 PostType.COLAB,
                 "hello",
                 Set.of(),
-                Set.of("spring")
+                Set.of("spring"),
+                null,
+                media()
         );
         var persistedPost = new Post(
                 new PostId(UUID.randomUUID()),
                 new UserId(USER_ID),
                 collabId,
-                PostType.COLAB,
-                new PostDescription("hello"),
-                new PostTaggedUsers(Set.of()),
-                new PostTags(Set.of("spring")),
+                new PostInfo(null, new PostDescription("hello"), new PostTaggedUsers(Set.of()),
+                        new PostTags(Set.of("spring")), PostType.COLAB),
+                media(),
                 PostStatus.ACTIVE,
                 Instant.now(),
                 Instant.now()
@@ -279,16 +252,17 @@ class CreatePostUseCaseTest {
                 PostType.COLAB,
                 "hello",
                 Set.of(),
-                Set.of("spring")
+                Set.of("spring"),
+                null,
+                media()
         );
         var persistedPost = new Post(
                 new PostId(UUID.randomUUID()),
                 new UserId(USER_ID),
                 collabId,
-                PostType.COLAB,
-                new PostDescription("hello"),
-                new PostTaggedUsers(Set.of()),
-                new PostTags(Set.of("spring")),
+                new PostInfo(null, new PostDescription("hello"), new PostTaggedUsers(Set.of()),
+                        new PostTags(Set.of("spring")), PostType.COLAB),
+                media(),
                 PostStatus.ACTIVE,
                 Instant.now(),
                 Instant.now()
@@ -313,14 +287,22 @@ class CreatePostUseCaseTest {
                 new PostId(UUID.randomUUID()),
                 new UserId(USER_ID),
                 null,
-                PostType.BASIC,
-                new PostDescription(description),
-                new PostTaggedUsers(new LinkedHashSet<>(taggedUsers)),
-                new PostTags(new LinkedHashSet<>(postTags)),
+                new PostInfo(null, new PostDescription(description), new PostTaggedUsers(new LinkedHashSet<>(taggedUsers)),
+                        new PostTags(new LinkedHashSet<>(postTags)), PostType.BASIC),
+                media(),
                 PostStatus.ACTIVE,
                 now,
                 now
         );
+    }
+
+    private CreatePostCommand command(String description, Set<String> taggedUsers, Set<String> postTags) {
+        return new CreatePostCommand(CORRELATION_ID, USER_ID, null, PostType.BASIC, description,
+                taggedUsers, postTags, null, media());
+    }
+
+    private List<PostMedia> media() {
+        return List.of(new PostMedia(UUID.randomUUID(), "https://cdn.test/post.jpg", null, MediaType.IMAGE, null, 1));
     }
 
     private PostCreatedEvent createdEvent(Post post) {

@@ -22,6 +22,7 @@ import com.app.postcommandservice.post.domain.events.PostCreatedDomainEvent;
 import com.app.postcommandservice.post.domain.exception.TaggedUserBlockedException;
 import com.app.postcommandservice.post.domain.exception.TaggedUserNotFoundException;
 import com.app.postcommandservice.post.domain.model.Post;
+import com.app.postcommandservice.post.domain.model.PostInfo;
 import com.app.postcommandservice.post.domain.model.valueobj.PostDescription;
 import com.app.postcommandservice.post.domain.model.valueobj.PostId;
 import com.app.postcommandservice.post.domain.model.valueobj.PostTaggedUsers;
@@ -86,10 +87,8 @@ public class CreatePostUseCase {
                 new PostId(UUID.randomUUID()),
                 new UserId(command.currentUserId()),
                 command.collabId(),
-                resolvePostType(command.postType()),
-                description,
-                taggedUsers,
-                postTags
+                new PostInfo(command.title(), description, taggedUsers, postTags, resolvePostType(command.postType())),
+                command.media()
         );
 
         var savedPost = postRepository.save(post);
@@ -155,6 +154,8 @@ public class CreatePostUseCase {
                 post.getDescription().value(),
                 post.getTaggedUsers().value(),
                 post.getTags().value(),
+                post.getInfo().title(),
+                post.getMedia(),
                 post.getCreatedAt(),
                 post.getUpdatedAt()
         );

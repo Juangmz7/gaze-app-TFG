@@ -85,7 +85,9 @@ public class OpenCollabAndCreatePostUseCase {
                 PostType.COLAB,
                 command.description(),
                 normalizeSet(command.taggedUsers()),
-                normalizeSet(command.postTags())
+                normalizeSet(command.postTags()),
+                null,
+                command.media()
         ), false, false);
         var savedPost = postRepository.findById(savedPostResponse.postId())
                 .orElseThrow(() -> new IllegalStateException(
@@ -141,6 +143,8 @@ public class OpenCollabAndCreatePostUseCase {
                 post.getDescription().value(),
                 post.getTaggedUsers().value(),
                 post.getTags().value(),
+                post.getInfo().title(),
+                post.getMedia(),
                 post.getCreatedAt(),
                 post.getUpdatedAt()
         );

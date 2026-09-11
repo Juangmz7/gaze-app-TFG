@@ -85,7 +85,9 @@ public class PostController {
                 PostType.BASIC,
                 request.description(),
                 request.taggedUsers(),
-                request.postTags()
+                request.postTags(),
+                request.title(),
+                request.media().stream().map(PostMediaRequest::toDomain).toList()
         );
 
         return ResponseEntity.ok(createPostUseCase.createPost(command));
@@ -119,7 +121,9 @@ public class PostController {
                 currentUserId,
                 request.description(),
                 request.taggedUsers(),
-                request.postTags()
+                request.postTags(),
+                request.title(),
+                request.media() == null ? null : request.media().stream().map(PostMediaRequest::toDomain).toList()
         );
 
         return ResponseEntity.ok(updatePostUseCase.updatePost(command));

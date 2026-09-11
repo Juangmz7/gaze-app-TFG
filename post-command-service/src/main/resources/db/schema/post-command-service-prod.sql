@@ -92,3 +92,63 @@ CREATE TABLE IF NOT EXISTS comment_request_idempotency (
 
 CREATE INDEX IF NOT EXISTS idx_comment_request_idempotency_comment_id
     ON comment_request_idempotency (comment_id);
+
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS title VARCHAR(255);
+
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS version BIGINT;
+UPDATE posts SET version = 0 WHERE version IS NULL;
+ALTER TABLE posts ALTER COLUMN version SET DEFAULT 0;
+ALTER TABLE posts ALTER COLUMN version SET NOT NULL;
+
+ALTER TABLE posts ALTER COLUMN description TYPE TEXT;
+ALTER TABLE posts ALTER COLUMN description DROP NOT NULL;
+
+CREATE TABLE IF NOT EXISTS post_tagged_users (
+    post_id UUID NOT NULL,
+    username VARCHAR(255) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS post_tags (
+    post_id UUID NOT NULL,
+    tag_value VARCHAR(255) NOT NULL
+);
+
+DO 'DECLARE constraint_name TEXT;
+BEGIN
+    FOR constraint_name IN
+        SELECT conname FROM pg_constraint
+        WHERE conrelid = ''post_tagged_users''::regclass AND contype = ''f''
+    LOOP
+        EXECUTE format(''ALTER TABLE post_tagged_users DROP CONSTRAINT %I'', constraint_name);
+    END LOOP;
+END';
+ALTER TABLE post_tagged_users
+    ADD CONSTRAINT fk_post_tagged_users_post
+        FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE;
+
+DO 'DECLARE constraint_name TEXT;
+BEGIN
+    FOR constraint_name IN
+        SELECT conname FROM pg_constraint
+        WHERE conrelid = ''post_tags''::regclass AND contype = ''f''
+    LOOP
+        EXECUTE format(''ALTER TABLE post_tags DROP CONSTRAINT %I'', constraint_name);
+    END LOOP;
+END';
+ALTER TABLE post_tags
+    ADD CONSTRAINT fk_post_tags_post
+        FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE;
+
+CREATE TABLE IF NOT EXISTS post_media (
+    id UUID NOT NULL,
+    post_id UUID NOT NULL,
+    url TEXT NOT NULL,
+    thumbnail_url TEXT,
+    media_type VARCHAR(255) NOT NULL,
+    duration INTEGER,
+    media_order INTEGER NOT NULL,
+    CONSTRAINT pk_post_media PRIMARY KEY (id),
+    CONSTRAINT uk_post_media_post_order UNIQUE (post_id, media_order),
+    CONSTRAINT ck_post_media_order_positive CHECK (media_order >= 1),
+    CONSTRAINT fk_post_media_post FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE
+);
