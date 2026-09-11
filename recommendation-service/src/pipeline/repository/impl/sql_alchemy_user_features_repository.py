@@ -1,6 +1,7 @@
 from uuid import UUID
 
-from sqlalchemy import insert, select, update
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from pipeline.entity.user.user_features_entity import UserFeaturesRecord
 from pipeline.model.user.user_features import UserFeatures
@@ -31,10 +32,10 @@ class SqlAlchemyUserFeaturesRepository(UserFeaturesRepository):
     def save(self, user_features: UserFeatures) -> None:
         values = user_features_values(user_features)
         with self.session_provider.session() as session:
-            result = session.execute(
-                update(UserFeaturesRecord)
-                .where(UserFeaturesRecord.user_id == user_features.user_id)
-                .values(**values)
+            stmt = pg_insert(UserFeaturesRecord).values(**values)
+            session.execute(
+                stmt.on_conflict_do_update(
+                    index_elements=["user_id"],
+                    set_={key: getattr(stmt.excluded, key) for key in values if key != "user_id"},
+                )
             )
-            if result.rowcount == 0:
-                session.execute(insert(UserFeaturesRecord).values(**values))

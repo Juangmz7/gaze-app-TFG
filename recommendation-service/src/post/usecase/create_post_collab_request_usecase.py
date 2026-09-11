@@ -29,8 +29,11 @@ class CreatePostCollabRequestInteractionUsecase:
             logger.warning("Post id not found for collab request: collab_id=%s", command.collab_id)
             return
 
+        existing = self.user_post_interactions_repository.get_all_by_user(post_ids, command.user_id)
+
+        to_save = []
         for post_id in post_ids:
-            interaction = self._get_or_create_interaction(post_id, command.user_id)
+            interaction = existing.get(post_id) or UserPostInteractions(post_id=post_id, user_id=command.user_id)
             if interaction.ever_requested_collab:
                 logger.info(
                     "Ignoring duplicate collab request interaction: post_id=%s, user_id=%s",
@@ -53,13 +56,9 @@ class CreatePostCollabRequestInteractionUsecase:
                 occurred_at=command.occurred_at,
             )
             interaction.ever_requested_collab = True
-            self.user_post_interactions_repository.save(interaction)
+            to_save.append(interaction)
 
-    def _get_or_create_interaction(self, post_id, user_id) -> UserPostInteractions:
-        return (
-            self.user_post_interactions_repository.get(post_id, user_id)
-            or UserPostInteractions(post_id=post_id, user_id=user_id)
-        )
+        self.user_post_interactions_repository.save_all(to_save)
 
 
 CreatePostCollabRequestUsecase = CreatePostCollabRequestInteractionUsecase

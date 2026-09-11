@@ -27,3 +27,7 @@ class PostFeaturesRepository(ABC):
             collab_title: str | None,
     ) -> None:
         pass
+
+    @abstractmethod
+    def clear_collab_for_posts(self, post_ids: list[UUID]) -> None:
+        pass

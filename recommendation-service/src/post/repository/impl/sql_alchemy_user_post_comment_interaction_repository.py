@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from sqlalchemy import insert, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from post.entity.user_post_comment_interaction_entity import (
     UserPostCommentInteractionRecord,
@@ -14,6 +14,8 @@ from shared.repository.impl.mappers import (
     user_post_comment_interaction_from_record,
     user_post_comment_interaction_values,
 )
+
+_PK = {"comment_id", "user_id"}
 
 
 class SqlAlchemyUserPostCommentInteractionRepository(
@@ -34,13 +36,11 @@ class SqlAlchemyUserPostCommentInteractionRepository(
     def save(self, interaction: UserPostCommentInteraction) -> None:
         values = user_post_comment_interaction_values(interaction)
         with self.session_provider.session() as session:
-            result = session.execute(
-                update(UserPostCommentInteractionRecord)
-                .where(
-                    UserPostCommentInteractionRecord.comment_id == interaction.comment_id,
-                    UserPostCommentInteractionRecord.user_id == interaction.user_id,
+            stmt = pg_insert(UserPostCommentInteractionRecord).values(**values)
+            session.execute(
+                stmt.on_conflict_do_update(
+                    index_elements=["comment_id", "user_id"],
+                    set_={key: getattr(stmt.excluded, key) for key in values if key not in _PK},
                 )
-                .values(**values)
             )
-            if result.rowcount == 0:
-                session.execute(insert(UserPostCommentInteractionRecord).values(**values))
+

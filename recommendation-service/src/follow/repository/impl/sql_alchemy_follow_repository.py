@@ -1,6 +1,7 @@
 from uuid import UUID
 
-from sqlalchemy import and_, delete, insert, or_, update
+from sqlalchemy import and_, delete, or_
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from follow.entity.follow_entity import FollowRecord
 from follow.model.follow import Follow
@@ -19,16 +20,13 @@ class SqlAlchemyFollowRepository(FollowRepository):
             "created_at": follow.created_at,
         }
         with self.session_provider.session() as session:
-            result = session.execute(
-                update(FollowRecord)
-                .where(
-                    FollowRecord.follower_id == follow.follower_id,
-                    FollowRecord.followed_id == follow.followed_id,
+            stmt = pg_insert(FollowRecord).values(**values)
+            session.execute(
+                stmt.on_conflict_do_update(
+                    index_elements=["follower_id", "followed_id"],
+                    set_={key: getattr(stmt.excluded, key) for key in values if key not in {"follower_id", "followed_id"}},
                 )
-                .values(**values)
             )
-            if result.rowcount == 0:
-                session.execute(insert(FollowRecord).values(**values))
 
     def remove_follow(self, follower_user_id: UUID, followed_user_id: UUID) -> None:
         with self.session_provider.session() as session:

@@ -1,6 +1,7 @@
 from uuid import UUID
 
-from sqlalchemy import insert, update
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from post.entity.user_post_interactions_entity import UserPostInteractionsRecord
 from post.model.user_post_interactions import UserPostInteractions
@@ -10,6 +11,8 @@ from shared.repository.impl.mappers import (
     user_post_interactions_from_record,
     user_post_interactions_values,
 )
+
+_PK = {"post_id", "user_id"}
 
 
 class SqlAlchemyUserPostInteractionsRepository(UserPostInteractionsRepository):
@@ -24,13 +27,39 @@ class SqlAlchemyUserPostInteractionsRepository(UserPostInteractionsRepository):
     def save(self, interactions: UserPostInteractions) -> None:
         values = user_post_interactions_values(interactions)
         with self.session_provider.session() as session:
-            result = session.execute(
-                update(UserPostInteractionsRecord)
-                .where(
-                    UserPostInteractionsRecord.post_id == interactions.post_id,
-                    UserPostInteractionsRecord.user_id == interactions.user_id,
+            stmt = pg_insert(UserPostInteractionsRecord).values(**values)
+            session.execute(
+                stmt.on_conflict_do_update(
+                    index_elements=["post_id", "user_id"],
+                    set_={key: getattr(stmt.excluded, key) for key in values if key not in _PK},
                 )
-                .values(**values)
             )
-            if result.rowcount == 0:
-                session.execute(insert(UserPostInteractionsRecord).values(**values))
+
+    def get_all_by_user(
+        self,
+        post_ids: list[UUID],
+        user_id: UUID,
+    ) -> dict[UUID, UserPostInteractions]:
+        if not post_ids:
+            return {}
+        with self.session_provider.session() as session:
+            records = session.scalars(
+                select(UserPostInteractionsRecord).where(
+                    UserPostInteractionsRecord.user_id == user_id,
+                    UserPostInteractionsRecord.post_id.in_(post_ids),
+                )
+            ).all()
+            return {r.post_id: user_post_interactions_from_record(r) for r in records}
+
+    def save_all(self, interactions: list[UserPostInteractions]) -> None:
+        if not interactions:
+            return
+        values_list = [user_post_interactions_values(i) for i in interactions]
+        with self.session_provider.session() as session:
+            stmt = pg_insert(UserPostInteractionsRecord).values(values_list)
+            session.execute(
+                stmt.on_conflict_do_update(
+                    index_elements=["post_id", "user_id"],
+                    set_={key: getattr(stmt.excluded, key) for key in values_list[0] if key not in _PK},
+                )
+            )

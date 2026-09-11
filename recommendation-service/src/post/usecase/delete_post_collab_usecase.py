@@ -15,9 +15,4 @@ class DeletePostCollabUsecase:
     def execute(self, command: DeletePostCollabCommand) -> None:
         post_ids = self.collab_repository.find_posts_id_by_collab_id(command.collab_id)
         self.collab_repository.delete(command.collab_id)
-        for post_id in post_ids:
-            self.post_features_repository.update_post_collab(
-                post_id=post_id,
-                collab_id=None,
-                collab_title=None,
-            )
+        self.post_features_repository.clear_collab_for_posts(post_ids)

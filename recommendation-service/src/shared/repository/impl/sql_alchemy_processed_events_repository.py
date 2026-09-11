@@ -1,7 +1,8 @@
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import exists, insert, select, update
+from sqlalchemy import exists, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from shared.config.database import SQLAlchemySessionProvider
 from shared.entity.processed_event_entity import ProcessedEventRecord
@@ -33,13 +34,11 @@ class SqlAlchemyProcessedEventsRepository(ProcessedEventsRepository):
             "processed_at": datetime.now(timezone.utc),
         }
         with self.session_provider.session() as session:
-            result = session.execute(
-                update(ProcessedEventRecord)
-                .where(
-                    ProcessedEventRecord.event_id == event_id,
-                    ProcessedEventRecord.correlation_id == correlation_id,
+            stmt = pg_insert(ProcessedEventRecord).values(**values)
+            session.execute(
+                stmt.on_conflict_do_update(
+                    index_elements=["event_id", "correlation_id"],
+                    set_={key: getattr(stmt.excluded, key) for key in values if key not in {"event_id", "correlation_id"}},
                 )
-                .values(**values)
             )
-            if result.rowcount == 0:
-                session.execute(insert(ProcessedEventRecord).values(**values))
+

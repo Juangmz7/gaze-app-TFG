@@ -12,3 +12,15 @@ class UserPostInteractionsRepository(ABC):
     @abstractmethod
     def save(self, interactions: UserPostInteractions) -> None:
         pass
+
+    @abstractmethod
+    def get_all_by_user(
+        self,
+        post_ids: list[UUID],
+        user_id: UUID,
+    ) -> dict[UUID, UserPostInteractions]:
+        pass
+
+    @abstractmethod
+    def save_all(self, interactions: list[UserPostInteractions]) -> None:
+        pass

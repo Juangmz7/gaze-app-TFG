@@ -1,6 +1,7 @@
 from uuid import UUID
 
-from sqlalchemy import delete, insert, select, update
+from sqlalchemy import delete, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from post.entity.comment_post_entity import CommentPostRecord
 from post.repository.comment_post_repository import CommentPostRepository
@@ -14,13 +15,13 @@ class SqlAlchemyCommentPostRepository(CommentPostRepository):
     def save_comment_post(self, comment_id: UUID, post_id: UUID) -> None:
         values = {"comment_id": comment_id, "post_id": post_id}
         with self.session_provider.session() as session:
-            result = session.execute(
-                update(CommentPostRecord)
-                .where(CommentPostRecord.comment_id == comment_id)
-                .values(**values)
+            stmt = pg_insert(CommentPostRecord).values(**values)
+            session.execute(
+                stmt.on_conflict_do_update(
+                    index_elements=["comment_id"],
+                    set_={"post_id": stmt.excluded.post_id},
+                )
             )
-            if result.rowcount == 0:
-                session.execute(insert(CommentPostRecord).values(**values))
 
     def find_post_id_by_comment_id(self, comment_id: UUID) -> UUID | None:
         with self.session_provider.session() as session:
