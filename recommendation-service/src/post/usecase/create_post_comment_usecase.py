@@ -26,7 +26,7 @@ class CreatePostCommentInteractionUsecase:
     def execute(self, command: CreatePostCommentCommand) -> None:
         interaction = self._get_or_create_interaction(command.post_id, command.user_id)
         next_comment_count = interaction.comment_count + 1
-        weight = POST_COMMENT_WEIGHT * (COMMENT_ACCUMULATION_DECAY ** (next_comment_count - 1))
+        weight = self._get_comment_weight_with_decay(next_comment_count)
 
         self.post_interaction_updater.apply(
             post_id=command.post_id,
@@ -57,6 +57,9 @@ class CreatePostCommentInteractionUsecase:
             self.user_post_interactions_repository.get(post_id, user_id)
             or UserPostInteractions(post_id=post_id, user_id=user_id)
         )
+
+    def _get_comment_weight_with_decay(self, next_comment_count: int) -> float:
+        return POST_COMMENT_WEIGHT * (COMMENT_ACCUMULATION_DECAY ** (next_comment_count - 1))
 
 
 CreatePostCommentUsecase = CreatePostCommentInteractionUsecase

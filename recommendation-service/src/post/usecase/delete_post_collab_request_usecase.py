@@ -55,10 +55,10 @@ class DeletePostCollabRequestInteractionUsecase:
                     InteractionMetricUpdate(
                         metric=InteractionMetric.COLLAB_REQUESTS,
                         raw_delta=-1,
-                        decayed_delta=-1,
+                        decayed_delta=-0.25,
                     )
                 ],
-                embedding_weight=-(COLLAB_REQUEST_WEIGHT * COLLAB_REQUEST_DELETED_PENALISATION_WEIGHT),
+                embedding_weight=-COLLAB_REQUEST_DELETED_PENALISATION_WEIGHT,
                 occurred_at=command.occurred_at,
             )
             interaction.ever_request_collab_deleted = True

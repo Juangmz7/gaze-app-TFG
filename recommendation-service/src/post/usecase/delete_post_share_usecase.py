@@ -37,10 +37,10 @@ class DeletePostShareInteractionUsecase:
                 InteractionMetricUpdate(
                     metric=InteractionMetric.SHARES,
                     raw_delta=-1,
-                    decayed_delta=-1,
+                    decayed_delta=-0.25,
                 )
             ],
-            embedding_weight=-(POST_SHARE_WEIGHT * POST_UNSHARE_PENALISATION_WEIGHT),
+            embedding_weight=-POST_UNSHARE_PENALISATION_WEIGHT,
             occurred_at=command.occurred_at,
         )
         interaction.ever_unshared = True

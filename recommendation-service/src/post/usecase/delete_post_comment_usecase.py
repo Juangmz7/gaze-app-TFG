@@ -39,8 +39,7 @@ class DeletePostCommentInteractionUsecase:
             return
 
         weight = -(
-            POST_COMMENT_WEIGHT
-            * (COMMENT_ACCUMULATION_DECAY ** (interaction.comment_count - 1))
+            (COMMENT_ACCUMULATION_DECAY ** (interaction.comment_count - 1))
             * POST_COMMENT_DELETED_PENALISATION_WEIGHT
         )
         self.post_interaction_updater.apply(
@@ -50,7 +49,7 @@ class DeletePostCommentInteractionUsecase:
                 InteractionMetricUpdate(
                     metric=InteractionMetric.COMMENTS,
                     raw_delta=-1,
-                    decayed_delta=-1,
+                    decayed_delta=-0.25,
                 )
             ],
             embedding_weight=weight,

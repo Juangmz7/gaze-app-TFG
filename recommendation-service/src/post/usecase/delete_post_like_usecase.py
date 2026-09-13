@@ -37,10 +37,10 @@ class DeletePostLikeInteractionUsecase:
                 InteractionMetricUpdate(
                     metric=InteractionMetric.LIKES,
                     raw_delta=-1,
-                    decayed_delta=-1,
+                    decayed_delta=-0.25,
                 )
             ],
-            embedding_weight=-(POST_LIKE_WEIGHT * POST_UNLIKE_PENALISATION_WEIGHT),
+            embedding_weight=-POST_UNLIKE_PENALISATION_WEIGHT,
             occurred_at=command.occurred_at,
             source=command.source,
         )

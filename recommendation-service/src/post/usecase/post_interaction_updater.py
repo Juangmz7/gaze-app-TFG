@@ -59,9 +59,16 @@ class PostInteractionUpdater:
             if post_features is None:
                 raise PostFeaturesNotFoundException(post_id)
 
-            
-
-            
+            user_creator_features = self._get_user_creator_features_for_update(
+                user_id,
+                post_features,
+                occurred_at,
+            )
+            post_tags_features = self._get_post_tag_features_for_update(
+                user_id,
+                post_features,
+                occurred_at,
+            )
 
             user_creator_features.apply_interaction_updates(
                 updates,
@@ -110,10 +117,11 @@ class PostInteractionUpdater:
         
         user_creator_features = (
             self.user_creator_features_repository.get_user_creator_features_for_update(
-            user_id,
-            post_features.creator_id,
+                user_id,
+                post_features.creator_id,
+            )
         )
-    )
+        return user_creator_features
 
     def _get_post_tag_features_for_update(self, 
             user_id: UUID,
@@ -134,14 +142,14 @@ class PostInteractionUpdater:
                 user_id,
                 missing_tags,
             )
-            self.post_tag_features_repository.create_if_absent(
+            self.post_tag_features_repository.create_if_absent([
                 PostTagFeatures.initialize_empty(
                     user_id=user_id,
                     tag_name=tag_name,
                     occurred_at=occurred_at,
                 )
                 for tag_name in missing_tags
-            )
+            ])
                     
         return self.post_tag_features_repository.get_post_tag_features_for_update(
             user_id,
