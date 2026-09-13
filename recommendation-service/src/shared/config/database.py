@@ -43,7 +43,12 @@ class SQLAlchemySessionProvider:
             return
 
         with self.session_factory() as session:
-            yield session
+            try:
+                yield session
+                session.commit()
+            except Exception:
+                session.rollback()
+                raise
 
 
 class SQLAlchemyTransactionManager:

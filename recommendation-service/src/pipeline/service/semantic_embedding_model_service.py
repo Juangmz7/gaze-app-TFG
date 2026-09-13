@@ -12,3 +12,6 @@ class SemanticEmbeddingModelService:
             text,
             normalize_embeddings=True,
         ).tolist()
+
+    def zero_embedding(self) -> list[float]:
+        return [0.0] * 1024

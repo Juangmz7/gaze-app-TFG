@@ -19,16 +19,24 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "user_features",
-        sa.Column(
-            "has_semantic_signal",
-            sa.Boolean(),
-            server_default="false",
-            nullable=False,
-        ),
-    )
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    columns = {column["name"] for column in inspector.get_columns("user_features")}
+    if "has_semantic_signal" not in columns:
+        op.add_column(
+            "user_features",
+            sa.Column(
+                "has_semantic_signal",
+                sa.Boolean(),
+                server_default="false",
+                nullable=False,
+            ),
+        )
 
 
 def downgrade() -> None:
-    op.drop_column("user_features", "has_semantic_signal")
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    columns = {column["name"] for column in inspector.get_columns("user_features")}
+    if "has_semantic_signal" in columns:
+        op.drop_column("user_features", "has_semantic_signal")

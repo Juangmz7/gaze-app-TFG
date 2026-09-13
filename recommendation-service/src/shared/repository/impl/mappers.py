@@ -46,7 +46,6 @@ def decayed_stats_from_record(record) -> DecayedInteractionStats:
         fast_skips=record.decayed_fast_skips,
         collab_requests=record.decayed_collab_requests,
         collab_requests_accepted=record.decayed_collab_requests_accepted,
-        watch_time_average_percent=record.decayed_watch_time_average_percent,
         watch_time=record.decayed_watch_time,
     )
 
@@ -78,7 +77,6 @@ def decayed_stats_values(stats: DecayedInteractionStats) -> dict[str, object]:
         "decayed_fast_skips": stats.fast_skips,
         "decayed_collab_requests": stats.collab_requests,
         "decayed_collab_requests_accepted": stats.collab_requests_accepted,
-        "decayed_watch_time_average_percent": stats.watch_time_average_percent,
         "decayed_watch_time": stats.watch_time,
     }
 
