@@ -6,7 +6,7 @@ type ServerConfig struct {
     Port string
 }
 
-func loadServer() ServerConfig {
+func LoadServer() ServerConfig {
     port := os.Getenv("HTTP_PORT")
     if port == "" {
         port = "8080"
