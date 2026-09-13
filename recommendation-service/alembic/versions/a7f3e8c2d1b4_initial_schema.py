@@ -184,6 +184,7 @@ def upgrade() -> None:
         sa.Column("user_id", sa.Uuid(as_uuid=True), nullable=False),
         sa.Column("semantic_embedding", Vector(1024), nullable=False),
         sa.Column("last_updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("has_semantic_signal", sa.Boolean(), server_default="false", nullable=False),
         sa.PrimaryKeyConstraint("user_id", name="pk_user_features"),
     )
 

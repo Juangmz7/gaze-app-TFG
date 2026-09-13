@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from pipeline.entity.user.user_features_entity import UserFeaturesRecord
@@ -38,4 +38,10 @@ class SqlAlchemyUserFeaturesRepository(UserFeaturesRepository):
                     index_elements=["user_id"],
                     set_={key: getattr(stmt.excluded, key) for key in values if key != "user_id"},
                 )
+            )
+
+    def delete(self, user_id: UUID) -> None:
+        with self.session_provider.session() as session:
+            session.execute(
+                delete(UserFeaturesRecord).where(UserFeaturesRecord.user_id == user_id)
             )

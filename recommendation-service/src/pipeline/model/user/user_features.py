@@ -9,11 +9,13 @@ class UserFeatures:
             self,
             user_id: UUID,
             semantic_embedding: list[float],
-            last_updated_at: datetime
+            last_updated_at: datetime,
+            has_semantic_signal: bool = False,
     ):
         self.user_id = user_id
         self.semantic_embedding = semantic_embedding
         self.last_updated_at = last_updated_at
+        self.has_semantic_signal = has_semantic_signal
 
     def apply_semantic_interaction(
             self,
@@ -41,3 +43,4 @@ class UserFeatures:
             )
         ])
         self.last_updated_at = occurred_at
+        self.has_semantic_signal = True

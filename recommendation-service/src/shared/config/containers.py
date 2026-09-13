@@ -167,9 +167,15 @@ class Container:
         self.delete_follow_usecase = DeleteFollowUsecase(self.follow_service)
         self.create_block_usecase = CreateBlockUsecase(self.block_service)
         self.delete_block_usecase = DeleteBlockUsecase(self.block_service)
-        self.register_user_usecase = RegisterUserUsecase()
-        self.update_user_usecase = UpdateUserUsecase()
-        self.delete_user_usecase = DeleteUserUsecase()
+        self.register_user_usecase = RegisterUserUsecase(
+            self.user_features_repository,
+            self.semantic_embedding_model_service,
+        )
+        self.update_user_usecase = UpdateUserUsecase(
+            self.user_features_repository,
+            self.semantic_embedding_model_service,
+        )
+        self.delete_user_usecase = DeleteUserUsecase(self.user_features_repository)
 
         self.create_post_usecase = CreatePostUsecase(
             self.post_features_repository,

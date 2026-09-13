@@ -17,3 +17,7 @@ class UserFeaturesRepository(ABC):
     @abstractmethod
     def save(self, user_features: UserFeatures) -> None:
         pass
+
+    @abstractmethod
+    def delete(self, user_id: UUID) -> None:
+        pass

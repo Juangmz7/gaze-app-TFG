@@ -116,6 +116,7 @@ def user_features_from_record(record: UserFeaturesRecord) -> UserFeatures:
         user_id=record.user_id,
         semantic_embedding=list(record.semantic_embedding),
         last_updated_at=record.last_updated_at,
+        has_semantic_signal=record.has_semantic_signal,
     )
 
 
@@ -124,6 +125,7 @@ def user_features_values(user_features: UserFeatures) -> dict[str, object]:
         "user_id": user_features.user_id,
         "semantic_embedding": list(user_features.semantic_embedding),
         "last_updated_at": user_features.last_updated_at,
+        "has_semantic_signal": user_features.has_semantic_signal,
     }
 
 

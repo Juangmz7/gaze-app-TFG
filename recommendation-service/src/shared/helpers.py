@@ -65,3 +65,19 @@ def build_post_semantic_text(
     if tagged_users:
         parts.append(" ".join(sorted(tagged_users)))
     return " ".join(parts)
+
+
+def build_user_semantic_text(
+        description: str | None,
+        social_media: dict[str, str] | None = None,
+) -> str:
+    parts = []
+    if description:
+        parts.append(description)
+    if social_media:
+        parts.extend(
+            value
+            for _, value in sorted(social_media.items())
+            if value
+        )
+    return " ".join(parts)
