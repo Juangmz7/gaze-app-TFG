@@ -38,6 +38,9 @@ from shared.repository.impl.sql_alchemy_processed_events_repository import (
 )
 from post.usecase.ban_post_usecase import BanPostUsecase
 from post.usecase.create_post_collab_request_usecase import CreatePostCollabRequestUsecase
+from post.usecase.create_post_collab_for_existing_post_usecase import (
+    CreatePostCollabForExistingPostUsecase,
+)
 from post.usecase.create_post_collab_usecase import CreatePostCollabUsecase
 from post.usecase.create_post_comment_like_usecase import CreatePostCommentLikeUsecase
 from post.usecase.create_post_comment_usecase import CreatePostCommentUsecase
@@ -59,9 +62,10 @@ from post.usecase.update_post_usecase import UpdatePostUsecase
 from rabbitmq.config.constants import PostRoutingKey, UserRoutingKey
 from rabbitmq.event.post.post_events import (
     PostBannedEvent,
-    PostCollabCreatedEvent,
     PostCollabDeletedEvent,
     PostCollabLinkedEvent,
+    PostCollabOpenedForExistingPostEvent,
+    PostCollabOpenedWithPostCreatedEvent,
     PostCollabRequestCreatedEvent,
     PostCollabRequestDeletedEvent,
     PostCommentCreatedEvent,
@@ -88,9 +92,14 @@ from rabbitmq.event.user.user_events import (
     UserUpdatedEvent,
 )
 from rabbitmq.handler.post.post_banned_event_handler import PostBannedEventHandler
-from rabbitmq.handler.post.post_collab_created_event_handler import PostCollabCreatedEventHandler
 from rabbitmq.handler.post.post_collab_deleted_event_handler import PostCollabDeletedEventHandler
 from rabbitmq.handler.post.post_collab_linked_event_handler import PostCollabLinkedEventHandler
+from rabbitmq.handler.post.post_collab_opened_for_existing_post_event_handler import (
+    PostCollabOpenedForExistingPostEventHandler,
+)
+from rabbitmq.handler.post.post_collab_opened_with_post_created_event_handler import (
+    PostCollabOpenedWithPostCreatedEventHandler,
+)
 from rabbitmq.handler.post.post_collab_request_created_event_handler import (
     PostCollabRequestCreatedEventHandler,
 )
@@ -207,6 +216,13 @@ class Container:
             self.post_features_repository,
             self.semantic_embedding_model_service,
         )
+        self.create_post_collab_for_existing_post_usecase = (
+            CreatePostCollabForExistingPostUsecase(
+                self.collab_repository,
+                self.post_features_repository,
+                self.semantic_embedding_model_service,
+            )
+        )
         self.link_post_collab_usecase = LinkPostCollabUsecase(
             self.collab_repository,
             self.post_features_repository,
@@ -276,8 +292,15 @@ class Container:
         self.post_share_created_event_handler = PostShareCreatedEventHandler(
             self.create_post_share_usecase
         )
-        self.post_collab_created_event_handler = PostCollabCreatedEventHandler(
-            self.create_post_collab_usecase
+        self.post_collab_opened_with_post_created_event_handler = (
+            PostCollabOpenedWithPostCreatedEventHandler(
+                self.create_post_collab_usecase
+            )
+        )
+        self.post_collab_opened_for_existing_post_event_handler = (
+            PostCollabOpenedForExistingPostEventHandler(
+                self.create_post_collab_for_existing_post_usecase
+            )
         )
         self.post_collab_linked_event_handler = PostCollabLinkedEventHandler(
             self.link_post_collab_usecase
@@ -357,9 +380,13 @@ class Container:
                 PostShareCreatedEvent,
                 self.post_share_created_event_handler,
             ),
-            PostRoutingKey.COLLAB_CREATED: (
-                PostCollabCreatedEvent,
-                self.post_collab_created_event_handler,
+            PostRoutingKey.COLLAB_OPENED_WITH_POST_CREATED: (
+                PostCollabOpenedWithPostCreatedEvent,
+                self.post_collab_opened_with_post_created_event_handler,
+            ),
+            PostRoutingKey.COLLAB_OPENED_FOR_EXISTING_POST: (
+                PostCollabOpenedForExistingPostEvent,
+                self.post_collab_opened_for_existing_post_event_handler,
             ),
             PostRoutingKey.COLLAB_LINKED: (
                 PostCollabLinkedEvent,

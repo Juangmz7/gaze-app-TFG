@@ -1,13 +1,13 @@
 from post.command.post_commands import CreatePostCollabCommand
 from post.usecase.create_post_collab_usecase import CreatePostCollabUsecase
-from rabbitmq.event.post.post_events import PostCollabCreatedEvent
+from rabbitmq.event.post.post_events import PostCollabOpenedWithPostCreatedEvent
 
 
-class PostCollabCreatedEventHandler:
+class PostCollabOpenedWithPostCreatedEventHandler:
     def __init__(self, create_post_collab_usecase: CreatePostCollabUsecase):
         self.create_post_collab_usecase = create_post_collab_usecase
 
-    async def handle(self, event: PostCollabCreatedEvent) -> str:
+    async def handle(self, event: PostCollabOpenedWithPostCreatedEvent) -> str:
         command = CreatePostCollabCommand(
             event_id=event.id,
             correlation_id=event.correlationId,

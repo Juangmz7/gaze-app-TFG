@@ -36,7 +36,8 @@ class UserRoutingKey(StrEnum):
 class PostRoutingKey(StrEnum):
     SHARE_DELETED = "rk.post.share.deleted"
     SHARE_CREATED = "rk.post.share.created"
-    COLLAB_CREATED = "rk.post.collab.opened"
+    COLLAB_OPENED_WITH_POST_CREATED = "rk.post.collab.opened.post-created"
+    COLLAB_OPENED_FOR_EXISTING_POST = "rk.post.collab.opened.existing-post"
     COLLAB_LINKED = "rk.post.collab.linked"
     COLLAB_DELETED = "rk.post.collab.deleted"
     COLLAB_REQUEST_CREATED = "rk.post.collab.request.created"

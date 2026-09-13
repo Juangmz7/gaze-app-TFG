@@ -66,6 +66,25 @@ class CreatePostCollabCommand:
 
 
 @dataclass(frozen=True)
+class CreatePostCollabForExistingPostCommand:
+    event_id: UUID
+    correlation_id: UUID
+    occurred_at: datetime
+    collab_id: UUID
+    title: str
+    collab_status: CollabStatus
+    post_id: UUID
+    user_id: UUID
+    created_by: UUID
+    collab_created_at: datetime
+    description: Optional[str]
+    tagged_users: set[str]
+    post_tags: set[str]
+    post_created_at: datetime
+    post_updated_at: datetime
+
+
+@dataclass(frozen=True)
 class LinkPostCollabCommand:
     event_id: UUID
     correlation_id: UUID

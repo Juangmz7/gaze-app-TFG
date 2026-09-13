@@ -54,7 +54,27 @@ class PostShareCreatedEvent(EventMessage):
     userId: UUID
 
 
-class PostCollabCreatedEvent(EventMessage):
+class PostCollabOpenedWithPostCreatedEvent(EventMessage):
+    collabId: UUID
+    title: str
+    createdBy: UUID
+    collabStatus: CollabStatus
+    collabCreatedAt: datetime
+    creatorMemberStatus: CollabMemberStatus
+    creatorRole: CollabMemberRole
+    creatorMemberCreatedAt: datetime
+    postId: UUID
+    userId: UUID
+    postCollabId: UUID
+    postType: PostType
+    description: Optional[str] = None
+    taggedUsers: set[str] = set()
+    postTags: set[str] = set()
+    postCreatedAt: datetime
+    postUpdatedAt: datetime
+
+
+class PostCollabOpenedForExistingPostEvent(EventMessage):
     collabId: UUID
     title: str
     createdBy: UUID
