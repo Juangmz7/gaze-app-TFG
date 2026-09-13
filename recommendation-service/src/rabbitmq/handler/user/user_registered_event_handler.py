@@ -4,7 +4,10 @@ from user.usecase.register_user_usecase import RegisterUserUsecase
 
 
 class UserRegisteredEventHandler:
-    async def handle(event: UserRegisteredEvent) -> str:
+    def __init__(self, register_user_usecase: RegisterUserUsecase):
+        self.register_user_usecase = register_user_usecase
+
+    async def handle(self, event: UserRegisteredEvent) -> str:
         command = RegisterUserCommand(
             event_id=event.id,
             correlation_id=event.correlationId,
@@ -14,5 +17,5 @@ class UserRegisteredEventHandler:
             email=event.email,
             bio=event.bio,
         )
-        RegisterUserUsecase.execute(command)
+        self.register_user_usecase.execute(command)
         return event.__class__.__name__

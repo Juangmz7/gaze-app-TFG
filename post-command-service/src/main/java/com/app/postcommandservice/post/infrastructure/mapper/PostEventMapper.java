@@ -47,9 +47,17 @@ public class PostEventMapper {
                 .build();
     }
 
-    public PostDeletedEvent toPostDeletedEvent(UUID postId, Instant occurredAt) {
+    public PostDeletedEvent toPostDeletedEvent(
+            UUID eventId,
+            UUID correlationId,
+            UUID postId,
+            UUID userId,
+            Instant occurredAt) {
         return PostDeletedEvent.builder()
+                .id(eventId)
+                .correlationId(correlationId)
                 .postId(postId)
+                .userId(userId)
                 .occurredAt(occurredAt)
                 .build();
     }

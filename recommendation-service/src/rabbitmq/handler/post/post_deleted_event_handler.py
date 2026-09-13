@@ -4,7 +4,10 @@ from rabbitmq.event.post.post_events import PostDeletedEvent
 
 
 class PostDeletedEventHandler:
-    async def handle(event: PostDeletedEvent) -> str:
+    def __init__(self, delete_post_usecase: DeletePostUsecase):
+        self.delete_post_usecase = delete_post_usecase
+
+    async def handle(self, event: PostDeletedEvent) -> str:
         command = DeletePostCommand(
             event_id=event.id,
             correlation_id=event.correlationId,
@@ -12,5 +15,5 @@ class PostDeletedEventHandler:
             post_id=event.postId,
             user_id=event.userId,
         )
-        DeletePostUsecase.execute(command)
+        self.delete_post_usecase.execute(command)
         return event.__class__.__name__

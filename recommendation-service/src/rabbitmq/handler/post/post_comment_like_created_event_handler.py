@@ -4,14 +4,19 @@ from rabbitmq.event.post.post_events import PostCommentLikeCreatedEvent
 
 
 class PostCommentLikeCreatedEventHandler:
-    async def handle(event: PostCommentLikeCreatedEvent) -> str:
+    def __init__(self, create_post_comment_like_usecase: CreatePostCommentLikeUsecase):
+        self.create_post_comment_like_usecase = create_post_comment_like_usecase
+
+    async def handle(self, event: PostCommentLikeCreatedEvent) -> str:
         command = CreatePostCommentLikeCommand(
+            event_id=event.id,
+            correlation_id=event.correlationId,
             occurred_at=event.occurredAt,
             post_id=event.postId,
+            comment_id=event.commentId,
             user_id=event.userId,
             source=event.source,
             feed_position=event.feedPosition,
-            created_at=event.createdAt,
         )
-        CreatePostCommentLikeUsecase.execute(command)
+        self.create_post_comment_like_usecase.execute(command)
         return event.__class__.__name__

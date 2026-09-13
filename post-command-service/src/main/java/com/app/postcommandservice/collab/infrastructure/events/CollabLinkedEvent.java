@@ -7,6 +7,7 @@ import java.util.UUID;
 import lombok.Builder;
 
 import com.app.postcommandservice.post.domain.model.valueobj.PostType;
+import com.app.postcommandservice.shared.infrastructure.events.EventMessage;
 
 @Builder
 public record CollabLinkedEvent(
@@ -22,5 +23,5 @@ public record CollabLinkedEvent(
         Set<String> postTags,
         Instant createdAt,
         Instant updatedAt
-) {
+) implements EventMessage {
 }

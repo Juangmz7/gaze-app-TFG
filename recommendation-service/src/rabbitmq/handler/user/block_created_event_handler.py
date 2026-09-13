@@ -4,7 +4,10 @@ from rabbitmq.event.user.user_events import UserBlockCreatedEvent
 
 
 class BlockCreatedEventHandler:
-    async def handle(event: UserBlockCreatedEvent) -> str:
+    def __init__(self, create_block_usecase: CreateBlockUsecase):
+        self.create_block_usecase = create_block_usecase
+
+    async def handle(self, event: UserBlockCreatedEvent) -> str:
         command = CreateBlockCommand(
             event_id=event.id,
             correlation_id=event.correlationId,
@@ -12,5 +15,5 @@ class BlockCreatedEventHandler:
             blocker_user_id=event.blockerUserId,
             blocked_user_id=event.blockedUserId,
         )
-        CreateBlockUsecase.execute(command)
+        self.create_block_usecase.execute(command)
         return event.__class__.__name__

@@ -46,6 +46,7 @@ import com.app.postcommandservice.shared.infrastructure.repository.OutboxEventRe
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -308,6 +309,9 @@ class CreateCommentUseCaseTest {
 
     private void stubCreatedEvent(Comment comment) {
         var event = CommentCreatedEvent.builder()
+                .id(UUID.randomUUID())
+                .correlationId(UUID.randomUUID())
+                .occurredAt(Instant.now())
                 .commentId(comment.getId().value())
                 .postId(comment.getPostId().value())
                 .userId(comment.getUserId().value())
@@ -316,7 +320,7 @@ class CreateCommentUseCaseTest {
                 .createdAt(comment.getCreatedAt())
                 .updatedAt(comment.getUpdatedAt())
                 .build();
-        when(commentEventMapper.toCommentCreatedEvent(comment)).thenReturn(event);
+        when(commentEventMapper.toCommentCreatedEvent(any(UUID.class), any(UUID.class), eq(comment), any(Instant.class))).thenReturn(event);
         when(jsonMapper.toJson(event)).thenReturn("{json}");
     }
 }

@@ -4,7 +4,10 @@ from user.usecase.update_user_usecase import UpdateUserUsecase
 
 
 class UserUpdatedEventHandler:
-    async def handle(event: UserUpdatedEvent) -> str:
+    def __init__(self, update_user_usecase: UpdateUserUsecase):
+        self.update_user_usecase = update_user_usecase
+
+    async def handle(self, event: UserUpdatedEvent) -> str:
         command = UpdateUserCommand(
             event_id=event.id,
             correlation_id=event.correlationId,
@@ -18,5 +21,5 @@ class UserUpdatedEventHandler:
             created_at=event.createdAt,
             updated_at=event.updatedAt,
         )
-        UpdateUserUsecase.execute(command)
+        self.update_user_usecase.execute(command)
         return event.__class__.__name__

@@ -13,8 +13,15 @@ import com.app.postcommandservice.comment.infrastructure.events.CommentUpdatedEv
 @Component
 public class CommentEventMapper {
 
-    public CommentCreatedEvent toCommentCreatedEvent(Comment comment) {
+    public CommentCreatedEvent toCommentCreatedEvent(
+            UUID eventId,
+            UUID correlationId,
+            Comment comment,
+            Instant occurredAt) {
         return CommentCreatedEvent.builder()
+                .id(eventId)
+                .correlationId(correlationId)
+                .occurredAt(occurredAt)
                 .commentId(comment.getId().value())
                 .postId(comment.getPostId().value())
                 .userId(comment.getUserId().value())

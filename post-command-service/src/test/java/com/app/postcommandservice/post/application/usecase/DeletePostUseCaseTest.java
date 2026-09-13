@@ -78,13 +78,13 @@ class DeletePostUseCaseTest {
     void shouldSuccessfullyChangeStatusToDeletedAndPublishEventWhenOwnerDeletesAnActivePost() {
         var existingPost = persistedPost(OWNER_ID, PostStatus.ACTIVE);
         var deletedPost = persistedPost(OWNER_ID, PostStatus.DELETED);
-        var deletedEvent = new PostDeletedEvent(existingPost.getId().value(), Instant.now());
+        var deletedEvent = new PostDeletedEvent(UUID.randomUUID(), UUID.randomUUID(), existingPost.getId().value(), OWNER_ID, Instant.now());
 
         when(postRepository.findById(POST_ID)).thenReturn(Optional.of(existingPost));
         when(postRepository.saveAndFlush(any(Post.class))).thenReturn(deletedPost);
-        when(postEventMapper.toPostDeletedEvent(eq(POST_ID), any(Instant.class))).thenReturn(deletedEvent);
-        when(jsonMapper.toJson(deletedEvent)).thenReturn("{\"postId\":\"%s\",\"occurredAt\":\"%s\"}"
-                .formatted(POST_ID, deletedEvent.occurredAt()));
+        when(postEventMapper.toPostDeletedEvent(any(UUID.class), any(UUID.class), eq(POST_ID), eq(OWNER_ID), any(Instant.class))).thenReturn(deletedEvent);
+        when(jsonMapper.toJson(deletedEvent)).thenReturn("{\"id\":\"%s\",\"correlationId\":\"%s\",\"postId\":\"%s\",\"userId\":\"%s\",\"occurredAt\":\"%s\"}"
+                .formatted(deletedEvent.id(), deletedEvent.correlationId(), POST_ID, OWNER_ID, deletedEvent.occurredAt()));
 
         deletePostUseCase.deletePost(new DeletePostCommand(POST_ID, OWNER_ID));
 
@@ -133,25 +133,27 @@ class DeletePostUseCaseTest {
     }
 
     @Test
-    void shouldPublishEventContainingOnlyPostIdAndOccurredAtFields() {
+    void shouldPublishEventContainingBaseFieldsPostIdUserIdAndOccurredAt() {
         var existingPost = persistedPost(OWNER_ID, PostStatus.ACTIVE);
         var deletedPost = persistedPost(OWNER_ID, PostStatus.DELETED);
-        var deletedEvent = new PostDeletedEvent(existingPost.getId().value(), Instant.now());
+        var deletedEvent = new PostDeletedEvent(UUID.randomUUID(), UUID.randomUUID(), existingPost.getId().value(), OWNER_ID, Instant.now());
 
         when(postRepository.findById(POST_ID)).thenReturn(Optional.of(existingPost));
         when(postRepository.saveAndFlush(any(Post.class))).thenReturn(deletedPost);
-        when(postEventMapper.toPostDeletedEvent(eq(POST_ID), any(Instant.class))).thenReturn(deletedEvent);
-        when(jsonMapper.toJson(deletedEvent)).thenReturn("{\"postId\":\"%s\",\"occurredAt\":\"%s\"}"
-                .formatted(POST_ID, deletedEvent.occurredAt()));
+        when(postEventMapper.toPostDeletedEvent(any(UUID.class), any(UUID.class), eq(POST_ID), eq(OWNER_ID), any(Instant.class))).thenReturn(deletedEvent);
+        when(jsonMapper.toJson(deletedEvent)).thenReturn("{\"id\":\"%s\",\"correlationId\":\"%s\",\"postId\":\"%s\",\"userId\":\"%s\",\"occurredAt\":\"%s\"}"
+                .formatted(deletedEvent.id(), deletedEvent.correlationId(), POST_ID, OWNER_ID, deletedEvent.occurredAt()));
 
         deletePostUseCase.deletePost(new DeletePostCommand(POST_ID, OWNER_ID));
 
         verify(outboxEventRepository).save(outboxEventCaptor.capture());
         assertThat(outboxEventCaptor.getValue().getPayload())
+                .contains("id")
+                .contains("correlationId")
                 .contains("postId")
+                .contains("userId")
                 .contains("occurredAt");
         assertThat(outboxEventCaptor.getValue().getPayload())
-                .doesNotContain("userId")
                 .doesNotContain("description")
                 .doesNotContain("createdAt")
                 .doesNotContain("updatedAt");
