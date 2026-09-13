@@ -163,8 +163,16 @@ class Container:
             transaction_manager=self.transaction_manager,
         )
 
-        self.create_follow_usecase = CreateFollowUsecase(self.follow_service)
-        self.delete_follow_usecase = DeleteFollowUsecase(self.follow_service)
+        self.create_follow_usecase = CreateFollowUsecase(
+            self.follow_service,
+            self.user_features_repository,
+            self.transaction_manager,
+        )
+        self.delete_follow_usecase = DeleteFollowUsecase(
+            self.follow_service,
+            self.user_features_repository,
+            self.transaction_manager,
+        )
         self.create_block_usecase = CreateBlockUsecase(self.block_service)
         self.delete_block_usecase = DeleteBlockUsecase(self.block_service)
         self.register_user_usecase = RegisterUserUsecase(
