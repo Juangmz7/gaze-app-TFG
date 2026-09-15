@@ -4,7 +4,7 @@ from uuid import uuid4
 import pytest
 
 from pipeline.model.user.user_features import UserFeatures
-from shared.helpers import decay, normalize_vector_0_1
+from shared.helpers import decay, l2_normalize_vector
 from test._support.builders import T0
 
 
@@ -44,7 +44,7 @@ def test_first_meaningful_semantic_interaction_sets_signal_and_normalizes_vector
     )
 
     # Assert
-    assert features.semantic_embedding == pytest.approx(normalize_vector_0_1([0.5, 1.0, 2.0]))
+    assert features.semantic_embedding == pytest.approx(l2_normalize_vector([0.5, 1.0, 2.0]))
     assert features.last_updated_at == occurred_at
     assert features.has_semantic_signal is True
 
@@ -74,7 +74,7 @@ def test_old_embedding_is_decayed_before_adding_weighted_post_embedding():
         0.5 * factor + 0.3 * 2.0 * 1.5,
         0.8 * factor + 0.6 * 2.0 * 1.5,
     ]
-    assert features.semantic_embedding == pytest.approx(normalize_vector_0_1(expected_raw))
+    assert features.semantic_embedding == pytest.approx(l2_normalize_vector(expected_raw))
 
 
 def test_mismatched_embedding_dimensions_raise_value_error_without_mutating_state():
