@@ -30,6 +30,10 @@ class SqlAlchemyExplorativePostRetrievalRepository(ExplorativePostRetrievalRepos
                             WHERE (b.blocker_id = :user_id AND b.blocked_id = pf.creator_id)
                                OR (b.blocker_id = pf.creator_id AND b.blocked_id = :user_id)
                         )
+                        AND NOT EXISTS (
+                            SELECT 1 FROM follows f
+                            WHERE f.follower_id = :user_id AND f.followed_id = pf.creator_id
+                        )
                     ORDER BY p.decayed_engagement_score DESC
                     LIMIT :limit
                 """),
@@ -57,6 +61,10 @@ class SqlAlchemyExplorativePostRetrievalRepository(ExplorativePostRetrievalRepos
                             SELECT 1 FROM blocks b 
                             WHERE (b.blocker_id = :user_id AND b.blocked_id = pf.creator_id)
                                OR (b.blocker_id = pf.creator_id AND b.blocked_id = :user_id)
+                        )
+                        AND NOT EXISTS (
+                            SELECT 1 FROM follows f
+                            WHERE f.follower_id = :user_id AND f.followed_id = pf.creator_id
                         )
                     ORDER BY RANDOM()
                     LIMIT :limit
@@ -89,6 +97,10 @@ class SqlAlchemyExplorativePostRetrievalRepository(ExplorativePostRetrievalRepos
                             SELECT 1 FROM blocks b 
                             WHERE (b.blocker_id = :user_id AND b.blocked_id = pf.creator_id)
                                OR (b.blocker_id = pf.creator_id AND b.blocked_id = :user_id)
+                        )
+                        AND NOT EXISTS (
+                            SELECT 1 FROM follows f
+                            WHERE f.follower_id = :user_id AND f.followed_id = pf.creator_id
                         )
                         AND NOT EXISTS (
                             SELECT 1 
