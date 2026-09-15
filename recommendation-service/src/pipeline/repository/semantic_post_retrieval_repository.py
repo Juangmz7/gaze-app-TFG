@@ -1,9 +1,8 @@
-
 from abc import ABC, abstractmethod
 from uuid import UUID
 
 
 class SemanticPostRetrievalRepository(ABC):
     @abstractmethod
-    def get_similar_posts(self, user_id: UUID, limit: int) -> list[UUID]:
+    def get_similar_posts(self, user_id: UUID, limit: int) -> list[tuple[UUID, float]]:
         pass

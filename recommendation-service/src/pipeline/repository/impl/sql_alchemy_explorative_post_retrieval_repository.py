@@ -1,5 +1,5 @@
 
-from email.mime import text
+from sqlalchemy import text
 from uuid import UUID
 
 from pipeline.repository.explorative_post_retrieval_repository import ExplorativePostRetrievalRepository
@@ -16,16 +16,26 @@ class SqlAlchemyExplorativePostRetrievalRepository(ExplorativePostRetrievalRepos
         limit: int,
     ) -> list[tuple[UUID, float]]:
         with self.session_provider.session() as session:
-            session.execute(
+            result = session.execute(
                 text("""
-                    SELECT 
-                    FROM 
-                    WHERE 
-                    ORDER BY
-                """
-                ),
+                    SELECT p.post_id, p.decayed_engagement_score
+                    FROM post_interaction_features p
+                    JOIN post_features pf ON p.post_id = pf.post_id
+                    LEFT JOIN user_post_interactions upi 
+                        ON upi.post_id = p.post_id AND upi.user_id = :user_id
+                    WHERE pf.creator_id != :user_id
+                        AND (upi.ever_seen IS NULL OR upi.ever_seen = FALSE)
+                        AND NOT EXISTS (
+                            SELECT 1 FROM blocks b 
+                            WHERE (b.blocker_id = :user_id AND b.blocked_id = pf.creator_id)
+                               OR (b.blocker_id = pf.creator_id AND b.blocked_id = :user_id)
+                        )
+                    ORDER BY p.decayed_engagement_score DESC
+                    LIMIT :limit
+                """),
                 {"user_id": user_id, "limit": limit}
             )
+            return [(row[0], row[1]) for row in result]
 
 
     def get_random_posts(
@@ -34,16 +44,26 @@ class SqlAlchemyExplorativePostRetrievalRepository(ExplorativePostRetrievalRepos
         limit: int,
     ) -> list[tuple[UUID, float]]:
         with self.session_provider.session() as session:
-            session.execute(
+            result = session.execute(
                 text("""
-                    SELECT 
-                    FROM 
-                    WHERE 
-                    ORDER BY
-                """
-                ),
+                    SELECT p.post_id, p.decayed_engagement_score
+                    FROM post_interaction_features p
+                    JOIN post_features pf ON p.post_id = pf.post_id
+                    LEFT JOIN user_post_interactions upi 
+                        ON upi.post_id = p.post_id AND upi.user_id = :user_id
+                    WHERE pf.creator_id != :user_id
+                        AND (upi.ever_seen IS NULL OR upi.ever_seen = FALSE)
+                        AND NOT EXISTS (
+                            SELECT 1 FROM blocks b 
+                            WHERE (b.blocker_id = :user_id AND b.blocked_id = pf.creator_id)
+                               OR (b.blocker_id = pf.creator_id AND b.blocked_id = :user_id)
+                        )
+                    ORDER BY RANDOM()
+                    LIMIT :limit
+                """),
                 {"user_id": user_id, "limit": limit}
             )
+            return [(row[0], row[1]) for row in result]
 
     def get_unseen_tags_posts(
         self,
@@ -51,13 +71,33 @@ class SqlAlchemyExplorativePostRetrievalRepository(ExplorativePostRetrievalRepos
         limit: int,
     ) -> list[tuple[UUID, float]]:
         with self.session_provider.session() as session:
-            session.execute(
+            result = session.execute(
                 text("""
-                    SELECT 
-                    FROM 
-                    WHERE 
-                    ORDER BY
-                """
-                ),
+                    WITH seen_tags AS (
+                        SELECT tag_name 
+                        FROM post_tag_features 
+                        WHERE user_id = :user_id
+                    )
+                    SELECT p.post_id, p.decayed_engagement_score
+                    FROM post_interaction_features p
+                    JOIN post_features pf ON p.post_id = pf.post_id
+                    LEFT JOIN user_post_interactions upi 
+                        ON upi.post_id = p.post_id AND upi.user_id = :user_id
+                    WHERE pf.creator_id != :user_id
+                        AND (upi.ever_seen IS NULL OR upi.ever_seen = FALSE)
+                        AND NOT EXISTS (
+                            SELECT 1 FROM blocks b 
+                            WHERE (b.blocker_id = :user_id AND b.blocked_id = pf.creator_id)
+                               OR (b.blocker_id = pf.creator_id AND b.blocked_id = :user_id)
+                        )
+                        AND NOT EXISTS (
+                            SELECT 1 
+                            FROM json_array_elements_text(pf.tags) AS post_tag
+                            JOIN seen_tags st ON st.tag_name = post_tag
+                        )
+                    ORDER BY p.decayed_engagement_score DESC
+                    LIMIT :limit
+                """),
                 {"user_id": user_id, "limit": limit}
             )
+            return [(row[0], row[1]) for row in result]

@@ -103,7 +103,7 @@ class SqlAlchemyCollaborativePostRetrievalRepository(CollaborativePostRetrievalR
                                     OR (blocker_id = p.creator_id AND blocked_id = :user_id)
                             )
                     )
-                    SELECT post_id
+                    SELECT post_id, combined_score
                     FROM top_posts
                     WHERE post_rank <= :posts_per_creator_limit
                     ORDER BY combined_score DESC
@@ -117,4 +117,4 @@ class SqlAlchemyCollaborativePostRetrievalRepository(CollaborativePostRetrievalR
                 }
             )
 
-            return list(result.scalars())
+            return [(row[0], row[1]) for row in result]

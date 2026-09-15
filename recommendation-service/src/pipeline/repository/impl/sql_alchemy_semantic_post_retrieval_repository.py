@@ -10,11 +10,15 @@ class SqlAlchemySemanticPostRetrievalRepository(SemanticPostRetrievalRepository)
     def __init__(self, session_provider: SQLAlchemySessionProvider):
         self.session_provider = session_provider
 
-    def get_similar_posts(self, user_id: UUID, limit: int) -> list[UUID]:
+    def get_similar_posts(self, user_id: UUID, limit: int) -> list[tuple[UUID, float]]:
         with self.session_provider.session() as session:
             result = session.execute(
                 text("""
-                    SELECT p.post_id
+                    SELECT p.post_id, -(p.semantic_embedding <#> (
+                        SELECT semantic_embedding
+                        FROM user_features
+                        WHERE user_id = :user_id
+                    )) as similarity
                     FROM post_features p
                     LEFT JOIN user_post_interactions upi
                         ON upi.post_id = p.post_id
@@ -37,4 +41,4 @@ class SqlAlchemySemanticPostRetrievalRepository(SemanticPostRetrievalRepository)
                 {"user_id": user_id, "limit": limit}
             )
 
-            return list(result.scalars())
+            return [(row[0], row[1]) for row in result]

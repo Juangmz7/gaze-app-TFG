@@ -25,7 +25,7 @@ class CollaborativePostRetrievalRepository(ABC):
         user_id: UUID,
         creators_per_user_limit: int,
         posts_per_creator_limit: int,
-    ) -> list[UUID]:
+    ) -> list[tuple[UUID, float]]:
         """
         Get posts ordered by user affinity, excluding seen or blocked ones.
         :param similar_users: List of (similar_user_id, similarity_score) tuples.
