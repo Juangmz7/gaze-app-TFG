@@ -48,12 +48,12 @@ class ExplorativePostRetrievalUsecase:
         )
 
         if posts:
-            for post in posts:
+            for post_id, score in posts:
                 candidates.append(
                     Candidate(
-                        post.post_id,
+                        post_id,
                         PostRetrieveSource.POPULAR,
-                        post.score,
+                        score,
                     )
                 )
 
@@ -68,12 +68,12 @@ class ExplorativePostRetrievalUsecase:
         )
 
         if posts:
-            for post in posts:
+            for post_id, score in posts:
                 candidates.append(
                     Candidate(
-                        post.post_id,
+                        post_id,
                         PostRetrieveSource.RANDOM,
-                        post.score,
+                        score,
                     )
                 )
 
@@ -88,11 +88,11 @@ class ExplorativePostRetrievalUsecase:
         )
 
         if posts:
-            for post in posts:
+            for post_id, score in posts:
                 candidates.append(
                     Candidate(
-                        post.post_id,
+                        post_id,
                         PostRetrieveSource.UNSEEN_TAG,
-                        post.score,
+                        score,
                     )
                 )
