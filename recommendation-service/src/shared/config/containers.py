@@ -18,7 +18,7 @@ from pipeline.repository.impl.sql_alchemy_user_creator_features_repository impor
 from pipeline.repository.impl.sql_alchemy_user_features_repository import (
     SqlAlchemyUserFeaturesRepository,
 )
-from pipeline.service.semantic_embedding_model_service import SemanticEmbeddingModelService
+from pipeline.service.semantic_embedding_model_service import SemanticEmbeddingModelEncoder
 from post.repository.impl.sql_alchemy_collab_repository import SqlAlchemyCollabRepository
 from post.repository.impl.sql_alchemy_comment_post_repository import (
     SqlAlchemyCommentPostRepository,
@@ -148,7 +148,7 @@ class Container:
         self.block_repository = SqlAlchemyBlockRepository(self.session_provider)
         self.post_features_repository = SqlAlchemyPostFeaturesRepository(self.session_provider)
         self.post_tag_features_repository = SqlAlchemyPostTagFeaturesRepository(self.session_provider)
-        self.semantic_embedding_model_service = SemanticEmbeddingModelService()
+        self.semantic_embedding_model_service = SemanticEmbeddingModelEncoder()
         self.user_creator_features_repository = SqlAlchemyUserCreatorFeaturesRepository(
             self.session_provider
         )

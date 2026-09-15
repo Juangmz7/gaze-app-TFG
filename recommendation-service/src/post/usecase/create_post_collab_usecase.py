@@ -1,6 +1,6 @@
 from pipeline.model.post.post_features import PostFeatures
 from pipeline.repository.post_features_repository import PostFeaturesRepository
-from pipeline.service.semantic_embedding_model_service import SemanticEmbeddingModelService
+from pipeline.service.semantic_embedding_model_service import SemanticEmbeddingModelEncoder
 from post.command.post_commands import CreatePostCollabCommand
 from post.model.collab import Collab
 from post.repository.collab_repository import CollabRepository
@@ -12,7 +12,7 @@ class CreatePostCollabUsecase:
             self,
             collab_repository: CollabRepository,
             post_features_repository: PostFeaturesRepository,
-            semantic_embedding_model_service: SemanticEmbeddingModelService,
+            semantic_embedding_model_service: SemanticEmbeddingModelEncoder,
     ):
         self.collab_repository = collab_repository
         self.post_features_repository = post_features_repository

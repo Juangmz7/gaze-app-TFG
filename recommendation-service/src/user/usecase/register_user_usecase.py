@@ -6,14 +6,14 @@ from shared.helpers import build_user_semantic_text
 from user.command.user_commands import RegisterUserCommand
 
 if TYPE_CHECKING:
-    from pipeline.service.semantic_embedding_model_service import SemanticEmbeddingModelService
+    from pipeline.service.semantic_embedding_model_service import SemanticEmbeddingModelEncoder
 
 
 class RegisterUserUsecase:
     def __init__(
             self,
             user_features_repository: UserFeaturesRepository,
-            semantic_embedding_model_service: "SemanticEmbeddingModelService",
+            semantic_embedding_model_service: "SemanticEmbeddingModelEncoder",
     ):
         self.user_features_repository = user_features_repository
         self.semantic_embedding_model_service = semantic_embedding_model_service

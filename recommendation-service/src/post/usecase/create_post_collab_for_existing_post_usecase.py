@@ -9,7 +9,7 @@ from post.repository.collab_repository import CollabRepository
 from shared.helpers import build_post_semantic_text
 
 if TYPE_CHECKING:
-    from pipeline.service.semantic_embedding_model_service import SemanticEmbeddingModelService
+    from pipeline.service.semantic_embedding_model_service import SemanticEmbeddingModelEncoder
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ class CreatePostCollabForExistingPostUsecase:
             self,
             collab_repository: CollabRepository,
             post_features_repository: PostFeaturesRepository,
-            semantic_embedding_model_service: "SemanticEmbeddingModelService",
+            semantic_embedding_model_service: "SemanticEmbeddingModelEncoder",
     ):
         self.collab_repository = collab_repository
         self.post_features_repository = post_features_repository

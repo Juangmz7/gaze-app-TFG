@@ -2,7 +2,7 @@ import logging
 
 from pipeline.model.post.post_features import PostFeatures
 from pipeline.repository.post_features_repository import PostFeaturesRepository
-from pipeline.service.semantic_embedding_model_service import SemanticEmbeddingModelService
+from pipeline.service.semantic_embedding_model_service import SemanticEmbeddingModelEncoder
 from post.command.post_commands import UpdatePostCommand
 from post.repository.collab_repository import CollabRepository
 from shared.helpers import build_post_semantic_text
@@ -14,7 +14,7 @@ class UpdatePostUsecase:
     def __init__(
             self,
             post_features_repository: PostFeaturesRepository,
-            semantic_embedding_model_service: SemanticEmbeddingModelService,
+            semantic_embedding_model_service: SemanticEmbeddingModelEncoder,
             collab_repository: CollabRepository,
     ):
         self.post_features_repository = post_features_repository
