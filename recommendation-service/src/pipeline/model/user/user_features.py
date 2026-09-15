@@ -2,7 +2,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from shared.helpers import decay, normalize_vector_0_1
+from shared.helpers import decay, l2_normalize_vector
 
 class UserFeatures:
     def __init__(
@@ -34,7 +34,7 @@ class UserFeatures:
             for value in post_semantic_embedding
         ]
 
-        self.semantic_embedding = normalize_vector_0_1([
+        self.semantic_embedding = l2_normalize_vector([
             user_value + post_value
             for user_value, post_value in zip(
                 decayed_user_embedding,

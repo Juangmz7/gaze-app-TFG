@@ -26,17 +26,15 @@ def decay(last_updated_at: datetime, occurred_at: datetime | None = None) -> flo
     return math.exp(-decay_rate * time_since_last_update_seconds)
 
 
-def normalize_vector_0_1(values: list[float]) -> list[float]:
+def l2_normalize_vector(values: list[float]) -> list[float]:
     if not values:
         return []
 
-    minimum = min(values)
-    maximum = max(values)
-    if math.isclose(minimum, maximum):
+    norm = math.sqrt(sum(x * x for x in values))
+    if math.isclose(norm, 0.0):
         return [0.0 for _ in values]
 
-    scale = maximum - minimum
-    return [(value - minimum) / scale for value in values]
+    return [x / norm for x in values]
 
 def get_view_source_weight(source: InteractionSource) -> float:
     if source == InteractionSource.HOME_FEED:
