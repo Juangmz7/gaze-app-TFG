@@ -6,6 +6,7 @@ from uuid import UUID
 class UserPostInteractions:
     post_id: UUID
     user_id: UUID
+    ever_seen: bool = False
     ever_liked: bool = False
     ever_unliked: bool = False
     ever_unshared: bool = False

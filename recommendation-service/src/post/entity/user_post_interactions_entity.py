@@ -12,6 +12,7 @@ class UserPostInteractionsRecord(Base):
 
     post_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
     user_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    ever_seen: Mapped[bool] = mapped_column(default=False, nullable=False)
     ever_liked: Mapped[bool] = mapped_column(default=False, nullable=False)
     ever_unliked: Mapped[bool] = mapped_column(default=False, nullable=False)
     ever_unshared: Mapped[bool] = mapped_column(default=False, nullable=False)
