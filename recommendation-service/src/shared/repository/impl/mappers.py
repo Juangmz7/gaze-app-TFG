@@ -241,3 +241,40 @@ def user_post_comment_interaction_values(
         "ever_liked": interaction.ever_liked,
         "ever_unliked": interaction.ever_unliked,
     }
+
+
+def post_interaction_features_from_record(record) -> "PostInteractionFeatures":
+    from pipeline.model.post.post_interaction_features import PostInteractionFeatures
+    return PostInteractionFeatures(
+        post_id=record.post_id,
+        impressions=record.impressions,
+        views=record.views,
+        likes=record.likes,
+        comments=record.comments,
+        shares=record.shares,
+        fast_skips=record.fast_skips,
+        collab_requests=record.collab_requests,
+        collab_requests_accepted=record.collab_requests_accepted,
+        watch_time_average_percent=record.watch_time_average_percent,
+        watch_time=record.watch_time,
+        last_updated_at=record.last_updated_at,
+        decayed_engagement_score=record.decayed_engagement_score,
+    )
+
+
+def post_interaction_features_values(features) -> dict[str, object]:
+    return {
+        "post_id": features.post_id,
+        "impressions": features.impressions,
+        "views": features.views,
+        "likes": features.likes,
+        "comments": features.comments,
+        "shares": features.shares,
+        "fast_skips": features.fast_skips,
+        "collab_requests": features.collab_requests,
+        "collab_requests_accepted": features.collab_requests_accepted,
+        "watch_time_average_percent": features.watch_time_average_percent,
+        "watch_time": features.watch_time,
+        "last_updated_at": features.last_updated_at,
+        "decayed_engagement_score": features.decayed_engagement_score,
+    }

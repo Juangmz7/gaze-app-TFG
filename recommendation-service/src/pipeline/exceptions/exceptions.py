@@ -20,3 +20,8 @@ class PostFeaturesNotFoundException(DontRequeuePipelineException):
 class PostTagFeaturesNotFoundException(DontRequeuePipelineException):
     def __init__(self, post_id: UUID):
         super().__init__(f"Post tag features were not found for post_id={post_id}")
+
+
+class PostInteractionFeaturesNotFoundException(DontRequeuePipelineException):
+    def __init__(self, post_id: UUID):
+        super().__init__(f"Post interaction features were not found for post_id={post_id}")

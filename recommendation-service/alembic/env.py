@@ -27,6 +27,7 @@ from post.entity.user_post_interactions_entity import (  # noqa: F401, E402
     UserPostInteractionsRecord,
 )
 from pipeline.entity.post.post_features_entity import PostFeaturesRecord  # noqa: F401, E402
+from pipeline.entity.post.post_interaction_features_entity import PostInteractionFeaturesRecord  # noqa: F401, E402
 from pipeline.entity.post.post_tag_features_entity import (  # noqa: F401, E402
     PostTagFeaturesRecord,
 )
