@@ -161,6 +161,10 @@ class Container:
         self.user_post_comment_interaction_repository = (
             SqlAlchemyUserPostCommentInteractionRepository(self.session_provider)
         )
+        from pipeline.repository.impl.sql_alchemy_post_interaction_features_repository import SqlAlchemyPostInteractionFeaturesRepository
+        self.post_interaction_features_repository = SqlAlchemyPostInteractionFeaturesRepository(
+            self.session_provider
+        )
 
         self.follow_service = FollowService(self.follow_repository)
         self.block_service = BlockService(self.block_repository, self.follow_service)
@@ -169,6 +173,7 @@ class Container:
             post_tag_features_repository=self.post_tag_features_repository,
             user_features_repository=self.user_features_repository,
             post_features_repository=self.post_features_repository,
+            post_interaction_features_repository=self.post_interaction_features_repository,
             transaction_manager=self.transaction_manager,
         )
 
@@ -197,13 +202,17 @@ class Container:
         self.create_post_usecase = CreatePostUsecase(
             self.post_features_repository,
             self.semantic_embedding_model_service,
+            self.post_interaction_features_repository,
         )
         self.update_post_usecase = UpdatePostUsecase(
             self.post_features_repository,
             self.semantic_embedding_model_service,
             self.collab_repository,
         )
-        self.delete_post_usecase = DeletePostUsecase(self.post_features_repository)
+        self.delete_post_usecase = DeletePostUsecase(
+            self.post_features_repository,
+            self.post_interaction_features_repository,
+        )
         self.ban_post_usecase = BanPostUsecase()
         self.exhaust_post_feed_usecase = ExhaustPostFeedUsecase()
         self.register_post_view_usecase = RegisterPostViewUsecase(
@@ -215,6 +224,7 @@ class Container:
             self.collab_repository,
             self.post_features_repository,
             self.semantic_embedding_model_service,
+            self.post_interaction_features_repository,
         )
         self.create_post_collab_for_existing_post_usecase = (
             CreatePostCollabForExistingPostUsecase(

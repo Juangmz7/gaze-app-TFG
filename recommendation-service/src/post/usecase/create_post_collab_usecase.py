@@ -1,5 +1,6 @@
 from pipeline.model.post.post_features import PostFeatures
 from pipeline.repository.post_features_repository import PostFeaturesRepository
+from pipeline.repository.post_interaction_features_repository import PostInteractionFeaturesRepository
 from pipeline.service.semantic_embedding_model_service import SemanticEmbeddingModelEncoder
 from post.command.post_commands import CreatePostCollabCommand
 from post.model.collab import Collab
@@ -13,10 +14,12 @@ class CreatePostCollabUsecase:
             collab_repository: CollabRepository,
             post_features_repository: PostFeaturesRepository,
             semantic_embedding_model_service: SemanticEmbeddingModelEncoder,
+            post_interaction_features_repository: PostInteractionFeaturesRepository,
     ):
         self.collab_repository = collab_repository
         self.post_features_repository = post_features_repository
         self.semantic_embedding_model_service = semantic_embedding_model_service
+        self.post_interaction_features_repository = post_interaction_features_repository
 
     def execute(self, command: CreatePostCollabCommand) -> None:
         self.collab_repository.save(
@@ -48,3 +51,4 @@ class CreatePostCollabUsecase:
                 created_at=command.post_created_at,
             )
         )
+        self.post_interaction_features_repository.create_empty(command.post_id, command.post_created_at)

@@ -33,19 +33,42 @@ from test._support.builders import (
 pytestmark = pytest.mark.unit
 
 
+from pipeline.repository.post_interaction_features_repository import PostInteractionFeaturesRepository
+
 def _updater(
     *,
     creator_repository,
     tag_repository,
     user_repository,
     post_repository,
+    post_interaction_repository=None,
     transaction_manager=None,
 ):
+    if post_interaction_repository is None:
+        post_interaction_repository = Mock(spec=PostInteractionFeaturesRepository)
+        from pipeline.model.post.post_interaction_features import PostInteractionFeatures
+        post_interaction_repository.get_for_update.return_value = PostInteractionFeatures(
+            post_id=uuid4(),
+            impressions=0,
+            views=0,
+            likes=0,
+            comments=0,
+            shares=0,
+            fast_skips=0,
+            collab_requests=0,
+            collab_requests_accepted=0,
+            watch_time_average_percent=0.0,
+            watch_time=0.0,
+            last_updated_at=T0,
+            decayed_engagement_score=0.0
+        )
+
     return PostInteractionUpdater(
         user_creator_features_repository=creator_repository,
         post_tag_features_repository=tag_repository,
         user_features_repository=user_repository,
         post_features_repository=post_repository,
+        post_interaction_features_repository=post_interaction_repository,
         transaction_manager=transaction_manager,
     )
 
