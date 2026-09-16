@@ -1,9 +1,13 @@
+import logging
 from pipeline.model.post.post_features import PostFeatures
 from pipeline.repository.post_features_repository import PostFeaturesRepository
 from pipeline.repository.post_interaction_features_repository import PostInteractionFeaturesRepository
 from pipeline.service.semantic_embedding_model_service import SemanticEmbeddingModelEncoder
 from post.command.post_commands import CreatePostCommand
 from shared.helpers import build_post_semantic_text
+
+
+logger = logging.getLogger(__name__)
 
 
 class CreatePostUsecase:
@@ -36,3 +40,4 @@ class CreatePostUsecase:
         )
         self.post_features_repository.save(post_features)
         self.post_interaction_features_repository.create_empty(command.post_id, command.created_at)
+        logger.info(f"Post {command.post_id} created successfully by user {command.user_id}")

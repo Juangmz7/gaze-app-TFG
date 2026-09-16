@@ -1,3 +1,4 @@
+import logging
 from pipeline.model.post.post_features import PostFeatures
 from pipeline.repository.post_features_repository import PostFeaturesRepository
 from pipeline.repository.post_interaction_features_repository import PostInteractionFeaturesRepository
@@ -6,6 +7,9 @@ from post.command.post_commands import CreatePostCollabCommand
 from post.model.collab import Collab
 from post.repository.collab_repository import CollabRepository
 from shared.helpers import build_post_semantic_text
+
+
+logger = logging.getLogger(__name__)
 
 
 class CreatePostCollabUsecase:
@@ -52,3 +56,4 @@ class CreatePostCollabUsecase:
             )
         )
         self.post_interaction_features_repository.create_empty(command.post_id, command.post_created_at)
+        logger.info(f"Collab post {command.post_id} created successfully")

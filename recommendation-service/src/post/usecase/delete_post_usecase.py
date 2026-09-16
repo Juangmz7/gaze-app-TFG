@@ -1,6 +1,10 @@
+import logging
 from pipeline.repository.post_features_repository import PostFeaturesRepository
 from pipeline.repository.post_interaction_features_repository import PostInteractionFeaturesRepository
 from post.command.post_commands import DeletePostCommand
+
+
+logger = logging.getLogger(__name__)
 
 
 class DeletePostUsecase:
@@ -14,4 +18,5 @@ class DeletePostUsecase:
 
     def execute(self, command: DeletePostCommand) -> None:
         self.post_features_repository.delete(command.post_id)
+        logger.info(f"Post {command.post_id} deleted successfully")
         self.post_interaction_features_repository.delete(command.post_id)

@@ -1,5 +1,9 @@
+import logging
 from block.command.block_commands import CreateBlockCommand
 from block.service.block_service import BlockService
+
+
+logger = logging.getLogger(__name__)
 
 
 class CreateBlockUsecase:
@@ -12,3 +16,4 @@ class CreateBlockUsecase:
             blocked_user_id=command.blocked_user_id,
             created_at=command.occurred_at,
         )
+        logger.info(f"User {command.blocker_user_id} blocked {command.blocked_user_id}")

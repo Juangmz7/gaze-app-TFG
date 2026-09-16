@@ -1,3 +1,4 @@
+import logging
 from typing import TYPE_CHECKING
 
 from pipeline.model.user.user_features import UserFeatures
@@ -7,6 +8,9 @@ from user.command.user_commands import UpdateUserCommand
 
 if TYPE_CHECKING:
     from pipeline.service.semantic_embedding_model_service import SemanticEmbeddingModelEncoder
+
+
+logger = logging.getLogger(__name__)
 
 
 class UpdateUserUsecase:
@@ -31,3 +35,4 @@ class UpdateUserUsecase:
                 has_semantic_signal=True,
             )
         )
+        logger.info(f"User {command.user_id} updated successfully")

@@ -51,3 +51,4 @@ class UpdatePostUsecase:
                 created_at=command.created_at,
             )
         )
+        logger.info(f"Post {command.post_id} updated successfully")
