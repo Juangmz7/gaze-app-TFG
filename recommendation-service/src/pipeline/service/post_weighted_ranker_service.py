@@ -3,11 +3,19 @@ from uuid import UUID
 
 from pipeline.model.interaction.enriched_post_candidate import EnrichedPostCandidate
 from pipeline.config import constants
+from pipeline.service.candidate_normalizer import CandidateNormalizer
 
 
 class PostWeightedRankerService:
+    def __init__(self, normalizer: CandidateNormalizer):
+        self.normalizer = normalizer
 
-    def get_top_k_posts(self, user_id: UUID, candidates: list[EnrichedPostCandidate], k: int) -> list[UUID]:
+    def get_top_k_posts(self, candidates: list[EnrichedPostCandidate], k: int) -> list[UUID]:
+        if not candidates:
+            return []
+            
+        normalized_candidates = self.normalizer.normalize(candidates)
+        
         def calculate_global_score(c: EnrichedPostCandidate) -> float:
             score = 0.0
             
@@ -44,6 +52,6 @@ class PostWeightedRankerService:
 
         # heapq.nlargest is highly optimized for this exact use case (finding top K). 
         # It handles building a min-heap of size K under the hood.
-        top_candidates = heapq.nlargest(k, candidates, key=calculate_global_score)
+        top_candidates = heapq.nlargest(k, normalized_candidates, key=calculate_global_score)
         
         return [c.post_id for c in top_candidates]
