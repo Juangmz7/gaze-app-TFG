@@ -1,42 +1,50 @@
 from datetime import datetime
+from shared.helpers import decay
+
 from uuid import UUID
 
+from pipeline.model.interaction.decayed_interaction_stats import DecayedInteractionStats
+from pipeline.model.interaction.interaction_metric_update import InteractionMetricUpdate
 from pipeline.model.interaction.raw_interaction_stats import RawInteractionStats
 
 
-class PostInteractionFeatures():
+class PostInteractionFeatures:
     def __init__(
             self,
             post_id: UUID,
-            impressions: int,
-            views: int,
-            likes: int,
-            comments: int,
-            shares: int,
-            fast_skips: int,
-            collab_requests: int,
-            collab_requests_accepted: int,
-            watch_time_average_percent: float,
-            watch_time: float,
+            raw_interaction_stats: RawInteractionStats,
+            decayed_interaction_stats: DecayedInteractionStats,
             last_updated_at: datetime,
             decayed_engagement_score: float = 0.0,
     ):
         self.post_id = post_id
-        self.impressions = impressions
-        self.views = views
-        self.likes = likes
-        self.comments = comments
-        self.shares = shares
-        self.fast_skips = fast_skips
-        self.collab_requests = collab_requests
-        self.collab_requests_accepted = collab_requests_accepted
-        self.watch_time_average_percent = watch_time_average_percent
-        self.watch_time = watch_time
+        self.raw_interaction_stats = raw_interaction_stats
+        self.decayed_interaction_stats = decayed_interaction_stats
         self.last_updated_at = last_updated_at
         self.decayed_engagement_score = decayed_engagement_score
 
-    def update_decayed_engagement_score(self, event_date: datetime, weight: float) -> None:
-        from shared.helpers import decay
-        decay_factor = decay(self.last_updated_at, event_date)
+    def apply_interaction_updates(
+        self,
+        updates: list[InteractionMetricUpdate],
+        occurred_at: datetime,
+        weight: float,
+    ) -> None:
+        self.decayed_interaction_stats.increment(
+            updates,
+            self.last_updated_at,
+            occurred_at,
+        )
+
+        for update in updates:
+            if update.raw_delta is not None:
+                self.raw_interaction_stats.increment(
+                    update.metric,
+                    update.raw_delta,
+                )
+
+
+        decay_factor = decay(self.last_updated_at, occurred_at)
         self.decayed_engagement_score = self.decayed_engagement_score * decay_factor + weight
-        self.last_updated_at = event_date
+
+        self.last_updated_at = occurred_at
+

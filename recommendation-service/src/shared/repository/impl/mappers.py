@@ -1,6 +1,8 @@
 from pipeline.entity.post.post_features_entity import PostFeaturesRecord
 from pipeline.entity.post.post_tag_features_entity import PostTagFeaturesRecord
 from pipeline.entity.user.user_creator_features_entity import UserCreatorFeaturesRecord
+from pipeline.model.post.post_interaction_features import PostInteractionFeatures
+
 from pipeline.entity.user.user_features_entity import UserFeaturesRecord
 from pipeline.model.interaction.decayed_interaction_stats import DecayedInteractionStats
 from pipeline.model.interaction.raw_interaction_stats import RawInteractionStats
@@ -244,19 +246,11 @@ def user_post_comment_interaction_values(
 
 
 def post_interaction_features_from_record(record) -> "PostInteractionFeatures":
-    from pipeline.model.post.post_interaction_features import PostInteractionFeatures
+
     return PostInteractionFeatures(
         post_id=record.post_id,
-        impressions=record.impressions,
-        views=record.views,
-        likes=record.likes,
-        comments=record.comments,
-        shares=record.shares,
-        fast_skips=record.fast_skips,
-        collab_requests=record.collab_requests,
-        collab_requests_accepted=record.collab_requests_accepted,
-        watch_time_average_percent=record.watch_time_average_percent,
-        watch_time=record.watch_time,
+        raw_interaction_stats=raw_stats_from_record(record),
+        decayed_interaction_stats=decayed_stats_from_record(record),
         last_updated_at=record.last_updated_at,
         decayed_engagement_score=record.decayed_engagement_score,
     )
@@ -265,16 +259,8 @@ def post_interaction_features_from_record(record) -> "PostInteractionFeatures":
 def post_interaction_features_values(features) -> dict[str, object]:
     return {
         "post_id": features.post_id,
-        "impressions": features.impressions,
-        "views": features.views,
-        "likes": features.likes,
-        "comments": features.comments,
-        "shares": features.shares,
-        "fast_skips": features.fast_skips,
-        "collab_requests": features.collab_requests,
-        "collab_requests_accepted": features.collab_requests_accepted,
-        "watch_time_average_percent": features.watch_time_average_percent,
-        "watch_time": features.watch_time,
+        **raw_stats_values(features.raw_interaction_stats),
+        **decayed_stats_values(features.decayed_interaction_stats),
         "last_updated_at": features.last_updated_at,
         "decayed_engagement_score": features.decayed_engagement_score,
     }

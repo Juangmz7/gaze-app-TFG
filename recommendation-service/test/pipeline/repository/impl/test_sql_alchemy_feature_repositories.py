@@ -1,6 +1,9 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from uuid import uuid4
+from pipeline.repository.impl.sql_alchemy_post_interaction_features_repository import SqlAlchemyPostInteractionFeaturesRepository
+from shared.config.database import SQLAlchemySessionProvider
+
 
 import pytest
 
@@ -116,6 +119,8 @@ def test_post_and_user_features_repositories_persist_pgvector_embeddings(session
     # Arrange
     post_repository = SqlAlchemyPostFeaturesRepository(session_provider)
     user_repository = SqlAlchemyUserFeaturesRepository(session_provider)
+
+    post_interaction_repository = SqlAlchemyPostInteractionFeaturesRepository(session_provider)
     post = make_post_features(semantic_embedding=embedding(0.1, 0.2, 0.3))
     user = make_user_features(
         semantic_embedding=embedding(0.4, 0.5, 0.6),
@@ -124,6 +129,7 @@ def test_post_and_user_features_repositories_persist_pgvector_embeddings(session
 
     # Act
     post_repository.save(post)
+    post_interaction_repository.create_empty(post.post_id, T0)
     user_repository.save(user)
 
     # Assert
@@ -135,7 +141,7 @@ def test_post_and_user_features_repositories_persist_pgvector_embeddings(session
 
 def test_interaction_update_rolls_back_when_semantic_profile_save_fails(db_session_factory):
     # Arrange
-    from shared.config.database import SQLAlchemySessionProvider
+
 
     session_provider = SQLAlchemySessionProvider(db_session_factory)
     transaction_manager = SQLAlchemyTransactionManager(db_session_factory)
@@ -143,6 +149,8 @@ def test_interaction_update_rolls_back_when_semantic_profile_save_fails(db_sessi
     creator_repository = SqlAlchemyUserCreatorFeaturesRepository(session_provider)
     tag_repository = SqlAlchemyPostTagFeaturesRepository(session_provider)
     setup_user_repository = SqlAlchemyUserFeaturesRepository(session_provider)
+
+    post_interaction_repository = SqlAlchemyPostInteractionFeaturesRepository(session_provider)
 
     class FailingUserFeaturesRepository(SqlAlchemyUserFeaturesRepository):
         def save(self, user_features):
@@ -154,11 +162,13 @@ def test_interaction_update_rolls_back_when_semantic_profile_save_fails(db_sessi
         tag_repository,
         user_repository,
         post_repository,
+        post_interaction_repository,
         transaction_manager,
     )
     user_id = uuid4()
     post = make_post_features(tags=["python"])
     post_repository.save(post)
+    post_interaction_repository.create_empty(post.post_id, T0)
     setup_user_repository.save(make_user_features(user_id=user_id))
 
     # Act / Assert
@@ -179,7 +189,7 @@ def test_interaction_update_rolls_back_when_semantic_profile_save_fails(db_sessi
 
 def test_successful_interaction_update_commits_all_feature_changes(db_session_factory):
     # Arrange
-    from shared.config.database import SQLAlchemySessionProvider
+
 
     session_provider = SQLAlchemySessionProvider(db_session_factory)
     transaction_manager = SQLAlchemyTransactionManager(db_session_factory)
@@ -187,16 +197,20 @@ def test_successful_interaction_update_commits_all_feature_changes(db_session_fa
     creator_repository = SqlAlchemyUserCreatorFeaturesRepository(session_provider)
     tag_repository = SqlAlchemyPostTagFeaturesRepository(session_provider)
     user_repository = SqlAlchemyUserFeaturesRepository(session_provider)
+
+    post_interaction_repository = SqlAlchemyPostInteractionFeaturesRepository(session_provider)
     updater = PostInteractionUpdater(
         creator_repository,
         tag_repository,
         user_repository,
         post_repository,
+        post_interaction_repository,
         transaction_manager,
     )
     user_id = uuid4()
     post = make_post_features(tags=["python"])
     post_repository.save(post)
+    post_interaction_repository.create_empty(post.post_id, T0)
     user_repository.save(make_user_features(user_id=user_id))
 
     # Act
@@ -221,7 +235,7 @@ def test_successful_interaction_update_commits_all_feature_changes(db_session_fa
 
 def test_concurrent_like_updates_do_not_lose_increments(db_session_factory):
     # Arrange
-    from shared.config.database import SQLAlchemySessionProvider
+
 
     user_id = uuid4()
     creator_id = uuid4()

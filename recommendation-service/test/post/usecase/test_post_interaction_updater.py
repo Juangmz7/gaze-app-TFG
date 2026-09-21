@@ -1,6 +1,8 @@
 from datetime import timedelta
 from unittest.mock import Mock
 from uuid import uuid4
+from pipeline.model.post.post_interaction_features import PostInteractionFeatures
+
 
 import pytest
 
@@ -16,7 +18,7 @@ from pipeline.repository.user_features_repository import UserFeaturesRepository
 from post.usecase.post_interaction_updater import PostInteractionUpdater
 from rabbitmq.event.post.post_events import InteractionSource
 from shared.enum.interaction_metric import InteractionMetric
-from shared.helpers import decay, normalize_vector_0_1
+from shared.helpers import decay, l2_normalize_vector
 from test._support.builders import (
     T0,
     T1,
@@ -46,19 +48,11 @@ def _updater(
 ):
     if post_interaction_repository is None:
         post_interaction_repository = Mock(spec=PostInteractionFeaturesRepository)
-        from pipeline.model.post.post_interaction_features import PostInteractionFeatures
+
         post_interaction_repository.get_for_update.return_value = PostInteractionFeatures(
             post_id=uuid4(),
-            impressions=0,
-            views=0,
-            likes=0,
-            comments=0,
-            shares=0,
-            fast_skips=0,
-            collab_requests=0,
-            collab_requests_accepted=0,
-            watch_time_average_percent=0.0,
-            watch_time=0.0,
+            raw_interaction_stats=raw_stats(impressions=0, views=0, likes=0, comments=0, shares=0, fast_skips=0, collab_requests=0, collab_requests_accepted=0, watch_time_average_percent=0.0, watch_time=0.0),
+            decayed_interaction_stats=decayed_stats(impressions=0.0, views_engagement=0.0, likes=0.0, comments=0.0, shares=0.0, fast_skips=0.0, collab_requests=0.0, collab_requests_accepted=0.0, watch_time=0.0),
             last_updated_at=T0,
             decayed_engagement_score=0.0
         )
@@ -156,7 +150,7 @@ def test_apply_loads_features_updates_stats_recalculates_affinity_and_semantic_p
         0.1 * factor + 0.4 * POST_LIKE_WEIGHT * InteractionSourceMultiplier.SEARCH.value,
         0.1 * factor + 0.8 * POST_LIKE_WEIGHT * InteractionSourceMultiplier.SEARCH.value,
     ] + [0.0] * 1021
-    assert user_features.semantic_embedding == pytest.approx(normalize_vector_0_1(expected_semantic_raw))
+    assert user_features.semantic_embedding == pytest.approx(l2_normalize_vector(expected_semantic_raw))
     user_repository.save.assert_called_once_with(user_features)
 
 
@@ -290,7 +284,7 @@ def test_apply_fast_skip_negative_semantic_contribution_is_applied_once():
     # Assert
     assert creator_features.raw_interaction_stats.fast_skips == 1
     assert creator_features.decayed_interaction_stats.fast_skips == pytest.approx(1)
-    assert user_features.semantic_embedding == pytest.approx(normalize_vector_0_1([0.3, -0.2, -0.7]))
+    assert user_features.semantic_embedding == pytest.approx(l2_normalize_vector([0.3, -0.2, -0.7]))
 
 
 def test_apply_raises_when_post_features_are_missing():

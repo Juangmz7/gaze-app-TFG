@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
+from shared.config.database import SQLAlchemySessionProvider
+
 import pytest
 
 from block.entity.block_entity import BlockRecord
@@ -146,7 +148,7 @@ def seed_data(session_provider, user_id, creator_1_id, creator_2_id, creator_3_i
 
 def test_explorative_queries_exclude_blocked_and_seen(db_session_factory):
     # Arrange
-    from shared.config.database import SQLAlchemySessionProvider
+
     session_provider = SQLAlchemySessionProvider(db_session_factory)
     
     user_id = uuid4()
@@ -184,7 +186,7 @@ def test_explorative_queries_exclude_blocked_and_seen(db_session_factory):
 
 def test_collaborative_queries_compute_affinity_and_exclude_invalid(db_session_factory):
     # Arrange
-    from shared.config.database import SQLAlchemySessionProvider
+
     session_provider = SQLAlchemySessionProvider(db_session_factory)
     
     user_id = uuid4()
@@ -216,7 +218,7 @@ def test_collaborative_queries_compute_affinity_and_exclude_invalid(db_session_f
 
 def test_semantic_queries_compute_distance_and_exclude_invalid(db_session_factory):
     # Arrange
-    from shared.config.database import SQLAlchemySessionProvider
+
     session_provider = SQLAlchemySessionProvider(db_session_factory)
     
     user_id = uuid4()
