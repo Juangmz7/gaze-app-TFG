@@ -366,7 +366,7 @@ def test_enrich_maps_creator_affinity(
     result = enricher.enrich(user_id, candidates)
     
     enriched = result[0]
-    assert enriched.creator_afinity_score == 0.8
+    assert enriched.creator_affinity_score == 0.8
 
 
 def test_enrich_maps_tag_affinities(

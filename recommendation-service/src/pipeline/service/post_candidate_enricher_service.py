@@ -101,7 +101,7 @@ class PostCandidateEnricherService:
                 
             ucf = user_creator_features_map.get(pf.creator_id)
             follows_creator = pf.creator_id in followed_creator_ids
-            creator_afinity_score = ucf.affinity_score if ucf else 0.0
+            creator_affinity_score = ucf.affinity_score if ucf else 0.0
             
             tags_affinity_score = []
             for tag in pf.tags:
@@ -127,7 +127,7 @@ class PostCandidateEnricherService:
                 decayed_collab_requests=pif.decayed_interaction_stats.collab_requests,
                 last_decay_applied_at=pif.last_updated_at,
                 follows_creator=follows_creator,
-                creator_afinity_score=creator_afinity_score,
+                creator_affinity_score=creator_affinity_score,
                 tags_affinity_score=tags_affinity_score,
                 retrieved_source=candidate.source,
                 retrieved_source_score=candidate.score,

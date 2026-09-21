@@ -1,8 +1,9 @@
 from abc import ABC, abstractmethod
-from typing import List
+
 from pipeline.model.interaction.enriched_post_candidate import EnrichedPostCandidate
+from pipeline.model.ranking.normalized_post_ranking_features import NormalizedPostRankingFeatures
 
 class CandidateNormalizer(ABC):
     @abstractmethod
-    def normalize(self, candidates: List[EnrichedPostCandidate]) -> List[EnrichedPostCandidate]:
+    def normalize(self, candidates: list[EnrichedPostCandidate]) -> list[NormalizedPostRankingFeatures]:
         pass

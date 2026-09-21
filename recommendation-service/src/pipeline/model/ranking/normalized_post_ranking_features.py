@@ -1,35 +1,31 @@
 from dataclasses import dataclass
-from datetime import datetime
 from uuid import UUID
-
 from pipeline.enum.post_retrieve_source import PostRetrieveSource
 
-
 @dataclass
-class EnrichedPostCandidate:
+class NormalizedPostRankingFeatures:
     post_id: UUID
     
-    impressions: int
-    views: int
-    likes: int
-    comments: int
-    shares: int
-    fast_skips: int
-    collab_requests: int
+    views: float
+    likes: float
+    comments: float
+    shares: float
+    fast_skips: float
+    collab_requests: float
     watch_time_average_percent: float
 
-    decayed_impressions: float
     views_engagement: float
     decayed_likes: float
     decayed_comments: float
     decayed_shares: float
     decayed_fast_skips: float
     decayed_collab_requests: float
-    last_decay_applied_at: datetime
 
-    follows_creator: bool
+    follows_creator: float
     creator_affinity_score: float
-    tags_affinity_score: list[float]
+    tags_affinity_score: float
+
+    freshness_score: float
+
     retrieved_source: PostRetrieveSource
     retrieved_source_score: float
-    created_at: datetime
