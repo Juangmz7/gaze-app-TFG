@@ -146,7 +146,7 @@ def seed_data(session_provider, user_id, creator_1_id, creator_2_id, creator_3_i
         session.commit()
 
 
-def test_explorative_queries_exclude_blocked_and_seen(db_session_factory):
+def test_explorative_queries_popular_posts_exclude_blocked_and_seen(db_session_factory):
     # Arrange
 
     session_provider = SQLAlchemySessionProvider(db_session_factory)
@@ -176,15 +176,67 @@ def test_explorative_queries_exclude_blocked_and_seen(db_session_factory):
     assert popular[0][0] == post_1_id
     assert popular[0][1] == 100.0
 
+
+def test_explorative_queries_unseen_tags_exclude_blocked_and_seen(db_session_factory):
+    # Arrange
+
+    session_provider = SQLAlchemySessionProvider(db_session_factory)
+    
+    user_id = uuid4()
+    creator_1_id = uuid4()
+    creator_2_id = uuid4()
+    creator_3_id = uuid4()
+    post_1_id = uuid4()
+    post_2_id = uuid4()
+    post_3_id = uuid4()
+    post_4_id = uuid4()
+    similar_user_id = uuid4()
+
+    seed_data(session_provider, user_id, creator_1_id, creator_2_id, creator_3_id, post_1_id, post_2_id, post_3_id, post_4_id, similar_user_id)
+
+    repo = SqlAlchemyExplorativePostRetrievalRepository(session_provider)
+
+    # Act
+    popular = repo.get_popular_posts(user_id, 10)
+    unseen_tags = repo.get_unseen_tags_posts(user_id, 10)
+    random_posts = repo.get_random_posts(user_id, 10)
+
+    # Assert
     # Unseen tags post will exclude Post 1 because it has "ai" tag, which user has seen
     assert len(unseen_tags) == 0
 
+
+def test_explorative_queries_random_posts_exclude_blocked_and_seen(db_session_factory):
+    # Arrange
+
+    session_provider = SQLAlchemySessionProvider(db_session_factory)
+    
+    user_id = uuid4()
+    creator_1_id = uuid4()
+    creator_2_id = uuid4()
+    creator_3_id = uuid4()
+    post_1_id = uuid4()
+    post_2_id = uuid4()
+    post_3_id = uuid4()
+    post_4_id = uuid4()
+    similar_user_id = uuid4()
+
+    seed_data(session_provider, user_id, creator_1_id, creator_2_id, creator_3_id, post_1_id, post_2_id, post_3_id, post_4_id, similar_user_id)
+
+    repo = SqlAlchemyExplorativePostRetrievalRepository(session_provider)
+
+    # Act
+    popular = repo.get_popular_posts(user_id, 10)
+    unseen_tags = repo.get_unseen_tags_posts(user_id, 10)
+    random_posts = repo.get_random_posts(user_id, 10)
+
+    # Assert
     # Random posts should only retrieve Post 1
     assert len(random_posts) == 1
     assert random_posts[0][0] == post_1_id
 
 
-def test_collaborative_queries_compute_affinity_and_exclude_invalid(db_session_factory):
+def test_collaborative_queries_compute_affinity(db_session_factory):
     # Arrange
 
     session_provider = SQLAlchemySessionProvider(db_session_factory)
@@ -205,9 +257,34 @@ def test_collaborative_queries_compute_affinity_and_exclude_invalid(db_session_f
 
     # Act
     similar_users = repo.get_similar_users(user_id, 10)
+    posts = repo.get_posts_ordered_by_user_affinity(similar_users, user_id, 10, 10)
+
+    # Assert
     assert len(similar_users) == 1
     assert similar_users[0][0] == similar_user_id
+
+
+def test_collaborative_queries_exclude_invalid(db_session_factory):
+    # Arrange
+
+    session_provider = SQLAlchemySessionProvider(db_session_factory)
     
+    user_id = uuid4()
+    creator_1_id = uuid4()
+    creator_2_id = uuid4()
+    creator_3_id = uuid4()
+    post_1_id = uuid4()
+    post_2_id = uuid4()
+    post_3_id = uuid4()
+    post_4_id = uuid4()
+    similar_user_id = uuid4()
+
+    seed_data(session_provider, user_id, creator_1_id, creator_2_id, creator_3_id, post_1_id, post_2_id, post_3_id, post_4_id, similar_user_id)
+
+    repo = SqlAlchemyCollaborativePostRetrievalRepository(session_provider)
+
+    # Act
+    similar_users = repo.get_similar_users(user_id, 10)
     posts = repo.get_posts_ordered_by_user_affinity(similar_users, user_id, 10, 10)
 
     # Assert
@@ -216,7 +293,34 @@ def test_collaborative_queries_compute_affinity_and_exclude_invalid(db_session_f
     assert posts[0][0] == post_1_id
 
 
-def test_semantic_queries_compute_distance_and_exclude_invalid(db_session_factory):
+def test_semantic_queries_compute_distance(db_session_factory):
+    # Arrange
+
+    session_provider = SQLAlchemySessionProvider(db_session_factory)
+    
+    user_id = uuid4()
+    creator_1_id = uuid4()
+    creator_2_id = uuid4()
+    creator_3_id = uuid4()
+    post_1_id = uuid4()
+    post_2_id = uuid4()
+    post_3_id = uuid4()
+    post_4_id = uuid4()
+    similar_user_id = uuid4()
+
+    seed_data(session_provider, user_id, creator_1_id, creator_2_id, creator_3_id, post_1_id, post_2_id, post_3_id, post_4_id, similar_user_id)
+
+    repo = SqlAlchemySemanticPostRetrievalRepository(session_provider)
+
+    # Act
+    posts = repo.get_similar_posts(user_id, 10)
+
+    # Assert
+    # Post 1 and Post 4 have valid embeddings. (Both have [0.12]*1024, semantic query defaults to ASC distance).
+    assert len(posts) == 2
+
+
+def test_semantic_queries_exclude_invalid(db_session_factory):
     # Arrange
 
     session_provider = SQLAlchemySessionProvider(db_session_factory)
@@ -240,6 +344,4 @@ def test_semantic_queries_compute_distance_and_exclude_invalid(db_session_factor
 
     # Assert
     # Post 2 blocked, Post 3 seen. 
-    # Post 1 and Post 4 have valid embeddings. (Both have [0.12]*1024, semantic query defaults to ASC distance).
-    assert len(posts) == 2
     assert set(p[0] for p in posts) == {post_1_id, post_4_id}

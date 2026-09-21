@@ -27,7 +27,7 @@ def _event() -> PostLikeCreatedEvent:
 
 
 @pytest.mark.asyncio
-async def test_handle_maps_event_to_command_and_invokes_usecase():
+async def test_handle_returns_event_name():
     # Arrange
     usecase = Mock(spec=CreatePostLikeUsecase)
     handler = PostLikeCreatedEventHandler(usecase)
@@ -38,6 +38,19 @@ async def test_handle_maps_event_to_command_and_invokes_usecase():
 
     # Assert
     assert result == "PostLikeCreatedEvent"
+
+
+@pytest.mark.asyncio
+async def test_handle_maps_event_to_command():
+    # Arrange
+    usecase = Mock(spec=CreatePostLikeUsecase)
+    handler = PostLikeCreatedEventHandler(usecase)
+    event = _event()
+
+    # Act
+    await handler.handle(event)
+
+    # Assert
     command = usecase.execute.call_args.args[0]
     assert command.event_id == event.id
     assert command.correlation_id == event.correlationId

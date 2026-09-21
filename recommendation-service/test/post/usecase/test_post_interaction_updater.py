@@ -139,7 +139,7 @@ def _setup_updater_test_scenario():
         "post_interaction_repository": post_interaction_repository
     }
 
-def test_apply_updates_and_persists_creator_interaction_stats():
+def test_apply_updates_creator_interaction_stats():
     s = _setup_updater_test_scenario()
     s["updater"].apply(
         post_id=s["post"].post_id,
@@ -154,9 +154,20 @@ def test_apply_updates_and_persists_creator_interaction_stats():
     assert s["creator_features"].raw_interaction_stats.impressions == 10
     assert s["creator_features"].decayed_interaction_stats.impressions == pytest.approx(10 * s["factor"])
     assert s["creator_features"].last_updated_at == s["occurred_at"]
+
+def test_apply_persists_creator_interaction_stats():
+    s = _setup_updater_test_scenario()
+    s["updater"].apply(
+        post_id=s["post"].post_id,
+        user_id=s["user_id"],
+        metric_updates=[InteractionMetricUpdate(InteractionMetric.LIKES, raw_delta=1, decayed_delta=1)],
+        embedding_weight=POST_LIKE_WEIGHT,
+        source=InteractionSource.SEARCH,
+        occurred_at=s["occurred_at"],
+    )
     assert s["creator_repository"].save.call_args.args[0] is s["creator_features"]
 
-def test_apply_updates_and_persists_tag_interaction_stats():
+def test_apply_updates_tag_interaction_stats():
     s = _setup_updater_test_scenario()
     s["updater"].apply(
         post_id=s["post"].post_id,
@@ -168,9 +179,20 @@ def test_apply_updates_and_persists_tag_interaction_stats():
     )
     assert s["tag_features"][0].raw_interaction_stats.likes == 2
     assert s["tag_features"][0].decayed_interaction_stats.likes == pytest.approx(1 * s["factor"] + 1)
+
+def test_apply_persists_tag_interaction_stats():
+    s = _setup_updater_test_scenario()
+    s["updater"].apply(
+        post_id=s["post"].post_id,
+        user_id=s["user_id"],
+        metric_updates=[InteractionMetricUpdate(InteractionMetric.LIKES, raw_delta=1, decayed_delta=1)],
+        embedding_weight=POST_LIKE_WEIGHT,
+        source=InteractionSource.SEARCH,
+        occurred_at=s["occurred_at"],
+    )
     assert s["tag_repository"].save_all.call_args.args[0] == s["tag_features"]
 
-def test_apply_updates_and_persists_user_semantic_profile():
+def test_apply_updates_user_semantic_profile():
     s = _setup_updater_test_scenario()
     s["updater"].apply(
         post_id=s["post"].post_id,
@@ -186,9 +208,20 @@ def test_apply_updates_and_persists_user_semantic_profile():
         0.1 * s["factor"] + 0.8 * POST_LIKE_WEIGHT * InteractionSourceMultiplier.SEARCH.value,
     ] + [0.1 * s["factor"]] * 1021
     assert s["user_features"].semantic_embedding == pytest.approx(l2_normalize_vector(expected_semantic_raw))
+
+def test_apply_persists_user_semantic_profile():
+    s = _setup_updater_test_scenario()
+    s["updater"].apply(
+        post_id=s["post"].post_id,
+        user_id=s["user_id"],
+        metric_updates=[InteractionMetricUpdate(InteractionMetric.LIKES, raw_delta=1, decayed_delta=1)],
+        embedding_weight=POST_LIKE_WEIGHT,
+        source=InteractionSource.SEARCH,
+        occurred_at=s["occurred_at"],
+    )
     s["user_repository"].save.assert_called_once_with(s["user_features"])
 
-def test_apply_updates_and_persists_post_interaction_stats():
+def test_apply_updates_post_interaction_stats():
     s = _setup_updater_test_scenario()
     s["updater"].apply(
         post_id=s["post"].post_id,
@@ -200,10 +233,21 @@ def test_apply_updates_and_persists_post_interaction_stats():
     )
     assert s["post_interaction_features"].raw_interaction_stats.likes == 1
     assert s["post_interaction_features"].decayed_interaction_stats.likes == 1
+
+def test_apply_persists_post_interaction_stats():
+    s = _setup_updater_test_scenario()
+    s["updater"].apply(
+        post_id=s["post"].post_id,
+        user_id=s["user_id"],
+        metric_updates=[InteractionMetricUpdate(InteractionMetric.LIKES, raw_delta=1, decayed_delta=1)],
+        embedding_weight=POST_LIKE_WEIGHT,
+        source=InteractionSource.SEARCH,
+        occurred_at=s["occurred_at"],
+    )
     assert s["post_interaction_repository"].save.call_args.args[0] is s["post_interaction_features"]
 
 
-def test_apply_creates_missing_creator_and_tag_rows_before_locking_them():
+def test_apply_creates_missing_creator_rows_before_locking_them():
     # Arrange
     user_id = uuid4()
     post = make_post_features(tags=["a", "b"])
@@ -246,10 +290,90 @@ def test_apply_creates_missing_creator_and_tag_rows_before_locking_them():
     assert isinstance(created_creator, UserCreatorFeatures)
     assert created_creator.user_id == user_id
     assert created_creator.creator_id == post.creator_id
+
+def test_apply_creates_missing_tag_rows_before_locking_them():
+    # Arrange
+    user_id = uuid4()
+    post = make_post_features(tags=["a", "b"])
+    creator_features = make_user_creator_features(user_id=user_id, creator_id=post.creator_id)
+    tag_features = [
+        make_post_tag_features(user_id=user_id, tag_name="a"),
+        make_post_tag_features(user_id=user_id, tag_name="b"),
+    ]
+    post_repository = Mock(spec=PostFeaturesRepository)
+    post_repository.get_post_features.return_value = post
+    creator_repository = Mock(spec=UserCreatorFeaturesRepository)
+    creator_repository.get_user_creator_features.return_value = None
+    creator_repository.get_user_creator_features_for_update.return_value = creator_features
+    tag_repository = Mock(spec=PostTagFeaturesRepository)
+    tag_repository.get_post_tag_features.return_value = [tag_features[0]]
+    tag_repository.get_post_tag_features_for_update.return_value = tag_features
+    user_repository = Mock(spec=UserFeaturesRepository)
+    user_repository.get_user_features_for_update.return_value = None
+    updater = _updater(
+        creator_repository=creator_repository,
+        tag_repository=tag_repository,
+        user_repository=user_repository,
+        post_repository=post_repository,
+    )
+
+    # Act
+    updater.apply(
+        post_id=post.post_id,
+        user_id=user_id,
+        metric_updates=[
+            InteractionMetricUpdate(InteractionMetric.SHARES, raw_delta=1, decayed_delta=1)
+        ],
+        embedding_weight=POST_LIKE_WEIGHT,
+        source=InteractionSource.SEARCH,
+        occurred_at=T1,
+    )
+
+    # Assert
     created_tags = tag_repository.create_if_absent.call_args.args[0]
     assert len(created_tags) == 1
     assert isinstance(created_tags[0], PostTagFeatures)
     assert created_tags[0].tag_name == "b"
+
+def test_apply_does_not_save_user_when_missing():
+    # Arrange
+    user_id = uuid4()
+    post = make_post_features(tags=["a", "b"])
+    creator_features = make_user_creator_features(user_id=user_id, creator_id=post.creator_id)
+    tag_features = [
+        make_post_tag_features(user_id=user_id, tag_name="a"),
+        make_post_tag_features(user_id=user_id, tag_name="b"),
+    ]
+    post_repository = Mock(spec=PostFeaturesRepository)
+    post_repository.get_post_features.return_value = post
+    creator_repository = Mock(spec=UserCreatorFeaturesRepository)
+    creator_repository.get_user_creator_features.return_value = None
+    creator_repository.get_user_creator_features_for_update.return_value = creator_features
+    tag_repository = Mock(spec=PostTagFeaturesRepository)
+    tag_repository.get_post_tag_features.return_value = [tag_features[0]]
+    tag_repository.get_post_tag_features_for_update.return_value = tag_features
+    user_repository = Mock(spec=UserFeaturesRepository)
+    user_repository.get_user_features_for_update.return_value = None
+    updater = _updater(
+        creator_repository=creator_repository,
+        tag_repository=tag_repository,
+        user_repository=user_repository,
+        post_repository=post_repository,
+    )
+
+    # Act
+    updater.apply(
+        post_id=post.post_id,
+        user_id=user_id,
+        metric_updates=[
+            InteractionMetricUpdate(InteractionMetric.SHARES, raw_delta=1, decayed_delta=1)
+        ],
+        embedding_weight=POST_LIKE_WEIGHT,
+        source=InteractionSource.SEARCH,
+        occurred_at=T1,
+    )
+
+    # Assert
     user_repository.save.assert_not_called()
 
 
