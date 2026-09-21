@@ -39,12 +39,12 @@ class PostCandidateEnricherService:
         post_interaction_features_map = self._fetch_post_interaction_features(post_ids)
 
         creator_ids = {pf.creator_id for pf in post_features_map.values()}
-        all_tags = set()
+        all_posts_tags = set()
         for pf in post_features_map.values():
-            all_tags.update(pf.tags)
+            all_posts_tags.update(pf.tags)
 
         user_creator_features_map = self._fetch_user_creator_features(user_id, list(creator_ids))
-        user_tag_features_map = self._fetch_user_tag_features(user_id, list(all_tags))
+        user_tag_features_map = self._fetch_user_tag_features(user_id, list(all_posts_tags))
         followed_creator_ids = self._fetch_followed_creators(user_id, list(creator_ids))
 
         return self._build_enriched_candidates(
