@@ -57,6 +57,20 @@ class SqlAlchemyUserCreatorFeaturesRepository(UserCreatorFeaturesRepository):
             else:
                 return None
 
+    def get_batch(self, user_id: UUID, creator_ids: list[UUID]) -> list[UserCreatorFeatures]:
+        if not creator_ids:
+            return []
+        with self.session_provider.session() as session:
+            records = (
+                session.query(UserCreatorFeaturesRecord)
+                .filter(
+                    UserCreatorFeaturesRecord.user_id == user_id,
+                    UserCreatorFeaturesRecord.creator_id.in_(creator_ids)
+                )
+                .all()
+            )
+            return [user_creator_features_from_record(r) for r in records]
+
     def create_if_absent(self, user_creator_features: UserCreatorFeatures) -> None:
         values = user_creator_features_values(user_creator_features)
         with self.session_provider.session() as session:
