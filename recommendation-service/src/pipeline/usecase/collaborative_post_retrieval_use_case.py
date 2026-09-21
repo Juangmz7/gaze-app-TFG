@@ -14,14 +14,15 @@ class CollaborativePostRetrievalUseCase:
     def retrieve_posts(
             self,
             user_id: UUID,
+            limit_multiplier: float = 1.0
     ) -> list[Candidate]:
-        users_ids = self.colaborative_post_retrieval_repository.get_similar_users(user_id, USER_LIMIT)
+        users_ids = self.colaborative_post_retrieval_repository.get_similar_users(user_id, int(USER_LIMIT * limit_multiplier))
         if not users_ids:
             return []
 
-        posts = self.colaborative_post_retrieval_repository.get_posts_ordered_by_user_affinity(users_ids, user_id, POST_LIMIT, POST_LIMIT)
-
-        #TODO? Retry logic if the amount of posts is less than the expected limit
+        posts = self.colaborative_post_retrieval_repository.get_posts_ordered_by_user_affinity(
+            users_ids, user_id, int(POST_LIMIT * limit_multiplier), int(POST_LIMIT * limit_multiplier)
+        )
 
         return [
             Candidate(post_id, PostRetrieveSource.COLLABORATIVE, score)
