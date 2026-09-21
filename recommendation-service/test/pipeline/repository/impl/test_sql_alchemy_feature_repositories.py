@@ -1,3 +1,4 @@
+from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from uuid import uuid4
@@ -276,3 +277,69 @@ def test_concurrent_like_updates_do_not_lose_increments(db_session_factory):
     # Assert
     loaded = base_repository.get_user_creator_features(user_id, creator_id)
     assert loaded.raw_interaction_stats.likes == 2
+
+def test_post_interaction_features_repository_get_batch_returns_list(db_session_factory):
+    session_provider = SQLAlchemySessionProvider(db_session_factory)
+    post_repo = SqlAlchemyPostFeaturesRepository(session_provider)
+    repo = SqlAlchemyPostInteractionFeaturesRepository(session_provider)
+    
+    post1 = make_post_features()
+    post2 = make_post_features()
+    post_repo.save(post1)
+    post_repo.save(post2)
+    repo.create_empty(post1.post_id, T0)
+    repo.create_empty(post2.post_id, T0)
+    
+    result = repo.get_batch([post1.post_id, post2.post_id])
+    assert len(result) == 2
+    assert {r.post_id for r in result} == {post1.post_id, post2.post_id}
+
+def test_post_features_repository_get_batch_returns_list(db_session_factory):
+    session_provider = SQLAlchemySessionProvider(db_session_factory)
+    repo = SqlAlchemyPostFeaturesRepository(session_provider)
+    
+    post1 = make_post_features()
+    post2 = make_post_features()
+    repo.save(post1)
+    repo.save(post2)
+    
+    result = repo.get_post_features_batch([post1.post_id, post2.post_id])
+    assert len(result) == 2
+    assert {r.post_id for r in result} == {post1.post_id, post2.post_id}
+
+def test_user_creator_features_repository_get_batch_returns_list(db_session_factory):
+    session_provider = SQLAlchemySessionProvider(db_session_factory)
+    repo = SqlAlchemyUserCreatorFeaturesRepository(session_provider)
+    
+    user_id = uuid4()
+    creator_id_1 = uuid4()
+    creator_id_2 = uuid4()
+    
+    repo.create_if_absent(make_user_creator_features(user_id=user_id, creator_id=creator_id_1))
+    repo.create_if_absent(make_user_creator_features(user_id=user_id, creator_id=creator_id_2))
+    
+    result = repo.get_batch(user_id, [creator_id_1, creator_id_2])
+    assert len(result) == 2
+    assert {r.creator_id for r in result} == {creator_id_1, creator_id_2}
+
+import pytest
+from uuid import uuid4
+from shared.config.database import SQLAlchemySessionProvider
+from follow.repository.impl.sql_alchemy_follow_repository import SqlAlchemyFollowRepository
+from follow.model.follow import Follow
+
+def test_follow_repository_is_following_batch(db_session_factory):
+    session_provider = SQLAlchemySessionProvider(db_session_factory)
+    repo = SqlAlchemyFollowRepository(session_provider)
+    
+    follower = uuid4()
+    followed_1 = uuid4()
+    followed_2 = uuid4()
+    followed_3 = uuid4()
+    
+    repo.create_follow(Follow(follower_id=follower, followed_id=followed_1, created_at=datetime.utcnow()))
+    repo.create_follow(Follow(follower_id=follower, followed_id=followed_2, created_at=datetime.utcnow()))
+    
+    result = repo.is_following_batch(follower, [followed_1, followed_2, followed_3])
+    
+    assert result == {followed_1, followed_2}
