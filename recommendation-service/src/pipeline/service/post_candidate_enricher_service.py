@@ -1,3 +1,4 @@
+import logging
 from typing import Dict, List, Set
 from uuid import UUID
 
@@ -12,6 +13,8 @@ from pipeline.repository.post_features_repository import PostFeaturesRepository
 from pipeline.repository.post_interaction_features_repository import PostInteractionFeaturesRepository
 from pipeline.repository.post_tag_features_repository import PostTagFeaturesRepository
 from pipeline.repository.user_creator_features_repository import UserCreatorFeaturesRepository
+
+logger = logging.getLogger(__name__)
 
 
 class PostCandidateEnricherService:
@@ -32,6 +35,8 @@ class PostCandidateEnricherService:
     def enrich(self, user_id: UUID, candidates: list[Candidate]) -> list[EnrichedPostCandidate]:
         if not candidates:
             return []
+
+        logger.debug("Enriching %s candidates for user_id=%s", len(candidates), user_id)
 
         post_ids = [c.post_id for c in candidates]
 
@@ -91,6 +96,7 @@ class PostCandidateEnricherService:
             pif = post_interaction_features_map.get(candidate.post_id)
             
             if not pf or not pif:
+                logger.warning("Dropping candidate post_id=%s due to missing features", candidate.post_id)
                 continue
                 
             ucf = user_creator_features_map.get(pf.creator_id)
