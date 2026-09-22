@@ -21,7 +21,7 @@ import com.app.postcommandservice.like.domain.model.PostLikeSource;
 import com.app.postcommandservice.post.application.usecase.CreatePostUseCase;
 import com.app.postcommandservice.post.application.usecase.DeletePostUseCase;
 import com.app.postcommandservice.post.application.usecase.UpdatePostUseCase;
-import com.app.postcommandservice.share.application.usecase.CreatePostShareUseCase;
+import com.app.postcommandservice.share.application.usecase.DispatchCreatePostShareCommandUseCase;
 import com.app.postcommandservice.share.application.usecase.DeletePostShareUseCase;
 import com.app.postcommandservice.shared.infrastructure.security.SecurityUtils;
 import com.app.postcommandservice.view.application.usecase.DispatchProcessPostViewCommandUseCase;
@@ -66,7 +66,7 @@ class PostLikeControllerIT {
     private DispatchProcessPostViewCommandUseCase dispatchProcessPostViewCommandUseCase;
 
     @Mock
-    private CreatePostShareUseCase createPostShareUseCase;
+    private DispatchCreatePostShareCommandUseCase dispatchCreatePostShareCommandUseCase;
 
     @Mock
     private DeletePostShareUseCase deletePostShareUseCase;
@@ -182,7 +182,20 @@ class PostLikeControllerIT {
                 new com.app.postcommandservice.share.application.commands.DeletePostShareCommand(postId, userId)
         );
     }
-  
+
+    @Test
+    void shouldDispatchCreatePostShareCommandAndReturnAccepted() {
+        var postId = UUID.randomUUID();
+        var userId = UUID.randomUUID();
+        when(securityUtils.getUserId()).thenReturn(userId);
+
+        var response = postController.sharePost(postId);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+        verify(dispatchCreatePostShareCommandUseCase).dispatch(postId, userId);
+    }
+
+    @Test
     void shouldDispatchProcessPostViewCommandAndReturnAccepted() {
         var postId = UUID.randomUUID();
         var userId = UUID.randomUUID();
