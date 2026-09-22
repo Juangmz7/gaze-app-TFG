@@ -25,14 +25,14 @@ class DeterministicCandidateNormalizer(CandidateNormalizer):
         fast_skips = self._normalize_count(c.fast_skips, constants.RANKING_FAST_SKIPS_SATURATION_POINT)
         collab_requests = self._normalize_count(c.collab_requests, constants.RANKING_COLLAB_REQUESTS_SATURATION_POINT)
 
-        views_engagement = self._normalize_count(c.views_engagement, constants.RANKING_VIEWS_SATURATION_POINT)
+        views_engagement = min(max(0.0, float(c.views_engagement)), 1.0)
         decayed_likes = self._normalize_count(c.decayed_likes, constants.RANKING_LIKES_SATURATION_POINT)
         decayed_comments = self._normalize_count(c.decayed_comments, constants.RANKING_COMMENTS_SATURATION_POINT)
         decayed_shares = self._normalize_count(c.decayed_shares, constants.RANKING_SHARES_SATURATION_POINT)
         decayed_fast_skips = self._normalize_count(c.decayed_fast_skips, constants.RANKING_FAST_SKIPS_SATURATION_POINT)
         decayed_collab_requests = self._normalize_count(c.decayed_collab_requests, constants.RANKING_COLLAB_REQUESTS_SATURATION_POINT)
 
-        watch_time_percent = self._normalize_percentage(c.watch_time_average_percent)
+        watch_time_percent = min(max(0.0, float(c.watch_time_average_percent)), 1.0)
         follows_creator = 1.0 if c.follows_creator else 0.0
 
         tags_affinity = self._max_affinity(c.tags_affinity_score)
