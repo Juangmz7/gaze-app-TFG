@@ -12,6 +12,10 @@ class PostFeaturesRepository(ABC):
         pass
 
     @abstractmethod
+    def get_post_features_batch(self, post_ids: list[UUID]) -> list[PostFeatures]:
+        pass
+
+    @abstractmethod
     def save(self, post_features: PostFeatures) -> None:
         pass
 

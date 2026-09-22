@@ -19,6 +19,13 @@ class SqlAlchemyPostFeaturesRepository(PostFeaturesRepository):
             record = session.get(PostFeaturesRecord, post_id)
             return post_features_from_record(record) if record is not None else None
 
+    def get_post_features_batch(self, post_ids: list[UUID]) -> list[PostFeatures]:
+        if not post_ids:
+            return []
+        with self.session_provider.session() as session:
+            records = session.query(PostFeaturesRecord).filter(PostFeaturesRecord.post_id.in_(post_ids)).all()
+            return [post_features_from_record(r) for r in records]
+
     def save(self, post_features: PostFeatures) -> None:
         values = post_features_values(post_features)
         with self.session_provider.session() as session:

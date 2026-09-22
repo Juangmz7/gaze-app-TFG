@@ -53,3 +53,17 @@ class SqlAlchemyFollowRepository(FollowRepository):
                     )
                 )
             )
+
+    def is_following_batch(self, follower_id: UUID, followed_ids: list[UUID]) -> set[UUID]:
+        if not followed_ids:
+            return set()
+        with self.session_provider.session() as session:
+            records = (
+                session.query(FollowRecord.followed_id)
+                .filter(
+                    FollowRecord.follower_id == follower_id,
+                    FollowRecord.followed_id.in_(followed_ids)
+                )
+                .all()
+            )
+            return {r[0] for r in records}

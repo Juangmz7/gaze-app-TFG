@@ -41,7 +41,7 @@ pytestmark = pytest.mark.unit
 NOW = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
 
-def test_create_like_applies_like_once_and_marks_interaction():
+def test_create_like_applies_like_once():
     # Arrange
     post_id = uuid4()
     user_id = uuid4()
@@ -60,6 +60,22 @@ def test_create_like_applies_like_once_and_marks_interaction():
     assert kwargs["metric_updates"][0].metric is InteractionMetric.LIKES
     assert kwargs["metric_updates"][0].raw_delta == 1
     assert kwargs["metric_updates"][0].decayed_delta == 1
+
+
+def test_create_like_marks_interaction():
+    # Arrange
+    post_id = uuid4()
+    user_id = uuid4()
+    updater = Mock(spec=PostInteractionUpdater)
+    repository = Mock(spec=UserPostInteractionsRepository)
+    repository.get.return_value = UserPostInteractions(post_id=post_id, user_id=user_id)
+    usecase = CreatePostLikeUsecase(updater, repository)
+    command = CreatePostLikeCommand(uuid4(), uuid4(), NOW, post_id, user_id, InteractionSource.HOME_FEED, 3)
+
+    # Act
+    usecase.execute(command)
+
+    # Assert
     saved = repository.save.call_args.args[0]
     assert saved.ever_liked is True
 
@@ -81,7 +97,7 @@ def test_duplicate_like_is_ignored():
     repository.save.assert_not_called()
 
 
-def test_delete_like_uses_raw_delta_decayed_penalty_and_semantic_penalty_once():
+def test_delete_like_applies_penalties():
     # Arrange
     post_id = uuid4()
     user_id = uuid4()
@@ -98,6 +114,21 @@ def test_delete_like_uses_raw_delta_decayed_penalty_and_semantic_penalty_once():
     assert kwargs["embedding_weight"] == -POST_UNLIKE_PENALISATION_WEIGHT
     assert kwargs["metric_updates"][0].raw_delta == -1
     assert kwargs["metric_updates"][0].decayed_delta == -0.25
+
+
+def test_delete_like_marks_interaction():
+    # Arrange
+    post_id = uuid4()
+    user_id = uuid4()
+    updater = Mock(spec=PostInteractionUpdater)
+    repository = Mock(spec=UserPostInteractionsRepository)
+    repository.get.return_value = UserPostInteractions(post_id=post_id, user_id=user_id)
+    usecase = DeletePostLikeUsecase(updater, repository)
+
+    # Act
+    usecase.execute(DeletePostLikeCommand(uuid4(), uuid4(), NOW, post_id, user_id, InteractionSource.SEARCH, 1))
+
+    # Assert
     assert repository.save.call_args.args[0].ever_unliked is True
 
 
@@ -123,8 +154,50 @@ def test_create_comment_applies_accumulation_decay_for_repeated_comments():
     assert updater.apply.call_args.kwargs["embedding_weight"] == pytest.approx(
         POST_COMMENT_WEIGHT * (COMMENT_ACCUMULATION_DECAY ** 2)
     )
+
+
+def test_create_comment_updates_comment_count():
+    # Arrange
+    post_id = uuid4()
+    user_id = uuid4()
+    comment_id = uuid4()
+    updater = Mock(spec=PostInteractionUpdater)
+    interaction_repository = Mock(spec=UserPostInteractionsRepository)
+    interaction_repository.get.return_value = UserPostInteractions(
+        post_id=post_id,
+        user_id=user_id,
+        comment_count=2,
+    )
+    comment_repository = Mock(spec=CommentPostRepository)
+    usecase = CreatePostCommentUsecase(updater, interaction_repository, comment_repository)
+
+    # Act
+    usecase.execute(CreatePostCommentCommand(uuid4(), uuid4(), NOW, comment_id, post_id, user_id))
+
+    # Assert
     saved = interaction_repository.save.call_args.args[0]
     assert saved.comment_count == 3
+
+
+def test_create_comment_saves_comment_mapping():
+    # Arrange
+    post_id = uuid4()
+    user_id = uuid4()
+    comment_id = uuid4()
+    updater = Mock(spec=PostInteractionUpdater)
+    interaction_repository = Mock(spec=UserPostInteractionsRepository)
+    interaction_repository.get.return_value = UserPostInteractions(
+        post_id=post_id,
+        user_id=user_id,
+        comment_count=2,
+    )
+    comment_repository = Mock(spec=CommentPostRepository)
+    usecase = CreatePostCommentUsecase(updater, interaction_repository, comment_repository)
+
+    # Act
+    usecase.execute(CreatePostCommentCommand(uuid4(), uuid4(), NOW, comment_id, post_id, user_id))
+
+    # Assert
     comment_repository.save_comment_post.assert_called_once_with(comment_id, post_id)
 
 
@@ -151,7 +224,49 @@ def test_delete_comment_uses_deletion_penalty_not_full_comment_weight():
     assert kwargs["embedding_weight"] == pytest.approx(-POST_COMMENT_DELETED_PENALISATION_WEIGHT)
     assert kwargs["metric_updates"][0].raw_delta == -1
     assert kwargs["metric_updates"][0].decayed_delta == -0.25
+
+
+def test_delete_comment_updates_comment_count():
+    # Arrange
+    post_id = uuid4()
+    user_id = uuid4()
+    comment_id = uuid4()
+    updater = Mock(spec=PostInteractionUpdater)
+    interaction_repository = Mock(spec=UserPostInteractionsRepository)
+    interaction_repository.get.return_value = UserPostInteractions(
+        post_id=post_id,
+        user_id=user_id,
+        comment_count=1,
+    )
+    comment_repository = Mock(spec=CommentPostRepository)
+    usecase = DeletePostCommentUsecase(updater, interaction_repository, comment_repository)
+
+    # Act
+    usecase.execute(DeletePostCommentCommand(uuid4(), uuid4(), NOW, comment_id, post_id, user_id))
+
+    # Assert
     assert interaction_repository.save.call_args.args[0].comment_count == 0
+
+
+def test_delete_comment_removes_comment_mapping():
+    # Arrange
+    post_id = uuid4()
+    user_id = uuid4()
+    comment_id = uuid4()
+    updater = Mock(spec=PostInteractionUpdater)
+    interaction_repository = Mock(spec=UserPostInteractionsRepository)
+    interaction_repository.get.return_value = UserPostInteractions(
+        post_id=post_id,
+        user_id=user_id,
+        comment_count=1,
+    )
+    comment_repository = Mock(spec=CommentPostRepository)
+    usecase = DeletePostCommentUsecase(updater, interaction_repository, comment_repository)
+
+    # Act
+    usecase.execute(DeletePostCommentCommand(uuid4(), uuid4(), NOW, comment_id, post_id, user_id))
+
+    # Assert
     comment_repository.delete_comment_post.assert_called_once_with(comment_id)
 
 
@@ -175,7 +290,7 @@ def test_delete_comment_with_empty_counter_only_removes_comment_mapping():
     comment_repository.delete_comment_post.assert_called_once_with(comment_id)
 
 
-def test_collab_request_updates_each_post_and_saves_only_new_interactions():
+def test_collab_request_updates_each_post():
     # Arrange
     post_ids = [uuid4(), uuid4()]
     user_id = uuid4()
@@ -195,6 +310,25 @@ def test_collab_request_updates_each_post_and_saves_only_new_interactions():
     updater.apply.assert_called_once()
     assert updater.apply.call_args.kwargs["post_id"] == post_ids[1]
     assert updater.apply.call_args.kwargs["embedding_weight"] == COLLAB_REQUEST_WEIGHT
+
+
+def test_collab_request_saves_only_new_interactions():
+    # Arrange
+    post_ids = [uuid4(), uuid4()]
+    user_id = uuid4()
+    updater = Mock(spec=PostInteractionUpdater)
+    interaction_repository = Mock(spec=UserPostInteractionsRepository)
+    interaction_repository.get_all_by_user.return_value = {
+        post_ids[0]: UserPostInteractions(post_id=post_ids[0], user_id=user_id, ever_requested_collab=True)
+    }
+    collab_repository = Mock(spec=CollabRepository)
+    collab_repository.find_posts_id_by_collab_id.return_value = post_ids
+    usecase = CreatePostCollabRequestUsecase(updater, interaction_repository, collab_repository)
+
+    # Act
+    usecase.execute(CreatePostCollabRequestCommand(uuid4(), uuid4(), NOW, uuid4(), user_id))
+
+    # Assert
     saved = interaction_repository.save_all.call_args.args[0]
     assert len(saved) == 1
     assert saved[0].ever_requested_collab is True

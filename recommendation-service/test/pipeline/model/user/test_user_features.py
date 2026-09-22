@@ -25,7 +25,29 @@ def test_initial_zero_accumulator_has_no_semantic_signal():
     assert features.has_semantic_signal is False
 
 
-def test_first_meaningful_semantic_interaction_sets_signal_and_normalizes_vector():
+def test_first_meaningful_semantic_interaction_sets_signal():
+    # Arrange
+    occurred_at = T0 + timedelta(seconds=1)
+    features = UserFeatures(
+        user_id=uuid4(),
+        semantic_embedding=[0.0, 0.0, 0.0],
+        last_updated_at=T0,
+        has_semantic_signal=False,
+    )
+
+    # Act
+    features.apply_semantic_interaction(
+        post_semantic_embedding=[0.2, 0.4, 0.8],
+        embedding_weight=2.0,
+        source_weight=1.25,
+        occurred_at=occurred_at,
+    )
+
+    # Assert
+    assert features.has_semantic_signal is True
+
+
+def test_first_meaningful_semantic_interaction_normalizes_vector():
     # Arrange
     occurred_at = T0 + timedelta(seconds=1)
     features = UserFeatures(
@@ -45,8 +67,28 @@ def test_first_meaningful_semantic_interaction_sets_signal_and_normalizes_vector
 
     # Assert
     assert features.semantic_embedding == pytest.approx(l2_normalize_vector([0.5, 1.0, 2.0]))
+
+
+def test_first_meaningful_semantic_interaction_updates_timestamp():
+    # Arrange
+    occurred_at = T0 + timedelta(seconds=1)
+    features = UserFeatures(
+        user_id=uuid4(),
+        semantic_embedding=[0.0, 0.0, 0.0],
+        last_updated_at=T0,
+        has_semantic_signal=False,
+    )
+
+    # Act
+    features.apply_semantic_interaction(
+        post_semantic_embedding=[0.2, 0.4, 0.8],
+        embedding_weight=2.0,
+        source_weight=1.25,
+        occurred_at=occurred_at,
+    )
+
+    # Assert
     assert features.last_updated_at == occurred_at
-    assert features.has_semantic_signal is True
 
 
 def test_old_embedding_is_decayed_before_adding_weighted_post_embedding():

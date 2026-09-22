@@ -113,3 +113,30 @@ class SqlAlchemyExplorativePostRetrievalRepository(ExplorativePostRetrievalRepos
                 {"user_id": user_id, "limit": limit}
             )
             return [(row[0], row[1]) for row in result]
+    def get_cold_start_posts(
+        self,
+        user_id: UUID,
+        limit: int,
+    ) -> list[tuple[UUID, float]]:
+        with self.session_provider.session() as session:
+            result = session.execute(
+                text("""
+                    SELECT p.post_id, p.decayed_engagement_score
+                    FROM post_interaction_features p
+                    JOIN post_features pf ON p.post_id = pf.post_id
+                    LEFT JOIN user_post_interactions upi 
+                        ON upi.post_id = p.post_id AND upi.user_id = :user_id
+                    WHERE pf.creator_id != :user_id
+                        AND (upi.ever_seen IS NULL OR upi.ever_seen = FALSE)
+                        AND p.views < 50
+                        AND NOT EXISTS (
+                            SELECT 1 FROM blocks b 
+                            WHERE (b.blocker_id = :user_id AND b.blocked_id = pf.creator_id)
+                               OR (b.blocker_id = pf.creator_id AND b.blocked_id = :user_id)
+                        )
+                    ORDER BY pf.created_at DESC, p.views ASC
+                    LIMIT :limit
+                """),
+                {"user_id": user_id, "limit": limit}
+            )
+            return [(row[0], row[1]) for row in result]

@@ -12,6 +12,8 @@ from pipeline.repository.impl.sql_alchemy_post_features_repository import (
 from pipeline.repository.impl.sql_alchemy_post_tag_features_repository import (
     SqlAlchemyPostTagFeaturesRepository,
 )
+from pipeline.repository.impl.sql_alchemy_post_interaction_features_repository import SqlAlchemyPostInteractionFeaturesRepository
+
 from pipeline.repository.impl.sql_alchemy_user_creator_features_repository import (
     SqlAlchemyUserCreatorFeaturesRepository,
 )
@@ -161,7 +163,7 @@ class Container:
         self.user_post_comment_interaction_repository = (
             SqlAlchemyUserPostCommentInteractionRepository(self.session_provider)
         )
-        from pipeline.repository.impl.sql_alchemy_post_interaction_features_repository import SqlAlchemyPostInteractionFeaturesRepository
+
         self.post_interaction_features_repository = SqlAlchemyPostInteractionFeaturesRepository(
             self.session_provider
         )
@@ -219,6 +221,9 @@ class Container:
             self.user_creator_features_repository,
             self.post_tag_features_repository,
             self.post_features_repository,
+            self.user_features_repository,
+            self.post_interaction_features_repository,
+            self.transaction_manager,
         )
         self.create_post_collab_usecase = CreatePostCollabUsecase(
             self.collab_repository,
