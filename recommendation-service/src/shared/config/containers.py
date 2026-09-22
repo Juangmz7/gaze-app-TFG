@@ -221,6 +221,9 @@ class Container:
             self.user_creator_features_repository,
             self.post_tag_features_repository,
             self.post_features_repository,
+            self.user_features_repository,
+            self.post_interaction_features_repository,
+            self.transaction_manager,
         )
         self.create_post_collab_usecase = CreatePostCollabUsecase(
             self.collab_repository,

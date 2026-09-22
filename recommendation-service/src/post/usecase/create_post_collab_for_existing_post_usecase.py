@@ -19,7 +19,7 @@ class CreatePostCollabForExistingPostUsecase:
             self,
             collab_repository: CollabRepository,
             post_features_repository: PostFeaturesRepository,
-            semantic_embedding_model_service: "SemanticEmbeddingModelEncoder",
+            semantic_embedding_model_service: SemanticEmbeddingModelEncoder,
     ):
         self.collab_repository = collab_repository
         self.post_features_repository = post_features_repository
