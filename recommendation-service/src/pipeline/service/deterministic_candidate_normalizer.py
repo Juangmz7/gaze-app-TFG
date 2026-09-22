@@ -41,6 +41,7 @@ class DeterministicCandidateNormalizer(CandidateNormalizer):
 
         return NormalizedPostRankingFeatures(
             post_id=c.post_id,
+            creator_id=c.creator_id,
             views=views,
             likes=likes,
             comments=comments,

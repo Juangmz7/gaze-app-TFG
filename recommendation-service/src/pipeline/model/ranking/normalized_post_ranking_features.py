@@ -5,6 +5,7 @@ from pipeline.enum.post_retrieve_source import PostRetrieveSource
 @dataclass
 class NormalizedPostRankingFeatures:
     post_id: UUID
+    creator_id: UUID
     
     views: float
     likes: float

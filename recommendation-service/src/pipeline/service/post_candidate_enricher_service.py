@@ -110,6 +110,7 @@ class PostCandidateEnricherService:
 
             enriched = EnrichedPostCandidate(
                 post_id=candidate.post_id,
+                creator_id=pf.creator_id,
                 impressions=pif.raw_interaction_stats.impressions,
                 views=pif.raw_interaction_stats.views,
                 likes=pif.raw_interaction_stats.likes,

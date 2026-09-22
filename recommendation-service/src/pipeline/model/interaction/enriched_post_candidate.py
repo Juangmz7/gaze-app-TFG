@@ -8,6 +8,7 @@ from pipeline.enum.post_retrieve_source import PostRetrieveSource
 @dataclass
 class EnrichedPostCandidate:
     post_id: UUID
+    creator_id: UUID
     
     impressions: int
     views: int
