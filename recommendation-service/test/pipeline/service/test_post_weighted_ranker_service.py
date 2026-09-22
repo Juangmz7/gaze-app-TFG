@@ -39,7 +39,7 @@ def test_ranker_service_returns_top_k():
     constants.RANKING_WEIGHT_FRESHNESS = 0.0
     
     c1 = EnrichedPostCandidate(
-        post_id=p1, impressions=0, views=10, likes=0, comments=0, shares=0,
+        post_id=p1, creator_id=uuid4(), impressions=0, views=10, likes=0, comments=0, shares=0,
         fast_skips=0, collab_requests=0, watch_time_average_percent=0.0,
         decayed_impressions=0.0, views_engagement=0.0, decayed_likes=0.0,
         decayed_comments=0.0, decayed_shares=0.0, decayed_fast_skips=0.0,
@@ -50,7 +50,7 @@ def test_ranker_service_returns_top_k():
     )
     
     c2 = EnrichedPostCandidate(
-        post_id=p2, impressions=0, views=1000, likes=0, comments=0, shares=0,
+        post_id=p2, creator_id=uuid4(), impressions=0, views=1000, likes=0, comments=0, shares=0,
         fast_skips=0, collab_requests=0, watch_time_average_percent=0.0,
         decayed_impressions=0.0, views_engagement=0.0, decayed_likes=0.0,
         decayed_comments=0.0, decayed_shares=0.0, decayed_fast_skips=0.0,
@@ -61,7 +61,7 @@ def test_ranker_service_returns_top_k():
     )
     
     c3 = EnrichedPostCandidate(
-        post_id=p3, impressions=0, views=100, likes=0, comments=0, shares=0,
+        post_id=p3, creator_id=uuid4(), impressions=0, views=100, likes=0, comments=0, shares=0,
         fast_skips=0, collab_requests=0, watch_time_average_percent=0.0,
         decayed_impressions=0.0, views_engagement=0.0, decayed_likes=0.0,
         decayed_comments=0.0, decayed_shares=0.0, decayed_fast_skips=0.0,
@@ -72,7 +72,7 @@ def test_ranker_service_returns_top_k():
     )
     
     result = ranker.get_top_k_posts([c1, c2, c3], 2)
-    assert result == [p2, p3]
+    assert [r.post_id for r in result] == [p2, p3]
 
 def test_negative_fast_skips_handled_by_ranker():
     normalizer = DeterministicCandidateNormalizer()
@@ -104,7 +104,7 @@ def test_negative_fast_skips_handled_by_ranker():
 
     # c1 and c2 have the same views, but c2 has fast skips. So c1 should be better.
     c1 = EnrichedPostCandidate(
-        post_id=p1, impressions=0, views=10, likes=0, comments=0, shares=0,
+        post_id=p1, creator_id=uuid4(), impressions=0, views=10, likes=0, comments=0, shares=0,
         fast_skips=0, collab_requests=0, watch_time_average_percent=0.0,
         decayed_impressions=0.0, views_engagement=0.0, decayed_likes=0.0,
         decayed_comments=0.0, decayed_shares=0.0, decayed_fast_skips=0.0,
@@ -115,7 +115,7 @@ def test_negative_fast_skips_handled_by_ranker():
     )
     
     c2 = EnrichedPostCandidate(
-        post_id=p2, impressions=0, views=10, likes=0, comments=0, shares=0,
+        post_id=p2, creator_id=uuid4(), impressions=0, views=10, likes=0, comments=0, shares=0,
         fast_skips=1000, collab_requests=0, watch_time_average_percent=0.0,
         decayed_impressions=0.0, views_engagement=0.0, decayed_likes=0.0,
         decayed_comments=0.0, decayed_shares=0.0, decayed_fast_skips=0.0,
@@ -126,4 +126,4 @@ def test_negative_fast_skips_handled_by_ranker():
     )
     
     result = ranker.get_top_k_posts([c1, c2], 2)
-    assert result == [p1, p2]
+    assert [r.post_id for r in result] == [p1, p2]

@@ -68,8 +68,8 @@ def test_normalize_orchestration(monkeypatch):
     
     post_id = uuid4()
     c = EnrichedPostCandidate(
-        post_id=post_id, impressions=0, views=constants.RANKING_VIEWS_SATURATION_POINT, likes=0, comments=0, shares=0,
-        fast_skips=0, collab_requests=0, watch_time_average_percent=50.0,
+        post_id=post_id, creator_id=uuid4(), impressions=0, views=constants.RANKING_VIEWS_SATURATION_POINT, likes=0, comments=0, shares=0,
+        fast_skips=0, collab_requests=0, watch_time_average_percent=0.5,
         decayed_impressions=0.0, views_engagement=0.0, decayed_likes=0.0,
         decayed_comments=0.0, decayed_shares=0.0, decayed_fast_skips=0.0,
         decayed_collab_requests=0.0, last_decay_applied_at=now,
