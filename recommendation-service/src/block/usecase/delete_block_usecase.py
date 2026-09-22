@@ -1,5 +1,9 @@
+import logging
 from block.command.block_commands import DeleteBlockCommand
 from block.service.block_service import BlockService
+
+
+logger = logging.getLogger(__name__)
 
 
 class DeleteBlockUsecase:
@@ -11,3 +15,4 @@ class DeleteBlockUsecase:
             blocker_user_id=command.blocker_user_id,
             blocked_user_id=command.blocked_user_id,
         )
+        logger.info(f"User {command.blocker_user_id} unblocked {command.blocked_user_id}")

@@ -1,3 +1,4 @@
+import logging
 from uuid import UUID
 
 from pipeline.enum.post_retrieve_source import PostRetrieveSource
@@ -7,12 +8,19 @@ from pipeline.repository.semantic_post_retrieval_repository import SemanticPostR
 
 POST_LIMIT = 200
 
+logger = logging.getLogger(__name__)
+
 class SemanticPostRetrievalUseCase:
     def __init__(self, semantic_post_retrieval_repository: SemanticPostRetrievalRepository):
         self.semantic_post_retrieval_repository = semantic_post_retrieval_repository
 
-    def retrieve_posts(self, user_id: UUID, limit_multiplier: float = 1.0) -> list[Candidate]:
-        posts = self.semantic_post_retrieval_repository.get_similar_posts(user_id, int(POST_LIMIT * limit_multiplier))
+    def retrieve_posts(self, user_id: UUID) -> list[Candidate]:
+        posts = self.semantic_post_retrieval_repository.get_similar_posts(user_id, POST_LIMIT)
+    
+        #TODO? Retry logic if the amount of posts is less than the expected limit
+
+        logger.info(f"Total posts retrieved from semantic retrieval: {len(posts)}")
+
         return [
             Candidate(post_id, PostRetrieveSource.SEMANTIC, score)
             for post_id, score in posts

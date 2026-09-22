@@ -1,3 +1,4 @@
+import logging
 from typing import TYPE_CHECKING
 
 from pipeline.model.user.user_features import UserFeatures
@@ -7,6 +8,9 @@ from user.command.user_commands import RegisterUserCommand
 
 if TYPE_CHECKING:
     from pipeline.service.semantic_embedding_model_service import SemanticEmbeddingModelEncoder
+
+
+logger = logging.getLogger(__name__)
 
 
 class RegisterUserUsecase:
@@ -39,3 +43,4 @@ class RegisterUserUsecase:
                 has_semantic_signal=has_semantic_signal,
             )
         )
+        logger.info(f"User {command.user_id} registered successfully")

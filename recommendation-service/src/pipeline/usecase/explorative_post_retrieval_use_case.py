@@ -1,3 +1,4 @@
+import logging
 from uuid import UUID
 
 from pipeline.enum.post_retrieve_source import PostRetrieveSource
@@ -9,6 +10,7 @@ POPULAR_POST_LIMIT = 30
 RANDOM_POST_LIMIT = 40
 UNSEEN_TAGS_POST_LIMIT = 30
 
+logger = logging.getLogger(__name__)
 
 class ExplorativePostRetrievalUsecase:
 
@@ -27,6 +29,8 @@ class ExplorativePostRetrievalUsecase:
         self._retrieve_random_posts(user_id, candidates, limit_multiplier)
         self._retrieve_unseen_tag_posts(user_id, candidates, limit_multiplier)
 
+        logger.info(f"Total posts retrieved from explorative retrieval: {len(candidates)}")
+
         return candidates
 
     def retrieve_posts_for_new_user(self, user_id: UUID, limit_multiplier: float = 1.0) -> list[Candidate]:
@@ -34,6 +38,8 @@ class ExplorativePostRetrievalUsecase:
 
         self._retrieve_popular_posts(user_id, candidates, limit_multiplier)
         self._retrieve_random_posts(user_id, candidates, limit_multiplier)
+
+        logger.info(f"Total posts retrieved from explorative retrieval for new user: {len(candidates)}")
 
         return candidates
 
@@ -48,15 +54,15 @@ class ExplorativePostRetrievalUsecase:
             int(POPULAR_POST_LIMIT * limit_multiplier),
         )
 
-        if posts:
-            for post_id, score in posts:
-                candidates.append(
-                    Candidate(
-                        post_id,
-                        PostRetrieveSource.POPULAR,
-                        score,
-                    )
+        logger.debug(f"Popular posts retrieved: {len(posts)}")
+        for post_id, score in posts:
+            candidates.append(
+                Candidate(
+                    post_id,
+                    PostRetrieveSource.POPULAR,
+                    score,
                 )
+            )
 
     def _retrieve_random_posts(
         self,
@@ -69,15 +75,15 @@ class ExplorativePostRetrievalUsecase:
             int(RANDOM_POST_LIMIT * limit_multiplier),
         )
 
-        if posts:
-            for post_id, score in posts:
-                candidates.append(
-                    Candidate(
-                        post_id,
-                        PostRetrieveSource.RANDOM,
-                        score,
-                    )
+        logger.debug(f"Random posts retrieved: {len(posts)}")
+        for post_id, score in posts:
+            candidates.append(
+                Candidate(
+                    post_id,
+                    PostRetrieveSource.RANDOM,
+                    score,
                 )
+            )
 
     def _retrieve_unseen_tag_posts(
         self,
@@ -90,12 +96,12 @@ class ExplorativePostRetrievalUsecase:
             int(UNSEEN_TAGS_POST_LIMIT * limit_multiplier),
         )
 
-        if posts:
-            for post_id, score in posts:
-                candidates.append(
-                    Candidate(
-                        post_id,
-                        PostRetrieveSource.UNSEEN_TAG,
-                        score,
-                    )
+        logger.debug(f"Unseen tag posts retrieved: {len(posts)}")
+        for post_id, score in posts:
+            candidates.append(
+                Candidate(
+                    post_id,
+                    PostRetrieveSource.UNSEEN_TAG,
+                    score,
                 )
+            )
