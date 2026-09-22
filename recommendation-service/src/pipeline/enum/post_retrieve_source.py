@@ -8,3 +8,4 @@ class PostRetrieveSource(StrEnum):
     POPULAR = "popular"
     RANDOM = "random"
     UNSEEN_TAG = "unseen_tag"
+    COLD_START = "cold_start"

@@ -15,13 +15,16 @@ def orchestrator_and_mocks():
     mock_ranker = Mock()
     mock_reranker = Mock()
     
+    mock_cold_start = Mock()
+    mock_cold_start.retrieve_and_prepare_cold_start_posts.return_value = []
     orchestrator = RecommendationPipelineOrchestratorUseCase(
         collaborative_retrieval_usecase=mock_collab,
         semantic_retrieval_usecase=mock_semantic,
         explorative_retrieval_usecase=mock_explorative,
         candidate_enricher_service=mock_enricher,
         post_weighted_ranker_service=mock_ranker,
-        post_reranker_service=mock_reranker
+        post_reranker_service=mock_reranker,
+        cold_start_usecase=mock_cold_start
     )
     
     return orchestrator, mock_collab, mock_semantic, mock_explorative, mock_enricher, mock_ranker, mock_reranker
