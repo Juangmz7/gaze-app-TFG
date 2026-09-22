@@ -11,10 +11,8 @@ class SemanticPostRetrievalUseCase:
     def __init__(self, semantic_post_retrieval_repository: SemanticPostRetrievalRepository):
         self.semantic_post_retrieval_repository = semantic_post_retrieval_repository
 
-    def retrieve_posts(self, user_id: UUID) -> list[Candidate]:
-        posts = self.semantic_post_retrieval_repository.get_similar_posts(user_id, POST_LIMIT)
-        #TODO? Retry logic if the amount of posts is less than the expected limit
-
+    def retrieve_posts(self, user_id: UUID, limit_multiplier: float = 1.0) -> list[Candidate]:
+        posts = self.semantic_post_retrieval_repository.get_similar_posts(user_id, int(POST_LIMIT * limit_multiplier))
         return [
             Candidate(post_id, PostRetrieveSource.SEMANTIC, score)
             for post_id, score in posts

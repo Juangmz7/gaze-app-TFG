@@ -28,3 +28,11 @@ class ExplorativePostRetrievalRepository(ABC):
         limit: int,
     ) -> list[tuple[UUID, float]]:
         pass
+
+    @abstractmethod
+    def get_cold_start_posts(
+        self,
+        user_id: UUID,
+        limit: int,
+    ) -> list[tuple[UUID, float]]:
+        pass

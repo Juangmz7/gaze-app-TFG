@@ -64,16 +64,10 @@ class PostInteractionUpdater:
 
             post_interaction_features = self.post_interaction_features_repository.get_for_update(post_id)
             if post_interaction_features is None:
-                from pipeline.exceptions.exceptions import PostInteractionFeaturesNotFoundException
+
                 raise PostInteractionFeaturesNotFoundException(post_id)
 
-            for update in updates:
-                metric_name = update.metric.value
-                if hasattr(post_interaction_features, metric_name) and update.raw_delta is not None:
-                    current_val = getattr(post_interaction_features, metric_name)
-                    setattr(post_interaction_features, metric_name, current_val + update.raw_delta)
-            
-            post_interaction_features.update_decayed_engagement_score(occurred_at, embedding_weight)
+            post_interaction_features.apply_interaction_updates(updates, occurred_at, embedding_weight)
 
             user_creator_features = self._get_user_creator_features_for_update(
                 user_id,

@@ -20,20 +20,20 @@ class ExplorativePostRetrievalUsecase:
             explorative_post_retrieval_repository
         )
 
-    def retrieve_posts(self, user_id: UUID) -> list[Candidate]:
+    def retrieve_posts(self, user_id: UUID, limit_multiplier: float = 1.0) -> list[Candidate]:
         candidates = []
 
-        self._retrieve_popular_posts(user_id, candidates)
-        self._retrieve_random_posts(user_id, candidates)
-        self._retrieve_unseen_tag_posts(user_id, candidates)
+        self._retrieve_popular_posts(user_id, candidates, limit_multiplier)
+        self._retrieve_random_posts(user_id, candidates, limit_multiplier)
+        self._retrieve_unseen_tag_posts(user_id, candidates, limit_multiplier)
 
         return candidates
 
-    def retrieve_posts_for_new_user(self, user_id: UUID) -> list[Candidate]:
+    def retrieve_posts_for_new_user(self, user_id: UUID, limit_multiplier: float = 1.0) -> list[Candidate]:
         candidates = []
 
-        self._retrieve_popular_posts(user_id, candidates)
-        self._retrieve_random_posts(user_id, candidates)
+        self._retrieve_popular_posts(user_id, candidates, limit_multiplier)
+        self._retrieve_random_posts(user_id, candidates, limit_multiplier)
 
         return candidates
 
@@ -41,10 +41,11 @@ class ExplorativePostRetrievalUsecase:
         self,
         user_id: UUID,
         candidates: list[Candidate],
+        limit_multiplier: float = 1.0
     ) -> None:
         posts = self.explorative_post_retrieval_repository.get_popular_posts(
             user_id,
-            POPULAR_POST_LIMIT,
+            int(POPULAR_POST_LIMIT * limit_multiplier),
         )
 
         if posts:
@@ -61,10 +62,11 @@ class ExplorativePostRetrievalUsecase:
         self,
         user_id: UUID,
         candidates: list[Candidate],
+        limit_multiplier: float = 1.0
     ) -> None:
         posts = self.explorative_post_retrieval_repository.get_random_posts(
             user_id,
-            RANDOM_POST_LIMIT,
+            int(RANDOM_POST_LIMIT * limit_multiplier),
         )
 
         if posts:
@@ -81,10 +83,11 @@ class ExplorativePostRetrievalUsecase:
         self,
         user_id: UUID,
         candidates: list[Candidate],
+        limit_multiplier: float = 1.0
     ) -> None:
         posts = self.explorative_post_retrieval_repository.get_unseen_tags_posts(
             user_id,
-            UNSEEN_TAGS_POST_LIMIT,
+            int(UNSEEN_TAGS_POST_LIMIT * limit_multiplier),
         )
 
         if posts:

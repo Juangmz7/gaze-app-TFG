@@ -11,7 +11,7 @@ from shared.helpers import decay
 pytestmark = pytest.mark.unit
 
 
-def test_increment_decays_all_metrics_before_incrementing_target_metric():
+def test_increment_decays_all_metrics():
     # Arrange
     last_updated_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
     occurred_at = last_updated_at + timedelta(seconds=2)
@@ -39,7 +39,6 @@ def test_increment_decays_all_metrics_before_incrementing_target_metric():
     # Assert
     assert stats.impressions == pytest.approx(10 * factor)
     assert stats.views_engagement == pytest.approx(8 * factor)
-    assert stats.likes == pytest.approx(5 * factor + 1)
     assert stats.comments == pytest.approx(4 * factor)
     assert stats.comments_likes == pytest.approx(3 * factor)
     assert stats.shares == pytest.approx(2 * factor)
@@ -47,6 +46,35 @@ def test_increment_decays_all_metrics_before_incrementing_target_metric():
     assert stats.collab_requests == pytest.approx(6 * factor)
     assert stats.collab_requests_accepted == pytest.approx(7 * factor)
     assert stats.watch_time == pytest.approx(9 * factor)
+
+
+def test_increment_increments_target_metric():
+    # Arrange
+    last_updated_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    occurred_at = last_updated_at + timedelta(seconds=2)
+    factor = decay(last_updated_at, occurred_at)
+    stats = DecayedInteractionStats(
+        impressions=10,
+        views_engagement=8,
+        likes=5,
+        comments=4,
+        comments_likes=3,
+        shares=2,
+        fast_skips=1,
+        collab_requests=6,
+        collab_requests_accepted=7,
+        watch_time=9,
+    )
+
+    # Act
+    stats.increment(
+        [InteractionMetricUpdate(InteractionMetric.LIKES, decayed_delta=1)],
+        last_updated_at,
+        occurred_at,
+    )
+
+    # Assert
+    assert stats.likes == pytest.approx(5 * factor + 1)
 
 
 @pytest.mark.parametrize(
@@ -61,7 +89,7 @@ def test_increment_decays_all_metrics_before_incrementing_target_metric():
         (InteractionMetric.WATCH_TIME, "watch_time", 1200.0),
     ],
 )
-def test_increment_supports_view_engagement_penalties_and_watch_time(metric, attribute, delta):
+def test_increment_supports_various_metrics(metric, attribute, delta):
     # Arrange
     timestamp = datetime(2026, 1, 1, tzinfo=timezone.utc)
     stats = DecayedInteractionStats.empty()

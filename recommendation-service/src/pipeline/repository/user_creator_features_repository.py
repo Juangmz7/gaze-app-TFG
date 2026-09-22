@@ -23,6 +23,10 @@ class UserCreatorFeaturesRepository(ABC):
         pass
 
     @abstractmethod
+    def get_batch(self, user_id: UUID, creator_ids: list[UUID]) -> list[UserCreatorFeatures]:
+        pass
+
+    @abstractmethod
     def create_if_absent(self, user_creator_features: UserCreatorFeatures) -> None:
         """Insert the row only if it does not already exist (INSERT … ON CONFLICT DO NOTHING).
 

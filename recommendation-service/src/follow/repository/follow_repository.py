@@ -17,3 +17,7 @@ class FollowRepository(ABC):
     @abstractmethod
     def remove_follows_between_users(self, user_id_1: UUID, user_id_2: UUID) -> None:
         pass
+
+    @abstractmethod
+    def is_following_batch(self, follower_id: UUID, followed_ids: list[UUID]) -> set[UUID]:
+        pass

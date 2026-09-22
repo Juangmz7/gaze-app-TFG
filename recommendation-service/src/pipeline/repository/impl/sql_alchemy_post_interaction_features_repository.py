@@ -6,6 +6,9 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from pipeline.entity.post.post_interaction_features_entity import PostInteractionFeaturesRecord
 from pipeline.model.post.post_interaction_features import PostInteractionFeatures
+from pipeline.model.interaction.raw_interaction_stats import RawInteractionStats
+from pipeline.model.interaction.decayed_interaction_stats import DecayedInteractionStats
+
 from pipeline.repository.post_interaction_features_repository import PostInteractionFeaturesRepository
 from shared.config.database import SQLAlchemySessionProvider
 from shared.repository.impl.mappers import post_interaction_features_from_record, post_interaction_features_values
@@ -27,6 +30,13 @@ class SqlAlchemyPostInteractionFeaturesRepository(PostInteractionFeaturesReposit
                 return post_interaction_features_from_record(record)
             return None
 
+    def get_batch(self, post_ids: list[UUID]) -> list[PostInteractionFeatures]:
+        if not post_ids:
+            return []
+        with self.session_provider.session() as session:
+            records = session.query(PostInteractionFeaturesRecord).filter(PostInteractionFeaturesRecord.post_id.in_(post_ids)).all()
+            return [post_interaction_features_from_record(r) for r in records]
+
     def save(self, features: PostInteractionFeatures) -> None:
         values = post_interaction_features_values(features)
         with self.session_provider.session() as session:
@@ -39,21 +49,14 @@ class SqlAlchemyPostInteractionFeaturesRepository(PostInteractionFeaturesReposit
             )
 
     def create_empty(self, post_id: UUID, created_at: datetime) -> None:
-        values = {
-            "post_id": post_id,
-            "impressions": 0,
-            "views": 0,
-            "likes": 0,
-            "comments": 0,
-            "shares": 0,
-            "fast_skips": 0,
-            "collab_requests": 0,
-            "collab_requests_accepted": 0,
-            "watch_time_average_percent": 0.0,
-            "watch_time": 0.0,
-            "last_updated_at": created_at,
-            "decayed_engagement_score": 0.0,
-        }
+        features = PostInteractionFeatures(
+            post_id=post_id,
+            raw_interaction_stats=RawInteractionStats.empty(),
+            decayed_interaction_stats=DecayedInteractionStats.empty(),
+            last_updated_at=created_at,
+            decayed_engagement_score=0.0,
+        )
+        values = post_interaction_features_values(features)
         with self.session_provider.session() as session:
             stmt = pg_insert(PostInteractionFeaturesRecord).values(**values)
             session.execute(stmt.on_conflict_do_nothing(index_elements=["post_id"]))
