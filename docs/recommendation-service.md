@@ -1,7 +1,7 @@
 # Recommendation Service
 
 ## Overview
-Welcome to the `recommendation-service`! This service is responsible for generating personalized feeds and recommendations for users based on their social graph and interactions. It is built using Python and FastAPI, following a **Domain-Driven Design (DDD)** and **Hexagonal Architecture** approach where applicable.
+This service is responsible for generating personalized feeds and recommendations for users based on their social graph and interactions. It is built using Python and FastAPI, following a **Domain-Driven Design (DDD)** and **Hexagonal Architecture** approach where applicable.
 
 ## Packages
 The service consists of several key modules:
@@ -11,8 +11,8 @@ The service consists of several key modules:
 - **Observability**: Logging and tracing configurations.
 - **Shared**: Common utilities.
 
-## Key Design Choices (For New Developers)
-1. **Python & FastAPI**: Chosen for its ecosystem of data science and machine learning libraries, along with high-performance asynchronous API capabilities.
+## Key Design Choices
+1. **Python & RabbitMQ**: Chosen for its ecosystem of data science and machine learning libraries, along with high-performance asynchronous API capabilities.
 2. **Event Consumption**: It maintains its own read models of users, posts, and follows by listening to RabbitMQ events.
 3. **Hexagonal Concepts**: Uses `model`/`entity`, `usecase`/`command`, and `repository` patterns to separate business logic from infrastructure concerns.
 

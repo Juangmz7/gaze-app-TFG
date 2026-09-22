@@ -3,7 +3,7 @@
 ## What it does
 Contains cross-cutting infrastructure implementations: security, API error handling, datasource configuration, Redis caching, RabbitMQ configuration, listener support, observability, and the transactional outbox engine.
 
-## Key Design Choices (For New Developers)
+## Key Design Choices
 - **Centralized Outbox Processing**: The outbox pattern implementation (`ImmediateOutboxSender`, `OutboxRetryWorker`) lives here. It dispatches `OutboxEvent` rows through `EventPublisher` implementations and retries pending messages.
 - **Global Error Handling**: `ApiExceptionHandler` intercepts exceptions and formats standard API error responses, keeping controllers clean.
 - **Security Configuration**: Centralized Spring Security setup for JWT validation.

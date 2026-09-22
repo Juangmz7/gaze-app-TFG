@@ -3,7 +3,7 @@
 ## What it does
 Orchestrates follow/unfollow use cases. Relational state is the source of truth, while Neo4j graph relationships are maintained from follow integration events.
 
-## Key Design Choices (For New Developers)
+## Key Design Choices
 - **Command-Driven**: `FollowUserCommand` and `UnfollowUserCommand` handle the inputs cleanly.
 - **Relational Source of Truth**: `FollowService` writes and reads relationship state through `FollowRepository`.
 - **Graph Projection**: `FollowNodeService` applies published follow/unfollow events to Neo4j.

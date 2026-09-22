@@ -3,7 +3,7 @@
 ## What it does
 The application layer orchestrates user registration, auth-info synchronization, profile reads/updates, user stats, and recommendations. It receives commands from HTTP controllers and RabbitMQ listeners, applies domain logic through the `User` aggregate, and delegates persistence to repository interfaces.
 
-## Key Design Choices (For New Developers)
+## Key Design Choices
 - **Command Pattern**: Input data is encapsulated into Commands (e.g., `UserRegisterCommand`, `UpdateOwnUserProfileCommand`). This decouples the use case from the delivery mechanism (HTTP vs RabbitMQ).
 - **Dependency Inversion**: The application layer defines interfaces for repositories (e.g., `UserRepository`) but does not implement them. This allows testing business logic without a database.
 - **Dual Database Synchronization**: `UserService` writes to PostgreSQL and creates outbox events, while `UserNodeService` applies user-created and user-deleted integration events to Neo4j.
