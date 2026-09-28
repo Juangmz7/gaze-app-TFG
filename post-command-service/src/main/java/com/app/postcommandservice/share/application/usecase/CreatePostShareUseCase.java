@@ -11,16 +11,12 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.app.postcommandservice.post.domain.exception.PostNotFoundException;
 import com.app.postcommandservice.post.domain.model.valueobj.PostId;
 import com.app.postcommandservice.post.domain.model.valueobj.PostStatus;
 import com.app.postcommandservice.share.application.commands.CreatePostShareCommand;
 import com.app.postcommandservice.share.application.repository.PostShareRepository;
 import com.app.postcommandservice.share.application.repository.PostShareValidationRepository;
 import com.app.postcommandservice.share.domain.events.PostSharedDomainEvent;
-import com.app.postcommandservice.share.domain.exception.PostShareBlockedException;
-import com.app.postcommandservice.share.domain.exception.PostShareTargetNotActiveException;
-import com.app.postcommandservice.share.domain.exception.SelfPostShareNotAllowedException;
 import com.app.postcommandservice.share.domain.model.PostShare;
 import com.app.postcommandservice.share.infrastructure.events.PostSharedEvent;
 import com.app.postcommandservice.share.infrastructure.mapper.PostShareEventMapper;
@@ -44,16 +40,34 @@ public class CreatePostShareUseCase {
 
     @Transactional
     public void share(CreatePostShareCommand command) {
-        var post = postShareValidationRepository.findPost(command.postId())
-                .orElseThrow(() -> new PostNotFoundException(command.postId()));
+        var post = postShareValidationRepository.findPost(command.postId());
+        if (post.isEmpty()) {
+            log.info("Discarding post share command {} because post {} does not exist",
+                    command.id(), command.postId());
+            return;
+        }
 
-        assertActive(post);
-        assertNotSelfShare(post, command.currentUserId());
-        assertNotBlocked(post, command.currentUserId());
+        if (!isActive(post.get())) {
+            log.info("Discarding post share command {} because post {} is not ACTIVE",
+                    command.id(), command.postId());
+            return;
+        }
 
-        if (postShareRepository.existsByPostIdAndUserId(command.postId(), command.currentUserId())) {
+        if (isSelfShare(post.get(), command.userId())) {
+            log.info("Discarding post share command {} because user {} cannot share own post {}",
+                    command.id(), command.userId(), command.postId());
+            return;
+        }
+
+        if (postShareValidationRepository.existsBlockRelationship(command.userId(), post.get().ownerUserId())) {
+            log.info("Discarding post share command {} because users {} and {} are blocked",
+                    command.id(), command.userId(), post.get().ownerUserId());
+            return;
+        }
+
+        if (postShareRepository.existsByPostIdAndUserId(command.postId(), command.userId())) {
             log.info("Discarding duplicate post share for post {} and user {}",
-                    command.postId(), command.currentUserId());
+                    command.postId(), command.userId());
             return;
         }
 
@@ -61,39 +75,28 @@ public class CreatePostShareUseCase {
         try {
             savedShare = postShareRepository.save(PostShare.create(
                     new PostId(command.postId()),
-                    new UserId(command.currentUserId())
+                    new UserId(command.userId())
             ));
         } catch (DataIntegrityViolationException exception) {
             log.info("Detected concurrent duplicate post share for post {} and user {}",
-                    command.postId(), command.currentUserId());
+                    command.postId(), command.userId());
             return;
         }
 
         var outboxId = UUID.randomUUID();
-        var correlationId = UUID.randomUUID();
         var occurredAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
-        var event = postShareEventMapper.toPostSharedEvent(outboxId, correlationId, savedShare, occurredAt);
-        saveOutboxEvent(outboxId, correlationId, event);
+        var event = postShareEventMapper.toPostSharedEvent(outboxId, command.correlationId(), savedShare, occurredAt);
+        saveOutboxEvent(outboxId, command.correlationId(), event);
 
         applicationEventPublisher.publishEvent(new PostSharedDomainEvent(outboxId));
     }
 
-    private void assertActive(PostShareValidationRepository.ShareablePost post) {
-        if (post.status() != PostStatus.ACTIVE) {
-            throw new PostShareTargetNotActiveException(post.postId(), post.status());
-        }
+    private boolean isActive(PostShareValidationRepository.ShareablePost post) {
+        return post.status() == PostStatus.ACTIVE;
     }
 
-    private void assertNotSelfShare(PostShareValidationRepository.ShareablePost post, UUID currentUserId) {
-        if (post.ownerUserId().equals(currentUserId)) {
-            throw new SelfPostShareNotAllowedException(post.postId(), currentUserId);
-        }
-    }
-
-    private void assertNotBlocked(PostShareValidationRepository.ShareablePost post, UUID currentUserId) {
-        if (postShareValidationRepository.existsBlockRelationship(currentUserId, post.ownerUserId())) {
-            throw new PostShareBlockedException(post.postId(), currentUserId, post.ownerUserId());
-        }
+    private boolean isSelfShare(PostShareValidationRepository.ShareablePost post, UUID currentUserId) {
+        return post.ownerUserId().equals(currentUserId);
     }
 
     private void saveOutboxEvent(UUID outboxId, UUID correlationId, PostSharedEvent event) {

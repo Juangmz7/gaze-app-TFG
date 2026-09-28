@@ -19,6 +19,8 @@ import com.app.postcommandservice.commentlike.application.commands.ValidateComme
 import com.app.postcommandservice.commentlike.application.usecase.ValidateCommentLikeUseCase;
 import com.app.postcommandservice.commentlike.application.usecase.ValidateCommentUnlikeUseCase;
 import com.app.postcommandservice.commentlike.domain.model.CommentLikeSource;
+import com.app.postcommandservice.share.application.commands.CreatePostShareCommand;
+import com.app.postcommandservice.share.application.usecase.CreatePostShareUseCase;
 import com.app.postcommandservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 import com.app.postcommandservice.shared.infrastructure.repository.ProcessedEventsRepository;
 import com.app.postcommandservice.view.application.commands.ProcessPostViewCommand;
@@ -49,6 +51,9 @@ class PostLikeRabbitMQListenerTest {
     private ValidateCommentUnlikeUseCase validateCommentUnlikeUseCase;
 
     @Mock
+    private CreatePostShareUseCase createPostShareUseCase;
+
+    @Mock
     private ProcessedEventsRepository processedEventsRepository;
 
     @Mock
@@ -64,6 +69,7 @@ class PostLikeRabbitMQListenerTest {
                 processPostViewUseCase,
                 validateCommentLikeUseCase,
                 validateCommentUnlikeUseCase,
+                createPostShareUseCase,
                 processedEventsRepository,
                 rabbitMQProperties
         );
@@ -216,6 +222,36 @@ class PostLikeRabbitMQListenerTest {
         );
     }
 
+    @Test
+    void shouldProcessCreatePostShareCommandAndMarkItAsProcessed() {
+        var command = createPostShareCommand();
+        when(processedEventsRepository.existsById(command.id())).thenReturn(false);
+
+        listener.onCreatePostShare(command);
+
+        verify(createPostShareUseCase).share(command);
+        verify(processedEventsRepository).insertIfAbsent(
+                command.id(),
+                command.correlationId(),
+                CreatePostShareCommand.class.getSimpleName()
+        );
+    }
+
+    @Test
+    void shouldSkipDuplicateCreatePostShareCommand() {
+        var command = createPostShareCommand();
+        when(processedEventsRepository.existsById(command.id())).thenReturn(true);
+
+        listener.onCreatePostShare(command);
+
+        verify(createPostShareUseCase, never()).share(command);
+        verify(processedEventsRepository, never()).insertIfAbsent(
+                command.id(),
+                command.correlationId(),
+                CreatePostShareCommand.class.getSimpleName()
+        );
+    }
+
     private ValidatePostLikeCommand command() {
         return new ValidatePostLikeCommand(
                 UUID.randomUUID(),
@@ -280,6 +316,16 @@ class PostLikeRabbitMQListenerTest {
                 UUID.randomUUID(),
                 CommentLikeSource.SEARCH,
                 7
+        );
+    }
+
+    private CreatePostShareCommand createPostShareCommand() {
+        return new CreatePostShareCommand(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                Instant.now(),
+                UUID.randomUUID(),
+                UUID.randomUUID()
         );
     }
 }

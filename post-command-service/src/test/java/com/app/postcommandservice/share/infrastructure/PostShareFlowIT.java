@@ -26,15 +26,17 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
 import com.app.postcommandservice.TestcontainersConfiguration;
+import com.app.postcommandservice.share.application.commands.CreatePostShareCommand;
+import com.app.postcommandservice.post.domain.model.valueobj.PostType;
 import com.app.postcommandservice.post.domain.model.valueobj.PostStatus;
-import com.app.postcommandservice.post.infrastructure.entity.BlockReadModelEntity;
-import com.app.postcommandservice.post.infrastructure.entity.BlockReadModelId;
 import com.app.postcommandservice.post.infrastructure.entity.PostEntity;
 import com.app.postcommandservice.post.infrastructure.repository.BlockReadModelJpaRepository;
 import com.app.postcommandservice.post.infrastructure.repository.PostJpaRepository;
+import com.app.postcommandservice.shared.infrastructure.enums.EventStatus;
 import com.app.postcommandservice.share.infrastructure.repository.PostShareJpaRepository;
 import com.app.postcommandservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 import com.app.postcommandservice.shared.infrastructure.repository.OutboxEventRepository;
+import com.app.postcommandservice.shared.infrastructure.repository.ProcessedEventsRepository;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
@@ -67,6 +69,9 @@ class PostShareFlowIT {
     private OutboxEventRepository outboxEventRepository;
 
     @Autowired
+    private ProcessedEventsRepository processedEventsRepository;
+
+    @Autowired
     private RabbitTemplate rabbitTemplate;
 
     @Autowired
@@ -92,10 +97,40 @@ class PostShareFlowIT {
         postShareJpaRepository.deleteAll();
         postJpaRepository.deleteAll();
         outboxEventRepository.deleteAll();
+        processedEventsRepository.deleteAll();
     }
 
     @Test
-    void shouldPersistShareAndPublishPostSharedEventWhenRequestIsValid() throws Exception {
+    void shouldReturnAcceptedAndPublishCreatePostShareCommand() throws Exception {
+        var postId = seedActivePost(UUID.randomUUID()).getId();
+        var queueName = "test.post.share.command." + UUID.randomUUID();
+        var rabbitAdmin = new RabbitAdmin(connectionFactory);
+        bindQueue(rabbitAdmin, queueName, rabbitMQProperties.getExchange().getPost().getCommands(),
+                rabbitMQProperties.getRk().getPost().getShare().getCreate().getValidate());
+
+        mockMvc.perform(post("/api/posts/{postId}/share", postId)
+                        .with(jwtFor(SHARER_ID)))
+                .andExpect(status().isAccepted());
+
+        var message = receiveMessage(queueName);
+        assertThat(message).isNotNull();
+        var commandPayload = objectMapper.readValue(message.getBody(), new TypeReference<Map<String, Object>>() { });
+        assertThat(commandPayload.get("postId")).isEqualTo(postId.toString());
+        assertThat(commandPayload.get("userId")).isEqualTo(SHARER_ID.toString());
+        waitUntil(() -> outboxEventRepository.findAll().stream()
+                .anyMatch(outboxEvent -> CreatePostShareCommand.class.getSimpleName().equals(outboxEvent.getEventType())));
+        var commandOutboxEvent = outboxEventRepository.findAll().stream()
+                .filter(outboxEvent -> CreatePostShareCommand.class.getSimpleName().equals(outboxEvent.getEventType()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(commandOutboxEvent.getStatus()).isEqualTo(EventStatus.PROCESSED);
+        assertThat(commandOutboxEvent.getCorrelationId()).isNotNull();
+
+        rabbitAdmin.deleteQueue(queueName);
+    }
+
+    @Test
+    void shouldProcessCommandPersistShareAndPublishPostSharedEvent() throws Exception {
         var ownerId = UUID.randomUUID();
         var postId = seedActivePost(ownerId).getId();
         var queueName = "test.post.share.created." + UUID.randomUUID();
@@ -103,19 +138,21 @@ class PostShareFlowIT {
         bindQueue(rabbitAdmin, queueName, rabbitMQProperties.getExchange().getPost().getEvents(),
                 rabbitMQProperties.getRk().getPost().getShare().getCreated());
 
-        mockMvc.perform(post("/api/posts/{postId}/share", postId)
-                        .with(jwtFor(SHARER_ID)))
-                .andExpect(status().isOk());
+        rabbitTemplate.convertAndSend(
+                rabbitMQProperties.getExchange().getPost().getCommands(),
+                rabbitMQProperties.getRk().getPost().getShare().getCreate().getValidate(),
+                command(postId, SHARER_ID)
+        );
 
-        waitUntil(() -> postShareJpaRepository.count() == 1 && outboxEventRepository.count() == 1);
+        waitUntil(() -> postShareJpaRepository.count() == 1);
 
         assertThat(postShareJpaRepository.count()).isEqualTo(1);
+        assertThat(outboxEventRepository.count()).isEqualTo(1);
+        assertThat(processedEventsRepository.count()).isEqualTo(1);
         var persistedShare = postShareJpaRepository.findAll().getFirst();
         assertThat(persistedShare.getId().getPostId()).isEqualTo(postId);
         assertThat(persistedShare.getId().getUserId()).isEqualTo(SHARER_ID);
         assertThat(persistedShare.getCreatedAt()).isNotNull();
-        var outboxEvent = outboxEventRepository.findAll().getFirst();
-        assertThat(outboxEvent.getEventType()).isEqualTo("PostSharedEvent");
 
         var message = receiveMessage(queueName);
         assertThat(message).isNotNull();
@@ -128,60 +165,27 @@ class PostShareFlowIT {
     }
 
     @Test
-    void shouldReturnBadRequestWhenUserSharesOwnPost() throws Exception {
-        var postId = seedActivePost(SHARER_ID).getId();
+    void shouldDiscardDuplicateShareCommandWithoutCreatingDuplicateRowOrEvent() throws Exception {
+        var postId = seedActivePost(UUID.randomUUID()).getId();
+        var firstCommand = command(postId, SHARER_ID);
+        var secondCommand = command(postId, SHARER_ID);
 
-        mockMvc.perform(post("/api/posts/{postId}/share", postId)
-                        .with(jwtFor(SHARER_ID)))
-                .andExpect(status().isBadRequest());
+        rabbitTemplate.convertAndSend(
+                rabbitMQProperties.getExchange().getPost().getCommands(),
+                rabbitMQProperties.getRk().getPost().getShare().getCreate().getValidate(),
+                firstCommand
+        );
+        waitUntil(() -> postShareJpaRepository.count() == 1);
 
-        assertThat(postShareJpaRepository.count()).isEqualTo(0);
-        assertThat(outboxEventRepository.count()).isEqualTo(0);
-    }
-
-    @Test
-    void shouldReturnBadRequestWhenBlockRelationExists() throws Exception {
-        var ownerId = UUID.randomUUID();
-        var postId = seedActivePost(ownerId).getId();
-        blockReadModelJpaRepository.save(new BlockReadModelEntity(
-                new BlockReadModelId(SHARER_ID, ownerId),
-                Instant.now()
-        ));
-
-        mockMvc.perform(post("/api/posts/{postId}/share", postId)
-                        .with(jwtFor(SHARER_ID)))
-                .andExpect(status().isBadRequest());
-
-        assertThat(postShareJpaRepository.count()).isEqualTo(0);
-        assertThat(outboxEventRepository.count()).isEqualTo(0);
-    }
-
-    @Test
-    void shouldHandleDuplicateShareRequestWithoutCreatingDuplicateRowOrEvent() throws Exception {
-        var ownerId = UUID.randomUUID();
-        var postId = seedActivePost(ownerId).getId();
-        var queueName = "test.post.share.duplicate." + UUID.randomUUID();
-        var rabbitAdmin = new RabbitAdmin(connectionFactory);
-        bindQueue(rabbitAdmin, queueName, rabbitMQProperties.getExchange().getPost().getEvents(),
-                rabbitMQProperties.getRk().getPost().getShare().getCreated());
-
-        mockMvc.perform(post("/api/posts/{postId}/share", postId)
-                        .with(jwtFor(SHARER_ID)))
-                .andExpect(status().isOk());
-        waitUntil(() -> postShareJpaRepository.count() == 1 && outboxEventRepository.count() == 1);
-
-        mockMvc.perform(post("/api/posts/{postId}/share", postId)
-                        .with(jwtFor(SHARER_ID)))
-                .andExpect(status().isOk());
-
-        Thread.sleep(500L);
+        rabbitTemplate.convertAndSend(
+                rabbitMQProperties.getExchange().getPost().getCommands(),
+                rabbitMQProperties.getRk().getPost().getShare().getCreate().getValidate(),
+                secondCommand
+        );
+        waitUntil(() -> processedEventsRepository.count() == 2);
 
         assertThat(postShareJpaRepository.count()).isEqualTo(1);
         assertThat(outboxEventRepository.count()).isEqualTo(1);
-        assertThat(receiveMessage(queueName)).isNotNull();
-        assertThat(rabbitTemplate.receive(queueName, 1000)).isNull();
-
-        rabbitAdmin.deleteQueue(queueName);
     }
 
     @Test
@@ -260,9 +264,20 @@ class PostShareFlowIT {
         return postJpaRepository.save(PostEntity.builder()
                 .id(UUID.randomUUID())
                 .userId(ownerId)
+                .postType(PostType.BASIC)
                 .description("active")
                 .status(PostStatus.ACTIVE)
                 .build());
+    }
+
+    private CreatePostShareCommand command(UUID postId, UUID userId) {
+        return new CreatePostShareCommand(
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                Instant.now(),
+                postId,
+                userId
+        );
     }
 
     private void bindQueue(RabbitAdmin rabbitAdmin, String queueName, String exchangeName, String routingKey) {
