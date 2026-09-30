@@ -21,6 +21,7 @@ import com.app.postcommandservice.collab.domain.model.valueobj.CollabTitle;
 import com.app.postcommandservice.collab.infrastructure.events.CollabOpenedEvent;
 import com.app.postcommandservice.collab.infrastructure.mapper.CollabEventMapper;
 import com.app.postcommandservice.post.application.dto.PostResponse;
+import com.app.postcommandservice.post.application.mapper.PostApplicationMapper;
 import com.app.postcommandservice.post.application.repository.PostRepository;
 import com.app.postcommandservice.post.domain.exception.PostNotActiveException;
 import com.app.postcommandservice.post.domain.exception.PostNotFoundException;
@@ -138,16 +139,6 @@ public class OpenCollabForExistingPostUseCase {
     }
 
     private PostResponse toPostResponse(Post post) {
-        return new PostResponse(
-                post.getId().value(),
-                post.getUserId().value(),
-                post.getCollabId(),
-                post.getPostType(),
-                post.getDescription().value(),
-                post.getTaggedUsers().value(),
-                post.getTags().value(),
-                post.getCreatedAt(),
-                post.getUpdatedAt()
-        );
+        return PostApplicationMapper.toResponse(post);
     }
 }

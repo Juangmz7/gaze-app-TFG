@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.app.postcommandservice.post.application.commands.CreatePostCommand;
 import com.app.postcommandservice.post.application.dto.PostResponse;
+import com.app.postcommandservice.post.application.mapper.PostApplicationMapper;
 import com.app.postcommandservice.post.application.repository.PostRepository;
 import com.app.postcommandservice.post.application.repository.PostRequestIdempotencyRepository;
 import com.app.postcommandservice.post.application.repository.TaggedUserValidationRepository;
@@ -22,6 +23,7 @@ import com.app.postcommandservice.post.domain.events.PostCreatedDomainEvent;
 import com.app.postcommandservice.post.domain.exception.TaggedUserBlockedException;
 import com.app.postcommandservice.post.domain.exception.TaggedUserNotFoundException;
 import com.app.postcommandservice.post.domain.model.Post;
+import com.app.postcommandservice.post.domain.model.PostInfo;
 import com.app.postcommandservice.post.domain.model.valueobj.PostDescription;
 import com.app.postcommandservice.post.domain.model.valueobj.PostId;
 import com.app.postcommandservice.post.domain.model.valueobj.PostTaggedUsers;
@@ -82,14 +84,16 @@ public class CreatePostUseCase {
 
         validateTaggedUsers(command.currentUserId(), taggedUsers.value());
 
+        var postId = new PostId(UUID.randomUUID());
+        var postInfo = new PostInfo(command.title(), description, taggedUsers, postTags, resolvePostType(command.postType()));
+        var media = PostApplicationMapper.toDomainMedia(postId.value(), command.media());
+
         var post = Post.create(
-                new PostId(UUID.randomUUID()),
+                postId,
                 new UserId(command.currentUserId()),
                 command.collabId(),
-                resolvePostType(command.postType()),
-                description,
-                taggedUsers,
-                postTags
+                postInfo,
+                media
         );
 
         var savedPost = postRepository.save(post);
@@ -147,17 +151,7 @@ public class CreatePostUseCase {
     }
 
     private PostResponse toResponse(Post post) {
-        return new PostResponse(
-                post.getId().value(),
-                post.getUserId().value(),
-                post.getCollabId(),
-                post.getPostType(),
-                post.getDescription().value(),
-                post.getTaggedUsers().value(),
-                post.getTags().value(),
-                post.getCreatedAt(),
-                post.getUpdatedAt()
-        );
+        return PostApplicationMapper.toResponse(post);
     }
 
     private Set<String> normalizeSet(Set<String> values) {

@@ -1,17 +1,18 @@
 package com.app.postcommandservice.post.domain.model;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
+import com.app.postcommandservice.post.domain.exception.InvalidPostMediaException;
 import com.app.postcommandservice.post.domain.exception.PostNotActiveException;
-import com.app.postcommandservice.post.domain.model.valueobj.PostDescription;
 import com.app.postcommandservice.post.domain.model.valueobj.PostId;
 import com.app.postcommandservice.post.domain.model.valueobj.PostStatus;
-import com.app.postcommandservice.post.domain.model.valueobj.PostTaggedUsers;
-import com.app.postcommandservice.post.domain.model.valueobj.PostTags;
 import com.app.postcommandservice.post.domain.model.valueobj.PostType;
 import com.app.postcommandservice.shared.domain.model.user.valueobj.UserId;
 
@@ -20,10 +21,8 @@ public class Post {
     private final PostId id;
     private final UserId userId;
     private final UUID collabId;
-    private final PostType postType;
-    private final PostDescription description;
-    private final PostTaggedUsers taggedUsers;
-    private final PostTags tags;
+    private final PostInfo postInfo;
+    private final List<PostMedia> media;
     private final PostStatus status;
     private final Instant createdAt;
     private final Instant updatedAt;
@@ -32,22 +31,18 @@ public class Post {
             PostId id,
             UserId userId,
             UUID collabId,
-            PostType postType,
-            PostDescription description,
-            PostTaggedUsers taggedUsers,
-            PostTags tags,
+            PostInfo postInfo,
+            List<PostMedia> media,
             PostStatus status,
             Instant createdAt,
             Instant updatedAt) {
         this.id = Objects.requireNonNull(id, "id must not be null");
         this.userId = Objects.requireNonNull(userId, "userId must not be null");
-        this.postType = Objects.requireNonNull(postType, "postType must not be null");
-        this.description = Objects.requireNonNull(description, "description must not be null");
-        this.taggedUsers = Objects.requireNonNull(taggedUsers, "taggedUsers must not be null");
-        this.tags = Objects.requireNonNull(tags, "tags must not be null");
+        this.postInfo = Objects.requireNonNull(postInfo, "postInfo must not be null");
         this.status = Objects.requireNonNull(status, "status must not be null");
-        validateCollabLink(postType, collabId);
+        validateCollabLink(postInfo.postType(), collabId);
         this.collabId = collabId;
+        this.media = validateMedia(status, media);
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
     }
@@ -56,30 +51,24 @@ public class Post {
             PostId id,
             UserId userId,
             UUID collabId,
-            PostType postType,
-            PostDescription description,
-            PostTaggedUsers taggedUsers,
-            PostTags tags) {
-        return new Post(id, userId, collabId, postType, description, taggedUsers, tags, PostStatus.ACTIVE, null, null);
+            PostInfo postInfo,
+            List<PostMedia> media) {
+        return new Post(id, userId, collabId, postInfo, media, PostStatus.ACTIVE, null, null);
     }
 
-    public PostUpdateResult update(
-            PostDescription description,
-            PostTaggedUsers taggedUsers,
-            PostTags tags) {
-        Objects.requireNonNull(description, "description must not be null");
-        Objects.requireNonNull(taggedUsers, "taggedUsers must not be null");
-        Objects.requireNonNull(tags, "tags must not be null");
+    public PostUpdateResult update(PostInfo newPostInfo, List<PostMedia> newMedia) {
+        Objects.requireNonNull(newPostInfo, "postInfo must not be null");
+        Objects.requireNonNull(newMedia, "media must not be null");
 
-        if (this.description.equals(description) && this.taggedUsers.equals(taggedUsers) && this.tags.equals(tags)) {
+        if (this.postInfo.equals(newPostInfo) && sameMedia(this.media, newMedia)) {
             return new PostUpdateResult(this, false, Set.of());
         }
 
-        Set<String> newlyTaggedUsers = new LinkedHashSet<>(taggedUsers.value());
-        newlyTaggedUsers.removeAll(this.taggedUsers.value());
+        Set<String> newlyTaggedUsers = new LinkedHashSet<>(newPostInfo.taggedUsers().value());
+        newlyTaggedUsers.removeAll(this.postInfo.taggedUsers().value());
 
         return new PostUpdateResult(
-                new Post(id, userId, collabId, postType, description, taggedUsers, tags, status, createdAt, updatedAt),
+                new Post(id, userId, collabId, newPostInfo, newMedia, status, createdAt, updatedAt),
                 true,
                 newlyTaggedUsers
         );
@@ -90,14 +79,20 @@ public class Post {
             throw new PostNotActiveException(id.value(), status);
         }
 
-        return new Post(id, userId, collabId, postType, description, taggedUsers, tags, PostStatus.DELETED,
-                createdAt, updatedAt);
+        return new Post(id, userId, collabId, postInfo, List.of(), PostStatus.DELETED, createdAt, updatedAt);
     }
 
     public Post linkToCollab(UUID targetCollabId) {
         Objects.requireNonNull(targetCollabId, "targetCollabId must not be null");
 
-        return new Post(id, userId, targetCollabId, PostType.COLAB, description, taggedUsers, tags, status, createdAt, updatedAt);
+        var linkedInfo = new PostInfo(
+                postInfo.title(),
+                postInfo.description(),
+                postInfo.taggedUsers(),
+                postInfo.tags(),
+                PostType.COLAB
+        );
+        return new Post(id, userId, targetCollabId, linkedInfo, media, status, createdAt, updatedAt);
     }
 
     public PostId getId() {
@@ -112,20 +107,32 @@ public class Post {
         return collabId;
     }
 
+    public PostInfo getPostInfo() {
+        return postInfo;
+    }
+
+    public List<PostMedia> getMedia() {
+        return media;
+    }
+
     public PostType getPostType() {
-        return postType;
+        return postInfo.postType();
     }
 
-    public PostDescription getDescription() {
-        return description;
+    public String getTitle() {
+        return postInfo.title();
     }
 
-    public PostTaggedUsers getTaggedUsers() {
-        return taggedUsers;
+    public com.app.postcommandservice.post.domain.model.valueobj.PostDescription getDescription() {
+        return postInfo.description();
     }
 
-    public PostTags getTags() {
-        return tags;
+    public com.app.postcommandservice.post.domain.model.valueobj.PostTaggedUsers getTaggedUsers() {
+        return postInfo.taggedUsers();
+    }
+
+    public com.app.postcommandservice.post.domain.model.valueobj.PostTags getTags() {
+        return postInfo.tags();
     }
 
     public PostStatus getStatus() {
@@ -147,5 +154,53 @@ public class Post {
         if (postType == PostType.COLAB && collabId == null) {
             throw new IllegalArgumentException("Collab posts must reference a collab");
         }
+    }
+
+    private static List<PostMedia> validateMedia(PostStatus status, List<PostMedia> media) {
+        Objects.requireNonNull(media, "media must not be null");
+
+        if (status == PostStatus.DELETED) {
+            return List.copyOf(media);
+        }
+
+        if (media.isEmpty()) {
+            throw new InvalidPostMediaException("Post must contain at least one media item");
+        }
+
+        Set<Integer> orders = new HashSet<>();
+        for (PostMedia postMedia : media) {
+            if (!orders.add(postMedia.getOrder())) {
+                throw new InvalidPostMediaException("Post media order values must be distinct");
+            }
+        }
+
+        int size = media.size();
+        for (int order = 1; order <= size; order++) {
+            if (!orders.contains(order)) {
+                throw new InvalidPostMediaException(
+                        "Post media order values must be contiguous starting at 1, without gaps");
+            }
+        }
+
+        return List.copyOf(new ArrayList<>(media));
+    }
+
+    private static boolean sameMedia(List<PostMedia> current, List<PostMedia> incoming) {
+        if (current.size() != incoming.size()) {
+            return false;
+        }
+        for (int index = 0; index < current.size(); index++) {
+            PostMedia currentMedia = current.get(index);
+            PostMedia incomingMedia = incoming.get(index);
+            if (!Objects.equals(currentMedia.getId(), incomingMedia.getId())
+                    || !Objects.equals(currentMedia.getUrl(), incomingMedia.getUrl())
+                    || !Objects.equals(currentMedia.getThumbnailUrl(), incomingMedia.getThumbnailUrl())
+                    || currentMedia.getMediaType() != incomingMedia.getMediaType()
+                    || !Objects.equals(currentMedia.getDuration(), incomingMedia.getDuration())
+                    || currentMedia.getOrder() != incomingMedia.getOrder()) {
+                return false;
+            }
+        }
+        return true;
     }
 }

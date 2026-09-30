@@ -2,6 +2,7 @@ package com.app.postcommandservice.post.application.usecase;
 
 import java.time.Instant;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -18,6 +19,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 
 import com.app.postcommandservice.post.application.commands.CreatePostCommand;
+import com.app.postcommandservice.post.application.commands.PostMediaCommand;
 import com.app.postcommandservice.post.application.repository.PostRepository;
 import com.app.postcommandservice.post.application.repository.PostRequestIdempotencyRepository;
 import com.app.postcommandservice.post.application.repository.TaggedUserValidationRepository;
@@ -25,6 +27,9 @@ import com.app.postcommandservice.post.domain.events.PostCreatedDomainEvent;
 import com.app.postcommandservice.post.domain.exception.TaggedUserBlockedException;
 import com.app.postcommandservice.post.domain.exception.TaggedUserNotFoundException;
 import com.app.postcommandservice.post.domain.model.Post;
+import com.app.postcommandservice.post.domain.model.PostInfo;
+import com.app.postcommandservice.post.domain.model.PostMedia;
+import com.app.postcommandservice.post.domain.model.valueobj.MediaType;
 import com.app.postcommandservice.post.domain.model.valueobj.PostDescription;
 import com.app.postcommandservice.post.domain.model.valueobj.PostId;
 import com.app.postcommandservice.post.domain.model.valueobj.PostStatus;
@@ -85,7 +90,7 @@ class CreatePostUseCaseTest {
 
     @Test
     void shouldCreatePostSuccessfullyWhenDescriptionIsBlankAndNoUsersAreTagged() {
-        var command = new CreatePostCommand(CORRELATION_ID, USER_ID, null, PostType.BASIC, "", Set.of(), Set.of("java"));
+        var command = new CreatePostCommand(CORRELATION_ID, USER_ID, null, PostType.BASIC, null, "", Set.of(), Set.of("java"), defaultMedia());
         var persistedPost = persistedPost("", Set.of(), Set.of("java"));
         var createdEvent = createdEvent(persistedPost);
 
@@ -116,7 +121,7 @@ class CreatePostUseCaseTest {
 
     @Test
     void shouldAcquireCorrelationLockBeforeCheckingExistingIdempotencyRecord() {
-        var command = new CreatePostCommand(CORRELATION_ID, USER_ID, null, PostType.BASIC, "", Set.of(), Set.of("java"));
+        var command = new CreatePostCommand(CORRELATION_ID, USER_ID, null, PostType.BASIC, null, "", Set.of(), Set.of("java"), defaultMedia());
         var persistedPost = persistedPost("", Set.of(), Set.of("java"));
         var createdEvent = createdEvent(persistedPost);
 
@@ -140,9 +145,11 @@ class CreatePostUseCaseTest {
                 USER_ID,
                 null,
                 PostType.BASIC,
+                null,
                 "hello",
                 new LinkedHashSet<>(Set.of("alice", "bob")),
-                Set.of("spring", "rabbit")
+                Set.of("spring", "rabbit"),
+                defaultMedia()
         );
         var persistedPost = persistedPost("hello", command.taggedUsers(), command.postTags());
         var createdEvent = createdEvent(persistedPost);
@@ -177,9 +184,11 @@ class CreatePostUseCaseTest {
                 USER_ID,
                 null,
                 PostType.BASIC,
+                null,
                 "new value",
                 Set.of("bob"),
-                Set.of("spring")
+                Set.of("spring"),
+                defaultMedia()
         ));
 
         assertThat(response.postId()).isEqualTo(existingPost.getId().value());
@@ -196,9 +205,11 @@ class CreatePostUseCaseTest {
                 USER_ID,
                 null,
                 PostType.BASIC,
+                null,
                 "description",
                 Set.of("missing"),
-                Set.of()
+                Set.of("java"),
+                defaultMedia()
         );
 
         when(postRequestIdempotencyRepository.findPostIdByCorrelationId(CORRELATION_ID)).thenReturn(Optional.empty());
@@ -217,9 +228,11 @@ class CreatePostUseCaseTest {
                 USER_ID,
                 null,
                 PostType.BASIC,
+                null,
                 "description",
                 Set.of("alice"),
-                Set.of()
+                Set.of("java"),
+                defaultMedia()
         );
 
         when(postRequestIdempotencyRepository.findPostIdByCorrelationId(CORRELATION_ID)).thenReturn(Optional.empty());
@@ -241,18 +254,25 @@ class CreatePostUseCaseTest {
                 USER_ID,
                 collabId,
                 PostType.COLAB,
+                null,
                 "hello",
                 Set.of(),
-                Set.of("spring")
+                Set.of("spring"),
+                defaultMedia()
         );
+        var postId = UUID.randomUUID();
         var persistedPost = new Post(
-                new PostId(UUID.randomUUID()),
+                new PostId(postId),
                 new UserId(USER_ID),
                 collabId,
-                PostType.COLAB,
-                new PostDescription("hello"),
-                new PostTaggedUsers(Set.of()),
-                new PostTags(Set.of("spring")),
+                new PostInfo(
+                        null,
+                        new PostDescription("hello"),
+                        new PostTaggedUsers(Set.of()),
+                        new PostTags(Set.of("spring")),
+                        PostType.COLAB
+                ),
+                List.of(PostMedia.create(postId, "https://cdn/image.jpg", null, MediaType.IMAGE, null, 1)),
                 PostStatus.ACTIVE,
                 Instant.now(),
                 Instant.now()
@@ -277,18 +297,25 @@ class CreatePostUseCaseTest {
                 USER_ID,
                 collabId,
                 PostType.COLAB,
+                null,
                 "hello",
                 Set.of(),
-                Set.of("spring")
+                Set.of("spring"),
+                defaultMedia()
         );
+        var postId = UUID.randomUUID();
         var persistedPost = new Post(
-                new PostId(UUID.randomUUID()),
+                new PostId(postId),
                 new UserId(USER_ID),
                 collabId,
-                PostType.COLAB,
-                new PostDescription("hello"),
-                new PostTaggedUsers(Set.of()),
-                new PostTags(Set.of("spring")),
+                new PostInfo(
+                        null,
+                        new PostDescription("hello"),
+                        new PostTaggedUsers(Set.of()),
+                        new PostTags(Set.of("spring")),
+                        PostType.COLAB
+                ),
+                List.of(PostMedia.create(postId, "https://cdn/image.jpg", null, MediaType.IMAGE, null, 1)),
                 PostStatus.ACTIVE,
                 Instant.now(),
                 Instant.now()
@@ -307,16 +334,25 @@ class CreatePostUseCaseTest {
         verify(applicationEventPublisher, never()).publishEvent(any(PostCreatedDomainEvent.class));
     }
 
+    private List<PostMediaCommand> defaultMedia() {
+        return List.of(new PostMediaCommand("https://cdn/image.jpg", null, MediaType.IMAGE, null, 1));
+    }
+
     private Post persistedPost(String description, Set<String> taggedUsers, Set<String> postTags) {
         var now = Instant.now();
+        var postId = UUID.randomUUID();
         return new Post(
-                new PostId(UUID.randomUUID()),
+                new PostId(postId),
                 new UserId(USER_ID),
                 null,
-                PostType.BASIC,
-                new PostDescription(description),
-                new PostTaggedUsers(new LinkedHashSet<>(taggedUsers)),
-                new PostTags(new LinkedHashSet<>(postTags)),
+                new PostInfo(
+                        null,
+                        new PostDescription(description),
+                        new PostTaggedUsers(new LinkedHashSet<>(taggedUsers)),
+                        new PostTags(new LinkedHashSet<>(postTags)),
+                        PostType.BASIC
+                ),
+                List.of(PostMedia.create(postId, "https://cdn/image.jpg", null, MediaType.IMAGE, null, 1)),
                 PostStatus.ACTIVE,
                 now,
                 now
@@ -332,9 +368,11 @@ class CreatePostUseCaseTest {
                 .userId(post.getUserId().value())
                 .collabId(post.getCollabId())
                 .postType(post.getPostType())
+                .title(post.getTitle())
                 .description(post.getDescription().value())
                 .taggedUsers(post.getTaggedUsers().value())
                 .postTags(post.getTags().value())
+                .media(PostEventMapper.toMediaPayload(post.getMedia()))
                 .createdAt(post.getCreatedAt())
                 .updatedAt(post.getUpdatedAt())
                 .build();

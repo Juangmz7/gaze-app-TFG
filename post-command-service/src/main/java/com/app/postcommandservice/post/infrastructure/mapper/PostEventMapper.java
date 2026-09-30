@@ -1,13 +1,16 @@
 package com.app.postcommandservice.post.infrastructure.mapper;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 import org.springframework.stereotype.Component;
 
 import com.app.postcommandservice.post.domain.model.Post;
+import com.app.postcommandservice.post.domain.model.PostMedia;
 import com.app.postcommandservice.post.infrastructure.events.PostCreatedEvent;
 import com.app.postcommandservice.post.infrastructure.events.PostDeletedEvent;
+import com.app.postcommandservice.post.infrastructure.events.PostMediaEventPayload;
 import com.app.postcommandservice.post.infrastructure.events.PostUpdatedEvent;
 
 @Component
@@ -22,9 +25,11 @@ public class PostEventMapper {
                 .userId(post.getUserId().value())
                 .collabId(post.getCollabId())
                 .postType(post.getPostType())
+                .title(post.getTitle())
                 .description(post.getDescription().value())
                 .taggedUsers(post.getTaggedUsers().value())
                 .postTags(post.getTags().value())
+                .media(toMediaPayload(post.getMedia()))
                 .createdAt(post.getCreatedAt())
                 .updatedAt(post.getUpdatedAt())
                 .build();
@@ -39,9 +44,11 @@ public class PostEventMapper {
                 .userId(post.getUserId().value())
                 .collabId(post.getCollabId())
                 .postType(post.getPostType())
+                .title(post.getTitle())
                 .description(post.getDescription().value())
                 .taggedUsers(post.getTaggedUsers().value())
                 .postTags(post.getTags().value())
+                .media(toMediaPayload(post.getMedia()))
                 .createdAt(post.getCreatedAt())
                 .updatedAt(post.getUpdatedAt())
                 .build();
@@ -60,5 +67,18 @@ public class PostEventMapper {
                 .userId(userId)
                 .occurredAt(occurredAt)
                 .build();
+    }
+
+    public static List<PostMediaEventPayload> toMediaPayload(List<PostMedia> media) {
+        return media.stream()
+                .map(postMedia -> PostMediaEventPayload.builder()
+                        .id(postMedia.getId())
+                        .url(postMedia.getUrl())
+                        .thumbnailUrl(postMedia.getThumbnailUrl())
+                        .mediaType(postMedia.getMediaType())
+                        .duration(postMedia.getDuration())
+                        .order(postMedia.getOrder())
+                        .build())
+                .toList();
     }
 }

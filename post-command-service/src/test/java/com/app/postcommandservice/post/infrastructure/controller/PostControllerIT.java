@@ -60,6 +60,7 @@ import com.app.postcommandservice.shared.infrastructure.repository.OutboxEventRe
 import com.app.postcommandservice.shared.infrastructure.repository.ProcessedEventsRepository;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.entry;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
@@ -89,6 +90,9 @@ class PostControllerIT {
 
     @Autowired
     private PostJpaRepository postJpaRepository;
+
+    @Autowired
+    private com.app.postcommandservice.post.infrastructure.repository.PostMediaJpaRepository postMediaJpaRepository;
 
     @Autowired
     private CollabJpaRepository collabJpaRepository;
@@ -139,6 +143,7 @@ class PostControllerIT {
         blockReadModelJpaRepository.deleteAll();
         userReadModelJpaRepository.deleteAll();
         postRequestIdempotencyJpaRepository.deleteAll();
+        postMediaJpaRepository.deleteAll();
         postJpaRepository.deleteAll();
         collabMemberJpaRepository.deleteAll();
         collabRequestIdempotencyJpaRepository.deleteAll();
@@ -162,7 +167,8 @@ class PostControllerIT {
                 "correlationId", correlationId,
                 "description", "",
                 "taggedUsers", Set.of(),
-                "postTags", Set.of("java")
+                "postTags", Set.of("java"),
+                "media", List.of(Map.of("url", "https://cdn/image.jpg", "mediaType", "IMAGE", "order", 1))
         ));
 
         var mvcResult = mockMvc.perform(post("/api/posts")
@@ -205,7 +211,8 @@ class PostControllerIT {
                 "correlationId", correlationId,
                 "description", "hello",
                 "taggedUsers", new LinkedHashSet<>(Set.of("alice", "bob")),
-                "postTags", Set.of("spring")
+                "postTags", Set.of("spring"),
+                "media", List.of(Map.of("url", "https://cdn/image.jpg", "mediaType", "IMAGE", "order", 1))
         ));
 
         mockMvc.perform(post("/api/posts")
@@ -232,16 +239,25 @@ class PostControllerIT {
     @Test
     void shouldReturnCollabBodyWhenPostIsLinked() throws Exception {
         var collab = seedCollab(CREATOR_ID, "Team up");
-        var linkedPost = postJpaRepository.save(com.app.postcommandservice.post.infrastructure.entity.PostEntity.builder()
+        var linkedPostEntity = com.app.postcommandservice.post.infrastructure.entity.PostEntity.builder()
                 .id(UUID.randomUUID())
                 .userId(CREATOR_ID)
                 .collabId(collab.getId())
                 .postType(PostType.COLAB)
                 .description("linked")
                 .taggedUsers(new ArrayList<>())
-                .tags(new ArrayList<>())
+                .tags(new ArrayList<>(List.of("default")))
                 .status(PostStatus.ACTIVE)
-                .build());
+                .build();
+        linkedPostEntity.addMedia(
+                com.app.postcommandservice.post.infrastructure.entity.PostMediaEntity.builder()
+                        .id(UUID.randomUUID())
+                        .url("https://cdn/image.jpg")
+                        .mediaType(com.app.postcommandservice.post.domain.model.valueobj.MediaType.IMAGE)
+                        .mediaOrder(1)
+                        .build()
+        );
+        var linkedPost = postJpaRepository.save(linkedPostEntity);
 
         mockMvc.perform(get("/api/posts/{postId}/collab-status", linkedPost.getId())
                         .with(jwtFor(CREATOR_ID)))
@@ -542,7 +558,7 @@ class PostControllerIT {
                 "postId", existingPost.getId(),
                 "description", "after",
                 "taggedUsers", Set.of(),
-                "postTags", Set.of()
+                "postTags", Set.of("java")
         ));
 
         mockMvc.perform(put("/api/posts")
@@ -774,7 +790,8 @@ class PostControllerIT {
                 "correlationId", correlationId,
                 "description", "idempotent",
                 "taggedUsers", Set.of(),
-                "postTags", Set.of("java")
+                "postTags", Set.of("java"),
+                "media", List.of(Map.of("url", "https://cdn/image.jpg", "mediaType", "IMAGE", "order", 1))
         ));
 
         var firstResponse = mockMvc.perform(post("/api/posts")
@@ -811,7 +828,8 @@ class PostControllerIT {
                 "correlationId", correlationId,
                 "description", "concurrent",
                 "taggedUsers", Set.of(),
-                "postTags", Set.of("java")
+                "postTags", Set.of("java"),
+                "media", List.of(Map.of("url", "https://cdn/image.jpg", "mediaType", "IMAGE", "order", 1))
         ));
         var readyLatch = new CountDownLatch(2);
         var startLatch = new CountDownLatch(1);
@@ -842,7 +860,8 @@ class PostControllerIT {
                 "correlationId", UUID.randomUUID(),
                 "description", "hello",
                 "taggedUsers", Set.of("missing"),
-                "postTags", Set.of()
+                "postTags", Set.of("java"),
+                "media", List.of(Map.of("url", "https://cdn/image.jpg", "mediaType", "IMAGE", "order", 1))
         ));
 
         mockMvc.perform(post("/api/posts")
@@ -866,7 +885,8 @@ class PostControllerIT {
                 "correlationId", UUID.randomUUID(),
                 "description", "hello",
                 "taggedUsers", Set.of("alice"),
-                "postTags", Set.of()
+                "postTags", Set.of("java"),
+                "media", List.of(Map.of("url", "https://cdn/image.jpg", "mediaType", "IMAGE", "order", 1))
         ));
 
         mockMvc.perform(post("/api/posts")
@@ -875,6 +895,112 @@ class PostControllerIT {
                         .content(payload))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.errorCode").value("BLOCKED"));
+    }
+
+    @Test
+    void shouldPersistPostWithMultiplePostMediaEntitiesAndProperForeignKeys() throws Exception {
+        var correlationId = UUID.randomUUID();
+        var payload = objectMapper.writeValueAsString(Map.of(
+                "correlationId", correlationId,
+                "description", "multi media",
+                "taggedUsers", Set.of(),
+                "postTags", Set.of("java"),
+                "media", List.of(
+                        Map.of("url", "https://cdn/image-1.jpg", "mediaType", "IMAGE", "order", 1),
+                        Map.of("url", "https://cdn/video-1.mp4", "mediaType", "VIDEO", "order", 2,
+                                "thumbnailUrl", "https://cdn/thumb-1.jpg", "duration", 30)
+                )
+        ));
+
+        var response = mockMvc.perform(post("/api/posts")
+                        .with(jwtFor(CREATOR_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.media", org.hamcrest.Matchers.hasSize(2)))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        var body = objectMapper.readValue(response, new TypeReference<Map<String, Object>>() { });
+        var postId = UUID.fromString(String.valueOf(body.get("postId")));
+
+        var persistedPost = postJpaRepository.findById(postId).orElseThrow();
+        var persistedMedia = postMediaJpaRepository.findByPost_IdOrderByMediaOrderAsc(postId);
+
+        assertThat(persistedMedia).hasSize(2);
+        assertThat(persistedMedia.get(0).getPost().getId()).isEqualTo(persistedPost.getId());
+        assertThat(persistedMedia.get(0).getMediaType())
+                .isEqualTo(com.app.postcommandservice.post.domain.model.valueobj.MediaType.IMAGE);
+        assertThat(persistedMedia.get(0).getDuration()).isNull();
+        assertThat(persistedMedia.get(0).getThumbnailUrl()).isNull();
+        assertThat(persistedMedia.get(1).getMediaType())
+                .isEqualTo(com.app.postcommandservice.post.domain.model.valueobj.MediaType.VIDEO);
+        assertThat(persistedMedia.get(1).getDuration()).isEqualTo(30);
+        assertThat(persistedMedia.get(1).getThumbnailUrl()).isEqualTo("https://cdn/thumb-1.jpg");
+    }
+
+    @Test
+    void shouldRejectDuplicatePostIdAndMediaOrderAtTheDatabaseLevel() {
+        var existingPost = seedPost(CREATOR_ID, "with media", Set.of(), Set.of());
+        var firstOrder = postMediaJpaRepository.findByPost_IdOrderByMediaOrderAsc(existingPost.getId()).getFirst()
+                .getMediaOrder();
+
+        var duplicate = com.app.postcommandservice.post.infrastructure.entity.PostMediaEntity.builder()
+                .id(UUID.randomUUID())
+                .post(existingPost)
+                .url("https://cdn/duplicate.jpg")
+                .mediaType(com.app.postcommandservice.post.domain.model.valueobj.MediaType.IMAGE)
+                .mediaOrder(firstOrder)
+                .build();
+
+        assertThatThrownBy(() -> {
+            postMediaJpaRepository.save(duplicate);
+            postMediaJpaRepository.flush();
+        }).isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void shouldReplaceMediaItemsAndRemoveOrphansWhenUpdatingPost() throws Exception {
+        var existingPost = seedPost(CREATOR_ID, "before", Set.of(), Set.of("java"));
+        var originalMediaId = postMediaJpaRepository.findByPost_IdOrderByMediaOrderAsc(existingPost.getId())
+                .getFirst().getId();
+
+        var payload = objectMapper.writeValueAsString(Map.of(
+                "postId", existingPost.getId(),
+                "description", "after",
+                "taggedUsers", Set.of(),
+                "postTags", Set.of("java"),
+                "media", List.of(
+                        Map.of("url", "https://cdn/new-1.jpg", "mediaType", "IMAGE", "order", 1),
+                        Map.of("url", "https://cdn/new-2.jpg", "mediaType", "IMAGE", "order", 2)
+                )
+        ));
+
+        mockMvc.perform(put("/api/posts")
+                        .with(jwtFor(CREATOR_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.media", org.hamcrest.Matchers.hasSize(2)));
+
+        var mediaAfterUpdate = postMediaJpaRepository.findByPost_IdOrderByMediaOrderAsc(existingPost.getId());
+        assertThat(mediaAfterUpdate).hasSize(2);
+        assertThat(mediaAfterUpdate).extracting("id").doesNotContain(originalMediaId);
+        assertThat(mediaAfterUpdate).extracting("url")
+                .containsExactly("https://cdn/new-1.jpg", "https://cdn/new-2.jpg");
+    }
+
+    @Test
+    void shouldRemoveAssociatedPostMediaRowsWhenDeletingAPost() throws Exception {
+        var existingPost = seedPost(CREATOR_ID, "to delete", Set.of(), Set.of("java"));
+        assertThat(postMediaJpaRepository.findByPost_IdOrderByMediaOrderAsc(existingPost.getId())).isNotEmpty();
+
+        mockMvc.perform(delete("/api/posts/{postId}", existingPost.getId())
+                        .with(jwtFor(CREATOR_ID)))
+                .andExpect(status().isNoContent());
+
+        assertThat(postMediaJpaRepository.findByPost_IdOrderByMediaOrderAsc(existingPost.getId())).isEmpty();
     }
 
     private void seedUser(UUID userId, String username) {
@@ -887,16 +1013,25 @@ class PostControllerIT {
             String description,
             Set<String> taggedUsers,
             Set<String> tags) {
-        return postJpaRepository.save(com.app.postcommandservice.post.infrastructure.entity.PostEntity.builder()
+        var post = com.app.postcommandservice.post.infrastructure.entity.PostEntity.builder()
                 .id(UUID.randomUUID())
                 .userId(ownerId)
                 .collabId(null)
                 .postType(PostType.BASIC)
                 .description(description)
                 .taggedUsers(new ArrayList<>(taggedUsers))
-                .tags(new ArrayList<>(tags))
+                .tags(new ArrayList<>(tags.isEmpty() ? Set.of("default") : tags))
                 .status(PostStatus.ACTIVE)
-                .build());
+                .build();
+        post.addMedia(
+                com.app.postcommandservice.post.infrastructure.entity.PostMediaEntity.builder()
+                        .id(UUID.randomUUID())
+                        .url("https://cdn/image.jpg")
+                        .mediaType(com.app.postcommandservice.post.domain.model.valueobj.MediaType.IMAGE)
+                        .mediaOrder(1)
+                        .build()
+        );
+        return postJpaRepository.save(post);
     }
 
     private CollabEntity seedCollab(UUID createdBy, String title) {

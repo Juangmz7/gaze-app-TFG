@@ -1,6 +1,7 @@
 package com.app.postcommandservice.collab.application.usecase;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -32,12 +33,15 @@ import com.app.postcommandservice.post.domain.exception.PostNotActiveException;
 import com.app.postcommandservice.post.domain.exception.PostNotFoundException;
 import com.app.postcommandservice.post.domain.exception.PostOwnershipException;
 import com.app.postcommandservice.post.domain.model.Post;
+import com.app.postcommandservice.post.domain.model.PostInfo;
+import com.app.postcommandservice.post.domain.model.PostMedia;
 import com.app.postcommandservice.post.domain.model.valueobj.PostDescription;
 import com.app.postcommandservice.post.domain.model.valueobj.PostId;
 import com.app.postcommandservice.post.domain.model.valueobj.PostStatus;
 import com.app.postcommandservice.post.domain.model.valueobj.PostTaggedUsers;
 import com.app.postcommandservice.post.domain.model.valueobj.PostTags;
 import com.app.postcommandservice.post.domain.model.valueobj.PostType;
+import com.app.postcommandservice.post.domain.model.valueobj.MediaType;
 import com.app.postcommandservice.shared.domain.model.user.valueobj.UserId;
 import com.app.postcommandservice.shared.infrastructure.entity.OutboxEvent;
 import com.app.postcommandservice.shared.infrastructure.enums.EventStatus;
@@ -228,10 +232,14 @@ class OpenCollabForExistingPostUseCaseTest {
                 new PostId(POST_ID),
                 new UserId(ownerId),
                 collabId,
-                postType,
-                new PostDescription("hello"),
-                new PostTaggedUsers(Set.of("alice")),
-                new PostTags(Set.of("spring")),
+                new PostInfo(
+                        null,
+                        new PostDescription("hello"),
+                        new PostTaggedUsers(Set.of("alice")),
+                        new PostTags(Set.of("spring")),
+                        postType
+                ),
+                List.of(PostMedia.create(POST_ID, "https://cdn/image.jpg", null, MediaType.IMAGE, null, 1)),
                 postStatus,
                 now,
                 now

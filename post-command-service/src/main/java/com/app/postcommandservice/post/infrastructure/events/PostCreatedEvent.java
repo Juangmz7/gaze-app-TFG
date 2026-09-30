@@ -1,6 +1,7 @@
 package com.app.postcommandservice.post.infrastructure.events;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
@@ -18,9 +19,11 @@ public record PostCreatedEvent(
         UUID userId,
         UUID collabId,
         PostType postType,
+        String title,
         String description,
         Set<String> taggedUsers,
         Set<String> postTags,
+        List<PostMediaEventPayload> media,
         Instant createdAt,
         Instant updatedAt
 ) implements EventMessage {

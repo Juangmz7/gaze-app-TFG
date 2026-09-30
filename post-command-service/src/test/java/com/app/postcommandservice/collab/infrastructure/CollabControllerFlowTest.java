@@ -165,7 +165,8 @@ class CollabControllerFlowTest {
                 "title", "Open collab",
                 "description", "hello",
                 "taggedUsers", Set.of("alice"),
-                "postTags", Set.of("spring")
+                "postTags", Set.of("spring"),
+                "media", List.of(Map.of("url", "https://cdn/image.jpg", "mediaType", "IMAGE", "order", 1))
         ));
 
         mockMvc.perform(post("/api/collabs")
@@ -218,7 +219,8 @@ class CollabControllerFlowTest {
                 "title", "Open collab",
                 "description", "collab post",
                 "taggedUsers", Set.of(),
-                "postTags", Set.of("collab")
+                "postTags", Set.of("collab"),
+                "media", List.of(Map.of("url", "https://cdn/image.jpg", "mediaType", "IMAGE", "order", 1))
         ));
 
         var collabResponse = mockMvc.perform(post("/api/collabs")
@@ -235,7 +237,8 @@ class CollabControllerFlowTest {
                 "correlationId", correlationId,
                 "description", "basic post",
                 "taggedUsers", Set.of(),
-                "postTags", Set.of("basic")
+                "postTags", Set.of("basic"),
+                "media", List.of(Map.of("url", "https://cdn/image.jpg", "mediaType", "IMAGE", "order", 1))
         ));
 
         var basicPostResponse = mockMvc.perform(post("/api/posts")
@@ -278,7 +281,8 @@ class CollabControllerFlowTest {
                 "title", "Replay collab",
                 "description", "hello",
                 "taggedUsers", Set.of(),
-                "postTags", Set.of("spring")
+                "postTags", Set.of("spring"),
+                "media", List.of(Map.of("url", "https://cdn/image.jpg", "mediaType", "IMAGE", "order", 1))
         ));
 
         var firstResponse = mockMvc.perform(post("/api/collabs")

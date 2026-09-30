@@ -1211,18 +1211,25 @@ class CommentControllerTest {
             UUID ownerId,
             PostStatus status
     ) {
-        return postJpaRepository.save(
-                PostEntity.builder()
+        var post = PostEntity.builder()
+                .id(UUID.randomUUID())
+                .userId(ownerId)
+                .collabId(null)
+                .description("post")
+                .postType(PostType.BASIC)
+                .taggedUsers(new java.util.ArrayList<>())
+                .tags(new java.util.ArrayList<>(java.util.List.of("default")))
+                .status(status)
+                .build();
+        post.addMedia(
+                com.app.postcommandservice.post.infrastructure.entity.PostMediaEntity.builder()
                         .id(UUID.randomUUID())
-                        .userId(ownerId)
-                        .collabId(null)
-                        .description("post")
-                        .postType(PostType.BASIC)
-                        .taggedUsers(new java.util.ArrayList<>())
-                        .tags(new java.util.ArrayList<>())
-                        .status(status)
+                        .url("https://cdn/image.jpg")
+                        .mediaType(com.app.postcommandservice.post.domain.model.valueobj.MediaType.IMAGE)
+                        .mediaOrder(1)
                         .build()
         );
+        return postJpaRepository.save(post);
     }
 
     private CommentEntity seedComment(

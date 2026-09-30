@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.app.postcommandservice.post.application.commands.UpdatePostCommand;
 import com.app.postcommandservice.post.application.dto.PostResponse;
+import com.app.postcommandservice.post.application.mapper.PostApplicationMapper;
 import com.app.postcommandservice.post.application.repository.PostRepository;
 import com.app.postcommandservice.post.application.repository.TaggedUserValidationRepository;
 import com.app.postcommandservice.post.domain.events.PostUpdatedDomainEvent;
@@ -23,6 +24,7 @@ import com.app.postcommandservice.post.domain.exception.PostOwnershipException;
 import com.app.postcommandservice.post.domain.exception.TaggedUserBlockedException;
 import com.app.postcommandservice.post.domain.exception.TaggedUserNotFoundException;
 import com.app.postcommandservice.post.domain.model.Post;
+import com.app.postcommandservice.post.domain.model.PostInfo;
 import com.app.postcommandservice.post.domain.model.valueobj.PostDescription;
 import com.app.postcommandservice.post.domain.model.valueobj.PostTaggedUsers;
 import com.app.postcommandservice.post.domain.model.valueobj.PostTags;
@@ -51,11 +53,18 @@ public class UpdatePostUseCase {
 
         assertOwnership(existingPost, command.currentUserId());
 
-        var updateResult = existingPost.update(
+        var newPostInfo = new PostInfo(
+                command.title(),
                 new PostDescription(command.description() == null ? "" : command.description()),
                 new PostTaggedUsers(normalizeSet(command.taggedUsers())),
-                new PostTags(normalizeSet(command.postTags()))
+                new PostTags(normalizeSet(command.postTags())),
+                existingPost.getPostType()
         );
+        var newMedia = command.media() == null
+                ? existingPost.getMedia()
+                : PostApplicationMapper.toDomainMedia(existingPost.getId().value(), command.media());
+
+        var updateResult = existingPost.update(newPostInfo, newMedia);
 
         if (!updateResult.changed()) {
             return toResponse(existingPost);
@@ -119,17 +128,7 @@ public class UpdatePostUseCase {
     }
 
     private PostResponse toResponse(Post post) {
-        return new PostResponse(
-                post.getId().value(),
-                post.getUserId().value(),
-                post.getCollabId(),
-                post.getPostType(),
-                post.getDescription().value(),
-                post.getTaggedUsers().value(),
-                post.getTags().value(),
-                post.getCreatedAt(),
-                post.getUpdatedAt()
-        );
+        return PostApplicationMapper.toResponse(post);
     }
 
     private Set<String> normalizeSet(Set<String> values) {

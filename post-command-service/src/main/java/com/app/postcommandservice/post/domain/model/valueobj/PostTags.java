@@ -15,6 +15,10 @@ public record PostTags(Set<String> value) {
             throw new InvalidPostTagException("Post tags must not be null");
         }
 
+        if (value.isEmpty()) {
+            throw new InvalidPostTagException("Post tags must contain at least one tag");
+        }
+
         LinkedHashSet<String> normalized = new LinkedHashSet<>();
         for (String tag : value) {
             if (!StringUtils.hasText(tag)) {
