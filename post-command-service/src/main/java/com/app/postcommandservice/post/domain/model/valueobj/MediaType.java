@@ -1,6 +1,6 @@
 package com.app.postcommandservice.post.domain.model.valueobj;
 
-public enum PostType {
-    BASIC,
-    COLLAB
+public enum MediaType {
+    IMAGE,
+    VIDEO
 }

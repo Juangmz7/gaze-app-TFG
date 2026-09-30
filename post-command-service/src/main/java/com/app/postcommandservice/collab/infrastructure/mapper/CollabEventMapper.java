@@ -18,6 +18,7 @@ import com.app.postcommandservice.collab.infrastructure.events.CollabMemberBanne
 import com.app.postcommandservice.collab.infrastructure.events.CollabMemberLeftEvent;
 import com.app.postcommandservice.collab.infrastructure.events.CollabOpenedEvent;
 import com.app.postcommandservice.post.domain.model.Post;
+import com.app.postcommandservice.post.infrastructure.mapper.PostEventMapper;
 
 @Component
 public class CollabEventMapper {
@@ -49,6 +50,7 @@ public class CollabEventMapper {
                 .description(post.getDescription().value())
                 .taggedUsers(post.getTaggedUsers().value())
                 .postTags(post.getTags().value())
+                .media(PostEventMapper.toMediaPayload(post.getMedia()))
                 .postCreatedAt(post.getCreatedAt())
                 .postUpdatedAt(post.getUpdatedAt())
                 .build();
@@ -200,6 +202,7 @@ public class CollabEventMapper {
                 .description(post.getDescription().value())
                 .taggedUsers(post.getTaggedUsers().value())
                 .postTags(post.getTags().value())
+                .media(PostEventMapper.toMediaPayload(post.getMedia()))
                 .createdAt(post.getCreatedAt())
                 .updatedAt(post.getUpdatedAt())
                 .build();

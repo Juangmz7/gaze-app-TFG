@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+import jakarta.persistence.CascadeType;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
@@ -16,9 +17,12 @@ import jakarta.persistence.ForeignKey;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.OrderBy;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -70,6 +74,11 @@ public class PostEntity {
     @Builder.Default
     private List<String> tags = new ArrayList<>();
 
+    @OneToMany(mappedBy = "post", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    @OrderBy("mediaOrder ASC")
+    @Builder.Default
+    private List<PostMediaEntity> media = new ArrayList<>();
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private PostStatus status;
@@ -80,6 +89,9 @@ public class PostEntity {
     @Column(nullable = false)
     private Instant updatedAt;
 
+    @Version
+    private Long version;
+
     @PrePersist
     void onCreate() {
         var now = Instant.now();
@@ -89,6 +101,15 @@ public class PostEntity {
 
     @PreUpdate
     void onUpdate() {
+        updatedAt = Instant.now();
+    }
+
+    public void addMedia(PostMediaEntity postMediaEntity) {
+        postMediaEntity.setPost(this);
+        media.add(postMediaEntity);
+    }
+
+    public void touch() {
         updatedAt = Instant.now();
     }
 }

@@ -165,7 +165,8 @@ class CollabControllerFlowTest {
                 "title", "Open collab",
                 "description", "hello",
                 "taggedUsers", Set.of("alice"),
-                "postTags", Set.of("spring")
+                "postTags", Set.of("spring"),
+                "media", List.of(Map.of("url", "https://cdn/image.jpg", "mediaType", "IMAGE", "order", 1))
         ));
 
         mockMvc.perform(post("/api/collabs")
@@ -177,7 +178,7 @@ class CollabControllerFlowTest {
                 .andExpect(jsonPath("$.title").value("Open collab"))
                 .andExpect(jsonPath("$.createdBy").value(CREATOR_ID.toString()))
                 .andExpect(jsonPath("$.collabStatus").value("OPEN"))
-                .andExpect(jsonPath("$.post.postType").value("COLAB"))
+                .andExpect(jsonPath("$.post.postType").value("COLLAB"))
                 .andExpect(jsonPath("$.post.collabId").exists());
 
         assertThat(collabJpaRepository.count()).isEqualTo(1);
@@ -187,7 +188,7 @@ class CollabControllerFlowTest {
         assertThat(postRequestIdempotencyJpaRepository.count()).isZero();
         assertThat(outboxEventRepository.count()).isEqualTo(1);
         assertThat(postJpaRepository.findAll().getFirst().getPostType().name())
-                .isEqualTo("COLAB");
+                .isEqualTo("COLLAB");
         assertThat(collabJpaRepository.findAll().getFirst().getCollabStatus().name())
                 .isEqualTo("OPEN");
         assertThat(collabMemberJpaRepository.findAll().getFirst().getRole().name())
@@ -204,7 +205,7 @@ class CollabControllerFlowTest {
         );
 
         assertThat(eventPayload.get("title")).isEqualTo("Open collab");
-        assertThat(eventPayload.get("postType")).isEqualTo("COLAB");
+        assertThat(eventPayload.get("postType")).isEqualTo("COLLAB");
 
         rabbitAdmin.deleteQueue(queueName);
     }
@@ -218,7 +219,8 @@ class CollabControllerFlowTest {
                 "title", "Open collab",
                 "description", "collab post",
                 "taggedUsers", Set.of(),
-                "postTags", Set.of("collab")
+                "postTags", Set.of("collab"),
+                "media", List.of(Map.of("url", "https://cdn/image.jpg", "mediaType", "IMAGE", "order", 1))
         ));
 
         var collabResponse = mockMvc.perform(post("/api/collabs")
@@ -226,7 +228,7 @@ class CollabControllerFlowTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(collabPayload))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.post.postType").value("COLAB"))
+                .andExpect(jsonPath("$.post.postType").value("COLLAB"))
                 .andReturn()
                 .getResponse()
                 .getContentAsString(StandardCharsets.UTF_8);
@@ -235,7 +237,8 @@ class CollabControllerFlowTest {
                 "correlationId", correlationId,
                 "description", "basic post",
                 "taggedUsers", Set.of(),
-                "postTags", Set.of("basic")
+                "postTags", Set.of("basic"),
+                "media", List.of(Map.of("url", "https://cdn/image.jpg", "mediaType", "IMAGE", "order", 1))
         ));
 
         var basicPostResponse = mockMvc.perform(post("/api/posts")
@@ -278,7 +281,8 @@ class CollabControllerFlowTest {
                 "title", "Replay collab",
                 "description", "hello",
                 "taggedUsers", Set.of(),
-                "postTags", Set.of("spring")
+                "postTags", Set.of("spring"),
+                "media", List.of(Map.of("url", "https://cdn/image.jpg", "mediaType", "IMAGE", "order", 1))
         ));
 
         var firstResponse = mockMvc.perform(post("/api/collabs")

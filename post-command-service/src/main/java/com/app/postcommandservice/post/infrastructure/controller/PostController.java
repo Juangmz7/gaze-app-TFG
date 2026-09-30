@@ -85,7 +85,8 @@ public class PostController {
                 PostType.BASIC,
                 request.description(),
                 request.taggedUsers(),
-                request.postTags()
+                request.postTags(),
+                toMediaCommands(request.media())
         );
 
         return ResponseEntity.ok(createPostUseCase.createPost(command));
@@ -335,5 +336,13 @@ public class PostController {
                 request.playbackMetrics().toExitReason()
         );
         return ResponseEntity.accepted().build();
+    }
+
+    private java.util.List<com.app.postcommandservice.post.application.commands.PostMediaCommand> toMediaCommands(
+            java.util.List<PostMediaRequest> mediaRequests) {
+        if (mediaRequests == null) {
+            return java.util.List.of();
+        }
+        return mediaRequests.stream().map(PostMediaRequest::toCommand).toList();
     }
 }

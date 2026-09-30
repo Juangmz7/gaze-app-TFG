@@ -4,6 +4,7 @@ import java.util.Set;
 import java.util.UUID;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 
 public record UpdatePostRequest(
@@ -11,6 +12,7 @@ public record UpdatePostRequest(
         UUID postId,
         String description,
         Set<@NotBlank(message = "taggedUsers must not contain blank values") String> taggedUsers,
+        @NotEmpty(message = "postTags must contain at least one tag")
         Set<@NotBlank(message = "postTags must not contain blank values") String> postTags
 ) {
 }

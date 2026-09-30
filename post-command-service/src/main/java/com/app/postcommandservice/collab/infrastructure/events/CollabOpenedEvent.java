@@ -1,6 +1,7 @@
 package com.app.postcommandservice.collab.infrastructure.events;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
@@ -10,6 +11,7 @@ import com.app.postcommandservice.collab.domain.model.valueobj.ColabStatus;
 import com.app.postcommandservice.collab.domain.model.valueobj.CollabMemberRole;
 import com.app.postcommandservice.collab.domain.model.valueobj.CollabMemberStatus;
 import com.app.postcommandservice.post.domain.model.valueobj.PostType;
+import com.app.postcommandservice.post.infrastructure.events.PostMediaEventPayload;
 import com.app.postcommandservice.shared.infrastructure.events.EventMessage;
 
 @Builder
@@ -32,6 +34,7 @@ public record CollabOpenedEvent(
         String description,
         Set<String> taggedUsers,
         Set<String> postTags,
+        List<PostMediaEventPayload> media,
         Instant postCreatedAt,
         Instant postUpdatedAt
 ) implements EventMessage {

@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Collections;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
@@ -24,7 +25,9 @@ import com.app.postcommandservice.collab.domain.model.valueobj.CollabTitle;
 import com.app.postcommandservice.collab.infrastructure.events.CollabOpenedEvent;
 import com.app.postcommandservice.collab.infrastructure.mapper.CollabEventMapper;
 import com.app.postcommandservice.post.application.commands.CreatePostCommand;
+import com.app.postcommandservice.post.application.commands.PostMediaCommand;
 import com.app.postcommandservice.post.application.dto.PostResponse;
+import com.app.postcommandservice.post.application.mapper.PostApplicationMapper;
 import com.app.postcommandservice.post.application.repository.PostRepository;
 import com.app.postcommandservice.post.application.usecase.CreatePostUseCase;
 import com.app.postcommandservice.post.domain.model.Post;
@@ -82,10 +85,11 @@ public class OpenCollabAndCreatePostUseCase {
                 command.correlationId(),
                 command.currentUserId(),
                 savedCollab.getId(),
-                PostType.COLAB,
+                PostType.COLLAB,
                 command.description(),
                 normalizeSet(command.taggedUsers()),
-                normalizeSet(command.postTags())
+                normalizeSet(command.postTags()),
+                normalizeMedia(command.media())
         ), false, false);
         var savedPost = postRepository.findById(savedPostResponse.postId())
                 .orElseThrow(() -> new IllegalStateException(
@@ -133,17 +137,7 @@ public class OpenCollabAndCreatePostUseCase {
     }
 
     private PostResponse toResponse(Post post) {
-        return new PostResponse(
-                post.getId().value(),
-                post.getUserId().value(),
-                post.getCollabId(),
-                post.getPostType(),
-                post.getDescription().value(),
-                post.getTaggedUsers().value(),
-                post.getTags().value(),
-                post.getCreatedAt(),
-                post.getUpdatedAt()
-        );
+        return PostApplicationMapper.toResponse(post);
     }
 
     private Set<String> normalizeSet(Set<String> values) {
@@ -151,5 +145,9 @@ public class OpenCollabAndCreatePostUseCase {
             return Set.of();
         }
         return Collections.unmodifiableSet(new LinkedHashSet<>(values));
+    }
+
+    private List<PostMediaCommand> normalizeMedia(List<PostMediaCommand> media) {
+        return media == null ? List.of() : media;
     }
 }

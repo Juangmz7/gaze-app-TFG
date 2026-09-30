@@ -92,3 +92,35 @@ CREATE TABLE IF NOT EXISTS comment_request_idempotency (
 
 CREATE INDEX IF NOT EXISTS idx_comment_request_idempotency_comment_id
     ON comment_request_idempotency (comment_id);
+
+ALTER TABLE posts
+    ADD COLUMN IF NOT EXISTS title VARCHAR(255);
+
+CREATE TABLE IF NOT EXISTS post_media (
+    id UUID NOT NULL,
+    post_id UUID NOT NULL,
+    url VARCHAR(255) NOT NULL,
+    thumbnail_url VARCHAR(255),
+    media_type VARCHAR(255) NOT NULL,
+    duration INTEGER,
+    media_order INTEGER NOT NULL,
+    CONSTRAINT pk_post_media PRIMARY KEY (id),
+    CONSTRAINT uk_post_media_post_id_media_order UNIQUE (post_id, media_order),
+    CONSTRAINT ck_post_media_order_positive CHECK (media_order > 0)
+);
+
+ALTER TABLE post_media
+    DROP CONSTRAINT IF EXISTS fk_post_media_post;
+
+ALTER TABLE post_media
+    ADD CONSTRAINT fk_post_media_post
+        FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE;
+
+CREATE INDEX IF NOT EXISTS idx_post_media_post_id
+    ON post_media (post_id);
+
+ALTER TABLE posts
+    DROP COLUMN IF EXISTS title;
+
+ALTER TABLE posts
+    ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 0;

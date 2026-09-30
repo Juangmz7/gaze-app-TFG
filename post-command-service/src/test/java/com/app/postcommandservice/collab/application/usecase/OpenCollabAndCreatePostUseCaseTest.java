@@ -1,6 +1,7 @@
 package com.app.postcommandservice.collab.application.usecase;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -29,16 +30,20 @@ import com.app.postcommandservice.collab.domain.model.valueobj.CollabTitle;
 import com.app.postcommandservice.collab.infrastructure.events.CollabOpenedEvent;
 import com.app.postcommandservice.collab.infrastructure.mapper.CollabEventMapper;
 import com.app.postcommandservice.post.application.commands.CreatePostCommand;
+import com.app.postcommandservice.post.application.commands.PostMediaCommand;
 import com.app.postcommandservice.post.application.dto.PostResponse;
 import com.app.postcommandservice.post.application.repository.PostRepository;
 import com.app.postcommandservice.post.application.usecase.CreatePostUseCase;
 import com.app.postcommandservice.post.domain.model.Post;
+import com.app.postcommandservice.post.domain.model.PostInfo;
+import com.app.postcommandservice.post.domain.model.PostMedia;
 import com.app.postcommandservice.post.domain.model.valueobj.PostDescription;
 import com.app.postcommandservice.post.domain.model.valueobj.PostId;
 import com.app.postcommandservice.post.domain.model.valueobj.PostStatus;
 import com.app.postcommandservice.post.domain.model.valueobj.PostTaggedUsers;
 import com.app.postcommandservice.post.domain.model.valueobj.PostTags;
 import com.app.postcommandservice.post.domain.model.valueobj.PostType;
+import com.app.postcommandservice.post.domain.model.valueobj.MediaType;
 import com.app.postcommandservice.shared.domain.model.user.valueobj.UserId;
 import com.app.postcommandservice.shared.infrastructure.entity.OutboxEvent;
 import com.app.postcommandservice.shared.infrastructure.enums.EventStatus;
@@ -113,10 +118,11 @@ class OpenCollabAndCreatePostUseCaseTest {
                 postId,
                 USER_ID,
                 collabId,
-                PostType.COLAB,
+                PostType.COLLAB,
                 "hello",
                 Set.of("alice"),
                 Set.of("spring"),
+                List.of(),
                 Instant.now(),
                 Instant.now()
         );
@@ -136,7 +142,7 @@ class OpenCollabAndCreatePostUseCaseTest {
                 .postId(postId)
                 .userId(USER_ID)
                 .postCollabId(collabId)
-                .postType(PostType.COLAB)
+                .postType(PostType.COLLAB)
                 .description("hello")
                 .taggedUsers(Set.of("alice"))
                 .postTags(Set.of("spring"))
@@ -161,13 +167,14 @@ class OpenCollabAndCreatePostUseCaseTest {
                 "New collab",
                 "hello",
                 Set.of("alice"),
-                Set.of("spring")
+                Set.of("spring"),
+                defaultMedia()
         ));
 
         assertThat(response.collabId()).isEqualTo(collabId);
         assertThat(response.collabStatus()).isEqualTo(ColabStatus.OPEN);
         assertThat(response.post().postId()).isEqualTo(postId);
-        assertThat(response.post().postType()).isEqualTo(PostType.COLAB);
+        assertThat(response.post().postType()).isEqualTo(PostType.COLLAB);
 
         verify(createPostUseCase).createPost(any(CreatePostCommand.class), eq(false), eq(false));
         verify(collabRequestIdempotencyRepository).save(CORRELATION_ID, postId);
@@ -200,7 +207,8 @@ class OpenCollabAndCreatePostUseCaseTest {
                 "ignored",
                 "ignored",
                 Set.of(),
-                Set.of()
+                Set.of(),
+                defaultMedia()
         ));
 
         assertThat(response.collabId()).isEqualTo(collabId);
@@ -211,16 +219,23 @@ class OpenCollabAndCreatePostUseCaseTest {
         verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
     }
 
+    private List<PostMediaCommand> defaultMedia() {
+        return List.of(new PostMediaCommand("https://cdn/image.jpg", null, MediaType.IMAGE, null, 1));
+    }
+
     private Post persistedCollabPost(UUID postId, UUID collabId) {
         var now = Instant.now();
         return new Post(
                 new PostId(postId),
                 new UserId(USER_ID),
                 collabId,
-                PostType.COLAB,
-                new PostDescription("hello"),
-                new PostTaggedUsers(Set.of("alice")),
-                new PostTags(Set.of("spring")),
+                new PostInfo(
+                        new PostDescription("hello"),
+                        new PostTaggedUsers(Set.of("alice")),
+                        new PostTags(Set.of("spring")),
+                        PostType.COLLAB
+                ),
+                List.of(PostMedia.create(postId, "https://cdn/image.jpg", null, MediaType.IMAGE, null, 1)),
                 PostStatus.ACTIVE,
                 now,
                 now

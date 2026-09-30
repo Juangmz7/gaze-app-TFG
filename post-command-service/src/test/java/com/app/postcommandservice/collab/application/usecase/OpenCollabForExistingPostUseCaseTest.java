@@ -1,6 +1,7 @@
 package com.app.postcommandservice.collab.application.usecase;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -32,12 +33,15 @@ import com.app.postcommandservice.post.domain.exception.PostNotActiveException;
 import com.app.postcommandservice.post.domain.exception.PostNotFoundException;
 import com.app.postcommandservice.post.domain.exception.PostOwnershipException;
 import com.app.postcommandservice.post.domain.model.Post;
+import com.app.postcommandservice.post.domain.model.PostInfo;
+import com.app.postcommandservice.post.domain.model.PostMedia;
 import com.app.postcommandservice.post.domain.model.valueobj.PostDescription;
 import com.app.postcommandservice.post.domain.model.valueobj.PostId;
 import com.app.postcommandservice.post.domain.model.valueobj.PostStatus;
 import com.app.postcommandservice.post.domain.model.valueobj.PostTaggedUsers;
 import com.app.postcommandservice.post.domain.model.valueobj.PostTags;
 import com.app.postcommandservice.post.domain.model.valueobj.PostType;
+import com.app.postcommandservice.post.domain.model.valueobj.MediaType;
 import com.app.postcommandservice.shared.domain.model.user.valueobj.UserId;
 import com.app.postcommandservice.shared.infrastructure.entity.OutboxEvent;
 import com.app.postcommandservice.shared.infrastructure.enums.EventStatus;
@@ -96,7 +100,7 @@ class OpenCollabForExistingPostUseCaseTest {
     void shouldCreateCollabMemberUpdatePostAndPublishEventForExistingActiveOwnedPost() {
         var collabId = UUID.randomUUID();
         var existingPost = persistedPost(OWNER_ID, null, PostType.BASIC, PostStatus.ACTIVE);
-        var savedPost = persistedPost(OWNER_ID, collabId, PostType.COLAB, PostStatus.ACTIVE);
+        var savedPost = persistedPost(OWNER_ID, collabId, PostType.COLLAB, PostStatus.ACTIVE);
         var savedCollab = openCollab(collabId);
         var savedMember = creatorMember(collabId);
         var event = openedEvent(savedCollab, savedMember, savedPost);
@@ -128,10 +132,10 @@ class OpenCollabForExistingPostUseCaseTest {
         assertThat(response.collabStatus()).isEqualTo(ColabStatus.OPEN);
         assertThat(response.post().postId()).isEqualTo(POST_ID);
         assertThat(response.post().collabId()).isEqualTo(collabId);
-        assertThat(response.post().postType()).isEqualTo(PostType.COLAB);
+        assertThat(response.post().postType()).isEqualTo(PostType.COLLAB);
         verify(postRepository).saveAndFlush(postCaptor.capture());
         assertThat(postCaptor.getValue().getCollabId()).isEqualTo(collabId);
-        assertThat(postCaptor.getValue().getPostType()).isEqualTo(PostType.COLAB);
+        assertThat(postCaptor.getValue().getPostType()).isEqualTo(PostType.COLLAB);
         verify(collabRequestIdempotencyRepository).save(CORRELATION_ID, collabId);
         verify(outboxEventRepository).save(outboxEventCaptor.capture());
         assertThat(outboxEventCaptor.getValue().getEventType()).isEqualTo(CollabOpenedEvent.class.getSimpleName());
@@ -143,7 +147,7 @@ class OpenCollabForExistingPostUseCaseTest {
     void shouldReturnExistingCollabDataWithoutSideEffectsWhenCorrelationIdAlreadyExists() {
         var collabId = UUID.randomUUID();
         var existingCollab = openCollab(collabId);
-        var linkedPost = persistedPost(OWNER_ID, collabId, PostType.COLAB, PostStatus.ACTIVE);
+        var linkedPost = persistedPost(OWNER_ID, collabId, PostType.COLLAB, PostStatus.ACTIVE);
 
         when(collabRequestIdempotencyRepository.findEntityIdByCorrelationId(CORRELATION_ID))
                 .thenReturn(Optional.of(collabId));
@@ -228,10 +232,13 @@ class OpenCollabForExistingPostUseCaseTest {
                 new PostId(POST_ID),
                 new UserId(ownerId),
                 collabId,
-                postType,
-                new PostDescription("hello"),
-                new PostTaggedUsers(Set.of("alice")),
-                new PostTags(Set.of("spring")),
+                new PostInfo(
+                        new PostDescription("hello"),
+                        new PostTaggedUsers(Set.of("alice")),
+                        new PostTags(Set.of("spring")),
+                        postType
+                ),
+                List.of(PostMedia.create(POST_ID, "https://cdn/image.jpg", null, MediaType.IMAGE, null, 1)),
                 postStatus,
                 now,
                 now

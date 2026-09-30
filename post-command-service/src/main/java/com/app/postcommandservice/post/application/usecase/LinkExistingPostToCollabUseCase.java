@@ -20,6 +20,7 @@ import com.app.postcommandservice.collab.infrastructure.events.CollabLinkedEvent
 import com.app.postcommandservice.collab.infrastructure.mapper.CollabEventMapper;
 import com.app.postcommandservice.post.application.commands.LinkExistingPostToCollabCommand;
 import com.app.postcommandservice.post.application.dto.PostResponse;
+import com.app.postcommandservice.post.application.mapper.PostApplicationMapper;
 import com.app.postcommandservice.post.application.repository.PostRepository;
 import com.app.postcommandservice.post.domain.exception.PostNotFoundException;
 import com.app.postcommandservice.post.domain.exception.PostOwnershipException;
@@ -93,16 +94,6 @@ public class LinkExistingPostToCollabUseCase {
     }
 
     private PostResponse toResponse(com.app.postcommandservice.post.domain.model.Post post) {
-        return new PostResponse(
-                post.getId().value(),
-                post.getUserId().value(),
-                post.getCollabId(),
-                post.getPostType(),
-                post.getDescription().value(),
-                post.getTaggedUsers().value(),
-                post.getTags().value(),
-                post.getCreatedAt(),
-                post.getUpdatedAt()
-        );
+        return PostApplicationMapper.toResponse(post);
     }
 }

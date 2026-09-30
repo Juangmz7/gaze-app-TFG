@@ -1,6 +1,7 @@
 package com.app.postcommandservice.post.application.dto;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
@@ -14,6 +15,7 @@ public record PostResponse(
         String description,
         Set<String> taggedUsers,
         Set<String> postTags,
+        List<PostMediaResponse> media,
         Instant createdAt,
         Instant updatedAt
 ) {

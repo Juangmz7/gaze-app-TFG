@@ -2,6 +2,7 @@ package com.app.postcommandservice.post.application.usecase;
 
 import java.time.Instant;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -24,12 +25,15 @@ import com.app.postcommandservice.post.domain.exception.PostOwnershipException;
 import com.app.postcommandservice.post.domain.exception.TaggedUserBlockedException;
 import com.app.postcommandservice.post.domain.exception.TaggedUserNotFoundException;
 import com.app.postcommandservice.post.domain.model.Post;
+import com.app.postcommandservice.post.domain.model.PostInfo;
+import com.app.postcommandservice.post.domain.model.PostMedia;
 import com.app.postcommandservice.post.domain.model.valueobj.PostDescription;
 import com.app.postcommandservice.post.domain.model.valueobj.PostId;
 import com.app.postcommandservice.post.domain.model.valueobj.PostStatus;
 import com.app.postcommandservice.post.domain.model.valueobj.PostTaggedUsers;
 import com.app.postcommandservice.post.domain.model.valueobj.PostTags;
 import com.app.postcommandservice.post.domain.model.valueobj.PostType;
+import com.app.postcommandservice.post.domain.model.valueobj.MediaType;
 import com.app.postcommandservice.post.infrastructure.events.PostUpdatedEvent;
 import com.app.postcommandservice.post.infrastructure.mapper.PostEventMapper;
 import com.app.postcommandservice.shared.domain.model.user.valueobj.UserId;
@@ -116,6 +120,30 @@ class UpdatePostUseCaseTest {
     }
 
     @Test
+    void shouldLeaveExistingMediaUntouchedWhenDescriptionAndTagsChange() {
+        var existingPost = persistedPost(OWNER_ID, "old", Set.of("alice"), Set.of("java"));
+        var command = new UpdatePostCommand(
+                existingPost.getId().value(),
+                OWNER_ID,
+                "new description",
+                Set.of("alice"),
+                Set.of("spring")
+        );
+
+        when(postRepository.findById(POST_ID)).thenReturn(Optional.of(existingPost));
+        when(postRepository.saveAndFlush(any(Post.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(postEventMapper.toPostUpdatedEvent(any(UUID.class), any(UUID.class), any(Post.class), any(Instant.class)))
+                .thenReturn(updatedEvent(existingPost));
+        when(jsonMapper.toJson(any(PostUpdatedEvent.class))).thenReturn("{\"event\":\"payload\"}");
+
+        updatePostUseCase.updatePost(command);
+
+        verify(postRepository).saveAndFlush(postCaptor.capture());
+        assertThat(postCaptor.getValue().getMedia()).isEqualTo(existingPost.getMedia());
+        assertThat(postCaptor.getValue().getDescription().value()).isEqualTo("new description");
+    }
+
+    @Test
     void shouldReturnExistingPostWithoutDbUpdatesOrEventsWhenNoFieldsAreActuallyChanged() {
         var existingPost = persistedPost(OWNER_ID, "same", Set.of("alice"), Set.of("java"));
 
@@ -139,7 +167,7 @@ class UpdatePostUseCaseTest {
 
     @Test
     void shouldThrowPostOwnershipExceptionWhenUpdaterIsNotThePostOwner() {
-        var existingPost = persistedPost(UUID.randomUUID(), "same", Set.of(), Set.of());
+        var existingPost = persistedPost(UUID.randomUUID(), "same", Set.of(), Set.of("java"));
 
         when(postRepository.findById(POST_ID)).thenReturn(Optional.of(existingPost));
 
@@ -156,7 +184,7 @@ class UpdatePostUseCaseTest {
 
     @Test
     void shouldThrowTaggedUserNotFoundExceptionWhenANewlyTaggedUserDoesNotExist() {
-        var existingPost = persistedPost(OWNER_ID, "same", Set.of("alice"), Set.of());
+        var existingPost = persistedPost(OWNER_ID, "same", Set.of("alice"), Set.of("java"));
 
         when(postRepository.findById(POST_ID)).thenReturn(Optional.of(existingPost));
         when(taggedUserValidationRepository.findUserIdsByUsernames(Set.of("bob"))).thenReturn(Map.of());
@@ -166,7 +194,7 @@ class UpdatePostUseCaseTest {
                 OWNER_ID,
                 "same",
                 new LinkedHashSet<>(Set.of("alice", "bob")),
-                Set.of()
+                Set.of("java")
         )))
                 .isInstanceOf(TaggedUserNotFoundException.class)
                 .hasMessageContaining("bob");
@@ -174,7 +202,7 @@ class UpdatePostUseCaseTest {
 
     @Test
     void shouldThrowTaggedUserBlockedExceptionWhenANewlyTaggedUserIsBlockedByOrHasBlockedTheOwner() {
-        var existingPost = persistedPost(OWNER_ID, "same", Set.of("alice"), Set.of());
+        var existingPost = persistedPost(OWNER_ID, "same", Set.of("alice"), Set.of("java"));
         var blockedUserId = UUID.randomUUID();
 
         when(postRepository.findById(POST_ID)).thenReturn(Optional.of(existingPost));
@@ -188,7 +216,7 @@ class UpdatePostUseCaseTest {
                 OWNER_ID,
                 "same",
                 new LinkedHashSet<>(Set.of("alice", "bob")),
-                Set.of()
+                Set.of("java")
         )))
                 .isInstanceOf(TaggedUserBlockedException.class)
                 .hasMessageContaining("bob");
@@ -200,10 +228,13 @@ class UpdatePostUseCaseTest {
                 new PostId(POST_ID),
                 new UserId(ownerId),
                 null,
-                PostType.BASIC,
-                new PostDescription(description),
-                new PostTaggedUsers(new LinkedHashSet<>(taggedUsers)),
-                new PostTags(new LinkedHashSet<>(postTags)),
+                new PostInfo(
+                        new PostDescription(description),
+                        new PostTaggedUsers(new LinkedHashSet<>(taggedUsers)),
+                        new PostTags(new LinkedHashSet<>(postTags)),
+                        PostType.BASIC
+                ),
+                List.of(PostMedia.create(POST_ID, "https://cdn/image.jpg", null, MediaType.IMAGE, null, 1)),
                 PostStatus.ACTIVE,
                 now,
                 now
