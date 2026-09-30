@@ -121,11 +121,10 @@ class CheckPostCollabLinkStatusUseCaseTest {
                 new UserId(ownerId),
                 collabId,
                 new PostInfo(
-                        null,
                         new PostDescription("description"),
                         new PostTaggedUsers(new LinkedHashSet<>(Set.of("alice"))),
                         new PostTags(new LinkedHashSet<>(Set.of("java"))),
-                        collabId == null ? PostType.BASIC : PostType.COLAB
+                        collabId == null ? PostType.BASIC : PostType.COLLAB
                 ),
                 List.of(PostMedia.create(POST_ID, "https://cdn/image.jpg", null, MediaType.IMAGE, null, 1)),
                 PostStatus.ACTIVE,

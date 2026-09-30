@@ -83,7 +83,6 @@ public class PostController {
                 currentUserId,
                 null,
                 PostType.BASIC,
-                request.title(),
                 request.description(),
                 request.taggedUsers(),
                 request.postTags(),
@@ -119,11 +118,9 @@ public class PostController {
         var command = new UpdatePostCommand(
                 request.postId(),
                 currentUserId,
-                request.title(),
                 request.description(),
                 request.taggedUsers(),
-                request.postTags(),
-                request.media() == null ? null : toMediaCommands(request.media())
+                request.postTags()
         );
 
         return ResponseEntity.ok(updatePostUseCase.updatePost(command));

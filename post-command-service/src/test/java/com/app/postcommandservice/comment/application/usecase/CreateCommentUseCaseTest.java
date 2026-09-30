@@ -287,7 +287,6 @@ class CreateCommentUseCaseTest {
                 new UserId(ownerId),
                 null,
                 new PostInfo(
-                        null,
                         new PostDescription("post"),
                         new PostTaggedUsers(java.util.Set.of()),
                         new PostTags(java.util.Set.of("java")),

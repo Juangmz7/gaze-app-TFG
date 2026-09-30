@@ -11,7 +11,6 @@ public record CreatePostCommand(
         UUID currentUserId,
         UUID collabId,
         PostType postType,
-        String title,
         String description,
         Set<String> taggedUsers,
         Set<String> postTags,

@@ -85,7 +85,7 @@ public class CreatePostUseCase {
         validateTaggedUsers(command.currentUserId(), taggedUsers.value());
 
         var postId = new PostId(UUID.randomUUID());
-        var postInfo = new PostInfo(command.title(), description, taggedUsers, postTags, resolvePostType(command.postType()));
+        var postInfo = new PostInfo(description, taggedUsers, postTags, resolvePostType(command.postType()));
         var media = PostApplicationMapper.toDomainMedia(postId.value(), command.media());
 
         var post = Post.create(

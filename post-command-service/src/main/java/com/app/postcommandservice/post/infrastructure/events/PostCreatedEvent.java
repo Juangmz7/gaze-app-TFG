@@ -19,7 +19,6 @@ public record PostCreatedEvent(
         UUID userId,
         UUID collabId,
         PostType postType,
-        String title,
         String description,
         Set<String> taggedUsers,
         Set<String> postTags,

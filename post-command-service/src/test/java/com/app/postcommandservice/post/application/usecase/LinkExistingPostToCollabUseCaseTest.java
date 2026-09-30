@@ -97,7 +97,7 @@ class LinkExistingPostToCollabUseCaseTest {
     @Test
     void shouldSuccessfullyUpdatePostsCollabIdAndPublishEventWhenRequesterIsBothPostOwnerAndCollabAdmin() {
         var existingPost = persistedPost(OWNER_ID, null, PostType.BASIC);
-        var savedPost = persistedPost(OWNER_ID, COLLAB_ID, PostType.COLAB);
+        var savedPost = persistedPost(OWNER_ID, COLLAB_ID, PostType.COLLAB);
         var collab = openCollab(COLLAB_ID);
         var membership = acceptedAdminMember(COLLAB_ID, OWNER_ID);
         var event = linkedEvent(savedPost);
@@ -114,10 +114,10 @@ class LinkExistingPostToCollabUseCaseTest {
 
         assertThat(response.postId()).isEqualTo(POST_ID);
         assertThat(response.collabId()).isEqualTo(COLLAB_ID);
-        assertThat(response.postType()).isEqualTo(PostType.COLAB);
+        assertThat(response.postType()).isEqualTo(PostType.COLLAB);
         verify(postRepository).saveAndFlush(postCaptor.capture());
         assertThat(postCaptor.getValue().getCollabId()).isEqualTo(COLLAB_ID);
-        assertThat(postCaptor.getValue().getPostType()).isEqualTo(PostType.COLAB);
+        assertThat(postCaptor.getValue().getPostType()).isEqualTo(PostType.COLLAB);
         verify(outboxEventRepository).save(outboxEventCaptor.capture());
         assertThat(outboxEventCaptor.getValue().getEventType()).isEqualTo(CollabLinkedEvent.class.getSimpleName());
         assertThat(outboxEventCaptor.getValue().getStatus()).isEqualTo(EventStatus.PENDING);
@@ -127,8 +127,8 @@ class LinkExistingPostToCollabUseCaseTest {
     @Test
     void shouldOverwriteExistingCollabIdWithoutErrorsIfThePostWasAlreadyLinked() {
         var oldCollabId = UUID.randomUUID();
-        var existingPost = persistedPost(OWNER_ID, oldCollabId, PostType.COLAB);
-        var savedPost = persistedPost(OWNER_ID, COLLAB_ID, PostType.COLAB);
+        var existingPost = persistedPost(OWNER_ID, oldCollabId, PostType.COLLAB);
+        var savedPost = persistedPost(OWNER_ID, COLLAB_ID, PostType.COLLAB);
         var collab = openCollab(COLLAB_ID);
         var membership = acceptedAdminMember(COLLAB_ID, OWNER_ID);
         var event = linkedEvent(savedPost);
@@ -241,7 +241,6 @@ class LinkExistingPostToCollabUseCaseTest {
                 new UserId(ownerId),
                 collabId,
                 new PostInfo(
-                        null,
                         new PostDescription("hello"),
                         new PostTaggedUsers(Set.of("alice")),
                         new PostTags(Set.of("spring")),

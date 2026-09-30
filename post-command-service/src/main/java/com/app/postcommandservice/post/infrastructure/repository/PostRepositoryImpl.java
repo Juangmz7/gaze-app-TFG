@@ -102,7 +102,6 @@ public class PostRepositoryImpl implements PostRepository {
     private void applyScalarChanges(PostEntity existing, Post post) {
         existing.setCollabId(post.getCollabId());
         existing.setPostType(post.getPostType());
-        existing.setTitle(post.getTitle());
         existing.setDescription(post.getDescription().value());
         existing.setTaggedUsers(new ArrayList<>(post.getTaggedUsers().value()));
         existing.setTags(new ArrayList<>(post.getTags().value()));

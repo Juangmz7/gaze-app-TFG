@@ -33,7 +33,6 @@ class PostMapperTest {
                 .userId(userId)
                 .collabId(null)
                 .postType(PostType.BASIC)
-                .title("title")
                 .description("description")
                 .taggedUsers(List.of("alice"))
                 .tags(List.of("java", "spring"))
@@ -61,7 +60,6 @@ class PostMapperTest {
 
         assertThat(post.getId().value()).isEqualTo(postId);
         assertThat(post.getUserId().value()).isEqualTo(userId);
-        assertThat(post.getTitle()).isEqualTo("title");
         assertThat(post.getDescription().value()).isEqualTo("description");
         assertThat(post.getTaggedUsers().value()).containsExactly("alice");
         assertThat(post.getTags().value()).containsExactlyInAnyOrder("java", "spring");
@@ -97,7 +95,6 @@ class PostMapperTest {
                 new com.app.postcommandservice.shared.domain.model.user.valueobj.UserId(userId),
                 null,
                 new com.app.postcommandservice.post.domain.model.PostInfo(
-                        "title",
                         new com.app.postcommandservice.post.domain.model.valueobj.PostDescription("description"),
                         new com.app.postcommandservice.post.domain.model.valueobj.PostTaggedUsers(Set.of("alice")),
                         new com.app.postcommandservice.post.domain.model.valueobj.PostTags(Set.of("java")),

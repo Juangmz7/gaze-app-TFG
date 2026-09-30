@@ -97,7 +97,7 @@ class PostTest {
         var media = List.of(imageMedia(postId, 1));
         var post = existingPost("description", Set.of("alice"), Set.of("java"), media);
 
-        var result = post.update(post.getPostInfo(), media);
+        var result = post.update(post.getPostInfo());
 
         assertThat(result.changed()).isFalse();
         assertThat(result.post()).isSameAs(post);
@@ -111,20 +111,41 @@ class PostTest {
         var post = existingPost("description", Set.of("alice"), Set.of("java"), media);
 
         var newInfo = new PostInfo(
-                null,
                 new PostDescription("updated"),
                 new PostTaggedUsers(new LinkedHashSet<>(Set.of("alice", "bob"))),
                 new PostTags(Set.of("spring")),
                 PostType.BASIC
         );
 
-        var result = post.update(newInfo, media);
+        var result = post.update(newInfo);
 
         assertThat(result.changed()).isTrue();
         assertThat(result.post()).isNotSameAs(post);
         assertThat(result.post().getDescription().value()).isEqualTo("updated");
         assertThat(result.post().getTaggedUsers().value()).containsExactlyInAnyOrder("alice", "bob");
         assertThat(result.newlyTaggedUsers()).containsExactly("bob");
+    }
+
+    @Test
+    void shouldKeepExistingMediaUnchangedWhenUpdatingPostInfo() {
+        var postId = UUID.randomUUID();
+        var media = List.of(imageMedia(postId, 1), videoMedia(postId, 2));
+        var post = existingPost("description", Set.of("alice"), Set.of("java"), media);
+
+        var newInfo = new PostInfo(
+                new PostDescription("updated description"),
+                new PostTaggedUsers(new LinkedHashSet<>(Set.of("alice", "bob"))),
+                new PostTags(Set.of("spring")),
+                PostType.BASIC
+        );
+
+        var result = post.update(newInfo);
+
+        assertThat(result.changed()).isTrue();
+        assertThat(result.post().getMedia()).isEqualTo(post.getMedia());
+        assertThat(result.post().getMedia()).hasSize(2);
+        assertThat(result.post().getMedia().get(0).getOrder()).isEqualTo(1);
+        assertThat(result.post().getMedia().get(1).getOrder()).isEqualTo(2);
     }
 
     @Test
@@ -149,7 +170,6 @@ class PostTest {
                 new UserId(UUID.randomUUID()),
                 null,
                 new PostInfo(
-                        null,
                         new PostDescription("description"),
                         new PostTaggedUsers(new LinkedHashSet<>(Set.of("alice"))),
                         new PostTags(new LinkedHashSet<>(Set.of("java"))),
@@ -175,11 +195,10 @@ class PostTest {
                 new UserId(UUID.randomUUID()),
                 null,
                 new PostInfo(
-                        null,
                         new PostDescription("description"),
                         new PostTaggedUsers(Set.of()),
                         new PostTags(Set.of("java")),
-                        PostType.COLAB
+                        PostType.COLLAB
                 ),
                 List.of(imageMedia(postId, 1)),
                 PostStatus.ACTIVE,
@@ -206,7 +225,7 @@ class PostTest {
 
         assertThat(linkedPost).isNotSameAs(post);
         assertThat(linkedPost.getCollabId()).isEqualTo(collabId);
-        assertThat(linkedPost.getPostType()).isEqualTo(PostType.COLAB);
+        assertThat(linkedPost.getPostType()).isEqualTo(PostType.COLLAB);
         assertThat(linkedPost.getDescription()).isEqualTo(post.getDescription());
     }
 
@@ -226,7 +245,6 @@ class PostTest {
                 new UserId(UUID.randomUUID()),
                 null,
                 new PostInfo(
-                        null,
                         new PostDescription(description),
                         new PostTaggedUsers(new LinkedHashSet<>(taggedUsers)),
                         new PostTags(new LinkedHashSet<>(tags)),

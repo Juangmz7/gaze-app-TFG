@@ -22,6 +22,7 @@ import jakarta.persistence.OrderBy;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -58,9 +59,6 @@ public class PostEntity {
     @Column(name = "post_type", nullable = false)
     private com.app.postcommandservice.post.domain.model.valueobj.PostType postType;
 
-    @Column(length = 255)
-    private String title;
-
     @Column(nullable = false, length = 4000)
     private String description;
 
@@ -90,6 +88,9 @@ public class PostEntity {
 
     @Column(nullable = false)
     private Instant updatedAt;
+
+    @Version
+    private Long version;
 
     @PrePersist
     void onCreate() {

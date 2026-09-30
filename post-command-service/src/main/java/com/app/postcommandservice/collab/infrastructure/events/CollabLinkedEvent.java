@@ -20,7 +20,6 @@ public record CollabLinkedEvent(
         UUID userId,
         UUID collabId,
         PostType postType,
-        String title,
         String description,
         Set<String> taggedUsers,
         Set<String> postTags,
