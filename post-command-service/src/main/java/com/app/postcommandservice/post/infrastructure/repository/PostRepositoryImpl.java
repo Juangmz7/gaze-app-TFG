@@ -34,12 +34,20 @@ public class PostRepositoryImpl implements PostRepository {
 
     @Override
     public Post save(Post post) {
-        return postMapper.toDomain(postJpaRepository.save(upsert(post)));
+        return postMapper.toDomain(postJpaRepository.save(postMapper.toEntity(post)));
     }
 
     @Override
     public Post saveAndFlush(Post post) {
-        return postMapper.toDomain(postJpaRepository.saveAndFlush(upsert(post)));
+        PostEntity existing = postJpaRepository.findById(post.getId().value())
+                .orElseThrow(() -> new IllegalStateException(
+                        "Expected an already-persisted post to update but none was found: " + post.getId().value()));
+
+        stageMediaOrders(existing);
+        postJpaRepository.saveAndFlush(existing);
+        reconcileMedia(existing, post.getMedia());
+        applyScalarChanges(existing, post);
+        return postMapper.toDomain(postJpaRepository.saveAndFlush(existing));
     }
 
     @Override
@@ -50,20 +58,6 @@ public class PostRepositoryImpl implements PostRepository {
     @Override
     public Optional<Post> findByCollabId(UUID collabId) {
         return postJpaRepository.findFirstByCollabId(collabId).map(postMapper::toDomain);
-    }
-
-    private PostEntity upsert(Post post) {
-        Optional<PostEntity> existingOpt = postJpaRepository.findById(post.getId().value());
-        if (existingOpt.isEmpty()) {
-            return postMapper.toEntity(post);
-        }
-
-        PostEntity existing = existingOpt.get();
-        stageMediaOrders(existing);
-        postJpaRepository.saveAndFlush(existing);
-        reconcileMedia(existing, post.getMedia());
-        applyScalarChanges(existing, post);
-        return existing;
     }
 
     private void stageMediaOrders(PostEntity existing) {
@@ -102,7 +96,6 @@ public class PostRepositoryImpl implements PostRepository {
     private void applyScalarChanges(PostEntity existing, Post post) {
         existing.setCollabId(post.getCollabId());
         existing.setPostType(post.getPostType());
-        existing.setTitle(post.getTitle());
         existing.setDescription(post.getDescription().value());
         existing.setTaggedUsers(new ArrayList<>(post.getTaggedUsers().value()));
         existing.setTags(new ArrayList<>(post.getTags().value()));

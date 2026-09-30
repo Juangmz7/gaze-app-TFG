@@ -100,7 +100,7 @@ class OpenCollabForExistingPostUseCaseTest {
     void shouldCreateCollabMemberUpdatePostAndPublishEventForExistingActiveOwnedPost() {
         var collabId = UUID.randomUUID();
         var existingPost = persistedPost(OWNER_ID, null, PostType.BASIC, PostStatus.ACTIVE);
-        var savedPost = persistedPost(OWNER_ID, collabId, PostType.COLAB, PostStatus.ACTIVE);
+        var savedPost = persistedPost(OWNER_ID, collabId, PostType.COLLAB, PostStatus.ACTIVE);
         var savedCollab = openCollab(collabId);
         var savedMember = creatorMember(collabId);
         var event = openedEvent(savedCollab, savedMember, savedPost);
@@ -132,10 +132,10 @@ class OpenCollabForExistingPostUseCaseTest {
         assertThat(response.collabStatus()).isEqualTo(ColabStatus.OPEN);
         assertThat(response.post().postId()).isEqualTo(POST_ID);
         assertThat(response.post().collabId()).isEqualTo(collabId);
-        assertThat(response.post().postType()).isEqualTo(PostType.COLAB);
+        assertThat(response.post().postType()).isEqualTo(PostType.COLLAB);
         verify(postRepository).saveAndFlush(postCaptor.capture());
         assertThat(postCaptor.getValue().getCollabId()).isEqualTo(collabId);
-        assertThat(postCaptor.getValue().getPostType()).isEqualTo(PostType.COLAB);
+        assertThat(postCaptor.getValue().getPostType()).isEqualTo(PostType.COLLAB);
         verify(collabRequestIdempotencyRepository).save(CORRELATION_ID, collabId);
         verify(outboxEventRepository).save(outboxEventCaptor.capture());
         assertThat(outboxEventCaptor.getValue().getEventType()).isEqualTo(CollabOpenedEvent.class.getSimpleName());
@@ -147,7 +147,7 @@ class OpenCollabForExistingPostUseCaseTest {
     void shouldReturnExistingCollabDataWithoutSideEffectsWhenCorrelationIdAlreadyExists() {
         var collabId = UUID.randomUUID();
         var existingCollab = openCollab(collabId);
-        var linkedPost = persistedPost(OWNER_ID, collabId, PostType.COLAB, PostStatus.ACTIVE);
+        var linkedPost = persistedPost(OWNER_ID, collabId, PostType.COLLAB, PostStatus.ACTIVE);
 
         when(collabRequestIdempotencyRepository.findEntityIdByCorrelationId(CORRELATION_ID))
                 .thenReturn(Optional.of(collabId));
@@ -233,7 +233,6 @@ class OpenCollabForExistingPostUseCaseTest {
                 new UserId(ownerId),
                 collabId,
                 new PostInfo(
-                        null,
                         new PostDescription("hello"),
                         new PostTaggedUsers(Set.of("alice")),
                         new PostTags(Set.of("spring")),

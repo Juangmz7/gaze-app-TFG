@@ -118,8 +118,7 @@ class OpenCollabAndCreatePostUseCaseTest {
                 postId,
                 USER_ID,
                 collabId,
-                PostType.COLAB,
-                "New collab",
+                PostType.COLLAB,
                 "hello",
                 Set.of("alice"),
                 Set.of("spring"),
@@ -143,7 +142,7 @@ class OpenCollabAndCreatePostUseCaseTest {
                 .postId(postId)
                 .userId(USER_ID)
                 .postCollabId(collabId)
-                .postType(PostType.COLAB)
+                .postType(PostType.COLLAB)
                 .description("hello")
                 .taggedUsers(Set.of("alice"))
                 .postTags(Set.of("spring"))
@@ -175,7 +174,7 @@ class OpenCollabAndCreatePostUseCaseTest {
         assertThat(response.collabId()).isEqualTo(collabId);
         assertThat(response.collabStatus()).isEqualTo(ColabStatus.OPEN);
         assertThat(response.post().postId()).isEqualTo(postId);
-        assertThat(response.post().postType()).isEqualTo(PostType.COLAB);
+        assertThat(response.post().postType()).isEqualTo(PostType.COLLAB);
 
         verify(createPostUseCase).createPost(any(CreatePostCommand.class), eq(false), eq(false));
         verify(collabRequestIdempotencyRepository).save(CORRELATION_ID, postId);
@@ -231,11 +230,10 @@ class OpenCollabAndCreatePostUseCaseTest {
                 new UserId(USER_ID),
                 collabId,
                 new PostInfo(
-                        null,
                         new PostDescription("hello"),
                         new PostTaggedUsers(Set.of("alice")),
                         new PostTags(Set.of("spring")),
-                        PostType.COLAB
+                        PostType.COLLAB
                 ),
                 List.of(PostMedia.create(postId, "https://cdn/image.jpg", null, MediaType.IMAGE, null, 1)),
                 PostStatus.ACTIVE,

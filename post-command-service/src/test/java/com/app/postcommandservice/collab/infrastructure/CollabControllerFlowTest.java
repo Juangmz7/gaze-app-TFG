@@ -178,7 +178,7 @@ class CollabControllerFlowTest {
                 .andExpect(jsonPath("$.title").value("Open collab"))
                 .andExpect(jsonPath("$.createdBy").value(CREATOR_ID.toString()))
                 .andExpect(jsonPath("$.collabStatus").value("OPEN"))
-                .andExpect(jsonPath("$.post.postType").value("COLAB"))
+                .andExpect(jsonPath("$.post.postType").value("COLLAB"))
                 .andExpect(jsonPath("$.post.collabId").exists());
 
         assertThat(collabJpaRepository.count()).isEqualTo(1);
@@ -188,7 +188,7 @@ class CollabControllerFlowTest {
         assertThat(postRequestIdempotencyJpaRepository.count()).isZero();
         assertThat(outboxEventRepository.count()).isEqualTo(1);
         assertThat(postJpaRepository.findAll().getFirst().getPostType().name())
-                .isEqualTo("COLAB");
+                .isEqualTo("COLLAB");
         assertThat(collabJpaRepository.findAll().getFirst().getCollabStatus().name())
                 .isEqualTo("OPEN");
         assertThat(collabMemberJpaRepository.findAll().getFirst().getRole().name())
@@ -205,7 +205,7 @@ class CollabControllerFlowTest {
         );
 
         assertThat(eventPayload.get("title")).isEqualTo("Open collab");
-        assertThat(eventPayload.get("postType")).isEqualTo("COLAB");
+        assertThat(eventPayload.get("postType")).isEqualTo("COLLAB");
 
         rabbitAdmin.deleteQueue(queueName);
     }
@@ -228,7 +228,7 @@ class CollabControllerFlowTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(collabPayload))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.post.postType").value("COLAB"))
+                .andExpect(jsonPath("$.post.postType").value("COLLAB"))
                 .andReturn()
                 .getResponse()
                 .getContentAsString(StandardCharsets.UTF_8);

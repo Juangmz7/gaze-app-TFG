@@ -18,7 +18,6 @@ import com.app.postcommandservice.shared.infrastructure.rabbitmq.config.RabbitMQ
 import com.app.postcommandservice.shared.infrastructure.repository.ProcessedEventsRepository;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -74,7 +73,6 @@ class UserSlowReadModelRabbitMQListenerTest {
         listener.onUserDeleted(userDeletedEvent);
         listener.onUserUnblocked(userUnblockedEvent);
 
-        verify(processedEventsRepository, never()).existsByCorrelationId(any());
         verify(userReadModelJpaRepository).deleteById(userDeletedEvent.userId());
         verify(blockReadModelJpaRepository).deleteById(
                 new BlockReadModelId(userUnblockedEvent.blockerUserId(), userUnblockedEvent.blockedUserId())

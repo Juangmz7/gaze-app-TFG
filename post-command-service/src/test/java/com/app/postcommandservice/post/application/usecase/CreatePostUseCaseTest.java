@@ -90,7 +90,7 @@ class CreatePostUseCaseTest {
 
     @Test
     void shouldCreatePostSuccessfullyWhenDescriptionIsBlankAndNoUsersAreTagged() {
-        var command = new CreatePostCommand(CORRELATION_ID, USER_ID, null, PostType.BASIC, null, "", Set.of(), Set.of("java"), defaultMedia());
+        var command = new CreatePostCommand(CORRELATION_ID, USER_ID, null, PostType.BASIC, "", Set.of(), Set.of("java"), defaultMedia());
         var persistedPost = persistedPost("", Set.of(), Set.of("java"));
         var createdEvent = createdEvent(persistedPost);
 
@@ -121,7 +121,7 @@ class CreatePostUseCaseTest {
 
     @Test
     void shouldAcquireCorrelationLockBeforeCheckingExistingIdempotencyRecord() {
-        var command = new CreatePostCommand(CORRELATION_ID, USER_ID, null, PostType.BASIC, null, "", Set.of(), Set.of("java"), defaultMedia());
+        var command = new CreatePostCommand(CORRELATION_ID, USER_ID, null, PostType.BASIC, "", Set.of(), Set.of("java"), defaultMedia());
         var persistedPost = persistedPost("", Set.of(), Set.of("java"));
         var createdEvent = createdEvent(persistedPost);
 
@@ -145,7 +145,6 @@ class CreatePostUseCaseTest {
                 USER_ID,
                 null,
                 PostType.BASIC,
-                null,
                 "hello",
                 new LinkedHashSet<>(Set.of("alice", "bob")),
                 Set.of("spring", "rabbit"),
@@ -184,7 +183,6 @@ class CreatePostUseCaseTest {
                 USER_ID,
                 null,
                 PostType.BASIC,
-                null,
                 "new value",
                 Set.of("bob"),
                 Set.of("spring"),
@@ -205,7 +203,6 @@ class CreatePostUseCaseTest {
                 USER_ID,
                 null,
                 PostType.BASIC,
-                null,
                 "description",
                 Set.of("missing"),
                 Set.of("java"),
@@ -228,7 +225,6 @@ class CreatePostUseCaseTest {
                 USER_ID,
                 null,
                 PostType.BASIC,
-                null,
                 "description",
                 Set.of("alice"),
                 Set.of("java"),
@@ -253,8 +249,7 @@ class CreatePostUseCaseTest {
                 CORRELATION_ID,
                 USER_ID,
                 collabId,
-                PostType.COLAB,
-                null,
+                PostType.COLLAB,
                 "hello",
                 Set.of(),
                 Set.of("spring"),
@@ -266,11 +261,10 @@ class CreatePostUseCaseTest {
                 new UserId(USER_ID),
                 collabId,
                 new PostInfo(
-                        null,
                         new PostDescription("hello"),
                         new PostTaggedUsers(Set.of()),
                         new PostTags(Set.of("spring")),
-                        PostType.COLAB
+                        PostType.COLLAB
                 ),
                 List.of(PostMedia.create(postId, "https://cdn/image.jpg", null, MediaType.IMAGE, null, 1)),
                 PostStatus.ACTIVE,
@@ -284,7 +278,7 @@ class CreatePostUseCaseTest {
         var response = createPostUseCase.createPost(command, false);
 
         assertThat(response.collabId()).isEqualTo(collabId);
-        assertThat(response.postType()).isEqualTo(PostType.COLAB);
+        assertThat(response.postType()).isEqualTo(PostType.COLLAB);
         verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
         verify(applicationEventPublisher, never()).publishEvent(any(PostCreatedDomainEvent.class));
     }
@@ -296,8 +290,7 @@ class CreatePostUseCaseTest {
                 CORRELATION_ID,
                 USER_ID,
                 collabId,
-                PostType.COLAB,
-                null,
+                PostType.COLLAB,
                 "hello",
                 Set.of(),
                 Set.of("spring"),
@@ -309,11 +302,10 @@ class CreatePostUseCaseTest {
                 new UserId(USER_ID),
                 collabId,
                 new PostInfo(
-                        null,
                         new PostDescription("hello"),
                         new PostTaggedUsers(Set.of()),
                         new PostTags(Set.of("spring")),
-                        PostType.COLAB
+                        PostType.COLLAB
                 ),
                 List.of(PostMedia.create(postId, "https://cdn/image.jpg", null, MediaType.IMAGE, null, 1)),
                 PostStatus.ACTIVE,
@@ -326,7 +318,7 @@ class CreatePostUseCaseTest {
         var response = createPostUseCase.createPost(command, false, false);
 
         assertThat(response.collabId()).isEqualTo(collabId);
-        assertThat(response.postType()).isEqualTo(PostType.COLAB);
+        assertThat(response.postType()).isEqualTo(PostType.COLLAB);
         verify(postRequestIdempotencyRepository, never()).acquireCorrelationLock(any(UUID.class));
         verify(postRequestIdempotencyRepository, never()).findPostIdByCorrelationId(any(UUID.class));
         verify(postRequestIdempotencyRepository, never()).save(any(UUID.class), any(UUID.class));
@@ -346,7 +338,6 @@ class CreatePostUseCaseTest {
                 new UserId(USER_ID),
                 null,
                 new PostInfo(
-                        null,
                         new PostDescription(description),
                         new PostTaggedUsers(new LinkedHashSet<>(taggedUsers)),
                         new PostTags(new LinkedHashSet<>(postTags)),
@@ -368,7 +359,6 @@ class CreatePostUseCaseTest {
                 .userId(post.getUserId().value())
                 .collabId(post.getCollabId())
                 .postType(post.getPostType())
-                .title(post.getTitle())
                 .description(post.getDescription().value())
                 .taggedUsers(post.getTaggedUsers().value())
                 .postTags(post.getTags().value())

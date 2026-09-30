@@ -13,12 +13,6 @@ import java.util.UUID;
 public interface ProcessedEventsRepository extends JpaRepository<ProcessedEvent, UUID> {
     boolean existsById(UUID id);
 
-    boolean existsByCorrelationId(UUID correlationId);
-
-    java.util.Optional<ProcessedEvent> findById(UUID id);
-
-    java.util.Optional<ProcessedEvent> findByCorrelationId(UUID correlationId);
-
     @Modifying
     @Transactional
     @Query(value = "INSERT INTO processed_events (id, correlation_id, event_type, processed_at) "

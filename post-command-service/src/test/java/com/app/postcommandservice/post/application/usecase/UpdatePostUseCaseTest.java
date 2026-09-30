@@ -90,11 +90,9 @@ class UpdatePostUseCaseTest {
         var command = new UpdatePostCommand(
                 existingPost.getId().value(),
                 OWNER_ID,
-                null,
                 "new",
                 new LinkedHashSet<>(Set.of("alice", "bob")),
-                Set.of("spring"),
-                null
+                Set.of("spring")
         );
         var bobId = UUID.randomUUID();
         var updatedEvent = updatedEvent(updatedPost);
@@ -122,6 +120,30 @@ class UpdatePostUseCaseTest {
     }
 
     @Test
+    void shouldLeaveExistingMediaUntouchedWhenDescriptionAndTagsChange() {
+        var existingPost = persistedPost(OWNER_ID, "old", Set.of("alice"), Set.of("java"));
+        var command = new UpdatePostCommand(
+                existingPost.getId().value(),
+                OWNER_ID,
+                "new description",
+                Set.of("alice"),
+                Set.of("spring")
+        );
+
+        when(postRepository.findById(POST_ID)).thenReturn(Optional.of(existingPost));
+        when(postRepository.saveAndFlush(any(Post.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(postEventMapper.toPostUpdatedEvent(any(UUID.class), any(UUID.class), any(Post.class), any(Instant.class)))
+                .thenReturn(updatedEvent(existingPost));
+        when(jsonMapper.toJson(any(PostUpdatedEvent.class))).thenReturn("{\"event\":\"payload\"}");
+
+        updatePostUseCase.updatePost(command);
+
+        verify(postRepository).saveAndFlush(postCaptor.capture());
+        assertThat(postCaptor.getValue().getMedia()).isEqualTo(existingPost.getMedia());
+        assertThat(postCaptor.getValue().getDescription().value()).isEqualTo("new description");
+    }
+
+    @Test
     void shouldReturnExistingPostWithoutDbUpdatesOrEventsWhenNoFieldsAreActuallyChanged() {
         var existingPost = persistedPost(OWNER_ID, "same", Set.of("alice"), Set.of("java"));
 
@@ -130,11 +152,9 @@ class UpdatePostUseCaseTest {
         var response = updatePostUseCase.updatePost(new UpdatePostCommand(
                 existingPost.getId().value(),
                 OWNER_ID,
-                null,
                 "same",
                 Set.of("alice"),
-                Set.of("java"),
-                null
+                Set.of("java")
         ));
 
         assertThat(response.postId()).isEqualTo(existingPost.getId().value());
@@ -154,11 +174,9 @@ class UpdatePostUseCaseTest {
         assertThatThrownBy(() -> updatePostUseCase.updatePost(new UpdatePostCommand(
                 existingPost.getId().value(),
                 OWNER_ID,
-                null,
                 "new",
                 Set.of(),
-                Set.of(),
-                null
+                Set.of()
         )))
                 .isInstanceOf(PostOwnershipException.class)
                 .hasMessageContaining(existingPost.getId().value().toString());
@@ -174,11 +192,9 @@ class UpdatePostUseCaseTest {
         assertThatThrownBy(() -> updatePostUseCase.updatePost(new UpdatePostCommand(
                 existingPost.getId().value(),
                 OWNER_ID,
-                null,
                 "same",
                 new LinkedHashSet<>(Set.of("alice", "bob")),
-                Set.of("java"),
-                null
+                Set.of("java")
         )))
                 .isInstanceOf(TaggedUserNotFoundException.class)
                 .hasMessageContaining("bob");
@@ -198,11 +214,9 @@ class UpdatePostUseCaseTest {
         assertThatThrownBy(() -> updatePostUseCase.updatePost(new UpdatePostCommand(
                 existingPost.getId().value(),
                 OWNER_ID,
-                null,
                 "same",
                 new LinkedHashSet<>(Set.of("alice", "bob")),
-                Set.of("java"),
-                null
+                Set.of("java")
         )))
                 .isInstanceOf(TaggedUserBlockedException.class)
                 .hasMessageContaining("bob");
@@ -215,7 +229,6 @@ class UpdatePostUseCaseTest {
                 new UserId(ownerId),
                 null,
                 new PostInfo(
-                        null,
                         new PostDescription(description),
                         new PostTaggedUsers(new LinkedHashSet<>(taggedUsers)),
                         new PostTags(new LinkedHashSet<>(postTags)),

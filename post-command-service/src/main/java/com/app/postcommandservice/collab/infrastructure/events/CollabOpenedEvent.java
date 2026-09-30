@@ -31,7 +31,6 @@ public record CollabOpenedEvent(
         UUID userId,
         UUID postCollabId,
         PostType postType,
-        String postTitle,
         String description,
         Set<String> taggedUsers,
         Set<String> postTags,

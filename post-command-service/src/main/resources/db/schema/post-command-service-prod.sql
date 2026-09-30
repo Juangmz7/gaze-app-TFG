@@ -118,3 +118,9 @@ ALTER TABLE post_media
 
 CREATE INDEX IF NOT EXISTS idx_post_media_post_id
     ON post_media (post_id);
+
+ALTER TABLE posts
+    DROP COLUMN IF EXISTS title;
+
+ALTER TABLE posts
+    ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 0;

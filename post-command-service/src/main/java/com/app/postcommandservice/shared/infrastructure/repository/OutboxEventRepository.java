@@ -3,7 +3,6 @@ package com.app.postcommandservice.shared.infrastructure.repository;
 
 import com.app.postcommandservice.shared.infrastructure.entity.OutboxEvent;
 import com.app.postcommandservice.shared.infrastructure.enums.EventStatus;
-import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -16,8 +15,6 @@ import java.util.UUID;
 
 @Repository
 public interface OutboxEventRepository extends JpaRepository<OutboxEvent, UUID> {
-    List<OutboxEvent> findOutboxEventByStatus(EventStatus status, Pageable pageable);
-
     List<OutboxEvent> findByEventTypeAndStatusOrderByCreatedAtAsc(
             String eventType,
             EventStatus status

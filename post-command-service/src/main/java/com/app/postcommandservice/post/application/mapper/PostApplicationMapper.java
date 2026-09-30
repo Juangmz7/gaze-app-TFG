@@ -36,7 +36,6 @@ public final class PostApplicationMapper {
                 post.getUserId().value(),
                 post.getCollabId(),
                 post.getPostType(),
-                post.getTitle(),
                 post.getDescription().value(),
                 post.getTaggedUsers().value(),
                 post.getTags().value(),

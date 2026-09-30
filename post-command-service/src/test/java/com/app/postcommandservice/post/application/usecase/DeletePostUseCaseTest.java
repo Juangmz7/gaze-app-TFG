@@ -170,7 +170,6 @@ class DeletePostUseCaseTest {
                 new UserId(ownerId),
                 null,
                 new PostInfo(
-                        null,
                         new PostDescription("description"),
                         new PostTaggedUsers(new LinkedHashSet<>(Set.of("alice"))),
                         new PostTags(new LinkedHashSet<>(Set.of("java"))),

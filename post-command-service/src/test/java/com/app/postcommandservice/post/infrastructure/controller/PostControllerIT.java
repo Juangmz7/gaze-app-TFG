@@ -95,6 +95,10 @@ class PostControllerIT {
     private com.app.postcommandservice.post.infrastructure.repository.PostMediaJpaRepository postMediaJpaRepository;
 
     @Autowired
+    private com.app.postcommandservice.post.infrastructure.repository.PostMediaTestQueryRepository
+            postMediaTestQueryRepository;
+
+    @Autowired
     private CollabJpaRepository collabJpaRepository;
 
     @Autowired
@@ -243,7 +247,7 @@ class PostControllerIT {
                 .id(UUID.randomUUID())
                 .userId(CREATOR_ID)
                 .collabId(collab.getId())
-                .postType(PostType.COLAB)
+                .postType(PostType.COLLAB)
                 .description("linked")
                 .taggedUsers(new ArrayList<>())
                 .tags(new ArrayList<>(List.of("default")))
@@ -316,7 +320,7 @@ class PostControllerIT {
                 .andExpect(jsonPath("$.collabStatus").value("OPEN"))
                 .andExpect(jsonPath("$.post.postId").value(existingPost.getId().toString()))
                 .andExpect(jsonPath("$.post.collabId").exists())
-                .andExpect(jsonPath("$.post.postType").value("COLAB"))
+                .andExpect(jsonPath("$.post.postType").value("COLLAB"))
                 .andReturn()
                 .getResponse()
                 .getContentAsString(StandardCharsets.UTF_8);
@@ -332,7 +336,7 @@ class PostControllerIT {
                 .isEqualTo(collabId);
         assertThat(postJpaRepository.count()).isEqualTo(1);
         assertThat(persistedPost.getCollabId()).isEqualTo(collabId);
-        assertThat(persistedPost.getPostType()).isEqualTo(PostType.COLAB);
+        assertThat(persistedPost.getPostType()).isEqualTo(PostType.COLLAB);
         assertThat(collabMemberJpaRepository.findAll().getFirst().getCollabMemberStatus())
                 .isEqualTo(CollabMemberStatus.ACCEPTED);
         assertThat(collabMemberJpaRepository.findAll().getFirst().getRole()).isEqualTo(CollabMemberRole.ADMIN);
@@ -346,7 +350,7 @@ class PostControllerIT {
                 entry("collabId", collabId.toString()),
                 entry("postId", existingPost.getId().toString()),
                 entry("postCollabId", collabId.toString()),
-                entry("postType", "COLAB")
+                entry("postType", "COLLAB")
         );
 
         rabbitAdmin.deleteQueue(queueName);
@@ -665,7 +669,7 @@ class PostControllerIT {
         seedAcceptedAdminMember(targetCollab.getId(), CREATOR_ID, CollabMemberRole.ADMIN, CollabMemberStatus.ACCEPTED);
         var existingPost = seedPost(CREATOR_ID, "before", Set.of("alice"), Set.of("java"));
         existingPost.setCollabId(previousCollab.getId());
-        existingPost.setPostType(PostType.COLAB);
+        existingPost.setPostType(PostType.COLLAB);
         postJpaRepository.saveAndFlush(existingPost);
 
         mockMvc.perform(put("/api/posts/{postId}/collabs/{collabId}/link", existingPost.getId(), targetCollab.getId())
@@ -673,11 +677,11 @@ class PostControllerIT {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.postId").value(existingPost.getId().toString()))
                 .andExpect(jsonPath("$.collabId").value(targetCollab.getId().toString()))
-                .andExpect(jsonPath("$.postType").value("COLAB"));
+                .andExpect(jsonPath("$.postType").value("COLLAB"));
 
         var updatedPost = postJpaRepository.findById(existingPost.getId()).orElseThrow();
         assertThat(updatedPost.getCollabId()).isEqualTo(targetCollab.getId());
-        assertThat(updatedPost.getPostType()).isEqualTo(PostType.COLAB);
+        assertThat(updatedPost.getPostType()).isEqualTo(PostType.COLLAB);
         assertThat(outboxEventRepository.findAll()).hasSize(1);
 
         Message message = receiveMessage(queueName);
@@ -685,7 +689,7 @@ class PostControllerIT {
         var eventPayload = objectMapper.readValue(message.getBody(), new TypeReference<Map<String, Object>>() { });
         assertThat(eventPayload.get("postId")).isEqualTo(existingPost.getId().toString());
         assertThat(eventPayload.get("collabId")).isEqualTo(targetCollab.getId().toString());
-        assertThat(eventPayload.get("postType")).isEqualTo("COLAB");
+        assertThat(eventPayload.get("postType")).isEqualTo("COLLAB");
 
         rabbitAdmin.deleteQueue(queueName);
     }
@@ -926,7 +930,7 @@ class PostControllerIT {
         var postId = UUID.fromString(String.valueOf(body.get("postId")));
 
         var persistedPost = postJpaRepository.findById(postId).orElseThrow();
-        var persistedMedia = postMediaJpaRepository.findByPost_IdOrderByMediaOrderAsc(postId);
+        var persistedMedia = findOrderedMedia(postId);
 
         assertThat(persistedMedia).hasSize(2);
         assertThat(persistedMedia.get(0).getPost().getId()).isEqualTo(persistedPost.getId());
@@ -943,8 +947,7 @@ class PostControllerIT {
     @Test
     void shouldRejectDuplicatePostIdAndMediaOrderAtTheDatabaseLevel() {
         var existingPost = seedPost(CREATOR_ID, "with media", Set.of(), Set.of());
-        var firstOrder = postMediaJpaRepository.findByPost_IdOrderByMediaOrderAsc(existingPost.getId()).getFirst()
-                .getMediaOrder();
+        var firstOrder = findOrderedMedia(existingPost.getId()).getFirst().getMediaOrder();
 
         var duplicate = com.app.postcommandservice.post.infrastructure.entity.PostMediaEntity.builder()
                 .id(UUID.randomUUID())
@@ -961,11 +964,15 @@ class PostControllerIT {
     }
 
     @Test
-    void shouldReplaceMediaItemsAndRemoveOrphansWhenUpdatingPost() throws Exception {
+    void shouldLeaveExistingMediaUntouchedWhenUpdatingPostEvenIfMediaIsPresentInThePayload() throws Exception {
         var existingPost = seedPost(CREATOR_ID, "before", Set.of(), Set.of("java"));
-        var originalMediaId = postMediaJpaRepository.findByPost_IdOrderByMediaOrderAsc(existingPost.getId())
-                .getFirst().getId();
+        var originalMedia = findOrderedMedia(existingPost.getId());
+        var originalMediaId = originalMedia.getFirst().getId();
+        var originalMediaUrl = originalMedia.getFirst().getUrl();
 
+        // UpdatePostRequest no longer has a media field; this extra "media" key is unknown to
+        // the deserializer and is silently ignored, proving there is no API path left to change
+        // a post's media after creation.
         var payload = objectMapper.writeValueAsString(Map.of(
                 "postId", existingPost.getId(),
                 "description", "after",
@@ -982,25 +989,37 @@ class PostControllerIT {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.media", org.hamcrest.Matchers.hasSize(2)));
+                .andExpect(jsonPath("$.description").value("after"))
+                .andExpect(jsonPath("$.media", org.hamcrest.Matchers.hasSize(1)))
+                .andExpect(jsonPath("$.media[0].url").value(originalMediaUrl));
 
-        var mediaAfterUpdate = postMediaJpaRepository.findByPost_IdOrderByMediaOrderAsc(existingPost.getId());
-        assertThat(mediaAfterUpdate).hasSize(2);
-        assertThat(mediaAfterUpdate).extracting("id").doesNotContain(originalMediaId);
-        assertThat(mediaAfterUpdate).extracting("url")
-                .containsExactly("https://cdn/new-1.jpg", "https://cdn/new-2.jpg");
+        var mediaAfterUpdate = findOrderedMedia(existingPost.getId());
+        assertThat(mediaAfterUpdate).hasSize(1);
+        assertThat(mediaAfterUpdate).extracting("id").containsExactly(originalMediaId);
+        assertThat(mediaAfterUpdate).extracting("url").containsExactly(originalMediaUrl);
     }
 
     @Test
     void shouldRemoveAssociatedPostMediaRowsWhenDeletingAPost() throws Exception {
         var existingPost = seedPost(CREATOR_ID, "to delete", Set.of(), Set.of("java"));
-        assertThat(postMediaJpaRepository.findByPost_IdOrderByMediaOrderAsc(existingPost.getId())).isNotEmpty();
+        assertThat(findOrderedMedia(existingPost.getId())).isNotEmpty();
 
         mockMvc.perform(delete("/api/posts/{postId}", existingPost.getId())
                         .with(jwtFor(CREATOR_ID)))
                 .andExpect(status().isNoContent());
 
-        assertThat(postMediaJpaRepository.findByPost_IdOrderByMediaOrderAsc(existingPost.getId())).isEmpty();
+        assertThat(findOrderedMedia(existingPost.getId())).isEmpty();
+    }
+
+    /**
+     * Test-local replacement for the removed {@code PostMediaJpaRepository.findByPost_IdOrderByMediaOrderAsc}.
+     * {@code PostEntity.media} is LAZY and these assertions run outside a Hibernate session, so reading it off
+     * a re-fetched {@code PostEntity} would throw {@code LazyInitializationException}; querying directly via
+     * {@link #postMediaTestQueryRepository} avoids that while keeping production {@code PostMediaJpaRepository}
+     * free of a finder only tests need.
+     */
+    private List<com.app.postcommandservice.post.infrastructure.entity.PostMediaEntity> findOrderedMedia(UUID postId) {
+        return postMediaTestQueryRepository.findByPost_IdOrderByMediaOrderAsc(postId);
     }
 
     private void seedUser(UUID userId, String username) {

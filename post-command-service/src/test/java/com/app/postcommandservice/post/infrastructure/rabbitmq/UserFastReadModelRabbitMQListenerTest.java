@@ -18,7 +18,6 @@ import com.app.postcommandservice.shared.infrastructure.repository.ProcessedEven
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -75,7 +74,6 @@ class UserFastReadModelRabbitMQListenerTest {
         listener.onUserRegistered(registeredEvent);
         listener.onUserBlocked(blockedEvent);
 
-        verify(processedEventsRepository, never()).existsByCorrelationId(any());
         verify(userReadModelJpaRepository).save(any());
         verify(blockReadModelJpaRepository).save(any());
         verify(processedEventsRepository).insertIfAbsent(
