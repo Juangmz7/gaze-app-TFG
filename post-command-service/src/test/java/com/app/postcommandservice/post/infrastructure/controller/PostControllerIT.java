@@ -619,7 +619,7 @@ class PostControllerIT {
         Message message = receiveMessage(queueName);
         assertThat(message).isNotNull();
         var eventPayload = objectMapper.readValue(message.getBody(), new TypeReference<Map<String, Object>>() { });
-        assertThat(eventPayload).hasSize(2);
+        assertThat(eventPayload).hasSize(5);
         assertThat(eventPayload).contains(entry("postId", existingPost.getId().toString()));
         assertThat(eventPayload.get("occurredAt")).isNotNull();
 
@@ -627,7 +627,7 @@ class PostControllerIT {
                 outboxEventRepository.findAll().getFirst().getPayload(),
                 new TypeReference<Map<String, Object>>() { }
         );
-        assertThat(outboxPayload).hasSize(2);
+        assertThat(outboxPayload).hasSize(5);
         assertThat(outboxPayload).contains(entry("postId", existingPost.getId().toString()));
         assertThat(outboxPayload.get("occurredAt")).isNotNull();
 

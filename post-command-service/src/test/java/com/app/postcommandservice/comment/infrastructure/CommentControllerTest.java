@@ -211,7 +211,7 @@ class CommentControllerTest {
         assertThat(message).isNotNull();
         var eventPayload = objectMapper.readValue(message.getBody(), new TypeReference<Map<String, Object>>() { });
         assertThat(eventPayload.keySet()).containsExactlyInAnyOrder(
-                "commentId", "postId", "userId", "content", "replyTo", "createdAt", "updatedAt"
+                "id", "correlationId", "occurredAt", "commentId", "postId", "userId", "content", "replyTo", "createdAt", "updatedAt"
         );
         assertThat(eventPayload.get("commentId")).isNotNull();
         assertThat(eventPayload.get("postId")).isEqualTo(postEntity.getId().toString());
