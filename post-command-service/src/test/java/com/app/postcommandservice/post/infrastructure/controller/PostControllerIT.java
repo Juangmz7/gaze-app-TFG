@@ -95,6 +95,10 @@ class PostControllerIT {
     private com.app.postcommandservice.post.infrastructure.repository.PostMediaJpaRepository postMediaJpaRepository;
 
     @Autowired
+    private com.app.postcommandservice.post.infrastructure.repository.PostMediaTestQueryRepository
+            postMediaTestQueryRepository;
+
+    @Autowired
     private CollabJpaRepository collabJpaRepository;
 
     @Autowired
@@ -926,7 +930,7 @@ class PostControllerIT {
         var postId = UUID.fromString(String.valueOf(body.get("postId")));
 
         var persistedPost = postJpaRepository.findById(postId).orElseThrow();
-        var persistedMedia = postMediaJpaRepository.findByPost_IdOrderByMediaOrderAsc(postId);
+        var persistedMedia = findOrderedMedia(postId);
 
         assertThat(persistedMedia).hasSize(2);
         assertThat(persistedMedia.get(0).getPost().getId()).isEqualTo(persistedPost.getId());
@@ -943,8 +947,7 @@ class PostControllerIT {
     @Test
     void shouldRejectDuplicatePostIdAndMediaOrderAtTheDatabaseLevel() {
         var existingPost = seedPost(CREATOR_ID, "with media", Set.of(), Set.of());
-        var firstOrder = postMediaJpaRepository.findByPost_IdOrderByMediaOrderAsc(existingPost.getId()).getFirst()
-                .getMediaOrder();
+        var firstOrder = findOrderedMedia(existingPost.getId()).getFirst().getMediaOrder();
 
         var duplicate = com.app.postcommandservice.post.infrastructure.entity.PostMediaEntity.builder()
                 .id(UUID.randomUUID())
@@ -963,7 +966,7 @@ class PostControllerIT {
     @Test
     void shouldLeaveExistingMediaUntouchedWhenUpdatingPostEvenIfMediaIsPresentInThePayload() throws Exception {
         var existingPost = seedPost(CREATOR_ID, "before", Set.of(), Set.of("java"));
-        var originalMedia = postMediaJpaRepository.findByPost_IdOrderByMediaOrderAsc(existingPost.getId());
+        var originalMedia = findOrderedMedia(existingPost.getId());
         var originalMediaId = originalMedia.getFirst().getId();
         var originalMediaUrl = originalMedia.getFirst().getUrl();
 
@@ -990,7 +993,7 @@ class PostControllerIT {
                 .andExpect(jsonPath("$.media", org.hamcrest.Matchers.hasSize(1)))
                 .andExpect(jsonPath("$.media[0].url").value(originalMediaUrl));
 
-        var mediaAfterUpdate = postMediaJpaRepository.findByPost_IdOrderByMediaOrderAsc(existingPost.getId());
+        var mediaAfterUpdate = findOrderedMedia(existingPost.getId());
         assertThat(mediaAfterUpdate).hasSize(1);
         assertThat(mediaAfterUpdate).extracting("id").containsExactly(originalMediaId);
         assertThat(mediaAfterUpdate).extracting("url").containsExactly(originalMediaUrl);
@@ -999,13 +1002,24 @@ class PostControllerIT {
     @Test
     void shouldRemoveAssociatedPostMediaRowsWhenDeletingAPost() throws Exception {
         var existingPost = seedPost(CREATOR_ID, "to delete", Set.of(), Set.of("java"));
-        assertThat(postMediaJpaRepository.findByPost_IdOrderByMediaOrderAsc(existingPost.getId())).isNotEmpty();
+        assertThat(findOrderedMedia(existingPost.getId())).isNotEmpty();
 
         mockMvc.perform(delete("/api/posts/{postId}", existingPost.getId())
                         .with(jwtFor(CREATOR_ID)))
                 .andExpect(status().isNoContent());
 
-        assertThat(postMediaJpaRepository.findByPost_IdOrderByMediaOrderAsc(existingPost.getId())).isEmpty();
+        assertThat(findOrderedMedia(existingPost.getId())).isEmpty();
+    }
+
+    /**
+     * Test-local replacement for the removed {@code PostMediaJpaRepository.findByPost_IdOrderByMediaOrderAsc}.
+     * {@code PostEntity.media} is LAZY and these assertions run outside a Hibernate session, so reading it off
+     * a re-fetched {@code PostEntity} would throw {@code LazyInitializationException}; querying directly via
+     * {@link #postMediaTestQueryRepository} avoids that while keeping production {@code PostMediaJpaRepository}
+     * free of a finder only tests need.
+     */
+    private List<com.app.postcommandservice.post.infrastructure.entity.PostMediaEntity> findOrderedMedia(UUID postId) {
+        return postMediaTestQueryRepository.findByPost_IdOrderByMediaOrderAsc(postId);
     }
 
     private void seedUser(UUID userId, String username) {

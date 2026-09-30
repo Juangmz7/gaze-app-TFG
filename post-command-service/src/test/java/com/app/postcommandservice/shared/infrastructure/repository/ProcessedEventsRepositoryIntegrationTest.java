@@ -74,8 +74,7 @@ class ProcessedEventsRepositoryIntegrationTest {
 
         assertThat(firstInsert).isEqualTo(1);
         assertThat(secondInsert).isEqualTo(1);
-        assertThat(processedEventsRepository.existsByCorrelationId(correlationId)).isTrue();
-        assertThat(processedEventsRepository.existsByCorrelationId(correlationId)).isTrue();
+        assertThat(countRowsForCorrelationAndTarget(correlationId)).isEqualTo(2);
     }
 
     @Test

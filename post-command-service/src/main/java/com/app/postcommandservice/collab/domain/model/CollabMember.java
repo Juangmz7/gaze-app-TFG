@@ -50,14 +50,6 @@ public class CollabMember {
         return new CollabMember(collabId, userId, CollabMemberStatus.BANNED, role, createdAt);
     }
   
-    public CollabMember accept() {
-        if (collabMemberStatus != CollabMemberStatus.PENDING) {
-            throw new CollabJoinRequestNotPendingException(collabId, userId.value(), collabMemberStatus);
-        }
-
-        return new CollabMember(collabId, userId, CollabMemberStatus.ACCEPTED, role, createdAt);
-    }
-
     public CollabMember reject() {
         if (collabMemberStatus != CollabMemberStatus.PENDING) {
             throw new CollabJoinRequestNotPendingException(collabId, userId.value(), collabMemberStatus, "decline");
