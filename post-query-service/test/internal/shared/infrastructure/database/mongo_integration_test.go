@@ -37,6 +37,8 @@ func TestConnect_SucceedsAgainstARealMongoInstanceLoadedFromEnvironment(t *testi
 	t.Setenv("POST_QUERY_MONGO_URI", connectionString)
 	t.Setenv("POST_QUERY_MONGO_DATABASE", "post_query_integration_test")
 	t.Setenv("HTTP_PORT", "8080")
+	t.Setenv("RABBITMQ_USER", "post_query_integration_user")
+	t.Setenv("RABBITMQ_PASSWORD", "post_query_integration_password")
 
 	cfg, err := config.Load()
 	if err != nil {

@@ -10,6 +10,10 @@ import (
 func TestLoad_ParsesValidEnvironmentVariablesIntoConfig(t *testing.T) {
 	setEnv(t, "POST_QUERY_MONGO_URI", "mongodb://post-query-mongo:27017")
 	setEnv(t, "POST_QUERY_MONGO_DATABASE", "post_query_read_models")
+	setEnv(t, "RABBITMQ_HOST", "rabbitmq")
+	setEnv(t, "RABBITMQ_PORT", "5673")
+	setEnv(t, "RABBITMQ_USER", "post_query_user")
+	setEnv(t, "RABBITMQ_PASSWORD", "post_query_password")
 
 	got, err := config.Load()
 	if err != nil {
@@ -21,6 +25,12 @@ func TestLoad_ParsesValidEnvironmentVariablesIntoConfig(t *testing.T) {
 			URI:      "mongodb://post-query-mongo:27017",
 			Database: "post_query_read_models",
 		},
+		RabbitMQ: config.RabbitMQConfig{
+			Host:     "rabbitmq",
+			Port:     "5673",
+			User:     "post_query_user",
+			Password: "post_query_password",
+		},
 	}
 
 	if got != want {
@@ -31,6 +41,10 @@ func TestLoad_ParsesValidEnvironmentVariablesIntoConfig(t *testing.T) {
 func TestLoad_AppliesDefaultsWhenOptionalVariablesAreMissing(t *testing.T) {
 	setEnv(t, "POST_QUERY_MONGO_URI", "mongodb://post-query-mongo:27017")
 	unsetEnv(t, "POST_QUERY_MONGO_DATABASE")
+	setEnv(t, "RABBITMQ_USER", "post_query_user")
+	setEnv(t, "RABBITMQ_PASSWORD", "post_query_password")
+	unsetEnv(t, "RABBITMQ_HOST")
+	unsetEnv(t, "RABBITMQ_PORT")
 
 	got, err := config.Load()
 	if err != nil {
@@ -40,10 +54,18 @@ func TestLoad_AppliesDefaultsWhenOptionalVariablesAreMissing(t *testing.T) {
 	if got.Mongo.Database == "" {
 		t.Fatal("Load() Mongo.Database = \"\", want a non-empty default")
 	}
+	if got.RabbitMQ.Host == "" {
+		t.Fatal("Load() RabbitMQ.Host = \"\", want a non-empty default")
+	}
+	if got.RabbitMQ.Port == "" {
+		t.Fatal("Load() RabbitMQ.Port = \"\", want a non-empty default")
+	}
 }
 
 func TestLoad_ReturnsErrorWhenMongoURIIsMissing(t *testing.T) {
 	unsetEnv(t, "POST_QUERY_MONGO_URI")
+	setEnv(t, "RABBITMQ_USER", "post_query_user")
+	setEnv(t, "RABBITMQ_PASSWORD", "post_query_password")
 
 	_, err := config.Load()
 	if err == nil {
@@ -53,10 +75,48 @@ func TestLoad_ReturnsErrorWhenMongoURIIsMissing(t *testing.T) {
 
 func TestLoad_ReturnsErrorWhenMongoURIIsBlank(t *testing.T) {
 	setEnv(t, "POST_QUERY_MONGO_URI", "   ")
+	setEnv(t, "RABBITMQ_USER", "post_query_user")
+	setEnv(t, "RABBITMQ_PASSWORD", "post_query_password")
 
 	_, err := config.Load()
 	if err == nil {
 		t.Fatal("Load() error = nil, want error for blank POST_QUERY_MONGO_URI")
+	}
+}
+
+func TestLoad_ReturnsErrorWhenRabbitMQUserIsMissing(t *testing.T) {
+	setEnv(t, "POST_QUERY_MONGO_URI", "mongodb://post-query-mongo:27017")
+	unsetEnv(t, "RABBITMQ_USER")
+	setEnv(t, "RABBITMQ_PASSWORD", "post_query_password")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("Load() error = nil, want error for missing RABBITMQ_USER")
+	}
+}
+
+func TestLoad_ReturnsErrorWhenRabbitMQPasswordIsMissing(t *testing.T) {
+	setEnv(t, "POST_QUERY_MONGO_URI", "mongodb://post-query-mongo:27017")
+	setEnv(t, "RABBITMQ_USER", "post_query_user")
+	unsetEnv(t, "RABBITMQ_PASSWORD")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("Load() error = nil, want error for missing RABBITMQ_PASSWORD")
+	}
+}
+
+func TestRabbitMQConfig_AMQPURI_BuildsConnectionStringFromFields(t *testing.T) {
+	cfg := config.RabbitMQConfig{
+		Host:     "rabbitmq",
+		Port:     "5672",
+		User:     "post_query_user",
+		Password: "post_query_password",
+	}
+
+	want := "amqp://post_query_user:post_query_password@rabbitmq:5672/"
+	if got := cfg.AMQPURI(); got != want {
+		t.Fatalf("AMQPURI() = %q, want %q", got, want)
 	}
 }
 
