@@ -40,7 +40,7 @@ func Connect(ctx context.Context, uri, databaseName string) (*mongo.Client, *mon
 	defer cancel()
 
 	if err := client.Ping(pingCtx, nil); err != nil {
-		_ = client.Disconnect(context.Background())
+		_ = Disconnect(client)
 		return nil, nil, fmt.Errorf("connect mongo: ping failed: %w", err)
 	}
 

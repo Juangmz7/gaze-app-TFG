@@ -10,7 +10,6 @@ import (
 func TestLoad_ParsesValidEnvironmentVariablesIntoConfig(t *testing.T) {
 	setEnv(t, "POST_QUERY_MONGO_URI", "mongodb://post-query-mongo:27017")
 	setEnv(t, "POST_QUERY_MONGO_DATABASE", "post_query_read_models")
-	setEnv(t, "HTTP_PORT", "9090")
 
 	got, err := config.Load()
 	if err != nil {
@@ -22,7 +21,6 @@ func TestLoad_ParsesValidEnvironmentVariablesIntoConfig(t *testing.T) {
 			URI:      "mongodb://post-query-mongo:27017",
 			Database: "post_query_read_models",
 		},
-		Port: "9090",
 	}
 
 	if got != want {
@@ -33,7 +31,6 @@ func TestLoad_ParsesValidEnvironmentVariablesIntoConfig(t *testing.T) {
 func TestLoad_AppliesDefaultsWhenOptionalVariablesAreMissing(t *testing.T) {
 	setEnv(t, "POST_QUERY_MONGO_URI", "mongodb://post-query-mongo:27017")
 	unsetEnv(t, "POST_QUERY_MONGO_DATABASE")
-	unsetEnv(t, "HTTP_PORT")
 
 	got, err := config.Load()
 	if err != nil {
@@ -42,10 +39,6 @@ func TestLoad_AppliesDefaultsWhenOptionalVariablesAreMissing(t *testing.T) {
 
 	if got.Mongo.Database == "" {
 		t.Fatal("Load() Mongo.Database = \"\", want a non-empty default")
-	}
-
-	if got.Port == "" {
-		t.Fatal("Load() Port = \"\", want a non-empty default")
 	}
 }
 

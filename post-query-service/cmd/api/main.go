@@ -26,6 +26,8 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	serverCfg := server.LoadServer()
+
 	cfg, err := config.Load()
 	if err != nil {
 		return err
@@ -48,7 +50,7 @@ func run() error {
 	// No repositories exist yet, so it is not wired further here.
 	_ = mongoDatabase
 
-	if err := server.StartServer(ctx, cfg.Port, nil); err != nil {
+	if err := server.StartServer(ctx, serverCfg.Port, nil); err != nil {
 		return err
 	}
 
