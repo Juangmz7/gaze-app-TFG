@@ -59,6 +59,15 @@ spring:
         jwt:
           issuer-uri: ${KEYCLOAK_ISSUER_URI}
 
+# --- Azure Blob Storage (cloud: DefaultAzureCredential, user delegation SAS) ---
+azure:
+  storage:
+    account-url: ${AZURE_STORAGE_ACCOUNT_URL}
+    container: ${AZURE_STORAGE_CONTAINER}
+    upload-sas-ttl: ${AZURE_STORAGE_UPLOAD_SAS_TTL:PT15M}
+    use-account-key: false
+    allow-http: false
+
 # --- Server ---
 server:
   port: 8082
