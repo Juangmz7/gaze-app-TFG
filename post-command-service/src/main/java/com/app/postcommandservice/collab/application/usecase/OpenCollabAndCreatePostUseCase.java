@@ -104,6 +104,7 @@ public class OpenCollabAndCreatePostUseCase {
                 savedCollab,
                 savedCreatorMember,
                 savedPost,
+                true,
                 occurredAt
         );
         saveOutboxEvent(command.correlationId(), outboxId, event);

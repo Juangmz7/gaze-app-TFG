@@ -155,7 +155,7 @@ class OpenCollabAndCreatePostUseCaseTest {
                 .thenReturn(postResponse);
         when(postRepository.findById(postId)).thenReturn(Optional.of(savedPost));
         when(collabEventMapper.toCollabOpenedEvent(any(UUID.class), eq(CORRELATION_ID), eq(savedCollab), eq(savedMember),
-                eq(savedPost), any(Instant.class))).thenReturn(event);
+                eq(savedPost), eq(true), any(Instant.class))).thenReturn(event);
         when(jsonMapper.toJson(event)).thenReturn("{\"event\":\"payload\"}");
 
         var response = openCollabAndCreatePostUseCase.open(new OpenCollabAndCreatePostCommand(

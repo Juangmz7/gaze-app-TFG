@@ -123,12 +123,18 @@ public class RabbitMQProperties {
 
             @Data
             public static class CollabRk {
-                private String opened;
+                private OpenedRk opened = new OpenedRk();
                 private String closed;
                 private String deleted;
                 private String linked;
                 private RequestRk request = new RequestRk();
                 private MemberRk member = new MemberRk();
+
+                @Data
+                public static class OpenedRk {
+                    private String postCreated;
+                    private String existingPost;
+                }
 
                 @Data
                 public static class RequestRk {

@@ -299,7 +299,7 @@ class PostControllerIT {
         rabbitAdmin.declareBinding(BindingBuilder.bind(queue)
                 .to(new org.springframework.amqp.core.TopicExchange(
                         rabbitMQProperties.getExchange().getPost().getEvents()))
-                .with(rabbitMQProperties.getRk().getPost().getCollab().getOpened()));
+                .with(rabbitMQProperties.getRk().getPost().getCollab().getOpened().getExistingPost()));
         var existingPost = seedPost(CREATOR_ID, "standalone", Set.of("alice"), Set.of("java"));
         var correlationId = UUID.randomUUID();
         var payload = objectMapper.writeValueAsString(Map.of(

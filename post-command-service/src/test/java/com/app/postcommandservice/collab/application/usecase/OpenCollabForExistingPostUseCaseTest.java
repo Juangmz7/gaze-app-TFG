@@ -116,6 +116,7 @@ class OpenCollabForExistingPostUseCaseTest {
                 eq(savedCollab),
                 eq(savedMember),
                 eq(savedPost),
+                eq(false),
                 any(Instant.class)))
                 .thenReturn(event);
         when(jsonMapper.toJson(event)).thenReturn("{\"event\":\"payload\"}");

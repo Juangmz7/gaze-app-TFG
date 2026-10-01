@@ -93,10 +93,13 @@ class CollabOpenedEventPublisherTest {
         when(rabbitMQProperties.getRk()).thenReturn(routingKeys);
         when(routingKeys.getPost()).thenReturn(postRk);
         when(postRk.getCollab()).thenReturn(collabRk);
-        when(collabRk.getOpened()).thenReturn("rk.post.collab.opened");
+        var openedRk = new RabbitMQProperties.RoutingKeys.PostRk.CollabRk.OpenedRk();
+        openedRk.setPostCreated("rk.post.collab.opened.post-created");
+        openedRk.setExistingPost("rk.post.collab.opened.existing-post");
+        when(collabRk.getOpened()).thenReturn(openedRk);
 
         publisher.publish(outboxEvent);
 
-        verify(rabbitTemplate).convertAndSend("x.post.events", "rk.post.collab.opened", payload);
+        verify(rabbitTemplate).convertAndSend("x.post.events", "rk.post.collab.opened.existing-post", payload);
     }
 }

@@ -26,9 +26,13 @@ public class CollabOpenedEventPublisher implements EventPublisher {
     @Override
     public void publish(OutboxEvent outboxEvent) {
         var event = jsonMapper.fromJson(outboxEvent.getPayload(), CollabOpenedEvent.class);
+        var routingKey = event.withPostCreated()
+                ? rabbitMQProperties.getRk().getPost().getCollab().getOpened().getPostCreated()
+                : rabbitMQProperties.getRk().getPost().getCollab().getOpened().getExistingPost();
+
         rabbitTemplate.convertAndSend(
                 rabbitMQProperties.getExchange().getPost().getEvents(),
-                rabbitMQProperties.getRk().getPost().getCollab().getOpened(),
+                routingKey,
                 event
         );
     }

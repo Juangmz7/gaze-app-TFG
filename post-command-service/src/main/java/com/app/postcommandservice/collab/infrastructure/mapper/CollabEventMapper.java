@@ -29,6 +29,7 @@ public class CollabEventMapper {
             Collab collab,
             CollabMember collabMember,
             Post post,
+            boolean withPostCreated,
             Instant occurredAt) {
 
         return CollabOpenedEvent.builder()
@@ -52,6 +53,7 @@ public class CollabEventMapper {
                 .media(PostEventMapper.toMediaPayload(post.getMedia()))
                 .postCreatedAt(post.getCreatedAt())
                 .postUpdatedAt(post.getUpdatedAt())
+                .withPostCreated(withPostCreated)
                 .build();
     }
 

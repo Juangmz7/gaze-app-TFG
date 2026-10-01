@@ -113,6 +113,7 @@ public class OpenCollabForExistingPostUseCase {
                 savedCollab,
                 savedCreatorMember,
                 savedPost,
+                false,
                 occurredAt
         );
         outboxEventRepository.save(

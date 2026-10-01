@@ -56,7 +56,9 @@ rabbitmq:
 
       # --- collab ---
       collab:
-        opened: rk.post.collab.opened
+        opened:
+          post-created: rk.post.collab.opened.post-created
+          existing-post: rk.post.collab.opened.existing-post
         closed: rk.post.collab.closed
         deleted: rk.post.collab.deleted
         linked: rk.post.collab.linked

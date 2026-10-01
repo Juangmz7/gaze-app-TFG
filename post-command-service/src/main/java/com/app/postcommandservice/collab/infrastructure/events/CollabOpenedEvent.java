@@ -35,6 +35,7 @@ public record CollabOpenedEvent(
         Set<String> postTags,
         List<PostMediaEventPayload> media,
         Instant postCreatedAt,
-        Instant postUpdatedAt
+        Instant postUpdatedAt,
+        boolean withPostCreated
 ) implements EventMessage {
 }
