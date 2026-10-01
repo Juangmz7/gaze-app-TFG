@@ -12,7 +12,6 @@ public record CreatePostCommand(
         UUID collabId,
         PostType postType,
         String description,
-        Set<String> taggedUsers,
         Set<String> postTags,
         List<PostMediaCommand> media
 ) {

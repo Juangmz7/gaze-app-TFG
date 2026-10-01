@@ -1,12 +1,14 @@
 package com.app.postcommandservice.post.domain.model;
 
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 import org.springframework.util.StringUtils;
 
 import com.app.postcommandservice.post.domain.exception.InvalidPostMediaException;
 import com.app.postcommandservice.post.domain.model.valueobj.MediaType;
+import com.app.postcommandservice.post.domain.model.valueobj.PostTaggedUsers;
 
 public class PostMedia {
 
@@ -16,6 +18,7 @@ public class PostMedia {
     private final String thumbnailUrl;
     private final MediaType mediaType;
     private final Integer duration;
+    private final Set<String> taggedUsers;
     private final int order;
 
     public PostMedia(
@@ -25,6 +28,7 @@ public class PostMedia {
             String thumbnailUrl,
             MediaType mediaType,
             Integer duration,
+            Set<String> taggedUsers,
             int order) {
         this.id = Objects.requireNonNull(id, "id must not be null");
         this.postId = Objects.requireNonNull(postId, "postId must not be null");
@@ -44,8 +48,9 @@ public class PostMedia {
         }
 
         this.url = url;
-        this.thumbnailUrl = thumbnailUrl;
+        this.thumbnailUrl = mediaType == MediaType.IMAGE ? url : thumbnailUrl;
         this.duration = duration;
+        this.taggedUsers = new PostTaggedUsers(taggedUsers == null ? Set.of() : taggedUsers).value();
         this.order = order;
     }
 
@@ -55,8 +60,9 @@ public class PostMedia {
             String thumbnailUrl,
             MediaType mediaType,
             Integer duration,
+            Set<String> taggedUsers,
             int order) {
-        return new PostMedia(UUID.randomUUID(), postId, url, thumbnailUrl, mediaType, duration, order);
+        return new PostMedia(UUID.randomUUID(), postId, url, thumbnailUrl, mediaType, duration, taggedUsers, order);
     }
 
     public UUID getId() {
@@ -81,6 +87,10 @@ public class PostMedia {
 
     public Integer getDuration() {
         return duration;
+    }
+
+    public Set<String> getTaggedUsers() {
+        return taggedUsers;
     }
 
     public int getOrder() {

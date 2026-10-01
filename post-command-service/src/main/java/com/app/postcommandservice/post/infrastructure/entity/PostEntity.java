@@ -63,12 +63,6 @@ public class PostEntity {
     private String description;
 
     @ElementCollection
-    @CollectionTable(name = "post_tagged_users", joinColumns = @JoinColumn(name = "post_id"))
-    @Column(name = "username", nullable = false)
-    @Builder.Default
-    private List<String> taggedUsers = new ArrayList<>();
-
-    @ElementCollection
     @CollectionTable(name = "post_tags", joinColumns = @JoinColumn(name = "post_id"))
     @Column(name = "tag_value", nullable = false)
     @Builder.Default

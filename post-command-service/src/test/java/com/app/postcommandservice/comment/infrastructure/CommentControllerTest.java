@@ -122,7 +122,7 @@ class CommentControllerTest {
 
     @Test
     void shouldCreateCommentAndReturnExpectedBodyWhenPostIsActive() throws Exception {
-        var postEntity = seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+        var postEntity = seedPost(POST_OWNER_ID, PostStatus.ACCEPTED);
         var correlationId = UUID.randomUUID();
 
         mockMvc.perform(
@@ -184,7 +184,7 @@ class CommentControllerTest {
 
     @Test
     void shouldPublishCommentCreatedEventWithSafePayloadWhenCommentIsCreated() throws Exception {
-        var postEntity = seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+        var postEntity = seedPost(POST_OWNER_ID, PostStatus.ACCEPTED);
         var parentComment = seedComment(postEntity.getId(), UUID.randomUUID(), "parent", null);
         var queueName = "test.comment.created." + UUID.randomUUID();
         var rabbitAdmin = new RabbitAdmin(connectionFactory);
@@ -226,7 +226,7 @@ class CommentControllerTest {
 
     @Test
     void shouldReturnBadRequestWhenCreateCommentOmitsCorrelationId() throws Exception {
-        var postEntity = seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+        var postEntity = seedPost(POST_OWNER_ID, PostStatus.ACCEPTED);
 
         mockMvc.perform(
                         post("/api/posts/{postId}/comments", postEntity.getId())
@@ -249,7 +249,7 @@ class CommentControllerTest {
 
     @Test
     void shouldReturnSameCommentBodyWhenCalledTwiceWithTheSameCorrelationId() throws Exception {
-        var postEntity = seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+        var postEntity = seedPost(POST_OWNER_ID, PostStatus.ACCEPTED);
         var correlationId = UUID.randomUUID();
         var payload = objectMapper.writeValueAsString(Map.of(
                 "correlationId", correlationId,
@@ -281,7 +281,7 @@ class CommentControllerTest {
 
     @Test
     void shouldReturnSameCommentBodyWhenConcurrentRequestsReuseTheSameCorrelationId() throws Exception {
-        var postEntity = seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+        var postEntity = seedPost(POST_OWNER_ID, PostStatus.ACCEPTED);
         var correlationId = UUID.randomUUID();
         var payload = objectMapper.writeValueAsString(Map.of(
                 "correlationId", correlationId,
@@ -316,7 +316,7 @@ class CommentControllerTest {
             throws Exception {
 
         var postEntity =
-                seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+                seedPost(POST_OWNER_ID, PostStatus.ACCEPTED);
 
         var parentComment =
                 seedComment(
@@ -426,10 +426,10 @@ class CommentControllerTest {
             throws Exception {
 
         var targetPost =
-                seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+                seedPost(POST_OWNER_ID, PostStatus.ACCEPTED);
 
         var otherPost =
-                seedPost(UUID.randomUUID(), PostStatus.ACTIVE);
+                seedPost(UUID.randomUUID(), PostStatus.ACCEPTED);
 
         var foreignComment =
                 seedComment(
@@ -471,7 +471,7 @@ class CommentControllerTest {
             throws Exception {
 
         var postEntity =
-                seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+                seedPost(POST_OWNER_ID, PostStatus.ACCEPTED);
 
         blockReadModelJpaRepository.save(
                 new BlockReadModelEntity(
@@ -513,7 +513,7 @@ class CommentControllerTest {
             throws Exception {
 
         var postEntity =
-                seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+                seedPost(POST_OWNER_ID, PostStatus.ACCEPTED);
 
         var parentAuthorId =
                 UUID.randomUUID();
@@ -572,7 +572,7 @@ class CommentControllerTest {
             throws Exception {
 
         var postEntity =
-                seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+                seedPost(POST_OWNER_ID, PostStatus.ACCEPTED);
 
         var comment =
                 seedComment(
@@ -609,7 +609,7 @@ class CommentControllerTest {
             throws Exception {
 
         var postEntity =
-                seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+                seedPost(POST_OWNER_ID, PostStatus.ACCEPTED);
 
         var comment =
                 seedComment(
@@ -639,7 +639,7 @@ class CommentControllerTest {
             throws Exception {
 
         var postEntity =
-                seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+                seedPost(POST_OWNER_ID, PostStatus.ACCEPTED);
 
         mockMvc.perform(
                         delete(
@@ -661,7 +661,7 @@ class CommentControllerTest {
             throws Exception {
 
         var postEntity =
-                seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+                seedPost(POST_OWNER_ID, PostStatus.ACCEPTED);
 
         var comment =
                 commentJpaRepository.save(
@@ -696,7 +696,7 @@ class CommentControllerTest {
             throws Exception {
 
         var postEntity =
-                seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+                seedPost(POST_OWNER_ID, PostStatus.ACCEPTED);
 
         var comment =
                 commentJpaRepository.save(
@@ -735,7 +735,7 @@ class CommentControllerTest {
             throws Exception {
 
         var postEntity =
-                seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+                seedPost(POST_OWNER_ID, PostStatus.ACCEPTED);
 
         var comment =
                 seedComment(
@@ -819,7 +819,7 @@ class CommentControllerTest {
             throws Exception {
 
         var postEntity =
-                seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+                seedPost(POST_OWNER_ID, PostStatus.ACCEPTED);
 
         var parentComment =
                 seedComment(
@@ -882,7 +882,7 @@ class CommentControllerTest {
             throws Exception {
 
         var postEntity =
-                seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+                seedPost(POST_OWNER_ID, PostStatus.ACCEPTED);
 
         var comment =
                 seedComment(
@@ -951,7 +951,7 @@ class CommentControllerTest {
             throws Exception {
 
         var postEntity =
-                seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+                seedPost(POST_OWNER_ID, PostStatus.ACCEPTED);
 
         var comment =
                 seedComment(
@@ -1043,10 +1043,10 @@ class CommentControllerTest {
             throws Exception {
 
         var targetPost =
-                seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+                seedPost(POST_OWNER_ID, PostStatus.ACCEPTED);
 
         var otherPost =
-                seedPost(UUID.randomUUID(), PostStatus.ACTIVE);
+                seedPost(UUID.randomUUID(), PostStatus.ACCEPTED);
 
         var foreignComment =
                 seedComment(
@@ -1085,7 +1085,7 @@ class CommentControllerTest {
             throws Exception {
 
         var postEntity =
-                seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+                seedPost(POST_OWNER_ID, PostStatus.ACCEPTED);
 
         var comment =
                 seedComment(
@@ -1124,7 +1124,7 @@ class CommentControllerTest {
             throws Exception {
 
         var postEntity =
-                seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+                seedPost(POST_OWNER_ID, PostStatus.ACCEPTED);
 
         var comment =
                 seedComment(
@@ -1168,7 +1168,7 @@ class CommentControllerTest {
             throws Exception {
 
         var postEntity =
-                seedPost(POST_OWNER_ID, PostStatus.ACTIVE);
+                seedPost(POST_OWNER_ID, PostStatus.ACCEPTED);
 
         var comment =
                 seedComment(
@@ -1217,7 +1217,6 @@ class CommentControllerTest {
                 .collabId(null)
                 .description("post")
                 .postType(PostType.BASIC)
-                .taggedUsers(new java.util.ArrayList<>())
                 .tags(new java.util.ArrayList<>(java.util.List.of("default")))
                 .status(status)
                 .build();

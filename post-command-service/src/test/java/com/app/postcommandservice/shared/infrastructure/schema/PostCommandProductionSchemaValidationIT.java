@@ -5,7 +5,9 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.time.Instant;
 import java.util.Map;
+import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,6 +24,7 @@ import org.testcontainers.utility.DockerImageName;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -116,6 +119,70 @@ class PostCommandProductionSchemaValidationIT {
         applySchemaPatch("db/schema/post-command-service-prod.sql");
 
         assertThatNoException().isThrownBy(() -> bootstrapSchema("validate"));
+    }
+
+    @Test
+    void shouldRequireTrackedSchemaPatchForPostMediaTaggedUsersTable() {
+        bootstrapSchema("create");
+        execute("DROP TABLE IF EXISTS post_media_tagged_users");
+
+        assertThatThrownBy(() -> bootstrapSchema("validate"))
+                .hasRootCauseInstanceOf(Exception.class)
+                .hasMessageContaining("post_media_tagged_users");
+
+        applySchemaPatch("db/schema/post-command-service-prod.sql");
+
+        assertThatNoException().isThrownBy(() -> bootstrapSchema("validate"));
+    }
+
+    @Test
+    void shouldMigrateTaggedUsersFromPostsToOrderOneMediaAndCopyExistingData() {
+        bootstrapSchema("create");
+
+        UUID postId = UUID.randomUUID();
+        UUID postMediaId = UUID.randomUUID();
+        Instant now = Instant.now();
+
+        execute("""
+                CREATE TABLE post_tagged_users (
+                    post_id UUID NOT NULL,
+                    username VARCHAR(255) NOT NULL,
+                    CONSTRAINT pk_post_tagged_users PRIMARY KEY (post_id, username)
+                )
+                """);
+
+        execute("""
+                INSERT INTO posts (id, user_id, post_type, description, status, created_at, updated_at, version)
+                VALUES ('%s', '%s', 'BASIC', 'legacy post', 'ACCEPTED', '%s', '%s', 0)
+                """.formatted(postId, UUID.randomUUID(), now, now));
+
+        execute("""
+                INSERT INTO post_media (id, post_id, url, thumbnail_url, media_type, duration, media_order)
+                VALUES ('%s', '%s', 'https://example.com/media.png', 'https://example.com/media.png', 'IMAGE', NULL, 1)
+                """.formatted(postMediaId, postId));
+
+        execute("INSERT INTO post_tagged_users (post_id, username) VALUES ('%s', 'legacyuser')".formatted(postId));
+
+        applySchemaPatch("db/schema/post-command-service-prod.sql");
+
+        assertThatNoException().isThrownBy(() -> bootstrapSchema("validate"));
+
+        try (Connection connection = DriverManager.getConnection(
+                POSTGRES.getJdbcUrl(),
+                POSTGRES.getUsername(),
+                POSTGRES.getPassword());
+             Statement statement = connection.createStatement();
+             ResultSet resultSet = statement.executeQuery(
+                     "SELECT username FROM post_media_tagged_users WHERE post_media_id = '" + postMediaId + "'")) {
+            assertThat(resultSet.next()).isTrue();
+            assertThat(resultSet.getString("username")).isEqualTo("legacyuser");
+            assertThat(resultSet.next()).isFalse();
+        } catch (Exception exception) {
+            throw new IllegalStateException("Failed to read post_media_tagged_users", exception);
+        }
+
+        assertThatThrownBy(() -> execute("SELECT 1 FROM post_tagged_users"))
+                .isInstanceOf(IllegalStateException.class);
     }
 
     private void applySchemaPatch(String resourcePath) {

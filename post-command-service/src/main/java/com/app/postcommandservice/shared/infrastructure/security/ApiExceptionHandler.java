@@ -34,7 +34,7 @@ import com.app.postcommandservice.collab.domain.exception.CollabNotOpenException
 import com.app.postcommandservice.collab.domain.exception.CollabAccessDeniedException;
 import com.app.postcommandservice.post.domain.exception.TaggedUserBlockedException;
 import com.app.postcommandservice.post.domain.exception.TaggedUserNotFoundException;
-import com.app.postcommandservice.post.domain.exception.PostNotActiveException;
+import com.app.postcommandservice.post.domain.exception.PostNotAcceptedException;
 import com.app.postcommandservice.post.domain.exception.PostNotFoundException;
 import com.app.postcommandservice.post.domain.exception.PostOwnershipException;
 import com.app.postcommandservice.share.domain.exception.PostShareBlockedException;
@@ -198,9 +198,9 @@ public class ApiExceptionHandler {
         return buildErrorResponse(HttpStatus.FORBIDDEN, ApiErrorCode.FORBIDDEN, exception.getMessage(), request);
     }
 
-    @ExceptionHandler(PostNotActiveException.class)
-    public ResponseEntity<ApiErrorResponse> handlePostNotActiveException(
-            PostNotActiveException exception,
+    @ExceptionHandler(PostNotAcceptedException.class)
+    public ResponseEntity<ApiErrorResponse> handlePostNotAcceptedException(
+            PostNotAcceptedException exception,
             HttpServletRequest request) {
 
         return buildErrorResponse(HttpStatus.BAD_REQUEST, ApiErrorCode.BAD_REQUEST, exception.getMessage(), request);

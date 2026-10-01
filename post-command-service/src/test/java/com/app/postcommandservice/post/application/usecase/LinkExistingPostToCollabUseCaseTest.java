@@ -39,7 +39,6 @@ import com.app.postcommandservice.post.domain.model.PostMedia;
 import com.app.postcommandservice.post.domain.model.valueobj.PostDescription;
 import com.app.postcommandservice.post.domain.model.valueobj.PostId;
 import com.app.postcommandservice.post.domain.model.valueobj.PostStatus;
-import com.app.postcommandservice.post.domain.model.valueobj.PostTaggedUsers;
 import com.app.postcommandservice.post.domain.model.valueobj.PostTags;
 import com.app.postcommandservice.post.domain.model.valueobj.PostType;
 import com.app.postcommandservice.post.domain.model.valueobj.MediaType;
@@ -242,12 +241,11 @@ class LinkExistingPostToCollabUseCaseTest {
                 collabId,
                 new PostInfo(
                         new PostDescription("hello"),
-                        new PostTaggedUsers(Set.of("alice")),
                         new PostTags(Set.of("spring")),
                         postType
                 ),
-                List.of(PostMedia.create(POST_ID, "https://cdn/image.jpg", null, MediaType.IMAGE, null, 1)),
-                PostStatus.ACTIVE,
+                List.of(PostMedia.create(POST_ID, "https://cdn/image.jpg", null, MediaType.IMAGE, null, Set.of("alice"), 1)),
+                PostStatus.ACCEPTED,
                 now,
                 now
         );
@@ -283,7 +281,6 @@ class LinkExistingPostToCollabUseCaseTest {
                 .collabId(post.getCollabId())
                 .postType(post.getPostType())
                 .description(post.getDescription().value())
-                .taggedUsers(post.getTaggedUsers().value())
                 .postTags(post.getTags().value())
                 .createdAt(post.getCreatedAt())
                 .updatedAt(post.getUpdatedAt())

@@ -39,7 +39,7 @@ public class ProcessPostViewUseCase {
     public void process(ProcessPostViewCommand command) {
         var activePost = postViewValidationRepository.findActivePost(command.postId());
         if (activePost.isEmpty()) {
-            log.info("Discarding post view command {} because post {} does not exist or is not ACTIVE",
+            log.info("Discarding post view command {} because post {} does not exist or is not ACCEPTED",
                     command.id(), command.postId());
             return;
         }

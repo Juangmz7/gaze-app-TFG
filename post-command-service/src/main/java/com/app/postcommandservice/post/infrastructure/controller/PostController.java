@@ -84,7 +84,6 @@ public class PostController {
                 null,
                 PostType.BASIC,
                 request.description(),
-                request.taggedUsers(),
                 request.postTags(),
                 toMediaCommands(request.media())
         );
@@ -119,7 +118,6 @@ public class PostController {
                 request.postId(),
                 currentUserId,
                 request.description(),
-                request.taggedUsers(),
                 request.postTags()
         );
 

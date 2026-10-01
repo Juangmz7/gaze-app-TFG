@@ -19,7 +19,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import com.app.postcommandservice.post.application.commands.DeletePostCommand;
 import com.app.postcommandservice.post.application.repository.PostRepository;
 import com.app.postcommandservice.post.domain.events.PostDeletedDomainEvent;
-import com.app.postcommandservice.post.domain.exception.PostNotActiveException;
+import com.app.postcommandservice.post.domain.exception.PostNotAcceptedException;
 import com.app.postcommandservice.post.domain.exception.PostNotFoundException;
 import com.app.postcommandservice.post.domain.exception.PostOwnershipException;
 import com.app.postcommandservice.post.domain.model.Post;
@@ -28,7 +28,6 @@ import com.app.postcommandservice.post.domain.model.PostMedia;
 import com.app.postcommandservice.post.domain.model.valueobj.PostDescription;
 import com.app.postcommandservice.post.domain.model.valueobj.PostId;
 import com.app.postcommandservice.post.domain.model.valueobj.PostStatus;
-import com.app.postcommandservice.post.domain.model.valueobj.PostTaggedUsers;
 import com.app.postcommandservice.post.domain.model.valueobj.PostTags;
 import com.app.postcommandservice.post.domain.model.valueobj.PostType;
 import com.app.postcommandservice.post.domain.model.valueobj.MediaType;
@@ -80,7 +79,7 @@ class DeletePostUseCaseTest {
 
     @Test
     void shouldSuccessfullyChangeStatusToDeletedAndPublishEventWhenOwnerDeletesAnActivePost() {
-        var existingPost = persistedPost(OWNER_ID, PostStatus.ACTIVE);
+        var existingPost = persistedPost(OWNER_ID, PostStatus.ACCEPTED);
         var deletedPost = persistedPost(OWNER_ID, PostStatus.DELETED);
         var deletedEvent = new PostDeletedEvent(UUID.randomUUID(), UUID.randomUUID(), existingPost.getId().value(), OWNER_ID, Instant.now());
 
@@ -103,7 +102,7 @@ class DeletePostUseCaseTest {
 
     @Test
     void shouldThrowPostOwnershipExceptionWhenTheUserIsNotThePostOwner() {
-        when(postRepository.findById(POST_ID)).thenReturn(Optional.of(persistedPost(UUID.randomUUID(), PostStatus.ACTIVE)));
+        when(postRepository.findById(POST_ID)).thenReturn(Optional.of(persistedPost(UUID.randomUUID(), PostStatus.ACCEPTED)));
 
         assertThatThrownBy(() -> deletePostUseCase.deletePost(new DeletePostCommand(POST_ID, OWNER_ID)))
                 .isInstanceOf(PostOwnershipException.class)
@@ -125,12 +124,12 @@ class DeletePostUseCaseTest {
     }
 
     @Test
-    void shouldThrowPostNotActiveExceptionWhenTryingToDeleteAnAlreadyDeletedPost() {
+    void shouldThrowPostNotAcceptedExceptionWhenTryingToDeleteAnAlreadyDeletedPost() {
         when(postRepository.findById(POST_ID)).thenReturn(Optional.of(persistedPost(OWNER_ID, PostStatus.DELETED)));
 
         assertThatThrownBy(() -> deletePostUseCase.deletePost(new DeletePostCommand(POST_ID, OWNER_ID)))
-                .isInstanceOf(PostNotActiveException.class)
-                .hasMessageContaining("ACTIVE");
+                .isInstanceOf(PostNotAcceptedException.class)
+                .hasMessageContaining("ACCEPTED");
 
         verify(postRepository, never()).saveAndFlush(any(Post.class));
         verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
@@ -138,7 +137,7 @@ class DeletePostUseCaseTest {
 
     @Test
     void shouldPublishEventContainingBaseFieldsPostIdUserIdAndOccurredAt() {
-        var existingPost = persistedPost(OWNER_ID, PostStatus.ACTIVE);
+        var existingPost = persistedPost(OWNER_ID, PostStatus.ACCEPTED);
         var deletedPost = persistedPost(OWNER_ID, PostStatus.DELETED);
         var deletedEvent = new PostDeletedEvent(UUID.randomUUID(), UUID.randomUUID(), existingPost.getId().value(), OWNER_ID, Instant.now());
 
@@ -171,11 +170,10 @@ class DeletePostUseCaseTest {
                 null,
                 new PostInfo(
                         new PostDescription("description"),
-                        new PostTaggedUsers(new LinkedHashSet<>(Set.of("alice"))),
                         new PostTags(new LinkedHashSet<>(Set.of("java"))),
                         PostType.BASIC
                 ),
-                List.of(PostMedia.create(POST_ID, "https://cdn/image.jpg", null, MediaType.IMAGE, null, 1)),
+                List.of(PostMedia.create(POST_ID, "https://cdn/image.jpg", null, MediaType.IMAGE, null, Set.of("alice"), 1)),
                 status,
                 now,
                 now

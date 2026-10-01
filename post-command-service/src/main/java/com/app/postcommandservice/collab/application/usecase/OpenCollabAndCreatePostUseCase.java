@@ -87,7 +87,6 @@ public class OpenCollabAndCreatePostUseCase {
                 savedCollab.getId(),
                 PostType.COLLAB,
                 command.description(),
-                normalizeSet(command.taggedUsers()),
                 normalizeSet(command.postTags()),
                 normalizeMedia(command.media())
         ), false, false);

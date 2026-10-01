@@ -1,7 +1,9 @@
 package com.app.postcommandservice.post.domain.model.valueobj;
 
 public enum PostStatus {
-    ACTIVE,
+    PENDING,
+    ACCEPTED,
+    MEDIA_UPLOAD_FAILED,
     DELETED,
     BANNED
 }

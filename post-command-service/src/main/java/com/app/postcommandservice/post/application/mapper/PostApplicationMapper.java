@@ -25,6 +25,7 @@ public final class PostApplicationMapper {
                         command.thumbnailUrl(),
                         command.mediaType(),
                         command.duration(),
+                        command.taggedUsers(),
                         command.order()
                 ))
                 .toList();
@@ -37,7 +38,6 @@ public final class PostApplicationMapper {
                 post.getCollabId(),
                 post.getPostType(),
                 post.getDescription().value(),
-                post.getTaggedUsers().value(),
                 post.getTags().value(),
                 toMediaResponse(post.getMedia()),
                 post.getCreatedAt(),
@@ -53,6 +53,7 @@ public final class PostApplicationMapper {
                         postMedia.getThumbnailUrl(),
                         postMedia.getMediaType(),
                         postMedia.getDuration(),
+                        postMedia.getTaggedUsers(),
                         postMedia.getOrder()
                 ))
                 .toList();

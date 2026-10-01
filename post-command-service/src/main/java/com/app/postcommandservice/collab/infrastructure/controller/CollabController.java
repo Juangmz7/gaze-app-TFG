@@ -75,7 +75,6 @@ public class CollabController {
                 currentUserId,
                 request.title(),
                 request.description(),
-                request.taggedUsers(),
                 request.postTags(),
                 request.media() == null
                         ? java.util.List.of()

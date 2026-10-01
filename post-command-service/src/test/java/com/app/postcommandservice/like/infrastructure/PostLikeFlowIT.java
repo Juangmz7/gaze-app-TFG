@@ -242,7 +242,7 @@ class PostLikeFlowIT {
                 .id(UUID.randomUUID())
                 .userId(ownerId)
                 .description("active")
-                .status(PostStatus.ACTIVE)
+                .status(PostStatus.ACCEPTED)
                 .build());
     }
 

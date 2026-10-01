@@ -7,7 +7,6 @@ public record UpdatePostCommand(
         UUID postId,
         UUID currentUserId,
         String description,
-        Set<String> taggedUsers,
         Set<String> postTags
 ) {
 }

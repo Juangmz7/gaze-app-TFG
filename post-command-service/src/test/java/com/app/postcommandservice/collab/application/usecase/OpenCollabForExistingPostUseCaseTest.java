@@ -29,7 +29,7 @@ import com.app.postcommandservice.collab.domain.model.valueobj.CollabTitle;
 import com.app.postcommandservice.collab.infrastructure.events.CollabOpenedEvent;
 import com.app.postcommandservice.collab.infrastructure.mapper.CollabEventMapper;
 import com.app.postcommandservice.post.application.repository.PostRepository;
-import com.app.postcommandservice.post.domain.exception.PostNotActiveException;
+import com.app.postcommandservice.post.domain.exception.PostNotAcceptedException;
 import com.app.postcommandservice.post.domain.exception.PostNotFoundException;
 import com.app.postcommandservice.post.domain.exception.PostOwnershipException;
 import com.app.postcommandservice.post.domain.model.Post;
@@ -38,7 +38,6 @@ import com.app.postcommandservice.post.domain.model.PostMedia;
 import com.app.postcommandservice.post.domain.model.valueobj.PostDescription;
 import com.app.postcommandservice.post.domain.model.valueobj.PostId;
 import com.app.postcommandservice.post.domain.model.valueobj.PostStatus;
-import com.app.postcommandservice.post.domain.model.valueobj.PostTaggedUsers;
 import com.app.postcommandservice.post.domain.model.valueobj.PostTags;
 import com.app.postcommandservice.post.domain.model.valueobj.PostType;
 import com.app.postcommandservice.post.domain.model.valueobj.MediaType;
@@ -99,8 +98,8 @@ class OpenCollabForExistingPostUseCaseTest {
     @Test
     void shouldCreateCollabMemberUpdatePostAndPublishEventForExistingActiveOwnedPost() {
         var collabId = UUID.randomUUID();
-        var existingPost = persistedPost(OWNER_ID, null, PostType.BASIC, PostStatus.ACTIVE);
-        var savedPost = persistedPost(OWNER_ID, collabId, PostType.COLLAB, PostStatus.ACTIVE);
+        var existingPost = persistedPost(OWNER_ID, null, PostType.BASIC, PostStatus.ACCEPTED);
+        var savedPost = persistedPost(OWNER_ID, collabId, PostType.COLLAB, PostStatus.ACCEPTED);
         var savedCollab = openCollab(collabId);
         var savedMember = creatorMember(collabId);
         var event = openedEvent(savedCollab, savedMember, savedPost);
@@ -147,7 +146,7 @@ class OpenCollabForExistingPostUseCaseTest {
     void shouldReturnExistingCollabDataWithoutSideEffectsWhenCorrelationIdAlreadyExists() {
         var collabId = UUID.randomUUID();
         var existingCollab = openCollab(collabId);
-        var linkedPost = persistedPost(OWNER_ID, collabId, PostType.COLLAB, PostStatus.ACTIVE);
+        var linkedPost = persistedPost(OWNER_ID, collabId, PostType.COLLAB, PostStatus.ACCEPTED);
 
         when(collabRequestIdempotencyRepository.findEntityIdByCorrelationId(CORRELATION_ID))
                 .thenReturn(Optional.of(collabId));
@@ -176,7 +175,7 @@ class OpenCollabForExistingPostUseCaseTest {
         when(collabRequestIdempotencyRepository.findEntityIdByCorrelationId(CORRELATION_ID))
                 .thenReturn(Optional.empty());
         when(postRepository.findById(POST_ID))
-                .thenReturn(Optional.of(persistedPost(UUID.randomUUID(), null, PostType.BASIC, PostStatus.ACTIVE)));
+                .thenReturn(Optional.of(persistedPost(UUID.randomUUID(), null, PostType.BASIC, PostStatus.ACCEPTED)));
 
         assertThatThrownBy(() -> useCase.open(new OpenCollabForExistingPostCommand(
                 POST_ID,
@@ -207,7 +206,7 @@ class OpenCollabForExistingPostUseCaseTest {
     }
 
     @Test
-    void shouldThrowPostNotActiveExceptionWhenPostIsDeleted() {
+    void shouldThrowPostNotAcceptedExceptionWhenPostIsDeleted() {
         when(collabRequestIdempotencyRepository.findEntityIdByCorrelationId(CORRELATION_ID))
                 .thenReturn(Optional.empty());
         when(postRepository.findById(POST_ID))
@@ -219,7 +218,7 @@ class OpenCollabForExistingPostUseCaseTest {
                 OWNER_ID,
                 "Existing post collab"
         )))
-                .isInstanceOf(PostNotActiveException.class)
+                .isInstanceOf(PostNotAcceptedException.class)
                 .hasMessageContaining("open a collab");
 
         verify(collabRepository, never()).save(any(Collab.class));
@@ -234,11 +233,10 @@ class OpenCollabForExistingPostUseCaseTest {
                 collabId,
                 new PostInfo(
                         new PostDescription("hello"),
-                        new PostTaggedUsers(Set.of("alice")),
                         new PostTags(Set.of("spring")),
                         postType
                 ),
-                List.of(PostMedia.create(POST_ID, "https://cdn/image.jpg", null, MediaType.IMAGE, null, 1)),
+                List.of(PostMedia.create(POST_ID, "https://cdn/image.jpg", null, MediaType.IMAGE, null, Set.of("alice"), 1)),
                 postStatus,
                 now,
                 now
@@ -283,7 +281,6 @@ class OpenCollabForExistingPostUseCaseTest {
                 .postCollabId(post.getCollabId())
                 .postType(post.getPostType())
                 .description(post.getDescription().value())
-                .taggedUsers(post.getTaggedUsers().value())
                 .postTags(post.getTags().value())
                 .postCreatedAt(post.getCreatedAt())
                 .postUpdatedAt(post.getUpdatedAt())

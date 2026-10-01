@@ -124,3 +124,33 @@ ALTER TABLE posts
 
 ALTER TABLE posts
     ADD COLUMN IF NOT EXISTS version BIGINT NOT NULL DEFAULT 0;
+
+-- Task 31: move taggedUsers storage from posts to post_media (order = 1)
+CREATE TABLE IF NOT EXISTS post_media_tagged_users (
+    post_media_id UUID NOT NULL,
+    username VARCHAR(255) NOT NULL,
+    CONSTRAINT pk_post_media_tagged_users PRIMARY KEY (post_media_id, username)
+);
+
+ALTER TABLE post_media_tagged_users
+    DROP CONSTRAINT IF EXISTS fk_post_media_tagged_users_post_media;
+
+ALTER TABLE post_media_tagged_users
+    ADD CONSTRAINT fk_post_media_tagged_users_post_media
+        FOREIGN KEY (post_media_id) REFERENCES post_media(id) ON DELETE CASCADE;
+
+CREATE INDEX IF NOT EXISTS idx_post_media_tagged_users_post_media_id
+    ON post_media_tagged_users (post_media_id);
+
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'post_tagged_users') THEN
+        INSERT INTO post_media_tagged_users (post_media_id, username)
+        SELECT pm.id, ptu.username
+        FROM post_tagged_users ptu
+        JOIN post_media pm ON pm.post_id = ptu.post_id AND pm.media_order = 1
+        ON CONFLICT DO NOTHING;
+    END IF;
+END $$;
+
+DROP TABLE IF EXISTS post_tagged_users;

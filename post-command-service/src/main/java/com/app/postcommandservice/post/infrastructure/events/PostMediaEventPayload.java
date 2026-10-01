@@ -1,8 +1,11 @@
 package com.app.postcommandservice.post.infrastructure.events;
 
+import java.util.Set;
 import java.util.UUID;
 
 import lombok.Builder;
+
+import com.fasterxml.jackson.annotation.JsonInclude;
 
 import com.app.postcommandservice.post.domain.model.valueobj.MediaType;
 
@@ -12,7 +15,8 @@ public record PostMediaEventPayload(
         String url,
         String thumbnailUrl,
         MediaType mediaType,
-        Integer duration,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Integer duration,
+        Set<String> taggedUsers,
         int order
 ) {
 }

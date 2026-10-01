@@ -266,7 +266,7 @@ class PostShareFlowIT {
                 .userId(ownerId)
                 .postType(PostType.BASIC)
                 .description("active")
-                .status(PostStatus.ACTIVE)
+                .status(PostStatus.ACCEPTED)
                 .build());
     }
 
