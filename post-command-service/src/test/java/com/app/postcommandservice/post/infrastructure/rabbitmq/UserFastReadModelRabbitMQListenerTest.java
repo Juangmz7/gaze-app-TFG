@@ -11,7 +11,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.app.postcommandservice.post.infrastructure.events.UserBlockedEvent;
 import com.app.postcommandservice.post.infrastructure.events.UserRegisteredEvent;
+import com.app.postcommandservice.post.infrastructure.events.UserFollowedEvent;
 import com.app.postcommandservice.post.infrastructure.repository.BlockReadModelJpaRepository;
+import com.app.postcommandservice.post.infrastructure.repository.FollowReadModelJpaRepository;
 import com.app.postcommandservice.post.infrastructure.repository.UserReadModelJpaRepository;
 import com.app.postcommandservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 import com.app.postcommandservice.shared.infrastructure.repository.ProcessedEventsRepository;
@@ -30,6 +32,9 @@ class UserFastReadModelRabbitMQListenerTest {
 
     @Mock
     private BlockReadModelJpaRepository blockReadModelJpaRepository;
+    
+    @Mock
+    private FollowReadModelJpaRepository followReadModelJpaRepository;
 
     @Mock
     private ProcessedEventsRepository processedEventsRepository;
@@ -44,6 +49,7 @@ class UserFastReadModelRabbitMQListenerTest {
         listener = new UserFastReadModelRabbitMQListener(
                 userReadModelJpaRepository,
                 blockReadModelJpaRepository,
+                followReadModelJpaRepository,
                 processedEventsRepository,
                 rabbitMQProperties
         );
@@ -67,15 +73,25 @@ class UserFastReadModelRabbitMQListenerTest {
                 UUID.randomUUID(),
                 UUID.randomUUID()
         );
+        var followedEvent = new UserFollowedEvent(
+                UUID.randomUUID(),
+                correlationId,
+                occurredAt.plusSeconds(2),
+                UUID.randomUUID(),
+                UUID.randomUUID()
+        );
 
         when(processedEventsRepository.existsById(registeredEvent.id())).thenReturn(false);
         when(processedEventsRepository.existsById(blockedEvent.id())).thenReturn(false);
+        when(processedEventsRepository.existsById(followedEvent.id())).thenReturn(false);
 
         listener.onUserRegistered(registeredEvent);
         listener.onUserBlocked(blockedEvent);
+        listener.onUserFollowed(followedEvent);
 
         verify(userReadModelJpaRepository).save(any());
         verify(blockReadModelJpaRepository).save(any());
+        verify(followReadModelJpaRepository).save(any());
         verify(processedEventsRepository).insertIfAbsent(
                 registeredEvent.id(),
                 correlationId,
@@ -86,6 +102,11 @@ class UserFastReadModelRabbitMQListenerTest {
                 correlationId,
                 UserBlockedEvent.class.getSimpleName()
         );
-        verify(processedEventsRepository, times(2)).existsById(any(UUID.class));
+        verify(processedEventsRepository).insertIfAbsent(
+                followedEvent.id(),
+                correlationId,
+                UserFollowedEvent.class.getSimpleName()
+        );
+        verify(processedEventsRepository, times(3)).existsById(any(UUID.class));
     }
 }

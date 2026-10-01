@@ -76,6 +76,9 @@ rabbitmq:
       deleted: rk.user.deleted
       registered: rk.user.registered
       updated: rk.user.updated
+      follow:
+        created: rk.user.follow.created
+        deleted: rk.user.follow.deleted
       block:
         created: rk.user.block.created
         deleted: rk.user.block.deleted

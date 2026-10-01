@@ -96,6 +96,24 @@ public abstract class AbstractRabbitMQListenerSupport {
         }
     }
 
+    protected final void validateUserFollowedEvent(
+            UUID eventId,
+            UUID correlationId,
+            Instant occurredAt,
+            UUID followerUserId,
+            UUID followedUserId) {
+        validateEventEnvelope(new Object(), eventId, correlationId, occurredAt);
+        if (followerUserId == null) {
+            throw new IllegalArgumentException("event.followerUserId must not be null");
+        }
+        if (followedUserId == null) {
+            throw new IllegalArgumentException("event.followedUserId must not be null");
+        }
+        if (followerUserId.equals(followedUserId)) {
+            throw new IllegalArgumentException("event follower and followed users must be different");
+        }
+    }
+
     private void validateEventEnvelope(Object event, UUID eventId, UUID correlationId, Instant occurredAt) {
         if (event == null) {
             throw new IllegalArgumentException("event must not be null");

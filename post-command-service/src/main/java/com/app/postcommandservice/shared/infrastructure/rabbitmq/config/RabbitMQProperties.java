@@ -158,9 +158,16 @@ public class RabbitMQProperties {
             private String registered;
             private String updated;
             private BlockRk block = new BlockRk();
+            private FollowRk follow = new FollowRk();
 
             @Data
             public static class BlockRk {
+                private String created;
+                private String deleted;
+            }
+
+            @Data
+            public static class FollowRk {
                 private String created;
                 private String deleted;
             }

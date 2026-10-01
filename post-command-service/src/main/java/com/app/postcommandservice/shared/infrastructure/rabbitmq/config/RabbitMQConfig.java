@@ -52,10 +52,12 @@ public class RabbitMQConfig {
         var commentLikeDeletedRk = props.getRk().getPost().getComment().getLike().getDeleted();
 
         var userBlockCreatedRk = props.getRk().getUser().getBlock().getCreated();
+        var userFollowCreatedRk = props.getRk().getUser().getFollow().getCreated();
         var userRegisteredRk = props.getRk().getUser().getRegistered();
         var userUpdatedRk = props.getRk().getUser().getUpdated();
 
         var userBlockDeletedRk = props.getRk().getUser().getBlock().getDeleted();
+        var userFollowDeletedRk = props.getRk().getUser().getFollow().getDeleted();
         var userDeletedRk = props.getRk().getUser().getDeleted();
 
         var postCommandsExchange = new TopicExchange(postCommandsExchangeName);
@@ -125,11 +127,16 @@ public class RabbitMQConfig {
                         .to(postCommandsExchange)
                         .with(commentLikeDeletedRk),
 
-                // --- user.fast queue: 3 routing keys, same queue ---
+                // --- user.fast queue: 4 routing keys, same queue ---
                 BindingBuilder
                         .bind(userFastQueue)
                         .to(userEventsExchange)
                         .with(userBlockCreatedRk),
+
+                BindingBuilder
+                        .bind(userFastQueue)
+                        .to(userEventsExchange)
+                        .with(userFollowCreatedRk),
 
                 BindingBuilder
                         .bind(userFastQueue)
@@ -141,11 +148,16 @@ public class RabbitMQConfig {
                         .to(userEventsExchange)
                         .with(userUpdatedRk),
 
-                // --- user.slow queue: 2 routing keys, same queue ---
+                // --- user.slow queue: 3 routing keys, same queue ---
                 BindingBuilder
                         .bind(userSlowQueue)
                         .to(userEventsExchange)
                         .with(userBlockDeletedRk),
+
+                BindingBuilder
+                        .bind(userSlowQueue)
+                        .to(userEventsExchange)
+                        .with(userFollowDeletedRk),
 
                 BindingBuilder
                         .bind(userSlowQueue)

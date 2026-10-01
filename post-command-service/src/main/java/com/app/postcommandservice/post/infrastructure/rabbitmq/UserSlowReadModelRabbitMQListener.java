@@ -22,15 +22,18 @@ public class UserSlowReadModelRabbitMQListener extends AbstractRabbitMQListenerS
 
     private final UserReadModelJpaRepository userReadModelJpaRepository;
     private final BlockReadModelJpaRepository blockReadModelJpaRepository;
+    private final com.app.postcommandservice.post.infrastructure.repository.FollowReadModelJpaRepository followReadModelJpaRepository;
 
     public UserSlowReadModelRabbitMQListener(
             UserReadModelJpaRepository userReadModelJpaRepository,
             BlockReadModelJpaRepository blockReadModelJpaRepository,
+            com.app.postcommandservice.post.infrastructure.repository.FollowReadModelJpaRepository followReadModelJpaRepository,
             ProcessedEventsRepository processedEventsRepository,
             RabbitMQProperties rabbitMQProperties) {
         super(processedEventsRepository, rabbitMQProperties);
         this.userReadModelJpaRepository = userReadModelJpaRepository;
         this.blockReadModelJpaRepository = blockReadModelJpaRepository;
+        this.followReadModelJpaRepository = followReadModelJpaRepository;
     }
 
     @Transactional
@@ -63,6 +66,26 @@ public class UserSlowReadModelRabbitMQListener extends AbstractRabbitMQListenerS
 
         blockReadModelJpaRepository.deleteById(new BlockReadModelId(event.blockerUserId(), event.blockedUserId()));
         setEventAsProcessed(event.id(), event.correlationId(), UserUnblockedEvent.class.getSimpleName());
+    }
+
+    @Transactional
+    @RabbitHandler
+    public void onUserUnfollowed(com.app.postcommandservice.post.infrastructure.events.UserUnfollowedEvent event) {
+        validateUserFollowedEvent(
+                event.id(),
+                event.correlationId(),
+                event.occurredAt(),
+                event.followerUserId(),
+                event.followedUserId()
+        );
+        if (isEventAlreadyProcessed(event.id(), event.correlationId())) {
+            log.warn("Detected duplicate user unfollowed event {}, skipping", event.id());
+            return;
+        }
+
+        followReadModelJpaRepository.deleteById(new com.app.postcommandservice.post.infrastructure.entity.FollowReadModelId(
+                event.followerUserId(), event.followedUserId()));
+        setEventAsProcessed(event.id(), event.correlationId(), com.app.postcommandservice.post.infrastructure.events.UserUnfollowedEvent.class.getSimpleName());
     }
 
     @RabbitHandler(isDefault = true)
