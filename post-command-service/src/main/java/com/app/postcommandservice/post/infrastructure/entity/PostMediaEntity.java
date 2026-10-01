@@ -1,8 +1,12 @@
 package com.app.postcommandservice.post.infrastructure.entity;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
+import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
+import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -59,6 +63,12 @@ public class PostMediaEntity {
 
     @Column
     private Integer duration;
+
+    @ElementCollection
+    @CollectionTable(name = "post_media_tagged_users", joinColumns = @JoinColumn(name = "post_media_id"))
+    @Column(name = "username", nullable = false)
+    @Builder.Default
+    private List<String> taggedUsers = new ArrayList<>();
 
     @Column(name = "media_order", nullable = false)
     private Integer mediaOrder;

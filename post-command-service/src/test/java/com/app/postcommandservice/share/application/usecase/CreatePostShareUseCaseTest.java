@@ -83,7 +83,7 @@ class CreatePostShareUseCaseTest {
                 .build();
 
         when(postShareValidationRepository.findPost(POST_ID))
-                .thenReturn(Optional.of(new PostShareValidationRepository.ShareablePost(POST_ID, OWNER_ID, PostStatus.ACTIVE)));
+                .thenReturn(Optional.of(new PostShareValidationRepository.ShareablePost(POST_ID, OWNER_ID, PostStatus.ACCEPTED)));
         when(postShareValidationRepository.existsBlockRelationship(SHARER_ID, OWNER_ID)).thenReturn(false);
         when(postShareRepository.existsByPostIdAndUserId(POST_ID, SHARER_ID)).thenReturn(false);
         when(postShareRepository.save(any(PostShare.class))).thenReturn(savedShare);
@@ -104,7 +104,7 @@ class CreatePostShareUseCaseTest {
     @Test
     void shouldDiscardSelfShareGracefully() {
         when(postShareValidationRepository.findPost(POST_ID))
-                .thenReturn(Optional.of(new PostShareValidationRepository.ShareablePost(POST_ID, SHARER_ID, PostStatus.ACTIVE)));
+                .thenReturn(Optional.of(new PostShareValidationRepository.ShareablePost(POST_ID, SHARER_ID, PostStatus.ACCEPTED)));
 
         createPostShareUseCase.share(command(POST_ID, SHARER_ID));
 
@@ -116,7 +116,7 @@ class CreatePostShareUseCaseTest {
     @Test
     void shouldDiscardShareWhenBlockRelationExistsInEitherDirection() {
         when(postShareValidationRepository.findPost(POST_ID))
-                .thenReturn(Optional.of(new PostShareValidationRepository.ShareablePost(POST_ID, OWNER_ID, PostStatus.ACTIVE)));
+                .thenReturn(Optional.of(new PostShareValidationRepository.ShareablePost(POST_ID, OWNER_ID, PostStatus.ACCEPTED)));
         when(postShareValidationRepository.existsBlockRelationship(SHARER_ID, OWNER_ID)).thenReturn(true);
 
         createPostShareUseCase.share(command(POST_ID, SHARER_ID));
@@ -129,7 +129,7 @@ class CreatePostShareUseCaseTest {
     @Test
     void shouldReturnGracefullyWhenShareAlreadyExistsWithoutCreatingDuplicateEvent() {
         when(postShareValidationRepository.findPost(POST_ID))
-                .thenReturn(Optional.of(new PostShareValidationRepository.ShareablePost(POST_ID, OWNER_ID, PostStatus.ACTIVE)));
+                .thenReturn(Optional.of(new PostShareValidationRepository.ShareablePost(POST_ID, OWNER_ID, PostStatus.ACCEPTED)));
         when(postShareValidationRepository.existsBlockRelationship(SHARER_ID, OWNER_ID)).thenReturn(false);
         when(postShareRepository.existsByPostIdAndUserId(POST_ID, SHARER_ID)).thenReturn(true);
 
@@ -160,7 +160,7 @@ class CreatePostShareUseCaseTest {
     @Test
     void shouldReturnGracefullyWhenConcurrentDuplicateInsertTriggersConstraintViolation() {
         when(postShareValidationRepository.findPost(POST_ID))
-                .thenReturn(Optional.of(new PostShareValidationRepository.ShareablePost(POST_ID, OWNER_ID, PostStatus.ACTIVE)));
+                .thenReturn(Optional.of(new PostShareValidationRepository.ShareablePost(POST_ID, OWNER_ID, PostStatus.ACCEPTED)));
         when(postShareValidationRepository.existsBlockRelationship(SHARER_ID, OWNER_ID)).thenReturn(false);
         when(postShareRepository.existsByPostIdAndUserId(POST_ID, SHARER_ID)).thenReturn(false);
         when(postShareRepository.save(any(PostShare.class))).thenThrow(new DataIntegrityViolationException("duplicate"));

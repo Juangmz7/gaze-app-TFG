@@ -26,7 +26,6 @@ import com.app.postcommandservice.post.domain.model.Post;
 import com.app.postcommandservice.post.domain.model.PostInfo;
 import com.app.postcommandservice.post.domain.model.valueobj.PostDescription;
 import com.app.postcommandservice.post.domain.model.valueobj.PostId;
-import com.app.postcommandservice.post.domain.model.valueobj.PostTaggedUsers;
 import com.app.postcommandservice.post.domain.model.valueobj.PostTags;
 import com.app.postcommandservice.post.domain.model.valueobj.PostType;
 import com.app.postcommandservice.post.infrastructure.events.PostCreatedEvent;
@@ -78,15 +77,18 @@ public class CreatePostUseCase {
             }
         }
 
-        var taggedUsers = new PostTaggedUsers(normalizeSet(command.taggedUsers()));
         var postTags = new PostTags(normalizeSet(command.postTags()));
         var description = new PostDescription(command.description() == null ? "" : command.description());
 
-        validateTaggedUsers(command.currentUserId(), taggedUsers.value());
-
         var postId = new PostId(UUID.randomUUID());
-        var postInfo = new PostInfo(description, taggedUsers, postTags, resolvePostType(command.postType()));
+        var postInfo = new PostInfo(description, postTags, resolvePostType(command.postType()));
         var media = PostApplicationMapper.toDomainMedia(postId.value(), command.media());
+
+        Set<String> allTaggedUsernames = new LinkedHashSet<>();
+        for (var postMedia : media) {
+            allTaggedUsernames.addAll(postMedia.getTaggedUsers());
+        }
+        validateTaggedUsers(command.currentUserId(), allTaggedUsernames);
 
         var post = Post.create(
                 postId,

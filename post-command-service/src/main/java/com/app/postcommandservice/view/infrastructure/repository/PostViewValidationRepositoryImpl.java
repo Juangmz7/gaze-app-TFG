@@ -21,7 +21,7 @@ public class PostViewValidationRepositoryImpl implements PostViewValidationRepos
 
     @Override
     public Optional<ActivePost> findActivePost(UUID postId) {
-        return postJpaRepository.findOwnerIdByIdAndStatus(postId, PostStatus.ACTIVE)
+        return postJpaRepository.findOwnerIdByIdAndStatus(postId, PostStatus.ACCEPTED)
                 .map(ownerUserId -> new ActivePost(postId, ownerUserId));
     }
 

@@ -23,7 +23,7 @@ import com.app.postcommandservice.comment.domain.model.valueobj.CommentId;
 import com.app.postcommandservice.comment.infrastructure.events.CommentCreatedEvent;
 import com.app.postcommandservice.comment.infrastructure.mapper.CommentEventMapper;
 import com.app.postcommandservice.post.application.repository.PostRepository;
-import com.app.postcommandservice.post.domain.exception.PostNotActiveException;
+import com.app.postcommandservice.post.domain.exception.PostNotAcceptedException;
 import com.app.postcommandservice.post.domain.exception.PostNotFoundException;
 import com.app.postcommandservice.post.domain.model.valueobj.PostId;
 import com.app.postcommandservice.post.domain.model.valueobj.PostStatus;
@@ -91,8 +91,8 @@ public class CreateCommentUseCase {
     }
 
     private void validatePostIsActive(UUID postId, PostStatus status) {
-        if (status != PostStatus.ACTIVE) {
-            throw new PostNotActiveException(postId, status);
+        if (status != PostStatus.ACCEPTED) {
+            throw new PostNotAcceptedException(postId, status);
         }
     }
 

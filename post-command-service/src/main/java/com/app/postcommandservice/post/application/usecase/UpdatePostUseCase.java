@@ -4,7 +4,6 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Collections;
 import java.util.LinkedHashSet;
-import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -17,16 +16,12 @@ import com.app.postcommandservice.post.application.commands.UpdatePostCommand;
 import com.app.postcommandservice.post.application.dto.PostResponse;
 import com.app.postcommandservice.post.application.mapper.PostApplicationMapper;
 import com.app.postcommandservice.post.application.repository.PostRepository;
-import com.app.postcommandservice.post.application.repository.TaggedUserValidationRepository;
 import com.app.postcommandservice.post.domain.events.PostUpdatedDomainEvent;
 import com.app.postcommandservice.post.domain.exception.PostNotFoundException;
 import com.app.postcommandservice.post.domain.exception.PostOwnershipException;
-import com.app.postcommandservice.post.domain.exception.TaggedUserBlockedException;
-import com.app.postcommandservice.post.domain.exception.TaggedUserNotFoundException;
 import com.app.postcommandservice.post.domain.model.Post;
 import com.app.postcommandservice.post.domain.model.PostInfo;
 import com.app.postcommandservice.post.domain.model.valueobj.PostDescription;
-import com.app.postcommandservice.post.domain.model.valueobj.PostTaggedUsers;
 import com.app.postcommandservice.post.domain.model.valueobj.PostTags;
 import com.app.postcommandservice.post.infrastructure.events.PostUpdatedEvent;
 import com.app.postcommandservice.post.infrastructure.mapper.PostEventMapper;
@@ -40,7 +35,6 @@ import com.app.postcommandservice.shared.infrastructure.repository.OutboxEventRe
 public class UpdatePostUseCase {
 
     private final PostRepository postRepository;
-    private final TaggedUserValidationRepository taggedUserValidationRepository;
     private final OutboxEventRepository outboxEventRepository;
     private final PostEventMapper postEventMapper;
     private final JsonMapper jsonMapper;
@@ -55,7 +49,6 @@ public class UpdatePostUseCase {
 
         var newPostInfo = new PostInfo(
                 new PostDescription(command.description() == null ? "" : command.description()),
-                new PostTaggedUsers(normalizeSet(command.taggedUsers())),
                 new PostTags(normalizeSet(command.postTags())),
                 existingPost.getPostType()
         );
@@ -65,8 +58,6 @@ public class UpdatePostUseCase {
         if (!updateResult.changed()) {
             return toResponse(existingPost);
         }
-
-        validateTaggedUsers(command.currentUserId(), updateResult.newlyTaggedUsers());
 
         var savedPost = postRepository.saveAndFlush(updateResult.post());
 
@@ -84,30 +75,6 @@ public class UpdatePostUseCase {
     private void assertOwnership(Post post, UUID currentUserId) {
         if (!post.getUserId().value().equals(currentUserId)) {
             throw new PostOwnershipException(post.getId().value(), currentUserId);
-        }
-    }
-
-    private void validateTaggedUsers(UUID creatorUserId, Set<String> taggedUsers) {
-        if (taggedUsers.isEmpty()) {
-            return;
-        }
-
-        Map<String, UUID> userIdsByUsername = taggedUserValidationRepository.findUserIdsByUsernames(taggedUsers);
-        for (String taggedUsername : taggedUsers) {
-            if (!userIdsByUsername.containsKey(taggedUsername)) {
-                throw new TaggedUserNotFoundException(taggedUsername);
-            }
-        }
-
-        var blockedUserIds = taggedUserValidationRepository.findBlockedUserIds(
-                creatorUserId,
-                Set.copyOf(userIdsByUsername.values())
-        );
-
-        for (Map.Entry<String, UUID> entry : userIdsByUsername.entrySet()) {
-            if (blockedUserIds.contains(entry.getValue())) {
-                throw new TaggedUserBlockedException(entry.getKey());
-            }
         }
     }
 

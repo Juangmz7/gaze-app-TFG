@@ -32,7 +32,6 @@ public record CollabOpenedEvent(
         UUID postCollabId,
         PostType postType,
         String description,
-        Set<String> taggedUsers,
         Set<String> postTags,
         List<PostMediaEventPayload> media,
         Instant postCreatedAt,

@@ -21,7 +21,6 @@ public record CollabLinkedEvent(
         UUID collabId,
         PostType postType,
         String description,
-        Set<String> taggedUsers,
         Set<String> postTags,
         List<PostMediaEventPayload> media,
         Instant createdAt,

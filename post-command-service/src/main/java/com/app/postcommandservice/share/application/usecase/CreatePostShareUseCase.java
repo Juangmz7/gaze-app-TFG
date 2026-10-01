@@ -48,7 +48,7 @@ public class CreatePostShareUseCase {
         }
 
         if (!isActive(post.get())) {
-            log.info("Discarding post share command {} because post {} is not ACTIVE",
+            log.info("Discarding post share command {} because post {} is not ACCEPTED",
                     command.id(), command.postId());
             return;
         }
@@ -92,7 +92,7 @@ public class CreatePostShareUseCase {
     }
 
     private boolean isActive(PostShareValidationRepository.ShareablePost post) {
-        return post.status() == PostStatus.ACTIVE;
+        return post.status() == PostStatus.ACCEPTED;
     }
 
     private boolean isSelfShare(PostShareValidationRepository.ShareablePost post, UUID currentUserId) {

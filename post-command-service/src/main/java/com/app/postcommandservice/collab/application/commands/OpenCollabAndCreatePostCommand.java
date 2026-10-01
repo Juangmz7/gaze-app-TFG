@@ -11,7 +11,6 @@ public record OpenCollabAndCreatePostCommand(
         UUID currentUserId,
         String title,
         String description,
-        Set<String> taggedUsers,
         Set<String> postTags,
         List<PostMediaCommand> media
 ) {

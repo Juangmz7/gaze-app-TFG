@@ -23,7 +23,7 @@ import com.app.postcommandservice.collab.infrastructure.mapper.CollabEventMapper
 import com.app.postcommandservice.post.application.dto.PostResponse;
 import com.app.postcommandservice.post.application.mapper.PostApplicationMapper;
 import com.app.postcommandservice.post.application.repository.PostRepository;
-import com.app.postcommandservice.post.domain.exception.PostNotActiveException;
+import com.app.postcommandservice.post.domain.exception.PostNotAcceptedException;
 import com.app.postcommandservice.post.domain.exception.PostNotFoundException;
 import com.app.postcommandservice.post.domain.exception.PostOwnershipException;
 import com.app.postcommandservice.post.domain.model.Post;
@@ -89,8 +89,8 @@ public class OpenCollabForExistingPostUseCase {
     }
 
     private void assertActive(Post post) {
-        if (post.getStatus() != PostStatus.ACTIVE) {
-            throw new PostNotActiveException(post.getId().value(), post.getStatus(), "open a collab");
+        if (post.getStatus() != PostStatus.ACCEPTED) {
+            throw new PostNotAcceptedException(post.getId().value(), post.getStatus(), "open a collab");
         }
     }
 

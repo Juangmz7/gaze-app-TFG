@@ -40,7 +40,7 @@ class PostViewValidationRepositoryImplTest {
     void shouldReturnActivePostOwnerWhenPostIsActive() {
         var postId = UUID.randomUUID();
         var ownerId = UUID.randomUUID();
-        when(postJpaRepository.findOwnerIdByIdAndStatus(postId, PostStatus.ACTIVE)).thenReturn(Optional.of(ownerId));
+        when(postJpaRepository.findOwnerIdByIdAndStatus(postId, PostStatus.ACCEPTED)).thenReturn(Optional.of(ownerId));
 
         var activePost = repository.findActivePost(postId);
 
@@ -50,7 +50,7 @@ class PostViewValidationRepositoryImplTest {
     @Test
     void shouldReturnEmptyWhenPostIsMissingOrInactive() {
         var postId = UUID.randomUUID();
-        when(postJpaRepository.findOwnerIdByIdAndStatus(postId, PostStatus.ACTIVE)).thenReturn(Optional.empty());
+        when(postJpaRepository.findOwnerIdByIdAndStatus(postId, PostStatus.ACCEPTED)).thenReturn(Optional.empty());
 
         var activePost = repository.findActivePost(postId);
 

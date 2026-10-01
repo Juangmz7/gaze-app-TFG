@@ -29,7 +29,7 @@ import com.app.postcommandservice.comment.domain.model.valueobj.CommentStatus;
 import com.app.postcommandservice.comment.infrastructure.events.CommentCreatedEvent;
 import com.app.postcommandservice.comment.infrastructure.mapper.CommentEventMapper;
 import com.app.postcommandservice.post.application.repository.PostRepository;
-import com.app.postcommandservice.post.domain.exception.PostNotActiveException;
+import com.app.postcommandservice.post.domain.exception.PostNotAcceptedException;
 import com.app.postcommandservice.post.domain.exception.PostNotFoundException;
 import com.app.postcommandservice.post.domain.model.Post;
 import com.app.postcommandservice.post.domain.model.PostInfo;
@@ -37,7 +37,6 @@ import com.app.postcommandservice.post.domain.model.PostMedia;
 import com.app.postcommandservice.post.domain.model.valueobj.PostDescription;
 import com.app.postcommandservice.post.domain.model.valueobj.PostId;
 import com.app.postcommandservice.post.domain.model.valueobj.PostStatus;
-import com.app.postcommandservice.post.domain.model.valueobj.PostTaggedUsers;
 import com.app.postcommandservice.post.domain.model.valueobj.PostTags;
 import com.app.postcommandservice.post.domain.model.valueobj.PostType;
 import com.app.postcommandservice.post.domain.model.valueobj.MediaType;
@@ -213,14 +212,14 @@ class CreateCommentUseCaseTest {
     }
 
     @Test
-    void shouldThrowPostNotActiveExceptionWhenTargetPostIsNotActive() {
+    void shouldThrowPostNotAcceptedExceptionWhenTargetPostIsNotActive() {
         var correlationId = UUID.randomUUID();
         when(commentRequestIdempotencyRepository.findCommentIdByCorrelationId(correlationId)).thenReturn(Optional.empty());
         when(postRepository.findById(POST_ID)).thenReturn(Optional.of(postWithStatus(POST_OWNER_ID, PostStatus.DELETED)));
 
         assertThatThrownBy(() -> createCommentUseCase.createComment(
                 new CreateCommentCommand(correlationId, POST_ID, USER_ID, "hello", null)))
-                .isInstanceOf(PostNotActiveException.class)
+                .isInstanceOf(PostNotAcceptedException.class)
                 .hasMessageContaining(POST_ID.toString());
     }
 
@@ -277,7 +276,7 @@ class CreateCommentUseCaseTest {
     }
 
     private Post activePost(UUID ownerId) {
-        return postWithStatus(ownerId, PostStatus.ACTIVE);
+        return postWithStatus(ownerId, PostStatus.ACCEPTED);
     }
 
     private Post postWithStatus(UUID ownerId, PostStatus status) {
@@ -288,11 +287,10 @@ class CreateCommentUseCaseTest {
                 null,
                 new PostInfo(
                         new PostDescription("post"),
-                        new PostTaggedUsers(java.util.Set.of()),
                         new PostTags(java.util.Set.of("java")),
                         PostType.BASIC
                 ),
-                List.of(PostMedia.create(POST_ID, "https://cdn/image.jpg", null, MediaType.IMAGE, null, 1)),
+                List.of(PostMedia.create(POST_ID, "https://cdn/image.jpg", null, MediaType.IMAGE, null, java.util.Set.of(), 1)),
                 status,
                 now,
                 now

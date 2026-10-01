@@ -3,14 +3,14 @@ package com.app.postcommandservice.post.domain.model;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
 import com.app.postcommandservice.post.domain.exception.InvalidPostMediaException;
-import com.app.postcommandservice.post.domain.exception.PostNotActiveException;
+import com.app.postcommandservice.post.domain.exception.PostNotAcceptedException;
+import com.app.postcommandservice.post.domain.exception.PostNotPendingException;
 import com.app.postcommandservice.post.domain.model.valueobj.PostId;
 import com.app.postcommandservice.post.domain.model.valueobj.PostStatus;
 import com.app.postcommandservice.post.domain.model.valueobj.PostType;
@@ -53,29 +53,25 @@ public class Post {
             UUID collabId,
             PostInfo postInfo,
             List<PostMedia> media) {
-        return new Post(id, userId, collabId, postInfo, media, PostStatus.ACTIVE, null, null);
+        return new Post(id, userId, collabId, postInfo, media, PostStatus.ACCEPTED, null, null);
     }
 
     public PostUpdateResult update(PostInfo newPostInfo) {
         Objects.requireNonNull(newPostInfo, "postInfo must not be null");
 
         if (this.postInfo.equals(newPostInfo)) {
-            return new PostUpdateResult(this, false, Set.of());
+            return new PostUpdateResult(this, false);
         }
-
-        Set<String> newlyTaggedUsers = new LinkedHashSet<>(newPostInfo.taggedUsers().value());
-        newlyTaggedUsers.removeAll(this.postInfo.taggedUsers().value());
 
         return new PostUpdateResult(
                 new Post(id, userId, collabId, newPostInfo, media, status, createdAt, updatedAt),
-                true,
-                newlyTaggedUsers
+                true
         );
     }
 
     public Post delete() {
-        if (status != PostStatus.ACTIVE) {
-            throw new PostNotActiveException(id.value(), status);
+        if (status != PostStatus.ACCEPTED) {
+            throw new PostNotAcceptedException(id.value(), status);
         }
 
         return new Post(id, userId, collabId, postInfo, List.of(), PostStatus.DELETED, createdAt, updatedAt);
@@ -86,11 +82,20 @@ public class Post {
 
         var linkedInfo = new PostInfo(
                 postInfo.description(),
-                postInfo.taggedUsers(),
                 postInfo.tags(),
                 PostType.COLLAB
         );
         return new Post(id, userId, targetCollabId, linkedInfo, media, status, createdAt, updatedAt);
+    }
+
+    public Post acceptMediaUpload() {
+        requirePending("accept the media upload");
+        return new Post(id, userId, collabId, postInfo, media, PostStatus.ACCEPTED, createdAt, updatedAt);
+    }
+
+    public Post failMediaUpload() {
+        requirePending("fail the media upload");
+        return new Post(id, userId, collabId, postInfo, media, PostStatus.MEDIA_UPLOAD_FAILED, createdAt, updatedAt);
     }
 
     public PostId getId() {
@@ -121,10 +126,6 @@ public class Post {
         return postInfo.description();
     }
 
-    public com.app.postcommandservice.post.domain.model.valueobj.PostTaggedUsers getTaggedUsers() {
-        return postInfo.taggedUsers();
-    }
-
     public com.app.postcommandservice.post.domain.model.valueobj.PostTags getTags() {
         return postInfo.tags();
     }
@@ -139,6 +140,12 @@ public class Post {
 
     public Instant getUpdatedAt() {
         return updatedAt;
+    }
+
+    private void requirePending(String action) {
+        if (status != PostStatus.PENDING) {
+            throw new PostNotPendingException(id.value(), status, action);
+        }
     }
 
     private void validateCollabLink(PostType postType, UUID collabId) {

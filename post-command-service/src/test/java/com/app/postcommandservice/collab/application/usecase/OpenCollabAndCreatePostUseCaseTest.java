@@ -40,7 +40,6 @@ import com.app.postcommandservice.post.domain.model.PostMedia;
 import com.app.postcommandservice.post.domain.model.valueobj.PostDescription;
 import com.app.postcommandservice.post.domain.model.valueobj.PostId;
 import com.app.postcommandservice.post.domain.model.valueobj.PostStatus;
-import com.app.postcommandservice.post.domain.model.valueobj.PostTaggedUsers;
 import com.app.postcommandservice.post.domain.model.valueobj.PostTags;
 import com.app.postcommandservice.post.domain.model.valueobj.PostType;
 import com.app.postcommandservice.post.domain.model.valueobj.MediaType;
@@ -120,7 +119,6 @@ class OpenCollabAndCreatePostUseCaseTest {
                 collabId,
                 PostType.COLLAB,
                 "hello",
-                Set.of("alice"),
                 Set.of("spring"),
                 List.of(),
                 Instant.now(),
@@ -144,7 +142,6 @@ class OpenCollabAndCreatePostUseCaseTest {
                 .postCollabId(collabId)
                 .postType(PostType.COLLAB)
                 .description("hello")
-                .taggedUsers(Set.of("alice"))
                 .postTags(Set.of("spring"))
                 .postCreatedAt(savedPost.getCreatedAt())
                 .postUpdatedAt(savedPost.getUpdatedAt())
@@ -166,7 +163,6 @@ class OpenCollabAndCreatePostUseCaseTest {
                 USER_ID,
                 "New collab",
                 "hello",
-                Set.of("alice"),
                 Set.of("spring"),
                 defaultMedia()
         ));
@@ -207,7 +203,6 @@ class OpenCollabAndCreatePostUseCaseTest {
                 "ignored",
                 "ignored",
                 Set.of(),
-                Set.of(),
                 defaultMedia()
         ));
 
@@ -220,7 +215,7 @@ class OpenCollabAndCreatePostUseCaseTest {
     }
 
     private List<PostMediaCommand> defaultMedia() {
-        return List.of(new PostMediaCommand("https://cdn/image.jpg", null, MediaType.IMAGE, null, 1));
+        return List.of(new PostMediaCommand("https://cdn/image.jpg", null, MediaType.IMAGE, null, Set.of(), 1));
     }
 
     private Post persistedCollabPost(UUID postId, UUID collabId) {
@@ -231,12 +226,11 @@ class OpenCollabAndCreatePostUseCaseTest {
                 collabId,
                 new PostInfo(
                         new PostDescription("hello"),
-                        new PostTaggedUsers(Set.of("alice")),
                         new PostTags(Set.of("spring")),
                         PostType.COLLAB
                 ),
-                List.of(PostMedia.create(postId, "https://cdn/image.jpg", null, MediaType.IMAGE, null, 1)),
-                PostStatus.ACTIVE,
+                List.of(PostMedia.create(postId, "https://cdn/image.jpg", null, MediaType.IMAGE, null, Set.of("alice"), 1)),
+                PostStatus.ACCEPTED,
                 now,
                 now
         );

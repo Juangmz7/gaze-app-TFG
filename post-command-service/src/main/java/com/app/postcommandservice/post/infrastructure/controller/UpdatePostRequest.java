@@ -11,7 +11,6 @@ public record UpdatePostRequest(
         @NotNull(message = "postId is required")
         UUID postId,
         String description,
-        Set<@NotBlank(message = "taggedUsers must not contain blank values") String> taggedUsers,
         @NotEmpty(message = "postTags must contain at least one tag")
         Set<@NotBlank(message = "postTags must not contain blank values") String> postTags
 ) {

@@ -33,7 +33,6 @@ import com.app.postcommandservice.post.domain.model.valueobj.MediaType;
 import com.app.postcommandservice.post.domain.model.valueobj.PostDescription;
 import com.app.postcommandservice.post.domain.model.valueobj.PostId;
 import com.app.postcommandservice.post.domain.model.valueobj.PostStatus;
-import com.app.postcommandservice.post.domain.model.valueobj.PostTaggedUsers;
 import com.app.postcommandservice.post.domain.model.valueobj.PostTags;
 import com.app.postcommandservice.post.domain.model.valueobj.PostType;
 import com.app.postcommandservice.post.infrastructure.events.PostCreatedEvent;
@@ -90,7 +89,7 @@ class CreatePostUseCaseTest {
 
     @Test
     void shouldCreatePostSuccessfullyWhenDescriptionIsBlankAndNoUsersAreTagged() {
-        var command = new CreatePostCommand(CORRELATION_ID, USER_ID, null, PostType.BASIC, "", Set.of(), Set.of("java"), defaultMedia());
+        var command = new CreatePostCommand(CORRELATION_ID, USER_ID, null, PostType.BASIC, "", Set.of("java"), defaultMedia(Set.of()));
         var persistedPost = persistedPost("", Set.of(), Set.of("java"));
         var createdEvent = createdEvent(persistedPost);
 
@@ -106,11 +105,11 @@ class CreatePostUseCaseTest {
         assertThat(response.collabId()).isNull();
         assertThat(response.postType()).isEqualTo(PostType.BASIC);
         assertThat(response.description()).isEmpty();
-        assertThat(response.taggedUsers()).isEmpty();
+        assertThat(response.media().get(0).taggedUsers()).isEmpty();
         assertThat(response.postTags()).containsExactly("java");
 
         verify(postRepository).save(postCaptor.capture());
-        assertThat(postCaptor.getValue().getStatus()).isEqualTo(PostStatus.ACTIVE);
+        assertThat(postCaptor.getValue().getStatus()).isEqualTo(PostStatus.ACCEPTED);
 
         verify(postRequestIdempotencyRepository).save(CORRELATION_ID, persistedPost.getId().value());
         verify(outboxEventRepository).save(outboxEventCaptor.capture());
@@ -121,7 +120,7 @@ class CreatePostUseCaseTest {
 
     @Test
     void shouldAcquireCorrelationLockBeforeCheckingExistingIdempotencyRecord() {
-        var command = new CreatePostCommand(CORRELATION_ID, USER_ID, null, PostType.BASIC, "", Set.of(), Set.of("java"), defaultMedia());
+        var command = new CreatePostCommand(CORRELATION_ID, USER_ID, null, PostType.BASIC, "", Set.of("java"), defaultMedia(Set.of()));
         var persistedPost = persistedPost("", Set.of(), Set.of("java"));
         var createdEvent = createdEvent(persistedPost);
 
@@ -140,22 +139,22 @@ class CreatePostUseCaseTest {
 
     @Test
     void shouldCreatePostSuccessfullyWhenTaggedUsersExistAndAreNotBlocked() {
+        var taggedUsers = new LinkedHashSet<>(Set.of("alice", "bob"));
         var command = new CreatePostCommand(
                 CORRELATION_ID,
                 USER_ID,
                 null,
                 PostType.BASIC,
                 "hello",
-                new LinkedHashSet<>(Set.of("alice", "bob")),
                 Set.of("spring", "rabbit"),
-                defaultMedia()
+                defaultMedia(taggedUsers)
         );
-        var persistedPost = persistedPost("hello", command.taggedUsers(), command.postTags());
+        var persistedPost = persistedPost("hello", taggedUsers, command.postTags());
         var createdEvent = createdEvent(persistedPost);
         var usersByUsername = Map.of("alice", UUID.randomUUID(), "bob", UUID.randomUUID());
 
         when(postRequestIdempotencyRepository.findPostIdByCorrelationId(CORRELATION_ID)).thenReturn(Optional.empty());
-        when(taggedUserValidationRepository.findUserIdsByUsernames(command.taggedUsers())).thenReturn(usersByUsername);
+        when(taggedUserValidationRepository.findUserIdsByUsernames(taggedUsers)).thenReturn(usersByUsername);
         when(taggedUserValidationRepository.findBlockedUserIds(USER_ID, Set.copyOf(usersByUsername.values())))
                 .thenReturn(Set.of());
         when(postRepository.save(any(Post.class))).thenReturn(persistedPost);
@@ -165,8 +164,8 @@ class CreatePostUseCaseTest {
 
         var response = createPostUseCase.createPost(command);
 
-        assertThat(response.taggedUsers()).containsExactlyInAnyOrder("alice", "bob");
-        verify(taggedUserValidationRepository).findUserIdsByUsernames(command.taggedUsers());
+        assertThat(response.media().get(0).taggedUsers()).containsExactlyInAnyOrder("alice", "bob");
+        verify(taggedUserValidationRepository).findUserIdsByUsernames(taggedUsers);
         verify(taggedUserValidationRepository).findBlockedUserIds(USER_ID, Set.copyOf(usersByUsername.values()));
     }
 
@@ -184,9 +183,8 @@ class CreatePostUseCaseTest {
                 null,
                 PostType.BASIC,
                 "new value",
-                Set.of("bob"),
                 Set.of("spring"),
-                defaultMedia()
+                defaultMedia(Set.of("bob"))
         ));
 
         assertThat(response.postId()).isEqualTo(existingPost.getId().value());
@@ -204,13 +202,12 @@ class CreatePostUseCaseTest {
                 null,
                 PostType.BASIC,
                 "description",
-                Set.of("missing"),
                 Set.of("java"),
-                defaultMedia()
+                defaultMedia(Set.of("missing"))
         );
 
         when(postRequestIdempotencyRepository.findPostIdByCorrelationId(CORRELATION_ID)).thenReturn(Optional.empty());
-        when(taggedUserValidationRepository.findUserIdsByUsernames(command.taggedUsers())).thenReturn(Map.of());
+        when(taggedUserValidationRepository.findUserIdsByUsernames(Set.of("missing"))).thenReturn(Map.of());
 
         assertThatThrownBy(() -> createPostUseCase.createPost(command))
                 .isInstanceOf(TaggedUserNotFoundException.class)
@@ -226,13 +223,12 @@ class CreatePostUseCaseTest {
                 null,
                 PostType.BASIC,
                 "description",
-                Set.of("alice"),
                 Set.of("java"),
-                defaultMedia()
+                defaultMedia(Set.of("alice"))
         );
 
         when(postRequestIdempotencyRepository.findPostIdByCorrelationId(CORRELATION_ID)).thenReturn(Optional.empty());
-        when(taggedUserValidationRepository.findUserIdsByUsernames(command.taggedUsers()))
+        when(taggedUserValidationRepository.findUserIdsByUsernames(Set.of("alice")))
                 .thenReturn(Map.of("alice", blockedUserId));
         when(taggedUserValidationRepository.findBlockedUserIds(USER_ID, Set.of(blockedUserId)))
                 .thenReturn(Set.of(blockedUserId));
@@ -251,9 +247,8 @@ class CreatePostUseCaseTest {
                 collabId,
                 PostType.COLLAB,
                 "hello",
-                Set.of(),
                 Set.of("spring"),
-                defaultMedia()
+                defaultMedia(Set.of())
         );
         var postId = UUID.randomUUID();
         var persistedPost = new Post(
@@ -262,12 +257,11 @@ class CreatePostUseCaseTest {
                 collabId,
                 new PostInfo(
                         new PostDescription("hello"),
-                        new PostTaggedUsers(Set.of()),
                         new PostTags(Set.of("spring")),
                         PostType.COLLAB
                 ),
-                List.of(PostMedia.create(postId, "https://cdn/image.jpg", null, MediaType.IMAGE, null, 1)),
-                PostStatus.ACTIVE,
+                List.of(PostMedia.create(postId, "https://cdn/image.jpg", null, MediaType.IMAGE, null, Set.of(), 1)),
+                PostStatus.ACCEPTED,
                 Instant.now(),
                 Instant.now()
         );
@@ -292,9 +286,8 @@ class CreatePostUseCaseTest {
                 collabId,
                 PostType.COLLAB,
                 "hello",
-                Set.of(),
                 Set.of("spring"),
-                defaultMedia()
+                defaultMedia(Set.of())
         );
         var postId = UUID.randomUUID();
         var persistedPost = new Post(
@@ -303,12 +296,11 @@ class CreatePostUseCaseTest {
                 collabId,
                 new PostInfo(
                         new PostDescription("hello"),
-                        new PostTaggedUsers(Set.of()),
                         new PostTags(Set.of("spring")),
                         PostType.COLLAB
                 ),
-                List.of(PostMedia.create(postId, "https://cdn/image.jpg", null, MediaType.IMAGE, null, 1)),
-                PostStatus.ACTIVE,
+                List.of(PostMedia.create(postId, "https://cdn/image.jpg", null, MediaType.IMAGE, null, Set.of(), 1)),
+                PostStatus.ACCEPTED,
                 Instant.now(),
                 Instant.now()
         );
@@ -326,8 +318,8 @@ class CreatePostUseCaseTest {
         verify(applicationEventPublisher, never()).publishEvent(any(PostCreatedDomainEvent.class));
     }
 
-    private List<PostMediaCommand> defaultMedia() {
-        return List.of(new PostMediaCommand("https://cdn/image.jpg", null, MediaType.IMAGE, null, 1));
+    private List<PostMediaCommand> defaultMedia(Set<String> taggedUsers) {
+        return List.of(new PostMediaCommand("https://cdn/image.jpg", null, MediaType.IMAGE, null, taggedUsers, 1));
     }
 
     private Post persistedPost(String description, Set<String> taggedUsers, Set<String> postTags) {
@@ -339,12 +331,11 @@ class CreatePostUseCaseTest {
                 null,
                 new PostInfo(
                         new PostDescription(description),
-                        new PostTaggedUsers(new LinkedHashSet<>(taggedUsers)),
                         new PostTags(new LinkedHashSet<>(postTags)),
                         PostType.BASIC
                 ),
-                List.of(PostMedia.create(postId, "https://cdn/image.jpg", null, MediaType.IMAGE, null, 1)),
-                PostStatus.ACTIVE,
+                List.of(PostMedia.create(postId, "https://cdn/image.jpg", null, MediaType.IMAGE, null, taggedUsers, 1)),
+                PostStatus.ACCEPTED,
                 now,
                 now
         );
@@ -360,7 +351,6 @@ class CreatePostUseCaseTest {
                 .collabId(post.getCollabId())
                 .postType(post.getPostType())
                 .description(post.getDescription().value())
-                .taggedUsers(post.getTaggedUsers().value())
                 .postTags(post.getTags().value())
                 .media(PostEventMapper.toMediaPayload(post.getMedia()))
                 .createdAt(post.getCreatedAt())

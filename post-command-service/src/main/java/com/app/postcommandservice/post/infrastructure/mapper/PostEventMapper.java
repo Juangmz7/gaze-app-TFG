@@ -26,7 +26,6 @@ public class PostEventMapper {
                 .collabId(post.getCollabId())
                 .postType(post.getPostType())
                 .description(post.getDescription().value())
-                .taggedUsers(post.getTaggedUsers().value())
                 .postTags(post.getTags().value())
                 .media(toMediaPayload(post.getMedia()))
                 .createdAt(post.getCreatedAt())
@@ -44,7 +43,6 @@ public class PostEventMapper {
                 .collabId(post.getCollabId())
                 .postType(post.getPostType())
                 .description(post.getDescription().value())
-                .taggedUsers(post.getTaggedUsers().value())
                 .postTags(post.getTags().value())
                 .media(toMediaPayload(post.getMedia()))
                 .createdAt(post.getCreatedAt())
@@ -75,6 +73,7 @@ public class PostEventMapper {
                         .thumbnailUrl(postMedia.getThumbnailUrl())
                         .mediaType(postMedia.getMediaType())
                         .duration(postMedia.getDuration())
+                        .taggedUsers(postMedia.getTaggedUsers())
                         .order(postMedia.getOrder())
                         .build())
                 .toList();

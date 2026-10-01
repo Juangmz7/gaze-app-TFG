@@ -62,7 +62,6 @@ class CollabLinkedEventPublisherTest {
                 .collabId(UUID.randomUUID())
                 .postType(PostType.COLLAB)
                 .description("description")
-                .taggedUsers(Set.of("alice"))
                 .postTags(Set.of("spring"))
                 .createdAt(Instant.now())
                 .updatedAt(Instant.now())

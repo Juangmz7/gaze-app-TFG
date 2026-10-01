@@ -13,7 +13,6 @@ import com.app.postcommandservice.post.domain.model.PostInfo;
 import com.app.postcommandservice.post.domain.model.PostMedia;
 import com.app.postcommandservice.post.domain.model.valueobj.PostDescription;
 import com.app.postcommandservice.post.domain.model.valueobj.PostId;
-import com.app.postcommandservice.post.domain.model.valueobj.PostTaggedUsers;
 import com.app.postcommandservice.post.domain.model.valueobj.PostTags;
 import com.app.postcommandservice.post.infrastructure.entity.PostEntity;
 import com.app.postcommandservice.post.infrastructure.entity.PostMediaEntity;
@@ -29,7 +28,6 @@ public class PostMapper {
                 .collabId(post.getCollabId())
                 .postType(post.getPostType())
                 .description(post.getDescription().value())
-                .taggedUsers(new ArrayList<>(post.getTaggedUsers().value()))
                 .tags(new ArrayList<>(post.getTags().value()))
                 .status(post.getStatus())
                 .createdAt(post.getCreatedAt())
@@ -56,7 +54,6 @@ public class PostMapper {
                 entity.getCollabId(),
                 new PostInfo(
                         new PostDescription(entity.getDescription()),
-                        new PostTaggedUsers(new LinkedHashSet<>(entity.getTaggedUsers())),
                         new PostTags(new LinkedHashSet<>(entity.getTags())),
                         entity.getPostType()
                 ),
@@ -74,6 +71,7 @@ public class PostMapper {
                 .thumbnailUrl(postMedia.getThumbnailUrl())
                 .mediaType(postMedia.getMediaType())
                 .duration(postMedia.getDuration())
+                .taggedUsers(new ArrayList<>(postMedia.getTaggedUsers()))
                 .mediaOrder(postMedia.getOrder())
                 .build();
     }
@@ -87,6 +85,7 @@ public class PostMapper {
                 entity.getThumbnailUrl(),
                 entity.getMediaType(),
                 entity.getDuration(),
+                new LinkedHashSet<>(entity.getTaggedUsers()),
                 entity.getMediaOrder()
         );
     }

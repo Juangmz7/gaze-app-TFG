@@ -34,9 +34,8 @@ class PostMapperTest {
                 .collabId(null)
                 .postType(PostType.BASIC)
                 .description("description")
-                .taggedUsers(List.of("alice"))
                 .tags(List.of("java", "spring"))
-                .status(PostStatus.ACTIVE)
+                .status(PostStatus.ACCEPTED)
                 .createdAt(now)
                 .updatedAt(now)
                 .build();
@@ -44,7 +43,9 @@ class PostMapperTest {
         entity.addMedia(PostMediaEntity.builder()
                 .id(UUID.randomUUID())
                 .url("https://cdn/image.jpg")
+                .thumbnailUrl("https://cdn/image.jpg")
                 .mediaType(MediaType.IMAGE)
+                .taggedUsers(List.of("alice"))
                 .mediaOrder(1)
                 .build());
         entity.addMedia(PostMediaEntity.builder()
@@ -61,10 +62,9 @@ class PostMapperTest {
         assertThat(post.getId().value()).isEqualTo(postId);
         assertThat(post.getUserId().value()).isEqualTo(userId);
         assertThat(post.getDescription().value()).isEqualTo("description");
-        assertThat(post.getTaggedUsers().value()).containsExactly("alice");
         assertThat(post.getTags().value()).containsExactlyInAnyOrder("java", "spring");
         assertThat(post.getPostType()).isEqualTo(PostType.BASIC);
-        assertThat(post.getStatus()).isEqualTo(PostStatus.ACTIVE);
+        assertThat(post.getStatus()).isEqualTo(PostStatus.ACCEPTED);
         assertThat(post.getCreatedAt()).isEqualTo(now);
         assertThat(post.getUpdatedAt()).isEqualTo(now);
 
@@ -72,12 +72,14 @@ class PostMapperTest {
         assertThat(media).hasSize(2);
         assertThat(media.get(0).getOrder()).isEqualTo(1);
         assertThat(media.get(0).getMediaType()).isEqualTo(MediaType.IMAGE);
-        assertThat(media.get(0).getThumbnailUrl()).isNull();
+        assertThat(media.get(0).getThumbnailUrl()).isEqualTo("https://cdn/image.jpg");
         assertThat(media.get(0).getDuration()).isNull();
+        assertThat(media.get(0).getTaggedUsers()).containsExactly("alice");
         assertThat(media.get(1).getOrder()).isEqualTo(2);
         assertThat(media.get(1).getMediaType()).isEqualTo(MediaType.VIDEO);
         assertThat(media.get(1).getThumbnailUrl()).isEqualTo("https://cdn/thumb.jpg");
         assertThat(media.get(1).getDuration()).isEqualTo(30);
+        assertThat(media.get(1).getTaggedUsers()).isEmpty();
 
         assertThat(fieldNames(Post.class))
                 .noneMatch(name -> name.toLowerCase().contains("count"));
@@ -96,11 +98,10 @@ class PostMapperTest {
                 null,
                 new com.app.postcommandservice.post.domain.model.PostInfo(
                         new com.app.postcommandservice.post.domain.model.valueobj.PostDescription("description"),
-                        new com.app.postcommandservice.post.domain.model.valueobj.PostTaggedUsers(Set.of("alice")),
                         new com.app.postcommandservice.post.domain.model.valueobj.PostTags(Set.of("java")),
                         PostType.BASIC
                 ),
-                List.of(PostMedia.create(postId, "https://cdn/image.jpg", null, MediaType.IMAGE, null, 1))
+                List.of(PostMedia.create(postId, "https://cdn/image.jpg", null, MediaType.IMAGE, null, Set.of("alice"), 1))
         );
 
         PostEntity entity = postMapper.toEntity(post);
@@ -109,6 +110,7 @@ class PostMapperTest {
         assertThat(entity.getUserId()).isEqualTo(userId);
         assertThat(entity.getTags()).containsExactly("java");
         assertThat(entity.getMedia()).hasSize(1);
+        assertThat(entity.getMedia().get(0).getTaggedUsers()).containsExactly("alice");
         assertThat(fieldNames(PostEntity.class))
                 .noneMatch(name -> name.toLowerCase().contains("count"));
         assertThat(fieldNames(PostMediaEntity.class))

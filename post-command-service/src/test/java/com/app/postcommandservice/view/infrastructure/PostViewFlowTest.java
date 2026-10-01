@@ -268,7 +268,7 @@ class PostViewFlowTest {
                 .collabId(null)
                 .description("active")
                 .postType(PostType.BASIC)
-                .status(PostStatus.ACTIVE)
+                .status(PostStatus.ACCEPTED)
                 .build());
     }
 

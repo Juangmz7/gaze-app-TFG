@@ -46,7 +46,7 @@ class PostRepositoryImplOptimisticLockingIT {
                 .collabId(null)
                 .postType(PostType.BASIC)
                 .description("before")
-                .status(PostStatus.ACTIVE)
+                .status(PostStatus.ACCEPTED)
                 .build();
         seed.addMedia(PostMediaEntity.builder()
                 .id(UUID.randomUUID())

@@ -27,7 +27,6 @@ import com.app.postcommandservice.post.domain.model.PostMedia;
 import com.app.postcommandservice.post.domain.model.valueobj.PostDescription;
 import com.app.postcommandservice.post.domain.model.valueobj.PostId;
 import com.app.postcommandservice.post.domain.model.valueobj.PostStatus;
-import com.app.postcommandservice.post.domain.model.valueobj.PostTaggedUsers;
 import com.app.postcommandservice.post.domain.model.valueobj.PostTags;
 import com.app.postcommandservice.post.domain.model.valueobj.PostType;
 import com.app.postcommandservice.post.domain.model.valueobj.MediaType;
@@ -122,12 +121,11 @@ class CheckPostCollabLinkStatusUseCaseTest {
                 collabId,
                 new PostInfo(
                         new PostDescription("description"),
-                        new PostTaggedUsers(new LinkedHashSet<>(Set.of("alice"))),
                         new PostTags(new LinkedHashSet<>(Set.of("java"))),
                         collabId == null ? PostType.BASIC : PostType.COLLAB
                 ),
-                List.of(PostMedia.create(POST_ID, "https://cdn/image.jpg", null, MediaType.IMAGE, null, 1)),
-                PostStatus.ACTIVE,
+                List.of(PostMedia.create(POST_ID, "https://cdn/image.jpg", null, MediaType.IMAGE, null, Set.of("alice"), 1)),
+                PostStatus.ACCEPTED,
                 now,
                 now
         );

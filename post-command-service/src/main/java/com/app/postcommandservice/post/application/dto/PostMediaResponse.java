@@ -1,6 +1,9 @@
 package com.app.postcommandservice.post.application.dto;
 
+import java.util.Set;
 import java.util.UUID;
+
+import com.fasterxml.jackson.annotation.JsonInclude;
 
 import com.app.postcommandservice.post.domain.model.valueobj.MediaType;
 
@@ -9,7 +12,8 @@ public record PostMediaResponse(
         String url,
         String thumbnailUrl,
         MediaType mediaType,
-        Integer duration,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Integer duration,
+        Set<String> taggedUsers,
         int order
 ) {
 }

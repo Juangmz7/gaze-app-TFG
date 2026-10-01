@@ -1,5 +1,7 @@
 package com.app.postcommandservice.post.infrastructure.controller;
 
+import java.util.Set;
+
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -14,11 +16,12 @@ public record PostMediaRequest(
         @NotNull(message = "media mediaType is required")
         MediaType mediaType,
         Integer duration,
+        Set<@NotBlank(message = "taggedUsers must not contain blank values") String> taggedUsers,
         @Min(value = 1, message = "media order must be a positive 1-based index")
         int order
 ) {
 
     public PostMediaCommand toCommand() {
-        return new PostMediaCommand(url, thumbnailUrl, mediaType, duration, order);
+        return new PostMediaCommand(url, thumbnailUrl, mediaType, duration, taggedUsers, order);
     }
 }

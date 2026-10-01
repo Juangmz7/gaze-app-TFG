@@ -164,9 +164,9 @@ class CollabControllerFlowTest {
                 "correlationId", correlationId,
                 "title", "Open collab",
                 "description", "hello",
-                "taggedUsers", Set.of("alice"),
                 "postTags", Set.of("spring"),
-                "media", List.of(Map.of("url", "https://cdn/image.jpg", "mediaType", "IMAGE", "order", 1))
+                "media", List.of(Map.of("url", "https://cdn/image.jpg", "mediaType", "IMAGE", "order", 1,
+                        "taggedUsers", Set.of("alice")))
         ));
 
         mockMvc.perform(post("/api/collabs")
@@ -179,7 +179,8 @@ class CollabControllerFlowTest {
                 .andExpect(jsonPath("$.createdBy").value(CREATOR_ID.toString()))
                 .andExpect(jsonPath("$.collabStatus").value("OPEN"))
                 .andExpect(jsonPath("$.post.postType").value("COLLAB"))
-                .andExpect(jsonPath("$.post.collabId").exists());
+                .andExpect(jsonPath("$.post.collabId").exists())
+                .andExpect(jsonPath("$.post.media[0].taggedUsers[0]").value("alice"));
 
         assertThat(collabJpaRepository.count()).isEqualTo(1);
         assertThat(collabMemberJpaRepository.count()).isEqualTo(1);
@@ -218,7 +219,6 @@ class CollabControllerFlowTest {
                 "correlationId", correlationId,
                 "title", "Open collab",
                 "description", "collab post",
-                "taggedUsers", Set.of(),
                 "postTags", Set.of("collab"),
                 "media", List.of(Map.of("url", "https://cdn/image.jpg", "mediaType", "IMAGE", "order", 1))
         ));
@@ -236,7 +236,6 @@ class CollabControllerFlowTest {
         var basicPostPayload = objectMapper.writeValueAsString(Map.of(
                 "correlationId", correlationId,
                 "description", "basic post",
-                "taggedUsers", Set.of(),
                 "postTags", Set.of("basic"),
                 "media", List.of(Map.of("url", "https://cdn/image.jpg", "mediaType", "IMAGE", "order", 1))
         ));
@@ -280,7 +279,6 @@ class CollabControllerFlowTest {
                 "correlationId", correlationId,
                 "title", "Replay collab",
                 "description", "hello",
-                "taggedUsers", Set.of(),
                 "postTags", Set.of("spring"),
                 "media", List.of(Map.of("url", "https://cdn/image.jpg", "mediaType", "IMAGE", "order", 1))
         ));
@@ -330,7 +328,7 @@ class CollabControllerFlowTest {
         assertThat(secondPost.get("collabId")).isEqualTo(firstPost.get("collabId"));
         assertThat(secondPost.get("postType")).isEqualTo(firstPost.get("postType"));
         assertThat(secondPost.get("description")).isEqualTo(firstPost.get("description"));
-        assertThat(secondPost.get("taggedUsers")).isEqualTo(firstPost.get("taggedUsers"));
+        assertThat(secondPost.get("media")).isEqualTo(firstPost.get("media"));
         assertThat(secondPost.get("postTags")).isEqualTo(firstPost.get("postTags"));
         assertTimestampEquivalent(secondPost.get("createdAt"), firstPost.get("createdAt"));
         assertTimestampEquivalent(secondPost.get("updatedAt"), firstPost.get("updatedAt"));

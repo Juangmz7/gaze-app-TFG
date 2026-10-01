@@ -18,7 +18,6 @@ import com.app.postcommandservice.post.domain.model.valueobj.MediaType;
 import com.app.postcommandservice.post.domain.model.valueobj.PostDescription;
 import com.app.postcommandservice.post.domain.model.valueobj.PostId;
 import com.app.postcommandservice.post.domain.model.valueobj.PostStatus;
-import com.app.postcommandservice.post.domain.model.valueobj.PostTaggedUsers;
 import com.app.postcommandservice.post.domain.model.valueobj.PostTags;
 import com.app.postcommandservice.post.domain.model.valueobj.PostType;
 import com.app.postcommandservice.post.infrastructure.entity.PostEntity;
@@ -61,7 +60,7 @@ class PostRepositoryImplTest {
     void shouldInsertNewPostDirectlyWithoutCheckingWhetherItAlreadyExists() {
         var postId = UUID.randomUUID();
         var post = newPost(postId, "brand new post", List.of(
-                PostMedia.create(postId, "https://cdn/image.jpg", null, MediaType.IMAGE, null, 1)
+                PostMedia.create(postId, "https://cdn/image.jpg", null, MediaType.IMAGE, null, Set.of(), 1)
         ));
 
         when(postJpaRepository.save(any(PostEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -78,7 +77,7 @@ class PostRepositoryImplTest {
     void shouldThrowIllegalStateExceptionWhenSaveAndFlushTargetsAPostThatDoesNotExist() {
         var postId = UUID.randomUUID();
         var post = newPost(postId, "orphan update", List.of(
-                PostMedia.create(postId, "https://cdn/image.jpg", null, MediaType.IMAGE, null, 1)
+                PostMedia.create(postId, "https://cdn/image.jpg", null, MediaType.IMAGE, null, Set.of(), 1)
         ));
 
         when(postJpaRepository.findById(postId)).thenReturn(Optional.empty());
@@ -102,9 +101,8 @@ class PostRepositoryImplTest {
                 .collabId(null)
                 .postType(PostType.BASIC)
                 .description("before")
-                .taggedUsers(new java.util.ArrayList<>(List.of("alice")))
                 .tags(new java.util.ArrayList<>(List.of("old-tag")))
-                .status(PostStatus.ACTIVE)
+                .status(PostStatus.ACCEPTED)
                 .build();
         existing.addMedia(PostMediaEntity.builder()
                 .id(keptMediaId)
@@ -129,15 +127,14 @@ class PostRepositoryImplTest {
                 null,
                 new PostInfo(
                         new PostDescription("after"),
-                        new PostTaggedUsers(Set.of("bob")),
                         new PostTags(Set.of("new-tag")),
                         PostType.BASIC
                 ),
                 List.of(
-                        new PostMedia(keptMediaId, postId, "https://cdn/kept-new-url.jpg", null, MediaType.IMAGE, null, 1),
-                        new PostMedia(newMediaId, postId, "https://cdn/new.jpg", null, MediaType.IMAGE, null, 2)
+                        new PostMedia(keptMediaId, postId, "https://cdn/kept-new-url.jpg", null, MediaType.IMAGE, null, Set.of("bob"), 1),
+                        new PostMedia(newMediaId, postId, "https://cdn/new.jpg", null, MediaType.IMAGE, null, Set.of(), 2)
                 ),
-                PostStatus.ACTIVE,
+                PostStatus.ACCEPTED,
                 null,
                 null
         );
@@ -149,7 +146,6 @@ class PostRepositoryImplTest {
         verify(postJpaRepository, org.mockito.Mockito.times(2)).saveAndFlush(existing);
 
         assertThat(result.getDescription().value()).isEqualTo("after");
-        assertThat(result.getTaggedUsers().value()).containsExactly("bob");
         assertThat(result.getTags().value()).containsExactly("new-tag");
 
         assertThat(existing.getMedia()).hasSize(2);
@@ -161,6 +157,7 @@ class PostRepositoryImplTest {
                 .satisfies(mediaEntity -> {
                     assertThat(mediaEntity.getUrl()).isEqualTo("https://cdn/kept-new-url.jpg");
                     assertThat(mediaEntity.getMediaOrder()).isEqualTo(1);
+                    assertThat(mediaEntity.getTaggedUsers()).containsExactly("bob");
                 });
         assertThat(existing.getMedia())
                 .noneMatch(mediaEntity -> mediaEntity.getId().equals(removedMediaId));
@@ -173,7 +170,6 @@ class PostRepositoryImplTest {
                 null,
                 new PostInfo(
                         new PostDescription(description),
-                        new PostTaggedUsers(Set.of()),
                         new PostTags(Set.of("java")),
                         PostType.BASIC
                 ),

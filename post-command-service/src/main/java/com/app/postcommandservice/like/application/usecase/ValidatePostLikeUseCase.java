@@ -41,7 +41,7 @@ public class ValidatePostLikeUseCase {
     public void validateAndCreateLike(ValidatePostLikeCommand command) {
         var activePost = postLikeValidationRepository.findActivePost(command.postId());
         if (activePost.isEmpty()) {
-            log.info("Discarding like command {} because post {} does not exist or is not ACTIVE",
+            log.info("Discarding like command {} because post {} does not exist or is not ACCEPTED",
                     command.id(), command.postId());
             return;
         }

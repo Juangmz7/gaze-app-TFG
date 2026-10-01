@@ -170,9 +170,8 @@ class PostControllerIT {
         var payload = objectMapper.writeValueAsString(Map.of(
                 "correlationId", correlationId,
                 "description", "",
-                "taggedUsers", Set.of(),
                 "postTags", Set.of("java"),
-                "media", List.of(Map.of("url", "https://cdn/image.jpg", "mediaType", "IMAGE", "order", 1))
+                "media", List.of(Map.of("url", "https://cdn/image.jpg", "mediaType", "IMAGE", "order", 1, "taggedUsers", Set.of()))
         ));
 
         var mvcResult = mockMvc.perform(post("/api/posts")
@@ -185,12 +184,12 @@ class PostControllerIT {
                 .andExpect(jsonPath("$.collabId").doesNotExist())
                 .andExpect(jsonPath("$.postType").value("BASIC"))
                 .andExpect(jsonPath("$.description").value(""))
-                .andExpect(jsonPath("$.taggedUsers").isArray())
+                .andExpect(jsonPath("$.media[0].taggedUsers").isArray())
                 .andExpect(jsonPath("$.postTags[0]").value("java"))
                 .andReturn();
 
         assertThat(postJpaRepository.findAll()).hasSize(1);
-        assertThat(postJpaRepository.findAll().getFirst().getStatus().name()).isEqualTo("ACTIVE");
+        assertThat(postJpaRepository.findAll().getFirst().getStatus().name()).isEqualTo("ACCEPTED");
         assertThat(postRequestIdempotencyJpaRepository.findById(correlationId)).isPresent();
         assertThat(outboxEventRepository.findAll()).hasSize(1);
 
@@ -214,9 +213,9 @@ class PostControllerIT {
         var payload = objectMapper.writeValueAsString(Map.of(
                 "correlationId", correlationId,
                 "description", "hello",
-                "taggedUsers", new LinkedHashSet<>(Set.of("alice", "bob")),
                 "postTags", Set.of("spring"),
-                "media", List.of(Map.of("url", "https://cdn/image.jpg", "mediaType", "IMAGE", "order", 1))
+                "media", List.of(Map.of("url", "https://cdn/image.jpg", "mediaType", "IMAGE", "order", 1,
+                        "taggedUsers", new LinkedHashSet<>(Set.of("alice", "bob"))))
         ));
 
         mockMvc.perform(post("/api/posts")
@@ -225,7 +224,7 @@ class PostControllerIT {
                         .content(payload))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.description").value("hello"))
-                .andExpect(jsonPath("$.taggedUsers").isArray());
+                .andExpect(jsonPath("$.media[0].taggedUsers").isArray());
 
         assertThat(postJpaRepository.findAll()).hasSize(1);
     }
@@ -249,9 +248,8 @@ class PostControllerIT {
                 .collabId(collab.getId())
                 .postType(PostType.COLLAB)
                 .description("linked")
-                .taggedUsers(new ArrayList<>())
                 .tags(new ArrayList<>(List.of("default")))
-                .status(PostStatus.ACTIVE)
+                .status(PostStatus.ACCEPTED)
                 .build();
         linkedPostEntity.addMedia(
                 com.app.postcommandservice.post.infrastructure.entity.PostMediaEntity.builder()
@@ -422,7 +420,6 @@ class PostControllerIT {
                 .collabId(null)
                 .postType(PostType.BASIC)
                 .description("deleted")
-                .taggedUsers(new ArrayList<>())
                 .tags(new ArrayList<>())
                 .status(PostStatus.DELETED)
                 .build());
@@ -478,7 +475,6 @@ class PostControllerIT {
         var payload = objectMapper.writeValueAsString(Map.of(
                 "postId", existingPost.getId(),
                 "description", "after",
-                "taggedUsers", new LinkedHashSet<>(Set.of("alice", "bob")),
                 "postTags", Set.of("spring")
         ));
 
@@ -489,14 +485,12 @@ class PostControllerIT {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.postId").value(existingPost.getId().toString()))
                 .andExpect(jsonPath("$.description").value("after"))
-                .andExpect(jsonPath("$.taggedUsers").isArray())
                 .andExpect(jsonPath("$.postTags[0]").value("spring"))
                 .andReturn();
 
         var persistedUpdatedAt = transactionTemplate.execute(status -> {
             var updatedPost = postJpaRepository.findById(existingPost.getId()).orElseThrow();
             assertThat(updatedPost.getDescription()).isEqualTo("after");
-            assertThat(new LinkedHashSet<>(updatedPost.getTaggedUsers())).containsExactlyInAnyOrder("alice", "bob");
             assertThat(updatedPost.getTags()).containsExactly("spring");
             assertThat(updatedPost.getUpdatedAt()).isAfterOrEqualTo(updatedPost.getCreatedAt());
             return updatedPost.getUpdatedAt();
@@ -532,7 +526,6 @@ class PostControllerIT {
         var payload = objectMapper.writeValueAsString(Map.of(
                 "postId", existingPost.getId(),
                 "description", "same",
-                "taggedUsers", Set.of("alice"),
                 "postTags", Set.of("java")
         ));
 
@@ -561,7 +554,6 @@ class PostControllerIT {
         var payload = objectMapper.writeValueAsString(Map.of(
                 "postId", existingPost.getId(),
                 "description", "after",
-                "taggedUsers", Set.of(),
                 "postTags", Set.of("java")
         ));
 
@@ -571,50 +563,6 @@ class PostControllerIT {
                         .content(payload))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.errorCode").value("FORBIDDEN"));
-    }
-
-    @Test
-    void shouldReturnNotFoundWhenNewlyTaggedUsernameDoesNotExistDuringUpdate() throws Exception {
-        var existingPost = seedPost(CREATOR_ID, "before", Set.of("alice"), Set.of());
-
-        var payload = objectMapper.writeValueAsString(Map.of(
-                "postId", existingPost.getId(),
-                "description", "after",
-                "taggedUsers", new LinkedHashSet<>(Set.of("alice", "missing")),
-                "postTags", Set.of("java")
-        ));
-
-        mockMvc.perform(put("/api/posts")
-                        .with(jwtFor(CREATOR_ID))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(payload))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.errorCode").value("NOT_FOUND"));
-    }
-
-    @Test
-    void shouldReturnForbiddenWhenNewlyTaggedUserIsBlockedDuringUpdate() throws Exception {
-        UUID bobId = UUID.randomUUID();
-        seedUser(bobId, "bob");
-        blockReadModelJpaRepository.save(new BlockReadModelEntity(
-                new BlockReadModelId(CREATOR_ID, bobId),
-                Instant.now()
-        ));
-        var existingPost = seedPost(CREATOR_ID, "before", Set.of("alice"), Set.of());
-
-        var payload = objectMapper.writeValueAsString(Map.of(
-                "postId", existingPost.getId(),
-                "description", "after",
-                "taggedUsers", new LinkedHashSet<>(Set.of("alice", "bob")),
-                "postTags", Set.of("java")
-        ));
-
-        mockMvc.perform(put("/api/posts")
-                        .with(jwtFor(CREATOR_ID))
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(payload))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.errorCode").value("BLOCKED"));
     }
 
     @Test
@@ -776,7 +724,6 @@ class PostControllerIT {
                 .collabId(null)
                 .postType(PostType.BASIC)
                 .description("before")
-                .taggedUsers(new ArrayList<>())
                 .tags(new ArrayList<>())
                 .status(PostStatus.DELETED)
                 .build());
@@ -793,7 +740,6 @@ class PostControllerIT {
         var payload = objectMapper.writeValueAsString(Map.of(
                 "correlationId", correlationId,
                 "description", "idempotent",
-                "taggedUsers", Set.of(),
                 "postTags", Set.of("java"),
                 "media", List.of(Map.of("url", "https://cdn/image.jpg", "mediaType", "IMAGE", "order", 1))
         ));
@@ -831,7 +777,6 @@ class PostControllerIT {
         var payload = objectMapper.writeValueAsString(Map.of(
                 "correlationId", correlationId,
                 "description", "concurrent",
-                "taggedUsers", Set.of(),
                 "postTags", Set.of("java"),
                 "media", List.of(Map.of("url", "https://cdn/image.jpg", "mediaType", "IMAGE", "order", 1))
         ));
@@ -863,9 +808,9 @@ class PostControllerIT {
         var payload = objectMapper.writeValueAsString(Map.of(
                 "correlationId", UUID.randomUUID(),
                 "description", "hello",
-                "taggedUsers", Set.of("missing"),
                 "postTags", Set.of("java"),
-                "media", List.of(Map.of("url", "https://cdn/image.jpg", "mediaType", "IMAGE", "order", 1))
+                "media", List.of(Map.of("url", "https://cdn/image.jpg", "mediaType", "IMAGE", "order", 1,
+                        "taggedUsers", Set.of("missing")))
         ));
 
         mockMvc.perform(post("/api/posts")
@@ -888,9 +833,9 @@ class PostControllerIT {
         var payload = objectMapper.writeValueAsString(Map.of(
                 "correlationId", UUID.randomUUID(),
                 "description", "hello",
-                "taggedUsers", Set.of("alice"),
                 "postTags", Set.of("java"),
-                "media", List.of(Map.of("url", "https://cdn/image.jpg", "mediaType", "IMAGE", "order", 1))
+                "media", List.of(Map.of("url", "https://cdn/image.jpg", "mediaType", "IMAGE", "order", 1,
+                        "taggedUsers", Set.of("alice")))
         ));
 
         mockMvc.perform(post("/api/posts")
@@ -907,7 +852,6 @@ class PostControllerIT {
         var payload = objectMapper.writeValueAsString(Map.of(
                 "correlationId", correlationId,
                 "description", "multi media",
-                "taggedUsers", Set.of(),
                 "postTags", Set.of("java"),
                 "media", List.of(
                         Map.of("url", "https://cdn/image-1.jpg", "mediaType", "IMAGE", "order", 1),
@@ -922,6 +866,8 @@ class PostControllerIT {
                         .content(payload))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.media", org.hamcrest.Matchers.hasSize(2)))
+                .andExpect(jsonPath("$.media[0].duration").doesNotExist())
+                .andExpect(jsonPath("$.media[1].duration").value(30))
                 .andReturn()
                 .getResponse()
                 .getContentAsString();
@@ -937,7 +883,7 @@ class PostControllerIT {
         assertThat(persistedMedia.get(0).getMediaType())
                 .isEqualTo(com.app.postcommandservice.post.domain.model.valueobj.MediaType.IMAGE);
         assertThat(persistedMedia.get(0).getDuration()).isNull();
-        assertThat(persistedMedia.get(0).getThumbnailUrl()).isNull();
+        assertThat(persistedMedia.get(0).getThumbnailUrl()).isEqualTo(persistedMedia.get(0).getUrl());
         assertThat(persistedMedia.get(1).getMediaType())
                 .isEqualTo(com.app.postcommandservice.post.domain.model.valueobj.MediaType.VIDEO);
         assertThat(persistedMedia.get(1).getDuration()).isEqualTo(30);
@@ -976,7 +922,6 @@ class PostControllerIT {
         var payload = objectMapper.writeValueAsString(Map.of(
                 "postId", existingPost.getId(),
                 "description", "after",
-                "taggedUsers", Set.of(),
                 "postTags", Set.of("java"),
                 "media", List.of(
                         Map.of("url", "https://cdn/new-1.jpg", "mediaType", "IMAGE", "order", 1),
@@ -1038,15 +983,16 @@ class PostControllerIT {
                 .collabId(null)
                 .postType(PostType.BASIC)
                 .description(description)
-                .taggedUsers(new ArrayList<>(taggedUsers))
                 .tags(new ArrayList<>(tags.isEmpty() ? Set.of("default") : tags))
-                .status(PostStatus.ACTIVE)
+                .status(PostStatus.ACCEPTED)
                 .build();
         post.addMedia(
                 com.app.postcommandservice.post.infrastructure.entity.PostMediaEntity.builder()
                         .id(UUID.randomUUID())
                         .url("https://cdn/image.jpg")
+                        .thumbnailUrl("https://cdn/image.jpg")
                         .mediaType(com.app.postcommandservice.post.domain.model.valueobj.MediaType.IMAGE)
+                        .taggedUsers(new ArrayList<>(taggedUsers))
                         .mediaOrder(1)
                         .build()
         );
@@ -1131,7 +1077,7 @@ class PostControllerIT {
         assertThat(firstBody.get("collabId")).isEqualTo(secondBody.get("collabId"));
         assertThat(firstBody.get("postType")).isEqualTo(secondBody.get("postType"));
         assertThat(firstBody.get("description")).isEqualTo(secondBody.get("description"));
-        assertThat(firstBody.get("taggedUsers")).isEqualTo(secondBody.get("taggedUsers"));
+        assertThat(firstBody.get("media")).isEqualTo(secondBody.get("media"));
         assertThat(firstBody.get("postTags")).isEqualTo(secondBody.get("postTags"));
         assertTimestampsEquivalent(firstBody.get("createdAt"), secondBody.get("createdAt"));
         assertTimestampsEquivalent(firstBody.get("updatedAt"), secondBody.get("updatedAt"));

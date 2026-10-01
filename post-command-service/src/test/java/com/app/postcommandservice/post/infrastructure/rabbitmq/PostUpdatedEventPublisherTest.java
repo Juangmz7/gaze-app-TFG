@@ -59,7 +59,6 @@ class PostUpdatedEventPublisherTest {
                 .collabId(null)
                 .postType(PostType.BASIC)
                 .description("description")
-                .taggedUsers(Set.of("alice"))
                 .postTags(Set.of("spring"))
                 .createdAt(Instant.now())
                 .updatedAt(Instant.now())
