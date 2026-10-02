@@ -5,13 +5,14 @@ import java.time.temporal.ChronoUnit;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
-import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.app.postcommandservice.collab.application.commands.OpenCollabAndCreatePostCommand;
 import com.app.postcommandservice.collab.application.dto.OpenCollabAndCreatePostResponse;
@@ -27,7 +28,6 @@ import com.app.postcommandservice.collab.infrastructure.mapper.CollabEventMapper
 import com.app.postcommandservice.post.application.commands.CreatePostCommand;
 import com.app.postcommandservice.post.application.commands.PostMediaCommand;
 import com.app.postcommandservice.post.application.dto.PostResponse;
-import com.app.postcommandservice.post.application.mapper.PostApplicationMapper;
 import com.app.postcommandservice.post.application.repository.PostRepository;
 import com.app.postcommandservice.post.application.usecase.CreatePostUseCase;
 import com.app.postcommandservice.post.domain.model.Post;
@@ -38,8 +38,20 @@ import com.app.postcommandservice.shared.infrastructure.enums.EventStatus;
 import com.app.postcommandservice.shared.infrastructure.mapper.JsonMapper;
 import com.app.postcommandservice.shared.infrastructure.repository.OutboxEventRepository;
 
+/**
+ * Opens a collab and creates its post through the exact same metadata-only / server-generated
+ * url / {@code PENDING} / upload-SAS flow as the plain single-post endpoint (task 33), via
+ * {@link CreatePostUseCase#createPendingPost(CreatePostCommand)}. No validation, url-generation,
+ * or SAS-signing logic is duplicated here (task 34).
+ *
+ * <p>Like {@code CreatePostUseCase}, this use case drives its own transaction boundary with a
+ * {@link TransactionTemplate} instead of a self-invoked {@code @Transactional} method: collab,
+ * creator-member, and post persistence (plus the collab-opened outbox row) happen atomically in
+ * one transaction, while upload SAS signing — a network call — always runs strictly after that
+ * transaction commits, on both a fresh creation and an idempotent replay (replays never reuse a
+ * possibly-expired SAS url, mirroring task 33's single-post contract).</p>
+ */
 @Service
-@RequiredArgsConstructor
 public class OpenCollabAndCreatePostUseCase {
 
     private final CollabRepository collabRepository;
@@ -51,9 +63,47 @@ public class OpenCollabAndCreatePostUseCase {
     private final CollabEventMapper collabEventMapper;
     private final JsonMapper jsonMapper;
     private final ApplicationEventPublisher applicationEventPublisher;
+    private final TransactionTemplate transactionTemplate;
 
-    @Transactional
+    public OpenCollabAndCreatePostUseCase(
+            CollabRepository collabRepository,
+            CollabMemberRepository collabMemberRepository,
+            CollabRequestIdempotencyRepository collabRequestIdempotencyRepository,
+            PostRepository postRepository,
+            CreatePostUseCase createPostUseCase,
+            OutboxEventRepository outboxEventRepository,
+            CollabEventMapper collabEventMapper,
+            JsonMapper jsonMapper,
+            ApplicationEventPublisher applicationEventPublisher,
+            PlatformTransactionManager transactionManager) {
+        this.collabRepository = collabRepository;
+        this.collabMemberRepository = collabMemberRepository;
+        this.collabRequestIdempotencyRepository = collabRequestIdempotencyRepository;
+        this.postRepository = postRepository;
+        this.createPostUseCase = createPostUseCase;
+        this.outboxEventRepository = outboxEventRepository;
+        this.collabEventMapper = collabEventMapper;
+        this.jsonMapper = jsonMapper;
+        this.applicationEventPublisher = applicationEventPublisher;
+        this.transactionTemplate = new TransactionTemplate(transactionManager);
+    }
+
     public OpenCollabAndCreatePostResponse open(OpenCollabAndCreatePostCommand command) {
+        OpenOutcome outcome = transactionTemplate.execute(status -> openWithinTransaction(command));
+        Objects.requireNonNull(outcome, "open outcome must not be null");
+
+        PostResponse signedPostResponse = createPostUseCase.signUploadUrls(outcome.post());
+        return toResponse(outcome.collab(), signedPostResponse);
+    }
+
+    /**
+     * Outcome of the transactional step: the collab (new or replayed) and its linked post,
+     * still without upload SAS data — that is signed strictly after this transaction commits.
+     */
+    private record OpenOutcome(Collab collab, Post post) {
+    }
+
+    private OpenOutcome openWithinTransaction(OpenCollabAndCreatePostCommand command) {
         collabRequestIdempotencyRepository.acquireCorrelationLock(command.correlationId());
 
         var existingEntityId = collabRequestIdempotencyRepository.findEntityIdByCorrelationId(command.correlationId());
@@ -68,7 +118,7 @@ public class OpenCollabAndCreatePostUseCase {
             var existingCollab = collabRepository.findById(existingCollabId)
                     .orElseThrow(() -> new IllegalStateException(
                             "Idempotency record exists but collab was not found: " + existingCollabId));
-            return toResponse(existingCollab, toResponse(existingPost));
+            return new OpenOutcome(existingCollab, existingPost);
         }
 
         var collab = Collab.open(
@@ -81,7 +131,7 @@ public class OpenCollabAndCreatePostUseCase {
         var creatorMember = CollabMember.createCreatorAdmin(savedCollab.getId(), new UserId(command.currentUserId()));
         var savedCreatorMember = collabMemberRepository.save(creatorMember);
 
-        var savedPostResponse = createPostUseCase.createPost(new CreatePostCommand(
+        var savedPost = createPostUseCase.createPendingPost(new CreatePostCommand(
                 command.correlationId(),
                 command.currentUserId(),
                 savedCollab.getId(),
@@ -89,10 +139,7 @@ public class OpenCollabAndCreatePostUseCase {
                 command.description(),
                 normalizeSet(command.postTags()),
                 normalizeMedia(command.media())
-        ), false, false);
-        var savedPost = postRepository.findById(savedPostResponse.postId())
-                .orElseThrow(() -> new IllegalStateException(
-                        "Saved post was not found after collab creation: " + savedPostResponse.postId()));
+        ));
 
         collabRequestIdempotencyRepository.save(command.correlationId(), savedPost.getId().value());
 
@@ -110,7 +157,7 @@ public class OpenCollabAndCreatePostUseCase {
         saveOutboxEvent(command.correlationId(), outboxId, event);
         applicationEventPublisher.publishEvent(new CollabOpenedDomainEvent(outboxId));
 
-        return toResponse(savedCollab, savedPostResponse);
+        return new OpenOutcome(savedCollab, savedPost);
     }
 
     private void saveOutboxEvent(UUID correlationId, UUID outboxId, CollabOpenedEvent event) {
@@ -134,10 +181,6 @@ public class OpenCollabAndCreatePostUseCase {
                 collab.getCreatedAt(),
                 postResponse
         );
-    }
-
-    private PostResponse toResponse(Post post) {
-        return PostApplicationMapper.toResponse(post);
     }
 
     private Set<String> normalizeSet(Set<String> values) {
