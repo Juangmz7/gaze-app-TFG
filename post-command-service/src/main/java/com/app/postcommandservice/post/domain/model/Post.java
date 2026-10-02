@@ -25,7 +25,7 @@ public class Post {
     private final List<PostMedia> media;
     private final PostStatus status;
     private final Instant createdAt;
-    private final Instant updatedAt;
+    private final Instant updatedAt; 
 
     public Post(
             PostId id,
