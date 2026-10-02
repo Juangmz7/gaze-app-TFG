@@ -1,3 +1,8 @@
+# --- Post media business rules (shared across tasks 32/35/38/39) ---
+posts:
+  media:
+    upload-window: PT48H
+
 # --- RabbitMQ Bindings ---
 rabbitmq:
   queue:
