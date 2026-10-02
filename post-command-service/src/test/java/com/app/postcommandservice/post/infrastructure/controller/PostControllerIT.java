@@ -197,7 +197,10 @@ class PostControllerIT {
 
         assertThat(postJpaRepository.findAll()).hasSize(1);
         assertThat(postJpaRepository.findAll().getFirst().getStatus().name()).isEqualTo("PENDING");
-        assertThat(postRequestIdempotencyJpaRepository.findById(correlationId)).isPresent();
+        assertThat(postRequestIdempotencyJpaRepository
+                .findById(new com.app.postcommandservice.post.infrastructure.entity.PostRequestIdempotencyId(
+                        CREATOR_ID, correlationId)))
+                .isPresent();
         assertThat(outboxEventRepository.findAll()).isEmpty();
     }
 
@@ -766,6 +769,87 @@ class PostControllerIT {
         assertThat(postJpaRepository.count()).isEqualTo(1);
         assertThat(postRequestIdempotencyJpaRepository.count()).isEqualTo(1);
         assertThat(outboxEventRepository.count()).isEqualTo(0);
+    }
+
+    @Test
+    void shouldCreateSeparatePostsWhenDifferentUsersReuseTheSameCorrelationId() throws Exception {
+        var otherUserId = UUID.fromString("22222222-2222-2222-2222-222222222222");
+        var correlationId = UUID.randomUUID();
+        var creatorPayload = objectMapper.writeValueAsString(Map.of(
+                "correlationId", correlationId,
+                "description", "from creator",
+                "postTags", Set.of("java"),
+                "media", List.of(Map.of("mediaType", "IMAGE", "order", 1))
+        ));
+        var otherUserPayload = objectMapper.writeValueAsString(Map.of(
+                "correlationId", correlationId,
+                "description", "from other user",
+                "postTags", Set.of("java"),
+                "media", List.of(Map.of("mediaType", "IMAGE", "order", 1))
+        ));
+
+        var creatorResponse = mockMvc.perform(post("/api/posts")
+                        .with(jwtFor(CREATOR_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(creatorPayload))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        var otherUserResponse = mockMvc.perform(post("/api/posts")
+                        .with(jwtFor(otherUserId))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(otherUserPayload))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        var creatorBody = objectMapper.readValue(creatorResponse, new TypeReference<Map<String, Object>>() { });
+        var otherUserBody = objectMapper.readValue(otherUserResponse, new TypeReference<Map<String, Object>>() { });
+
+        assertThat(creatorBody.get("postId")).isNotEqualTo(otherUserBody.get("postId"));
+        assertThat(creatorBody.get("userId")).isEqualTo(CREATOR_ID.toString());
+        assertThat(otherUserBody.get("userId")).isEqualTo(otherUserId.toString());
+        assertThat(creatorBody.get("description")).isEqualTo("from creator");
+        assertThat(otherUserBody.get("description")).isEqualTo("from other user");
+
+        assertThat(postJpaRepository.count()).isEqualTo(2);
+        assertThat(postRequestIdempotencyJpaRepository.count()).isEqualTo(2);
+    }
+
+    @Test
+    void shouldReturnConflictWhenSameUserReplaysTheSameCorrelationIdWithADifferentPayload() throws Exception {
+        var correlationId = UUID.randomUUID();
+        var firstPayload = objectMapper.writeValueAsString(Map.of(
+                "correlationId", correlationId,
+                "description", "first payload",
+                "postTags", Set.of("java"),
+                "media", List.of(Map.of("mediaType", "IMAGE", "order", 1))
+        ));
+        var differentPayload = objectMapper.writeValueAsString(Map.of(
+                "correlationId", correlationId,
+                "description", "a different payload entirely",
+                "postTags", Set.of("java"),
+                "media", List.of(Map.of("mediaType", "IMAGE", "order", 1))
+        ));
+
+        mockMvc.perform(post("/api/posts")
+                        .with(jwtFor(CREATOR_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(firstPayload))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(post("/api/posts")
+                        .with(jwtFor(CREATOR_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(differentPayload))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.errorCode").value("CONFLICT"));
+
+        assertThat(postJpaRepository.count()).isEqualTo(1);
+        assertThat(postRequestIdempotencyJpaRepository.count()).isEqualTo(1);
     }
 
     @Test
