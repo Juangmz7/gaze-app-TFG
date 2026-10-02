@@ -11,7 +11,7 @@ import (
 	mongodriver "go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
-	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/post/application/usecase/createpost"
+	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/post/application/usecase"
 	postmongo "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/post/infrastructure/mongo"
 )
 
@@ -35,7 +35,7 @@ func TestRepository_Upsert_PersistsThePostReadModel(t *testing.T) {
 	db := testDatabase(t, ctx)
 	repository := postmongo.NewRepository(db)
 
-	input := createpost.Input{
+	input := usecase.Input{
 		PostID:      uuid.New(),
 		UserID:      uuid.New(),
 		PostType:    "TEXT",
@@ -76,7 +76,7 @@ func TestRepository_Upsert_ReplacesTheExistingDocumentInsteadOfDuplicatingIt(t *
 	repository := postmongo.NewRepository(db)
 
 	postID := uuid.New()
-	input := createpost.Input{PostID: postID, UserID: uuid.New(), PostType: "TEXT", Description: "first version"}
+	input := usecase.Input{PostID: postID, UserID: uuid.New(), PostType: "TEXT", Description: "first version"}
 	if err := repository.Upsert(ctx, input); err != nil {
 		t.Fatalf("Upsert() error = %v", err)
 	}

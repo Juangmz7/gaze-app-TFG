@@ -11,7 +11,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
-	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/user/application/usecase/registeruser"
+	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/user/application/usecase"
 )
 
 // collectionName is the MongoDB collection backing the user read model.
@@ -27,8 +27,8 @@ type userDocument struct {
 	CreatedAt time.Time `bson:"created_at"`
 }
 
-// Repository implements registeruser.Repository and deleteuser.Repository
-// against MongoDB.
+// Repository implements usecase.RegisterUserRepository and
+// usecase.DeleteUserRepository against MongoDB.
 type Repository struct {
 	collection *mongo.Collection
 }
@@ -39,7 +39,7 @@ func NewRepository(db *mongo.Database) *Repository {
 }
 
 // Upsert idempotently writes input's user read model document.
-func (r *Repository) Upsert(ctx context.Context, input registeruser.Input) error {
+func (r *Repository) Upsert(ctx context.Context, input usecase.RegisterUserInput) error {
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
 

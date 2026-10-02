@@ -11,7 +11,7 @@ import (
 	mongodriver "go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
-	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/user/application/usecase/registeruser"
+	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/user/application/usecase"
 	usermongo "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/user/infrastructure/mongo"
 )
 
@@ -27,7 +27,7 @@ func TestRepository_Upsert_PersistsTheUserReadModel(t *testing.T) {
 	db := testDatabase(t, ctx)
 	repository := usermongo.NewRepository(db)
 
-	input := registeruser.Input{
+	input := usecase.RegisterUserInput{
 		UserID:    uuid.New(),
 		Username:  "ada-lovelace",
 		CreatedAt: time.Now().UTC(),
@@ -55,7 +55,7 @@ func TestRepository_Upsert_ReplacesTheExistingDocumentInsteadOfDuplicatingIt(t *
 	repository := usermongo.NewRepository(db)
 
 	userID := uuid.New()
-	input := registeruser.Input{UserID: userID, Username: "ada-lovelace"}
+	input := usecase.RegisterUserInput{UserID: userID, Username: "ada-lovelace"}
 	if err := repository.Upsert(ctx, input); err != nil {
 		t.Fatalf("Upsert() error = %v", err)
 	}
@@ -74,7 +74,7 @@ func TestRepository_Upsert_ReplacesTheExistingDocumentInsteadOfDuplicatingIt(t *
 }
 
 // TestRepository_Delete_RemovesTheUserReadModel proves the repository's
-// deleteuser.Repository port: a previously projected user is no longer
+// usecase.DeleteUserRepository port: a previously projected user is no longer
 // retrievable after Delete.
 func TestRepository_Delete_RemovesTheUserReadModel(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -84,7 +84,7 @@ func TestRepository_Delete_RemovesTheUserReadModel(t *testing.T) {
 	repository := usermongo.NewRepository(db)
 
 	userID := uuid.New()
-	if err := repository.Upsert(ctx, registeruser.Input{UserID: userID, Username: "ada-lovelace"}); err != nil {
+	if err := repository.Upsert(ctx, usecase.RegisterUserInput{UserID: userID, Username: "ada-lovelace"}); err != nil {
 		t.Fatalf("Upsert() error = %v", err)
 	}
 

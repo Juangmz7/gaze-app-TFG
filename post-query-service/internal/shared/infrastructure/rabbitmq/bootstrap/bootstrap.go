@@ -14,31 +14,29 @@ import (
 	"github.com/ThreeDotsLabs/watermill/message"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
-	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/collab/application/usecase/recordcollabopened"
+	collabusecase "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/collab/application/usecase"
 	collabmongo "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/collab/infrastructure/mongo"
-	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/collab/infrastructure/rabbitmq/postcollabopened"
-	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/comment/application/usecase/recordcomment"
+	collabrabbitmq "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/collab/infrastructure/rabbitmq"
+	commentusecase "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/comment/application/usecase"
 	commentmongo "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/comment/infrastructure/mongo"
-	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/comment/infrastructure/rabbitmq/postcommentcreated"
-	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/like/application/usecase/recordlike"
+	commentrabbitmq "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/comment/infrastructure/rabbitmq"
+	likeusecase "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/like/application/usecase"
 	likemongo "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/like/infrastructure/mongo"
-	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/like/infrastructure/rabbitmq/postlikecreated"
-	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/post/application/usecase/createpost"
+	likerabbitmq "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/like/infrastructure/rabbitmq"
+	postusecase "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/post/application/usecase"
 	postmongo "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/post/infrastructure/mongo"
-	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/post/infrastructure/rabbitmq/postcreated"
-	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/share/application/usecase/recordshare"
+	postrabbitmq "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/post/infrastructure/rabbitmq"
+	shareusecase "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/share/application/usecase"
 	sharemongo "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/share/infrastructure/mongo"
-	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/share/infrastructure/rabbitmq/postsharecreated"
+	sharerabbitmq "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/share/infrastructure/rabbitmq"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/dispatch"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/idempotency"
-	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/publisher/feeddeleted"
+	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/publisher"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/router"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/topology"
-	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/user/application/usecase/deleteuser"
-	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/user/application/usecase/registeruser"
+	userusecase "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/user/application/usecase"
 	usermongo "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/user/infrastructure/mongo"
-	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/user/infrastructure/rabbitmq/userdeleted"
-	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/user/infrastructure/rabbitmq/userregistered"
+	userrabbitmq "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/user/infrastructure/rabbitmq"
 )
 
 // Result holds every component main() needs to run and later shut down the
@@ -48,7 +46,7 @@ type Result struct {
 	// Close() on shutdown.
 	Router *message.Router
 	// FeedDeletedPublisher publishes UserFeedDeletedEvent to x.feed.events.
-	FeedDeletedPublisher *feeddeleted.Publisher
+	FeedDeletedPublisher *publisher.Publisher
 	// closers are closed, in order, when the caller is done with Result.
 	closers []func() error
 }
@@ -94,11 +92,11 @@ func Bootstrap(ctx context.Context, amqpURI string, db *mongo.Database, logger *
 		return Result{}, err
 	}
 
-	publisher, err := newFeedDeletedPublisher(amqpURI, wmLogger, &result)
+	pub, err := newFeedDeletedPublisher(amqpURI, wmLogger, &result)
 	if err != nil {
 		return Result{}, err
 	}
-	result.FeedDeletedPublisher = publisher
+	result.FeedDeletedPublisher = pub
 
 	return result, nil
 }
@@ -112,8 +110,8 @@ func addUserFastConsumer(wmRouter *message.Router, amqpURI string, db *mongo.Dat
 	}
 	result.closers = append(result.closers, subscriber.Close)
 
-	usecase := registeruser.New(usermongo.NewRepository(db))
-	handler := userregistered.New(idempotencyRepo, usecase, logger)
+	uc := userusecase.NewRegisterUser(usermongo.NewRepository(db))
+	handler := userrabbitmq.NewUserRegisteredHandler(idempotencyRepo, uc, logger)
 
 	handlers := map[string]dispatch.EventHandlerFunc{
 		"rk.user.registered": handler.Handle,
@@ -134,8 +132,8 @@ func addUserSlowConsumer(wmRouter *message.Router, amqpURI string, db *mongo.Dat
 	}
 	result.closers = append(result.closers, subscriber.Close)
 
-	usecase := deleteuser.New(usermongo.NewRepository(db))
-	handler := userdeleted.New(idempotencyRepo, usecase, logger)
+	uc := userusecase.NewDeleteUser(usermongo.NewRepository(db))
+	handler := userrabbitmq.NewUserDeletedHandler(idempotencyRepo, uc, logger)
 
 	handlers := map[string]dispatch.EventHandlerFunc{
 		"rk.user.deleted": handler.Handle,
@@ -156,11 +154,11 @@ func addPostConsumer(wmRouter *message.Router, amqpURI string, db *mongo.Databas
 	}
 	result.closers = append(result.closers, subscriber.Close)
 
-	postCreatedHandler := postcreated.New(idempotencyRepo, createpost.New(postmongo.NewRepository(db)), logger)
-	likeCreatedHandler := postlikecreated.New(idempotencyRepo, recordlike.New(likemongo.NewRepository(db)), logger)
-	commentCreatedHandler := postcommentcreated.New(idempotencyRepo, recordcomment.New(commentmongo.NewRepository(db)), logger)
-	shareCreatedHandler := postsharecreated.New(idempotencyRepo, recordshare.New(sharemongo.NewRepository(db)), logger)
-	collabOpenedHandler := postcollabopened.New(idempotencyRepo, recordcollabopened.New(collabmongo.NewRepository(db)), logger)
+	postCreatedHandler := postrabbitmq.New(idempotencyRepo, postusecase.New(postmongo.NewRepository(db)), logger)
+	likeCreatedHandler := likerabbitmq.New(idempotencyRepo, likeusecase.New(likemongo.NewRepository(db)), logger)
+	commentCreatedHandler := commentrabbitmq.New(idempotencyRepo, commentusecase.New(commentmongo.NewRepository(db)), logger)
+	shareCreatedHandler := sharerabbitmq.New(idempotencyRepo, shareusecase.New(sharemongo.NewRepository(db)), logger)
+	collabOpenedHandler := collabrabbitmq.New(idempotencyRepo, collabusecase.New(collabmongo.NewRepository(db)), logger)
 
 	// Every routing key listed in topology.PostRoutingKeys is bound to this
 	// queue at the AMQP level (see topology.Builder). Only the subset below
@@ -193,7 +191,7 @@ func newSubscriber(amqpURI string, spec topology.Spec, wmLogger watermill.Logger
 	return subscriber, nil
 }
 
-func newFeedDeletedPublisher(amqpURI string, wmLogger watermill.LoggerAdapter, result *Result) (*feeddeleted.Publisher, error) {
+func newFeedDeletedPublisher(amqpURI string, wmLogger watermill.LoggerAdapter, result *Result) (*publisher.Publisher, error) {
 	cfg := router.NewPublisherConfig(amqpURI, topology.ExchangeFeedEvents)
 
 	amqpPublisher, err := wmamqp.NewPublisher(cfg, wmLogger)
@@ -202,5 +200,5 @@ func newFeedDeletedPublisher(amqpURI string, wmLogger watermill.LoggerAdapter, r
 	}
 	result.closers = append(result.closers, amqpPublisher.Close)
 
-	return feeddeleted.NewPublisher(amqpPublisher), nil
+	return publisher.NewPublisher(amqpPublisher), nil
 }

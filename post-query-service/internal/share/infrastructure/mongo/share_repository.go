@@ -10,7 +10,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
-	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/share/application/usecase/recordshare"
+	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/share/application/usecase"
 )
 
 // collectionName is the MongoDB collection backing the share read model.
@@ -27,7 +27,7 @@ type shareDocument struct {
 	CreatedAt time.Time `bson:"created_at"`
 }
 
-// Repository implements recordshare.Repository against MongoDB.
+// Repository implements usecase.Repository against MongoDB.
 type Repository struct {
 	collection *mongo.Collection
 }
@@ -38,7 +38,7 @@ func NewRepository(db *mongo.Database) *Repository {
 }
 
 // Upsert idempotently writes input's share read model document.
-func (r *Repository) Upsert(ctx context.Context, input recordshare.Input) error {
+func (r *Repository) Upsert(ctx context.Context, input usecase.Input) error {
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
 

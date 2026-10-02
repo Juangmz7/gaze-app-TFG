@@ -11,7 +11,7 @@ import (
 	mongodriver "go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
-	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/share/application/usecase/recordshare"
+	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/share/application/usecase"
 	sharemongo "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/share/infrastructure/mongo"
 )
 
@@ -28,7 +28,7 @@ func TestRepository_Upsert_PersistsTheShareReadModel(t *testing.T) {
 	db := testDatabase(t, ctx)
 	repository := sharemongo.NewRepository(db)
 
-	input := recordshare.Input{
+	input := usecase.Input{
 		ShareID:   uuid.New(),
 		PostID:    uuid.New(),
 		UserID:    uuid.New(),
@@ -60,7 +60,7 @@ func TestRepository_Upsert_ReplacesTheExistingDocumentInsteadOfDuplicatingIt(t *
 	repository := sharemongo.NewRepository(db)
 
 	shareID := uuid.New()
-	input := recordshare.Input{ShareID: shareID, PostID: uuid.New(), UserID: uuid.New()}
+	input := usecase.Input{ShareID: shareID, PostID: uuid.New(), UserID: uuid.New()}
 	if err := repository.Upsert(ctx, input); err != nil {
 		t.Fatalf("Upsert() error = %v", err)
 	}

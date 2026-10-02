@@ -11,7 +11,7 @@ import (
 	mongodriver "go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
-	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/collab/application/usecase/recordcollabopened"
+	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/collab/application/usecase"
 	collabmongo "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/collab/infrastructure/mongo"
 )
 
@@ -28,7 +28,7 @@ func TestRepository_Upsert_PersistsTheCollabReadModel(t *testing.T) {
 	db := testDatabase(t, ctx)
 	repository := collabmongo.NewRepository(db)
 
-	input := recordcollabopened.Input{
+	input := usecase.Input{
 		CollabID:    uuid.New(),
 		PostID:      uuid.New(),
 		OwnerUserID: uuid.New(),
@@ -60,7 +60,7 @@ func TestRepository_Upsert_ReplacesTheExistingDocumentInsteadOfDuplicatingIt(t *
 	repository := collabmongo.NewRepository(db)
 
 	collabID := uuid.New()
-	input := recordcollabopened.Input{CollabID: collabID, PostID: uuid.New(), OwnerUserID: uuid.New()}
+	input := usecase.Input{CollabID: collabID, PostID: uuid.New(), OwnerUserID: uuid.New()}
 	if err := repository.Upsert(ctx, input); err != nil {
 		t.Fatalf("Upsert() error = %v", err)
 	}

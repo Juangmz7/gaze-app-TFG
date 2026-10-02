@@ -11,7 +11,7 @@ import (
 	mongodriver "go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
-	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/comment/application/usecase/recordcomment"
+	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/comment/application/usecase"
 	commentmongo "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/comment/infrastructure/mongo"
 )
 
@@ -29,7 +29,7 @@ func TestRepository_Upsert_PersistsTheCommentReadModel(t *testing.T) {
 	db := testDatabase(t, ctx)
 	repository := commentmongo.NewRepository(db)
 
-	input := recordcomment.Input{
+	input := usecase.Input{
 		CommentID: uuid.New(),
 		PostID:    uuid.New(),
 		UserID:    uuid.New(),
@@ -62,7 +62,7 @@ func TestRepository_Upsert_ReplacesTheExistingDocumentInsteadOfDuplicatingIt(t *
 	repository := commentmongo.NewRepository(db)
 
 	commentID := uuid.New()
-	input := recordcomment.Input{CommentID: commentID, PostID: uuid.New(), UserID: uuid.New(), Content: "first"}
+	input := usecase.Input{CommentID: commentID, PostID: uuid.New(), UserID: uuid.New(), Content: "first"}
 	if err := repository.Upsert(ctx, input); err != nil {
 		t.Fatalf("Upsert() error = %v", err)
 	}

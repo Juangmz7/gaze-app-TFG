@@ -10,7 +10,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
-	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/post/application/usecase/createpost"
+	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/post/application/usecase"
 )
 
 // collectionName is the MongoDB collection backing the post read model.
@@ -31,7 +31,7 @@ type postDocument struct {
 	UpdatedAt   time.Time `bson:"updated_at"`
 }
 
-// Repository implements createpost.Repository against MongoDB.
+// Repository implements usecase.Repository against MongoDB.
 type Repository struct {
 	collection *mongo.Collection
 }
@@ -42,7 +42,7 @@ func NewRepository(db *mongo.Database) *Repository {
 }
 
 // Upsert idempotently writes input's post read model document.
-func (r *Repository) Upsert(ctx context.Context, input createpost.Input) error {
+func (r *Repository) Upsert(ctx context.Context, input usecase.Input) error {
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
 

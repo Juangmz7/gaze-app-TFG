@@ -11,7 +11,7 @@ import (
 	mongodriver "go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
-	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/like/application/usecase/recordlike"
+	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/like/application/usecase"
 	likemongo "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/like/infrastructure/mongo"
 )
 
@@ -28,7 +28,7 @@ func TestRepository_Upsert_PersistsTheLikeReadModel(t *testing.T) {
 	db := testDatabase(t, ctx)
 	repository := likemongo.NewRepository(db)
 
-	input := recordlike.Input{
+	input := usecase.Input{
 		LikeID:    uuid.New(),
 		PostID:    uuid.New(),
 		UserID:    uuid.New(),
@@ -60,7 +60,7 @@ func TestRepository_Upsert_ReplacesTheExistingDocumentInsteadOfDuplicatingIt(t *
 	repository := likemongo.NewRepository(db)
 
 	likeID := uuid.New()
-	input := recordlike.Input{LikeID: likeID, PostID: uuid.New(), UserID: uuid.New()}
+	input := usecase.Input{LikeID: likeID, PostID: uuid.New(), UserID: uuid.New()}
 	if err := repository.Upsert(ctx, input); err != nil {
 		t.Fatalf("Upsert() error = %v", err)
 	}

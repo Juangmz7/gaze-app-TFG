@@ -11,7 +11,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
-	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/comment/application/usecase/recordcomment"
+	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/comment/application/usecase"
 )
 
 // collectionName is the MongoDB collection backing the comment read model.
@@ -29,7 +29,7 @@ type commentDocument struct {
 	CreatedAt time.Time `bson:"created_at"`
 }
 
-// Repository implements recordcomment.Repository against MongoDB.
+// Repository implements usecase.Repository against MongoDB.
 type Repository struct {
 	collection *mongo.Collection
 }
@@ -41,7 +41,7 @@ func NewRepository(db *mongo.Database) *Repository {
 }
 
 // Upsert idempotently writes input's comment read model document.
-func (r *Repository) Upsert(ctx context.Context, input recordcomment.Input) error {
+func (r *Repository) Upsert(ctx context.Context, input usecase.Input) error {
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
 
