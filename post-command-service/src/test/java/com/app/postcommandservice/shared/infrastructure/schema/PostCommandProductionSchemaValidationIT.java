@@ -185,6 +185,60 @@ class PostCommandProductionSchemaValidationIT {
                 .isInstanceOf(IllegalStateException.class);
     }
 
+    @Test
+    void shouldScopePostRequestIdempotencyByUserAndBackfillUserIdFromPosts() {
+        bootstrapSchema("create");
+
+        UUID postId = UUID.randomUUID();
+        UUID postOwnerId = UUID.randomUUID();
+        UUID correlationId = UUID.randomUUID();
+        Instant now = Instant.now();
+
+        execute("""
+                INSERT INTO posts (id, user_id, post_type, description, status, created_at, updated_at, version)
+                VALUES ('%s', '%s', 'BASIC', 'legacy post', 'ACCEPTED', '%s', '%s', 0)
+                """.formatted(postId, postOwnerId, now, now));
+
+        // Simulate the pre-fix shape: single correlation_id PK, no user_id/request_hash columns.
+        execute("DROP TABLE IF EXISTS post_request_idempotency");
+        execute("""
+                CREATE TABLE post_request_idempotency (
+                    correlation_id UUID NOT NULL,
+                    post_id UUID NOT NULL,
+                    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+                    CONSTRAINT post_request_idempotency_pkey PRIMARY KEY (correlation_id),
+                    CONSTRAINT uk_post_request_idempotency_post_id UNIQUE (post_id)
+                )
+                """);
+        execute("""
+                INSERT INTO post_request_idempotency (correlation_id, post_id, created_at)
+                VALUES ('%s', '%s', '%s')
+                """.formatted(correlationId, postId, now));
+
+        assertThatThrownBy(() -> bootstrapSchema("validate"))
+                .hasRootCauseInstanceOf(Exception.class);
+
+        applySchemaPatch("db/schema/post-command-service-prod.sql");
+
+        assertThatNoException().isThrownBy(() -> bootstrapSchema("validate"));
+
+        try (Connection connection = DriverManager.getConnection(
+                POSTGRES.getJdbcUrl(),
+                POSTGRES.getUsername(),
+                POSTGRES.getPassword());
+             Statement statement = connection.createStatement();
+             ResultSet resultSet = statement.executeQuery(
+                     "SELECT user_id, request_hash FROM post_request_idempotency WHERE correlation_id = '"
+                             + correlationId + "'")) {
+            assertThat(resultSet.next()).isTrue();
+            assertThat(UUID.fromString(resultSet.getString("user_id"))).isEqualTo(postOwnerId);
+            assertThat(resultSet.getString("request_hash")).isNull();
+            assertThat(resultSet.next()).isFalse();
+        } catch (Exception exception) {
+            throw new IllegalStateException("Failed to read post_request_idempotency", exception);
+        }
+    }
+
     private void applySchemaPatch(String resourcePath) {
         ResourceDatabasePopulator populator = new ResourceDatabasePopulator(new ClassPathResource(resourcePath));
         populator.execute(dataSource());
