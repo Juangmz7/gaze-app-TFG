@@ -165,7 +165,7 @@ class CollabControllerFlowTest {
                 "title", "Open collab",
                 "description", "hello",
                 "postTags", Set.of("spring"),
-                "media", List.of(Map.of("url", "https://cdn/image.jpg", "mediaType", "IMAGE", "order", 1,
+                "media", List.of(Map.of("mediaType", "IMAGE", "order", 1,
                         "taggedUsers", Set.of("alice")))
         ));
 
@@ -180,6 +180,12 @@ class CollabControllerFlowTest {
                 .andExpect(jsonPath("$.collabStatus").value("OPEN"))
                 .andExpect(jsonPath("$.post.postType").value("COLLAB"))
                 .andExpect(jsonPath("$.post.collabId").exists())
+                .andExpect(jsonPath("$.post.status").value("PENDING"))
+                .andExpect(jsonPath("$.post.uploadExpiresAt").exists())
+                .andExpect(jsonPath("$.post.media[0].url").exists())
+                .andExpect(jsonPath("$.post.media[0].thumbnailUrl").exists())
+                .andExpect(jsonPath("$.post.media[0].uploadUrl").exists())
+                .andExpect(jsonPath("$.post.media[0].duration").doesNotExist())
                 .andExpect(jsonPath("$.post.media[0].taggedUsers[0]").value("alice"));
 
         assertThat(collabJpaRepository.count()).isEqualTo(1);
@@ -190,6 +196,8 @@ class CollabControllerFlowTest {
         assertThat(outboxEventRepository.count()).isEqualTo(1);
         assertThat(postJpaRepository.findAll().getFirst().getPostType().name())
                 .isEqualTo("COLLAB");
+        assertThat(postJpaRepository.findAll().getFirst().getStatus().name())
+                .isEqualTo("PENDING");
         assertThat(collabJpaRepository.findAll().getFirst().getCollabStatus().name())
                 .isEqualTo("OPEN");
         assertThat(collabMemberJpaRepository.findAll().getFirst().getRole().name())
@@ -207,6 +215,13 @@ class CollabControllerFlowTest {
 
         assertThat(eventPayload.get("title")).isEqualTo("Open collab");
         assertThat(eventPayload.get("postType")).isEqualTo("COLLAB");
+        assertThat(eventPayload).doesNotContainKey("taggedUsers");
+
+        @SuppressWarnings("unchecked")
+        var eventMedia = (List<Map<String, Object>>) eventPayload.get("media");
+        assertThat(eventMedia).hasSize(1);
+        assertThat(eventMedia.get(0).get("taggedUsers")).isEqualTo(List.of("alice"));
+        assertThat(eventMedia.get(0).get("url")).isNotNull();
 
         rabbitAdmin.deleteQueue(queueName);
     }
@@ -220,7 +235,7 @@ class CollabControllerFlowTest {
                 "title", "Open collab",
                 "description", "collab post",
                 "postTags", Set.of("collab"),
-                "media", List.of(Map.of("url", "https://cdn/image.jpg", "mediaType", "IMAGE", "order", 1))
+                "media", List.of(Map.of("mediaType", "IMAGE", "order", 1))
         ));
 
         var collabResponse = mockMvc.perform(post("/api/collabs")
@@ -284,7 +299,7 @@ class CollabControllerFlowTest {
                 "title", "Replay collab",
                 "description", "hello",
                 "postTags", Set.of("spring"),
-                "media", List.of(Map.of("url", "https://cdn/image.jpg", "mediaType", "IMAGE", "order", 1))
+                "media", List.of(Map.of("mediaType", "IMAGE", "order", 1))
         ));
 
         var firstResponse = mockMvc.perform(post("/api/collabs")
@@ -332,8 +347,28 @@ class CollabControllerFlowTest {
         assertThat(secondPost.get("collabId")).isEqualTo(firstPost.get("collabId"));
         assertThat(secondPost.get("postType")).isEqualTo(firstPost.get("postType"));
         assertThat(secondPost.get("description")).isEqualTo(firstPost.get("description"));
-        assertThat(secondPost.get("media")).isEqualTo(firstPost.get("media"));
+        assertThat(secondPost.get("status")).isEqualTo(firstPost.get("status"));
         assertThat(secondPost.get("postTags")).isEqualTo(firstPost.get("postTags"));
+
+        // Media stable fields (url/thumbnailUrl/mediaType/order/taggedUsers/id) must be
+        // identical on replay — blob urls are generated once and never regenerated — but
+        // uploadUrl/thumbnailUploadUrl are fresh SAS urls re-signed on every call (task 33/34
+        // contract: a replay never reuses a possibly-expired SAS url), so they are excluded
+        // from this equality check.
+        @SuppressWarnings("unchecked")
+        var firstMediaList = (List<Map<String, Object>>) firstPost.get("media");
+        @SuppressWarnings("unchecked")
+        var secondMediaList = (List<Map<String, Object>>) secondPost.get("media");
+        assertThat(secondMediaList).hasSameSizeAs(firstMediaList);
+        for (int i = 0; i < firstMediaList.size(); i++) {
+            var firstMedia = new java.util.HashMap<>(firstMediaList.get(i));
+            var secondMedia = new java.util.HashMap<>(secondMediaList.get(i));
+            firstMedia.remove("uploadUrl");
+            firstMedia.remove("thumbnailUploadUrl");
+            secondMedia.remove("uploadUrl");
+            secondMedia.remove("thumbnailUploadUrl");
+            assertThat(secondMedia).isEqualTo(firstMedia);
+        }
         assertTimestampEquivalent(secondPost.get("createdAt"), firstPost.get("createdAt"));
         assertTimestampEquivalent(secondPost.get("updatedAt"), firstPost.get("updatedAt"));
 
