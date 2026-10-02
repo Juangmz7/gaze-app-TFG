@@ -21,4 +21,11 @@ public interface PostJpaRepository extends JpaRepository<PostEntity, UUID> {
               AND post.status = :status
             """)
     Optional<UUID> findOwnerIdByIdAndStatus(@Param("postId") UUID postId, @Param("status") PostStatus status);
+
+    @Query("""
+            SELECT post.id AS id, post.userId AS authorId, post.status AS status, post.createdAt AS createdAt
+            FROM PostEntity post
+            WHERE post.id = :postId
+            """)
+    Optional<PostConfirmMediaUploadView> findConfirmMediaUploadViewById(@Param("postId") UUID postId);
 }
