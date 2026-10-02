@@ -112,6 +112,22 @@ public class CreatePostUseCase {
     }
 
     /**
+     * Metadata-only pending-post persistence (task 33's media validation / server-generated
+     * url / {@code PENDING} behaviour), shared with callers that own their own surrounding
+     * transaction and request-idempotency semantics instead of this class's own
+     * {@code PostRequestIdempotencyRepository}-backed one (task 34: the collab-open-and-
+     * create-post flow, whose replay detection runs against {@code CollabRequestIdempotencyRepository}
+     * before this method is ever invoked). Must be called from within an already-active
+     * transaction; this method does not manage a transaction boundary itself and does not
+     * sign upload SAS urls (call {@link #signUploadUrls(Post)} after the caller's transaction
+     * commits).
+     */
+    public Post createPendingPost(CreatePostCommand command) {
+        validateMediaRequest(command.media());
+        return buildAndSavePendingPost(command);
+    }
+
+    /**
      * Legacy create-post path used by the collab-open-and-create-post flow (feature 16), which
      * still supplies client-provided url/thumbnailUrl/duration directly and expects an
      * immediately {@code ACCEPTED}, synchronously usable post. Left intentionally unchanged by
@@ -206,6 +222,20 @@ public class CreatePostUseCase {
             return new PendingPostPersistence(existingPost, false);
         }
 
+        var savedPost = buildAndSavePendingPost(command);
+        postRequestIdempotencyRepository.save(
+                command.currentUserId(), command.correlationId(), savedPost.getId().value(), requestHash);
+        return new PendingPostPersistence(savedPost, true);
+    }
+
+    /**
+     * Builds the {@code PENDING} {@link Post} aggregate (server-generated media urls, per-media
+     * tagged-user validation) and persists it. Shared by both {@link #persistPendingPost} (plain
+     * single-post flow, request-idempotency-checked by the caller above) and
+     * {@link #createPendingPost(CreatePostCommand)} (collab flow, idempotency-checked by its own
+     * caller). Callers are responsible for {@link #validateMediaRequest(List)} beforehand.
+     */
+    private Post buildAndSavePendingPost(CreatePostCommand command) {
         var postTags = new PostTags(normalizeSet(command.postTags()));
         var description = new PostDescription(command.description() == null ? "" : command.description());
         var postId = new PostId(UUID.randomUUID());
@@ -227,10 +257,7 @@ public class CreatePostUseCase {
                 media
         );
 
-        var savedPost = postRepository.save(post);
-        postRequestIdempotencyRepository.save(
-                command.currentUserId(), command.correlationId(), savedPost.getId().value(), requestHash);
-        return new PendingPostPersistence(savedPost, true);
+        return postRepository.save(post);
     }
 
     /**
@@ -254,7 +281,15 @@ public class CreatePostUseCase {
         }
     }
 
-    private PostResponse signUploadUrls(Post post) {
+    /**
+     * Signs fresh upload SAS urls for every media item of an already-persisted {@code PENDING}
+     * post and maps it to the full task-33 response shape. Public so callers that build their
+     * own transaction boundary around {@link #createPendingPost(CreatePostCommand)} (the collab
+     * flow) can invoke this strictly after their transaction commits, exactly like
+     * {@link #createPost(CreatePostCommand)} does for the plain single-post flow. Always re-signs
+     * on every call (fresh urls on replay too), since a previously issued SAS may have expired.
+     */
+    public PostResponse signUploadUrls(Post post) {
         List<PostMediaResponse> mediaResponses = new ArrayList<>();
         Instant uploadExpiresAt = null;
 
