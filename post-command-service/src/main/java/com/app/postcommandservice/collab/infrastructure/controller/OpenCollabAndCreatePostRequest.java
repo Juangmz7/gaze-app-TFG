@@ -9,8 +9,6 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 
-import com.app.postcommandservice.post.infrastructure.controller.PostMediaRequest;
-
 public record OpenCollabAndCreatePostRequest(
         @NotNull(message = "correlationId is required")
         UUID correlationId,
@@ -19,6 +17,6 @@ public record OpenCollabAndCreatePostRequest(
         String description,
         Set<@NotBlank(message = "postTags must not contain blank values") String> postTags,
         @NotEmpty(message = "media must contain at least one item")
-        List<@Valid PostMediaRequest> media
+        List<@Valid OpenCollabAndCreatePostMediaRequest> media
 ) {
 }

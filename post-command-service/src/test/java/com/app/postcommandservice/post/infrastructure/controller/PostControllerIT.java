@@ -157,51 +157,51 @@ class PostControllerIT {
     }
 
     @Test
-    void shouldCreatePostAndPublishEventWhenRequestIsValidWithNoTaggedUsers() throws Exception {
-        String queueName = "test.post.created." + UUID.randomUUID();
-        RabbitAdmin rabbitAdmin = new RabbitAdmin(connectionFactory);
-        Queue queue = new Queue(queueName, false, true, true);
-        rabbitAdmin.declareQueue(queue);
-        rabbitAdmin.declareBinding(BindingBuilder.bind(queue)
-                .to(new org.springframework.amqp.core.TopicExchange(rabbitMQProperties.getExchange().getPost().getEvents()))
-                .with(rabbitMQProperties.getRk().getPost().getCreated()));
-
+    void shouldCreatePendingPostWithGeneratedUrlsAndUploadSasWhenRequestIsValidWithNoTaggedUsers() throws Exception {
         var correlationId = UUID.randomUUID();
         var payload = objectMapper.writeValueAsString(Map.of(
                 "correlationId", correlationId,
                 "description", "",
                 "postTags", Set.of("java"),
-                "media", List.of(Map.of("url", "https://cdn/image.jpg", "mediaType", "IMAGE", "order", 1, "taggedUsers", Set.of()))
+                "media", List.of(Map.of("mediaType", "IMAGE", "order", 1, "taggedUsers", Set.of()))
         ));
 
-        var mvcResult = mockMvc.perform(post("/api/posts")
+        var response = mockMvc.perform(post("/api/posts")
                         .with(jwtFor(CREATOR_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
-                .andExpect(status().isOk())
+                .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.postId").exists())
                 .andExpect(jsonPath("$.userId").value(CREATOR_ID.toString()))
                 .andExpect(jsonPath("$.collabId").doesNotExist())
                 .andExpect(jsonPath("$.postType").value("BASIC"))
+                .andExpect(jsonPath("$.status").value("PENDING"))
                 .andExpect(jsonPath("$.description").value(""))
+                .andExpect(jsonPath("$.media[0].id").exists())
+                .andExpect(jsonPath("$.media[0].url").exists())
+                .andExpect(jsonPath("$.media[0].thumbnailUrl").exists())
+                .andExpect(jsonPath("$.media[0].duration").doesNotExist())
                 .andExpect(jsonPath("$.media[0].taggedUsers").isArray())
+                .andExpect(jsonPath("$.media[0].uploadUrl").exists())
+                .andExpect(jsonPath("$.media[0].thumbnailUploadUrl").doesNotExist())
+                .andExpect(jsonPath("$.uploadExpiresAt").exists())
                 .andExpect(jsonPath("$.postTags[0]").value("java"))
-                .andReturn();
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        var body = objectMapper.readValue(response, new TypeReference<Map<String, Object>>() { });
+        @SuppressWarnings("unchecked")
+        var media = (Map<String, Object>) ((List<Object>) body.get("media")).get(0);
+        assertThat(media.get("thumbnailUrl")).isEqualTo(media.get("url"));
 
         assertThat(postJpaRepository.findAll()).hasSize(1);
-        assertThat(postJpaRepository.findAll().getFirst().getStatus().name()).isEqualTo("ACCEPTED");
-        assertThat(postRequestIdempotencyJpaRepository.findById(correlationId)).isPresent();
-        assertThat(outboxEventRepository.findAll()).hasSize(1);
-
-        Message message = receiveMessage(queueName);
-        assertThat(message).isNotNull();
-        var eventPayload = objectMapper.readValue(message.getBody(), new TypeReference<Map<String, Object>>() { });
-        assertThat(eventPayload.get("userId")).isEqualTo(CREATOR_ID.toString());
-        assertThat(eventPayload.get("collabId")).isNull();
-        assertThat(eventPayload.get("postType")).isEqualTo("BASIC");
-        assertThat(eventPayload.get("description")).isEqualTo("");
-
-        rabbitAdmin.deleteQueue(queueName);
+        assertThat(postJpaRepository.findAll().getFirst().getStatus().name()).isEqualTo("PENDING");
+        assertThat(postRequestIdempotencyJpaRepository
+                .findById(new com.app.postcommandservice.post.infrastructure.entity.PostRequestIdempotencyId(
+                        CREATOR_ID, correlationId)))
+                .isPresent();
+        assertThat(outboxEventRepository.findAll()).isEmpty();
     }
 
     @Test
@@ -214,7 +214,7 @@ class PostControllerIT {
                 "correlationId", correlationId,
                 "description", "hello",
                 "postTags", Set.of("spring"),
-                "media", List.of(Map.of("url", "https://cdn/image.jpg", "mediaType", "IMAGE", "order", 1,
+                "media", List.of(Map.of("mediaType", "IMAGE", "order", 1,
                         "taggedUsers", new LinkedHashSet<>(Set.of("alice", "bob"))))
         ));
 
@@ -222,7 +222,7 @@ class PostControllerIT {
                         .with(jwtFor(CREATOR_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
-                .andExpect(status().isOk())
+                .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.description").value("hello"))
                 .andExpect(jsonPath("$.media[0].taggedUsers").isArray());
 
@@ -735,20 +735,20 @@ class PostControllerIT {
     }
 
     @Test
-    void shouldReturnSamePostBodyWhenCalledTwiceWithTheSameCorrelationId() throws Exception {
+    void shouldReturnSameBlobUrlsWithFreshSasOnIdempotentRetryWhenCalledTwiceWithTheSameCorrelationId() throws Exception {
         var correlationId = UUID.randomUUID();
         var payload = objectMapper.writeValueAsString(Map.of(
                 "correlationId", correlationId,
                 "description", "idempotent",
                 "postTags", Set.of("java"),
-                "media", List.of(Map.of("url", "https://cdn/image.jpg", "mediaType", "IMAGE", "order", 1))
+                "media", List.of(Map.of("mediaType", "IMAGE", "order", 1))
         ));
 
         var firstResponse = mockMvc.perform(post("/api/posts")
                         .with(jwtFor(CREATOR_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
-                .andExpect(status().isOk())
+                .andExpect(status().isCreated())
                 .andReturn()
                 .getResponse()
                 .getContentAsString();
@@ -768,7 +768,88 @@ class PostControllerIT {
         assertPostBodiesEqualIgnoringTimestampPrecision(secondBody, firstBody);
         assertThat(postJpaRepository.count()).isEqualTo(1);
         assertThat(postRequestIdempotencyJpaRepository.count()).isEqualTo(1);
-        assertThat(outboxEventRepository.count()).isEqualTo(1);
+        assertThat(outboxEventRepository.count()).isEqualTo(0);
+    }
+
+    @Test
+    void shouldCreateSeparatePostsWhenDifferentUsersReuseTheSameCorrelationId() throws Exception {
+        var otherUserId = UUID.fromString("22222222-2222-2222-2222-222222222222");
+        var correlationId = UUID.randomUUID();
+        var creatorPayload = objectMapper.writeValueAsString(Map.of(
+                "correlationId", correlationId,
+                "description", "from creator",
+                "postTags", Set.of("java"),
+                "media", List.of(Map.of("mediaType", "IMAGE", "order", 1))
+        ));
+        var otherUserPayload = objectMapper.writeValueAsString(Map.of(
+                "correlationId", correlationId,
+                "description", "from other user",
+                "postTags", Set.of("java"),
+                "media", List.of(Map.of("mediaType", "IMAGE", "order", 1))
+        ));
+
+        var creatorResponse = mockMvc.perform(post("/api/posts")
+                        .with(jwtFor(CREATOR_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(creatorPayload))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        var otherUserResponse = mockMvc.perform(post("/api/posts")
+                        .with(jwtFor(otherUserId))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(otherUserPayload))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        var creatorBody = objectMapper.readValue(creatorResponse, new TypeReference<Map<String, Object>>() { });
+        var otherUserBody = objectMapper.readValue(otherUserResponse, new TypeReference<Map<String, Object>>() { });
+
+        assertThat(creatorBody.get("postId")).isNotEqualTo(otherUserBody.get("postId"));
+        assertThat(creatorBody.get("userId")).isEqualTo(CREATOR_ID.toString());
+        assertThat(otherUserBody.get("userId")).isEqualTo(otherUserId.toString());
+        assertThat(creatorBody.get("description")).isEqualTo("from creator");
+        assertThat(otherUserBody.get("description")).isEqualTo("from other user");
+
+        assertThat(postJpaRepository.count()).isEqualTo(2);
+        assertThat(postRequestIdempotencyJpaRepository.count()).isEqualTo(2);
+    }
+
+    @Test
+    void shouldReturnConflictWhenSameUserReplaysTheSameCorrelationIdWithADifferentPayload() throws Exception {
+        var correlationId = UUID.randomUUID();
+        var firstPayload = objectMapper.writeValueAsString(Map.of(
+                "correlationId", correlationId,
+                "description", "first payload",
+                "postTags", Set.of("java"),
+                "media", List.of(Map.of("mediaType", "IMAGE", "order", 1))
+        ));
+        var differentPayload = objectMapper.writeValueAsString(Map.of(
+                "correlationId", correlationId,
+                "description", "a different payload entirely",
+                "postTags", Set.of("java"),
+                "media", List.of(Map.of("mediaType", "IMAGE", "order", 1))
+        ));
+
+        mockMvc.perform(post("/api/posts")
+                        .with(jwtFor(CREATOR_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(firstPayload))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(post("/api/posts")
+                        .with(jwtFor(CREATOR_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(differentPayload))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.errorCode").value("CONFLICT"));
+
+        assertThat(postJpaRepository.count()).isEqualTo(1);
+        assertThat(postRequestIdempotencyJpaRepository.count()).isEqualTo(1);
     }
 
     @Test
@@ -778,7 +859,7 @@ class PostControllerIT {
                 "correlationId", correlationId,
                 "description", "concurrent",
                 "postTags", Set.of("java"),
-                "media", List.of(Map.of("url", "https://cdn/image.jpg", "mediaType", "IMAGE", "order", 1))
+                "media", List.of(Map.of("mediaType", "IMAGE", "order", 1))
         ));
         var readyLatch = new CountDownLatch(2);
         var startLatch = new CountDownLatch(1);
@@ -800,7 +881,7 @@ class PostControllerIT {
 
         assertThat(postJpaRepository.count()).isEqualTo(1);
         assertThat(postRequestIdempotencyJpaRepository.count()).isEqualTo(1);
-        assertThat(outboxEventRepository.count()).isEqualTo(1);
+        assertThat(outboxEventRepository.count()).isEqualTo(0);
     }
 
     @Test
@@ -809,7 +890,7 @@ class PostControllerIT {
                 "correlationId", UUID.randomUUID(),
                 "description", "hello",
                 "postTags", Set.of("java"),
-                "media", List.of(Map.of("url", "https://cdn/image.jpg", "mediaType", "IMAGE", "order", 1,
+                "media", List.of(Map.of("mediaType", "IMAGE", "order", 1,
                         "taggedUsers", Set.of("missing")))
         ));
 
@@ -834,7 +915,7 @@ class PostControllerIT {
                 "correlationId", UUID.randomUUID(),
                 "description", "hello",
                 "postTags", Set.of("java"),
-                "media", List.of(Map.of("url", "https://cdn/image.jpg", "mediaType", "IMAGE", "order", 1,
+                "media", List.of(Map.of("mediaType", "IMAGE", "order", 1,
                         "taggedUsers", Set.of("alice")))
         ));
 
@@ -854,9 +935,8 @@ class PostControllerIT {
                 "description", "multi media",
                 "postTags", Set.of("java"),
                 "media", List.of(
-                        Map.of("url", "https://cdn/image-1.jpg", "mediaType", "IMAGE", "order", 1),
-                        Map.of("url", "https://cdn/video-1.mp4", "mediaType", "VIDEO", "order", 2,
-                                "thumbnailUrl", "https://cdn/thumb-1.jpg", "duration", 30)
+                        Map.of("mediaType", "IMAGE", "order", 1),
+                        Map.of("mediaType", "VIDEO", "order", 2)
                 )
         ));
 
@@ -864,10 +944,12 @@ class PostControllerIT {
                         .with(jwtFor(CREATOR_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(payload))
-                .andExpect(status().isOk())
+                .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.media", org.hamcrest.Matchers.hasSize(2)))
                 .andExpect(jsonPath("$.media[0].duration").doesNotExist())
-                .andExpect(jsonPath("$.media[1].duration").value(30))
+                .andExpect(jsonPath("$.media[1].duration").doesNotExist())
+                .andExpect(jsonPath("$.media[0].thumbnailUploadUrl").doesNotExist())
+                .andExpect(jsonPath("$.media[1].thumbnailUploadUrl").exists())
                 .andReturn()
                 .getResponse()
                 .getContentAsString();
@@ -886,8 +968,9 @@ class PostControllerIT {
         assertThat(persistedMedia.get(0).getThumbnailUrl()).isEqualTo(persistedMedia.get(0).getUrl());
         assertThat(persistedMedia.get(1).getMediaType())
                 .isEqualTo(com.app.postcommandservice.post.domain.model.valueobj.MediaType.VIDEO);
-        assertThat(persistedMedia.get(1).getDuration()).isEqualTo(30);
-        assertThat(persistedMedia.get(1).getThumbnailUrl()).isEqualTo("https://cdn/thumb-1.jpg");
+        assertThat(persistedMedia.get(1).getDuration()).isNull();
+        assertThat(persistedMedia.get(1).getThumbnailUrl()).isNotEqualTo(persistedMedia.get(1).getUrl());
+        assertThat(persistedPost.getStatus().name()).isEqualTo("PENDING");
     }
 
     @Test
@@ -1040,11 +1123,13 @@ class PostControllerIT {
             readyLatch.countDown();
             startLatch.await();
 
+            // Either concurrent caller may win the creation (201) while the other recovers the
+            // existing post via the idempotency record (200); both are correct outcomes here.
             return mockMvc.perform(post("/api/posts")
                             .with(jwtFor(CREATOR_ID))
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(payload))
-                    .andExpect(status().isOk())
+                    .andExpect(status().is2xxSuccessful())
                     .andReturn()
                     .getResponse()
                     .getContentAsString();
@@ -1076,11 +1161,33 @@ class PostControllerIT {
         assertThat(firstBody.get("userId")).isEqualTo(secondBody.get("userId"));
         assertThat(firstBody.get("collabId")).isEqualTo(secondBody.get("collabId"));
         assertThat(firstBody.get("postType")).isEqualTo(secondBody.get("postType"));
+        assertThat(firstBody.get("status")).isEqualTo(secondBody.get("status"));
         assertThat(firstBody.get("description")).isEqualTo(secondBody.get("description"));
-        assertThat(firstBody.get("media")).isEqualTo(secondBody.get("media"));
+        assertMediaListEqualIgnoringUploadSas(firstBody.get("media"), secondBody.get("media"));
         assertThat(firstBody.get("postTags")).isEqualTo(secondBody.get("postTags"));
         assertTimestampsEquivalent(firstBody.get("createdAt"), secondBody.get("createdAt"));
         assertTimestampsEquivalent(firstBody.get("updatedAt"), secondBody.get("updatedAt"));
+    }
+
+    /**
+     * Compares media lists while ignoring {@code uploadUrl}/{@code thumbnailUploadUrl}: those
+     * are transient SAS urls re-signed on every call (task 33) and are expected to differ
+     * between two otherwise-identical idempotent responses.
+     */
+    @SuppressWarnings("unchecked")
+    private void assertMediaListEqualIgnoringUploadSas(Object firstMediaRaw, Object secondMediaRaw) {
+        var firstMedia = (List<Map<String, Object>>) firstMediaRaw;
+        var secondMedia = (List<Map<String, Object>>) secondMediaRaw;
+        assertThat(firstMedia).hasSameSizeAs(secondMedia);
+        for (int index = 0; index < firstMedia.size(); index++) {
+            var first = new java.util.HashMap<>(firstMedia.get(index));
+            var second = new java.util.HashMap<>(secondMedia.get(index));
+            first.remove("uploadUrl");
+            first.remove("thumbnailUploadUrl");
+            second.remove("uploadUrl");
+            second.remove("thumbnailUploadUrl");
+            assertThat(first).isEqualTo(second);
+        }
     }
 
     @SuppressWarnings("unchecked")
