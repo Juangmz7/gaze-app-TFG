@@ -30,6 +30,7 @@ import com.app.postcommandservice.post.application.repository.PostRepository;
 import com.app.postcommandservice.post.application.repository.PostRequestIdempotencyRepository;
 import com.app.postcommandservice.post.application.repository.TaggedUserValidationRepository;
 import com.app.postcommandservice.post.domain.events.PostCreatedDomainEvent;
+import com.app.postcommandservice.post.domain.exception.IdempotencyKeyReuseException;
 import com.app.postcommandservice.post.domain.exception.InvalidPostMediaException;
 import com.app.postcommandservice.post.domain.exception.TaggedUserBlockedException;
 import com.app.postcommandservice.post.domain.exception.TaggedUserNotFoundException;
@@ -126,17 +127,20 @@ public class CreatePostUseCase {
             CreatePostCommand command,
             boolean publishCreatedEvent,
             boolean persistRequestIdempotency) {
+        String requestHash = CreatePostRequestHasher.hash(command);
+
         if (persistRequestIdempotency) {
-            postRequestIdempotencyRepository.acquireCorrelationLock(command.correlationId());
+            postRequestIdempotencyRepository.acquireCorrelationLock(command.currentUserId(), command.correlationId());
         }
 
         if (persistRequestIdempotency) {
-            var existingPostId = postRequestIdempotencyRepository.findPostIdByCorrelationId(command.correlationId());
-            if (existingPostId.isPresent()) {
-                return postRepository.findById(existingPostId.get())
-                        .map(this::toResponse)
+            var existing = postRequestIdempotencyRepository.find(command.currentUserId(), command.correlationId());
+            if (existing.isPresent()) {
+                var existingPost = postRepository.findById(existing.get().postId())
                         .orElseThrow(() -> new IllegalStateException(
-                                "Idempotency record exists but post was not found: " + existingPostId.get()));
+                                "Idempotency record exists but post was not found: " + existing.get().postId()));
+                requireSameOwnerAndPayload(existingPost, command.currentUserId(), existing.get().requestHash(), requestHash);
+                return toResponse(existingPost);
             }
         }
 
@@ -163,7 +167,8 @@ public class CreatePostUseCase {
 
         var savedPost = postRepository.save(post);
         if (persistRequestIdempotency) {
-            postRequestIdempotencyRepository.save(command.correlationId(), savedPost.getId().value());
+            postRequestIdempotencyRepository.save(
+                    command.currentUserId(), command.correlationId(), savedPost.getId().value(), requestHash);
         }
 
         if (publishCreatedEvent) {
@@ -188,13 +193,16 @@ public class CreatePostUseCase {
     }
 
     private PendingPostPersistence persistPendingPost(CreatePostCommand command) {
-        postRequestIdempotencyRepository.acquireCorrelationLock(command.correlationId());
+        String requestHash = CreatePostRequestHasher.hash(command);
 
-        var existingPostId = postRequestIdempotencyRepository.findPostIdByCorrelationId(command.correlationId());
-        if (existingPostId.isPresent()) {
-            var existingPost = postRepository.findById(existingPostId.get())
+        postRequestIdempotencyRepository.acquireCorrelationLock(command.currentUserId(), command.correlationId());
+
+        var existing = postRequestIdempotencyRepository.find(command.currentUserId(), command.correlationId());
+        if (existing.isPresent()) {
+            var existingPost = postRepository.findById(existing.get().postId())
                     .orElseThrow(() -> new IllegalStateException(
-                            "Idempotency record exists but post was not found: " + existingPostId.get()));
+                            "Idempotency record exists but post was not found: " + existing.get().postId()));
+            requireSameOwnerAndPayload(existingPost, command.currentUserId(), existing.get().requestHash(), requestHash);
             return new PendingPostPersistence(existingPost, false);
         }
 
@@ -220,8 +228,30 @@ public class CreatePostUseCase {
         );
 
         var savedPost = postRepository.save(post);
-        postRequestIdempotencyRepository.save(command.correlationId(), savedPost.getId().value());
+        postRequestIdempotencyRepository.save(
+                command.currentUserId(), command.correlationId(), savedPost.getId().value(), requestHash);
         return new PendingPostPersistence(savedPost, true);
+    }
+
+    /**
+     * Defensive ownership/payload invariant for an idempotent replay. Ownership mismatches
+     * should be structurally impossible once the idempotency lookup itself is scoped by
+     * userId, but this is kept as a belt-and-suspenders check. A payload mismatch means the
+     * same (userId, correlationId) pair was reused for a different request; a {@code null}
+     * stored hash means the record predates request hashing and is treated as a match. Both
+     * failure cases throw the same generic exception so callers cannot distinguish the cause.
+     */
+    private void requireSameOwnerAndPayload(
+            Post existingPost,
+            UUID currentUserId,
+            String storedRequestHash,
+            String freshRequestHash) {
+        if (!existingPost.getUserId().value().equals(currentUserId)) {
+            throw new IdempotencyKeyReuseException();
+        }
+        if (storedRequestHash != null && !storedRequestHash.equals(freshRequestHash)) {
+            throw new IdempotencyKeyReuseException();
+        }
     }
 
     private PostResponse signUploadUrls(Post post) {

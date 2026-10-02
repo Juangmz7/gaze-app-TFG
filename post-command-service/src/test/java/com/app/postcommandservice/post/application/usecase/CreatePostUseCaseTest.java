@@ -188,7 +188,7 @@ class CreatePostUseCaseTest {
                 new PostMediaCommand(null, null, MediaType.IMAGE, null, Set.of("   "), 1)
         ));
         stubTransactionTemplateToRunCallback();
-        when(postRequestIdempotencyRepository.findPostIdByCorrelationId(CORRELATION_ID)).thenReturn(Optional.empty());
+        when(postRequestIdempotencyRepository.find(USER_ID, CORRELATION_ID)).thenReturn(Optional.empty());
         when(mediaUrlGenerator.generate(MediaType.IMAGE)).thenReturn(new GeneratedMediaUrls("https://blob/a", "https://blob/a"));
 
         assertThatThrownBy(() -> createPostUseCase.createPost(command))
@@ -204,7 +204,7 @@ class CreatePostUseCaseTest {
                 new PostMediaCommand(null, null, MediaType.IMAGE, null, Set.of("alice", "bob"), 1)
         ));
         stubTransactionTemplateToRunCallback();
-        when(postRequestIdempotencyRepository.findPostIdByCorrelationId(CORRELATION_ID)).thenReturn(Optional.empty());
+        when(postRequestIdempotencyRepository.find(USER_ID, CORRELATION_ID)).thenReturn(Optional.empty());
         when(mediaUrlGenerator.generate(MediaType.IMAGE)).thenReturn(new GeneratedMediaUrls("https://blob/a", "https://blob/a"));
 
         assertThatThrownBy(() -> createPostUseCase.createPost(command))
@@ -219,7 +219,7 @@ class CreatePostUseCaseTest {
                 new PostMediaCommand(null, null, MediaType.IMAGE, null, Set.of(), 1)
         ));
         stubTransactionTemplateToRunCallback();
-        when(postRequestIdempotencyRepository.findPostIdByCorrelationId(CORRELATION_ID)).thenReturn(Optional.empty());
+        when(postRequestIdempotencyRepository.find(USER_ID, CORRELATION_ID)).thenReturn(Optional.empty());
         when(mediaUrlGenerator.generate(MediaType.IMAGE)).thenReturn(new GeneratedMediaUrls("https://blob/a", "https://blob/a"));
         when(postRepository.save(any(Post.class))).thenAnswer(invocation -> withTimestamps(invocation.getArgument(0)));
         when(mediaUploadUrlSigner.sign(anyString(), any(Instant.class)))
@@ -243,7 +243,7 @@ class CreatePostUseCaseTest {
                 new PostMediaCommand(null, null, MediaType.VIDEO, null, Set.of(), 2)
         ));
         stubTransactionTemplateToRunCallback();
-        when(postRequestIdempotencyRepository.findPostIdByCorrelationId(CORRELATION_ID)).thenReturn(Optional.empty());
+        when(postRequestIdempotencyRepository.find(USER_ID, CORRELATION_ID)).thenReturn(Optional.empty());
         when(mediaUrlGenerator.generate(MediaType.IMAGE)).thenReturn(new GeneratedMediaUrls("https://blob/image", "https://blob/image"));
         when(mediaUrlGenerator.generate(MediaType.VIDEO)).thenReturn(new GeneratedMediaUrls("https://blob/video", "https://blob/video-thumb"));
         when(postRepository.save(any(Post.class))).thenAnswer(invocation -> withTimestamps(invocation.getArgument(0)));
@@ -272,7 +272,7 @@ class CreatePostUseCaseTest {
                 new PostMediaCommand(null, null, MediaType.IMAGE, null, Set.of("alice"), 1)
         ));
         stubTransactionTemplateToRunCallback();
-        when(postRequestIdempotencyRepository.findPostIdByCorrelationId(CORRELATION_ID)).thenReturn(Optional.empty());
+        when(postRequestIdempotencyRepository.find(USER_ID, CORRELATION_ID)).thenReturn(Optional.empty());
         when(mediaUrlGenerator.generate(MediaType.IMAGE)).thenReturn(new GeneratedMediaUrls("https://blob/a", "https://blob/a"));
         when(taggedUserValidationRepository.findUserIdsByUsernames(Set.of("alice")))
                 .thenReturn(Map.of("alice", UUID.randomUUID()));
@@ -294,7 +294,7 @@ class CreatePostUseCaseTest {
                 new PostMediaCommand(null, null, MediaType.IMAGE, null, Set.of(), 1)
         ));
         stubTransactionTemplateToRunCallback();
-        when(postRequestIdempotencyRepository.findPostIdByCorrelationId(CORRELATION_ID)).thenReturn(Optional.empty());
+        when(postRequestIdempotencyRepository.find(USER_ID, CORRELATION_ID)).thenReturn(Optional.empty());
         when(mediaUrlGenerator.generate(MediaType.IMAGE)).thenReturn(new GeneratedMediaUrls("https://blob/a", "https://blob/a"));
         when(postRepository.save(any(Post.class))).thenAnswer(invocation -> withTimestamps(invocation.getArgument(0)));
         when(mediaUploadUrlSigner.sign(anyString(), any(Instant.class)))
@@ -314,8 +314,9 @@ class CreatePostUseCaseTest {
         ));
         var existingPost = pendingPost("https://blob/existing", "https://blob/existing", MediaType.IMAGE);
         stubTransactionTemplateToRunCallback();
-        when(postRequestIdempotencyRepository.findPostIdByCorrelationId(CORRELATION_ID))
-                .thenReturn(Optional.of(existingPost.getId().value()));
+        when(postRequestIdempotencyRepository.find(USER_ID, CORRELATION_ID))
+                .thenReturn(Optional.of(new PostRequestIdempotencyRepository.ExistingIdempotencyRecord(
+                        existingPost.getId().value(), null)));
         when(postRepository.findById(existingPost.getId().value())).thenReturn(Optional.of(existingPost));
         when(mediaUploadUrlSigner.sign(eq("https://blob/existing"), any(Instant.class)))
                 .thenReturn(new SignedUploadUrl("https://blob/existing?sas-fresh", Instant.now().plusSeconds(900)));
@@ -338,8 +339,9 @@ class CreatePostUseCaseTest {
         ));
         var existingPost = pendingPost("https://blob/existing", "https://blob/existing", MediaType.IMAGE);
         stubTransactionTemplateToRunCallback();
-        when(postRequestIdempotencyRepository.findPostIdByCorrelationId(CORRELATION_ID))
-                .thenReturn(Optional.of(existingPost.getId().value()));
+        when(postRequestIdempotencyRepository.find(USER_ID, CORRELATION_ID))
+                .thenReturn(Optional.of(new PostRequestIdempotencyRepository.ExistingIdempotencyRecord(
+                        existingPost.getId().value(), null)));
         when(postRepository.findById(existingPost.getId().value())).thenReturn(Optional.of(existingPost));
         // Simulate that the signer always issues a brand-new (never previously cached) SAS,
         // proving the use case never reuses a stale SAS on replay.
@@ -355,11 +357,57 @@ class CreatePostUseCaseTest {
     }
 
     @Test
+    void shouldThrowIdempotencyKeyReuseExceptionWhenSameUserReplaysWithADifferentPayload() {
+        var command = metadataCommand(List.of(
+                new PostMediaCommand(null, null, MediaType.IMAGE, null, Set.of(), 1)
+        ));
+        var existingPost = pendingPost("https://blob/existing", "https://blob/existing", MediaType.IMAGE);
+        stubTransactionTemplateToRunCallback();
+        when(postRequestIdempotencyRepository.find(USER_ID, CORRELATION_ID))
+                .thenReturn(Optional.of(new PostRequestIdempotencyRepository.ExistingIdempotencyRecord(
+                        existingPost.getId().value(), "mismatching-stored-hash")));
+        when(postRepository.findById(existingPost.getId().value())).thenReturn(Optional.of(existingPost));
+
+        assertThatThrownBy(() -> createPostUseCase.createPost(command))
+                .isInstanceOf(com.app.postcommandservice.post.domain.exception.IdempotencyKeyReuseException.class);
+
+        verify(postRepository, never()).save(any(Post.class));
+    }
+
+    @Test
+    void shouldThrowIdempotencyKeyReuseExceptionWhenResolvedPostBelongsToAnotherUser() {
+        var command = metadataCommand(List.of(
+                new PostMediaCommand(null, null, MediaType.IMAGE, null, Set.of(), 1)
+        ));
+        var otherUsersPost = new Post(
+                new PostId(UUID.randomUUID()),
+                new UserId(UUID.randomUUID()),
+                null,
+                new PostInfo(new PostDescription("hello"), new PostTags(Set.of("java")), PostType.BASIC),
+                List.of(PostMedia.create(UUID.randomUUID(), "https://blob/existing", "https://blob/existing",
+                        MediaType.IMAGE, null, Set.of(), 1)),
+                PostStatus.PENDING,
+                Instant.now(),
+                Instant.now()
+        );
+        stubTransactionTemplateToRunCallback();
+        when(postRequestIdempotencyRepository.find(USER_ID, CORRELATION_ID))
+                .thenReturn(Optional.of(new PostRequestIdempotencyRepository.ExistingIdempotencyRecord(
+                        otherUsersPost.getId().value(), null)));
+        when(postRepository.findById(otherUsersPost.getId().value())).thenReturn(Optional.of(otherUsersPost));
+
+        assertThatThrownBy(() -> createPostUseCase.createPost(command))
+                .isInstanceOf(com.app.postcommandservice.post.domain.exception.IdempotencyKeyReuseException.class);
+
+        verify(postRepository, never()).save(any(Post.class));
+    }
+
+    @Test
     void shouldSignSasUrlsAfterTheTransactionCommitsNotInsideTheTransaction() {
         var command = metadataCommand(List.of(
                 new PostMediaCommand(null, null, MediaType.IMAGE, null, Set.of(), 1)
         ));
-        when(postRequestIdempotencyRepository.findPostIdByCorrelationId(CORRELATION_ID)).thenReturn(Optional.empty());
+        when(postRequestIdempotencyRepository.find(USER_ID, CORRELATION_ID)).thenReturn(Optional.empty());
         when(mediaUrlGenerator.generate(MediaType.IMAGE)).thenReturn(new GeneratedMediaUrls("https://blob/a", "https://blob/a"));
         when(postRepository.save(any(Post.class))).thenAnswer(invocation -> withTimestamps(invocation.getArgument(0)));
         when(mediaUploadUrlSigner.sign(anyString(), any(Instant.class)))
@@ -380,7 +428,7 @@ class CreatePostUseCaseTest {
                 new PostMediaCommand(null, null, MediaType.IMAGE, null, Set.of(), 1)
         ));
         stubTransactionTemplateToRunCallback();
-        when(postRequestIdempotencyRepository.findPostIdByCorrelationId(CORRELATION_ID)).thenReturn(Optional.empty());
+        when(postRequestIdempotencyRepository.find(USER_ID, CORRELATION_ID)).thenReturn(Optional.empty());
         when(mediaUrlGenerator.generate(MediaType.IMAGE)).thenReturn(new GeneratedMediaUrls("https://blob/a", "https://blob/a"));
         when(postRepository.save(any(Post.class))).thenAnswer(invocation -> withTimestamps(invocation.getArgument(0)));
         when(mediaUploadUrlSigner.sign(anyString(), any(Instant.class)))
@@ -404,7 +452,7 @@ class CreatePostUseCaseTest {
         var persistedPost = persistedPost("", Set.of(), Set.of("java"));
         var createdEvent = createdEvent(persistedPost);
 
-        when(postRequestIdempotencyRepository.findPostIdByCorrelationId(CORRELATION_ID)).thenReturn(Optional.empty());
+        when(postRequestIdempotencyRepository.find(USER_ID, CORRELATION_ID)).thenReturn(Optional.empty());
         when(postRepository.save(any(Post.class))).thenReturn(persistedPost);
         when(postEventMapper.toPostCreatedEvent(any(UUID.class), any(UUID.class), any(Post.class), any(Instant.class)))
                 .thenReturn(createdEvent);
@@ -413,8 +461,8 @@ class CreatePostUseCaseTest {
         createPostUseCase.createPost(command, true, true);
 
         InOrder inOrder = inOrder(postRequestIdempotencyRepository);
-        inOrder.verify(postRequestIdempotencyRepository).acquireCorrelationLock(CORRELATION_ID);
-        inOrder.verify(postRequestIdempotencyRepository).findPostIdByCorrelationId(CORRELATION_ID);
+        inOrder.verify(postRequestIdempotencyRepository).acquireCorrelationLock(USER_ID, CORRELATION_ID);
+        inOrder.verify(postRequestIdempotencyRepository).find(USER_ID, CORRELATION_ID);
     }
 
     @Test
@@ -425,7 +473,7 @@ class CreatePostUseCaseTest {
         var createdEvent = createdEvent(persistedPost);
         var usersByUsername = Map.of("alice", UUID.randomUUID(), "bob", UUID.randomUUID());
 
-        when(postRequestIdempotencyRepository.findPostIdByCorrelationId(CORRELATION_ID)).thenReturn(Optional.empty());
+        when(postRequestIdempotencyRepository.find(USER_ID, CORRELATION_ID)).thenReturn(Optional.empty());
         when(taggedUserValidationRepository.findUserIdsByUsernames(taggedUsers)).thenReturn(usersByUsername);
         when(taggedUserValidationRepository.findBlockedUserIds(USER_ID, Set.copyOf(usersByUsername.values())))
                 .thenReturn(Set.of());
@@ -446,8 +494,9 @@ class CreatePostUseCaseTest {
     void shouldReturnPreviouslyCreatedPostWithoutSideEffectsWhenCorrelationIdAlreadyExistsOnLegacyFlow() {
         var existingPost = persistedPost("existing", Set.of("alice"), Set.of("java"));
 
-        when(postRequestIdempotencyRepository.findPostIdByCorrelationId(CORRELATION_ID))
-                .thenReturn(Optional.of(existingPost.getId().value()));
+        when(postRequestIdempotencyRepository.find(USER_ID, CORRELATION_ID))
+                .thenReturn(Optional.of(new PostRequestIdempotencyRepository.ExistingIdempotencyRecord(
+                        existingPost.getId().value(), null)));
         when(postRepository.findById(existingPost.getId().value())).thenReturn(Optional.of(existingPost));
 
         var response = createPostUseCase.createPost(new CreatePostCommand(
@@ -471,7 +520,7 @@ class CreatePostUseCaseTest {
     void shouldThrowTaggedUserNotFoundExceptionWhenTaggedUserDoesNotExistOnLegacyFlow() {
         var command = legacyCommand(Set.of("missing"));
 
-        when(postRequestIdempotencyRepository.findPostIdByCorrelationId(CORRELATION_ID)).thenReturn(Optional.empty());
+        when(postRequestIdempotencyRepository.find(USER_ID, CORRELATION_ID)).thenReturn(Optional.empty());
         when(taggedUserValidationRepository.findUserIdsByUsernames(Set.of("missing"))).thenReturn(Map.of());
 
         assertThatThrownBy(() -> createPostUseCase.createPost(command, true, true))
@@ -484,7 +533,7 @@ class CreatePostUseCaseTest {
         var blockedUserId = UUID.randomUUID();
         var command = legacyCommand(Set.of("alice"));
 
-        when(postRequestIdempotencyRepository.findPostIdByCorrelationId(CORRELATION_ID)).thenReturn(Optional.empty());
+        when(postRequestIdempotencyRepository.find(USER_ID, CORRELATION_ID)).thenReturn(Optional.empty());
         when(taggedUserValidationRepository.findUserIdsByUsernames(Set.of("alice")))
                 .thenReturn(Map.of("alice", blockedUserId));
         when(taggedUserValidationRepository.findBlockedUserIds(USER_ID, Set.of(blockedUserId)))
@@ -523,7 +572,7 @@ class CreatePostUseCaseTest {
                 Instant.now()
         );
 
-        when(postRequestIdempotencyRepository.findPostIdByCorrelationId(CORRELATION_ID)).thenReturn(Optional.empty());
+        when(postRequestIdempotencyRepository.find(USER_ID, CORRELATION_ID)).thenReturn(Optional.empty());
         when(postRepository.save(any(Post.class))).thenReturn(persistedPost);
 
         var response = createPostUseCase.createPost(command, false);
@@ -568,9 +617,10 @@ class CreatePostUseCaseTest {
 
         assertThat(response.collabId()).isEqualTo(collabId);
         assertThat(response.postType()).isEqualTo(PostType.COLLAB);
-        verify(postRequestIdempotencyRepository, never()).acquireCorrelationLock(any(UUID.class));
-        verify(postRequestIdempotencyRepository, never()).findPostIdByCorrelationId(any(UUID.class));
-        verify(postRequestIdempotencyRepository, never()).save(any(UUID.class), any(UUID.class));
+        verify(postRequestIdempotencyRepository, never()).acquireCorrelationLock(any(UUID.class), any(UUID.class));
+        verify(postRequestIdempotencyRepository, never()).find(any(UUID.class), any(UUID.class));
+        verify(postRequestIdempotencyRepository, never())
+                .save(any(UUID.class), any(UUID.class), any(UUID.class), any());
         verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
         verify(applicationEventPublisher, never()).publishEvent(any(PostCreatedDomainEvent.class));
     }
