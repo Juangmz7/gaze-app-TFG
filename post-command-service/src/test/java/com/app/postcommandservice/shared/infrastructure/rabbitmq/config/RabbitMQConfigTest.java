@@ -17,6 +17,7 @@ class RabbitMQConfigTest {
     void shouldDeclarePropertyDrivenQueuesDlqsExchangesAndBindings() {
         var properties = new RabbitMQProperties();
         properties.getQueue().setPost("q.post-command-service.post");
+        properties.getQueue().setPostMedia("q.post-command-service.post.media");
         properties.getQueue().getUser().setFast("q.post-command-service.user.fast");
         properties.getQueue().getUser().setSlow("q.post-command-service.user.slow");
         properties.getExchange().getPost().setCommands("x.post.commands");
@@ -28,6 +29,7 @@ class RabbitMQConfigTest {
         properties.getRk().getPost().getLike().setValidate("rk.post.like.validate");
         properties.getRk().getPost().getUnlike().setValidate("rk.post.unlike.validate");
         properties.getRk().getPost().getComment().getLike().setValidate("rk.post.comment.like.validate");
+        properties.getRk().getPost().getMedia().setUploaded("rk.post.media.uploaded");
         properties.getRk().getUser().getBlock().setCreated("rk.user.block.created");
         properties.getRk().getUser().getBlock().setDeleted("rk.user.block.deleted");
         properties.getRk().getUser().setRegistered("rk.user.registered");
@@ -50,14 +52,22 @@ class RabbitMQConfigTest {
                 .map(Queue.class::cast)
                 .collect(Collectors.toMap(Queue::getName, queue -> queue));
 
-        assertThat(exchanges).containsKeys("x.post.commands", "x.post.commands.dlx", "x.post.events", "x.user.events",
-                "x.user.events.dlx");
-        assertThat(queues).containsKeys("q.post-command-service.post", "q.post-command-service.post.dlq");
+        assertThat(exchanges).containsKeys("x.post.commands", "x.post.commands.dlx", "x.post.events",
+                "x.post.events.dlx", "x.user.events", "x.user.events.dlx");
+        assertThat(queues).containsKeys("q.post-command-service.post", "q.post-command-service.post.dlq",
+                "q.post-command-service.post.media", "q.post-command-service.post.media.dlq");
         assertThat(bindings).anyMatch(binding -> "q.post-command-service.post".equals(binding.getDestination())
                 && "rk.post.unlike.validate".equals(binding.getRoutingKey()));
         assertThat(bindings).anyMatch(binding -> "q.post-command-service.post".equals(binding.getDestination())
                 && "rk.post.comment.like.validate".equals(binding.getRoutingKey()));
         assertThat(bindings).anyMatch(binding -> "q.post-command-service.post.dlq".equals(binding.getDestination())
                 && "q.post-command-service.post.fall-back".equals(binding.getRoutingKey()));
+        assertThat(bindings).anyMatch(binding -> "q.post-command-service.post.media".equals(binding.getDestination())
+                && "x.post.events".equals(binding.getExchange())
+                && "rk.post.media.uploaded".equals(binding.getRoutingKey()));
+        assertThat(bindings).anyMatch(
+                binding -> "q.post-command-service.post.media.dlq".equals(binding.getDestination())
+                        && "x.post.events.dlx".equals(binding.getExchange())
+                        && "q.post-command-service.post.media.fall-back".equals(binding.getRoutingKey()));
     }
 }
