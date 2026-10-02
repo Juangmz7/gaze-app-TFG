@@ -105,10 +105,12 @@ class AzureMediaUploadUrlSignerAzuriteTest {
                 .PUT(HttpRequest.BodyPublishers.ofString("hello from the client upload"))
                 .build();
         HttpResponse<String> putResponse = http.send(putRequest, HttpResponse.BodyHandlers.ofString());
-        assertThat(putResponse.statusCode()).isEqualTo(201);
+        assertThat(blobContainerClient.getBlobClient(blobName).downloadContent().toString())
+                .isEqualTo("hello from the client upload");
 
         HttpRequest getRequest = HttpRequest.newBuilder(URI.create(signed.url())).GET().build();
         HttpResponse<String> getResponse = http.send(getRequest, HttpResponse.BodyHandlers.ofString());
-        assertThat(getResponse.statusCode()).isEqualTo(403);
+        assertThat(getResponse.headers().firstValue("x-ms-error-code"))
+                .hasValue("AuthorizationPermissionMismatch");
     }
 }
