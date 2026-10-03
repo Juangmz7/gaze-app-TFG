@@ -1,9 +1,11 @@
 package com.app.postcommandservice.post.infrastructure.config;
 
 import java.time.Duration;
+import java.util.Set;
 
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
 
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -32,4 +34,40 @@ public class PostMediaProperties {
      */
     @Min(1)
     private int maxTaggedUsers = 30;
+
+    /**
+     * Maximum size, in bytes, of an IMAGE blob (or a VIDEO's thumbnail blob). Enforced by
+     * {@code MediaVerifier} (task 36) before downloading the blob's content, using the size
+     * reported by the blob's properties.
+     */
+    @Positive
+    private long maxImageBytes = 10L * 1024 * 1024;
+
+    /**
+     * Maximum size, in bytes, of a VIDEO content blob. Enforced by {@code MediaVerifier}
+     * (task 36) before downloading the blob's content.
+     */
+    @Positive
+    private long maxVideoBytes = 200L * 1024 * 1024;
+
+    /**
+     * Optional maximum VIDEO duration, in seconds. {@code null} means no limit. Enforced by
+     * {@code MediaVerifier} (task 36) after extracting the duration from the blob.
+     */
+    private Integer maxVideoDurationSeconds;
+
+    /**
+     * Image formats {@code MediaVerifier} accepts for an IMAGE blob (or a VIDEO's thumbnail),
+     * identified by real content (magic bytes), never by the client-set Content-Type property.
+     */
+    @NotNull
+    private Set<String> allowedImageFormats = Set.of("JPEG", "PNG", "WEBP");
+
+    /**
+     * Video (ISO BMFF) formats {@code MediaVerifier} accepts for a VIDEO content blob,
+     * identified by real content (magic bytes / {@code ftyp} major brand), never by the
+     * client-set Content-Type property.
+     */
+    @NotNull
+    private Set<String> allowedVideoFormats = Set.of("MP4", "MOV");
 }
