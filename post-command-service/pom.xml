@@ -89,6 +89,13 @@
             <version>1.16.2</version>
         </dependency>
         <dependency>
+            <!-- Reads the ISO BMFF (MP4/MOV) container to extract VIDEO duration for
+                 MediaVerifier (task 36); the Azure Blob SDK does not expose media metadata. -->
+            <groupId>org.mp4parser</groupId>
+            <artifactId>isoparser</artifactId>
+            <version>1.9.56</version>
+        </dependency>
+        <dependency>
             <groupId>org.mapstruct</groupId>
             <artifactId>mapstruct</artifactId>
             <version>${mapstruct.version}</version>
