@@ -86,6 +86,15 @@ public class PostEntity {
     @Version
     private Long version;
 
+    /**
+     * When the scheduled cleanup job (task 39) deleted this post's media blobs and considers
+     * it fully purged. {@code null} until purged. Guards the conditional {@code UPDATE} that
+     * sets it so a duplicate/overlapping run safely affects zero rows instead of re-deleting
+     * already-deleted blobs twice.
+     */
+    @Column(name = "media_purged_at")
+    private Instant mediaPurgedAt;
+
     @PrePersist
     void onCreate() {
         var now = Instant.now();
