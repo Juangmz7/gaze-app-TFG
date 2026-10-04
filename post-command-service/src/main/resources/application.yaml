@@ -5,6 +5,15 @@ posts:
     max-image-bytes: 10485760
     max-video-bytes: 209715200
 
+  # --- Scheduled cleanup of expired unconfirmed uploads (task 39) ---
+  media-cleanup:
+    # Hourly at minute 15 (away from the top of the hour).
+    cron: "0 15 * * * *"
+    # ShedLock: must stay comfortably shorter than the hourly interval above.
+    lock-at-most-for: PT55M
+    batch-size: 200
+    max-batches-per-run: 10
+
 # --- RabbitMQ Bindings ---
 rabbitmq:
   queue:
