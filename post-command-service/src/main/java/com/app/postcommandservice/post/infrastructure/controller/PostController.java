@@ -35,13 +35,16 @@ import com.app.postcommandservice.post.application.commands.CreatePostCommand;
 import com.app.postcommandservice.post.application.commands.DeletePostCommand;
 import com.app.postcommandservice.post.application.commands.LinkExistingPostToCollabCommand;
 import com.app.postcommandservice.post.application.commands.UpdatePostCommand;
+import com.app.postcommandservice.post.application.commands.RefreshUploadUrlsCommand;
 import com.app.postcommandservice.post.application.dto.PostCollabLinkStatusResponse;
 import com.app.postcommandservice.post.application.dto.PostResponse;
+import com.app.postcommandservice.post.application.dto.RefreshUploadUrlsResponse;
 import com.app.postcommandservice.post.application.usecase.CheckPostCollabLinkStatusUseCase;
 import com.app.postcommandservice.post.application.usecase.ConfirmMediaUploadUseCase;
 import com.app.postcommandservice.post.application.usecase.CreatePostUseCase;
 import com.app.postcommandservice.post.application.usecase.DeletePostUseCase;
 import com.app.postcommandservice.post.application.usecase.LinkExistingPostToCollabUseCase;
+import com.app.postcommandservice.post.application.usecase.RefreshUploadUrlsUseCase;
 import com.app.postcommandservice.post.application.usecase.UpdatePostUseCase;
 import com.app.postcommandservice.post.domain.model.valueobj.PostType;
 import com.app.postcommandservice.share.application.commands.CreatePostShareCommand;
@@ -58,6 +61,7 @@ public class PostController {
 
     private final CreatePostUseCase createPostUseCase;
     private final ConfirmMediaUploadUseCase confirmMediaUploadUseCase;
+    private final RefreshUploadUrlsUseCase refreshUploadUrlsUseCase;
     private final CheckPostCollabLinkStatusUseCase checkPostCollabLinkStatusUseCase;
     private final UpdatePostUseCase updatePostUseCase;
     private final DeletePostUseCase deletePostUseCase;
@@ -106,6 +110,23 @@ public class PostController {
 
         confirmMediaUploadUseCase.confirm(new ConfirmMediaUploadCommand(postId, currentUserId));
         return ResponseEntity.accepted().build();
+    }
+
+    @PostMapping("/{postId}/media/upload-urls")
+    public ResponseEntity<RefreshUploadUrlsResponse> refreshUploadUrls(
+            @PathVariable("postId") java.util.UUID postId,
+            @Valid @RequestBody(required = false) RefreshUploadUrlsRequest request) {
+        var currentUserId = securityUtils.getUserId();
+        if (currentUserId == null) {
+            throw new AuthenticationCredentialsNotFoundException("JWT subject claim is missing or invalid");
+        }
+
+        var media = request == null || request.media() == null
+                ? java.util.List.<RefreshUploadUrlsCommand.ClientMediaUpload>of()
+                : request.media().stream().map(RefreshUploadUrlsMediaRequest::toClientMediaUpload).toList();
+
+        var command = new RefreshUploadUrlsCommand(postId, currentUserId, media);
+        return ResponseEntity.ok(refreshUploadUrlsUseCase.refresh(command));
     }
 
     @GetMapping("/{postId}/collab-status")
