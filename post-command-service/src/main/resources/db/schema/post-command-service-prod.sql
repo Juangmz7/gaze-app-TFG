@@ -193,3 +193,21 @@ ALTER TABLE post_media
 
 ALTER TABLE post_media
     ADD COLUMN IF NOT EXISTS thumbnail_sas_expires_at TIMESTAMP WITH TIME ZONE;
+
+-- Task 39: scheduled cleanup of expired unconfirmed uploads.
+ALTER TABLE posts
+    ADD COLUMN IF NOT EXISTS media_purged_at TIMESTAMP WITH TIME ZONE;
+
+CREATE INDEX IF NOT EXISTS idx_posts_status_created_at_unpurged
+    ON posts (status, created_at)
+    WHERE media_purged_at IS NULL;
+
+-- ShedLock's own lock table (net.javacrumbs.shedlock), read/written via plain JDBC by
+-- JdbcTemplateLockProvider so only one instance runs the hourly cleanup job at a time.
+CREATE TABLE IF NOT EXISTS shedlock (
+    name VARCHAR(64) NOT NULL,
+    lock_until TIMESTAMP WITH TIME ZONE NOT NULL,
+    locked_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    locked_by VARCHAR(255) NOT NULL,
+    CONSTRAINT pk_shedlock PRIMARY KEY (name)
+);

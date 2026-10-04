@@ -106,6 +106,18 @@
             <scope>runtime</scope>
         </dependency>
         <dependency>
+            <!-- Distributed lock so the hourly media-cleanup job (task 39) runs on exactly one
+                 instance at a time, backed by the same Postgres datasource via plain JDBC. -->
+            <groupId>net.javacrumbs.shedlock</groupId>
+            <artifactId>shedlock-spring</artifactId>
+            <version>7.10.1</version>
+        </dependency>
+        <dependency>
+            <groupId>net.javacrumbs.shedlock</groupId>
+            <artifactId>shedlock-provider-jdbc-template</artifactId>
+            <version>7.10.1</version>
+        </dependency>
+        <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
             <optional>true</optional>
