@@ -22,11 +22,11 @@ public class PostMediaCleanupRepositoryImpl implements PostMediaCleanupRepositor
 
     @Override
     public List<ExpiredPost> findExpiredBatch(Instant expiryThreshold, KeysetCursor cursor, int batchSize) {
-        Instant cursorCreatedAt = cursor == null ? null : cursor.createdAt();
-        UUID cursorId = cursor == null ? null : cursor.id();
-
-        List<PostMediaCleanupPostView> page = postJpaRepository.findExpiredCleanupBatch(
-                EXPIRABLE_STATUSES, expiryThreshold, cursorCreatedAt, cursorId, PageRequest.ofSize(batchSize));
+        List<PostMediaCleanupPostView> page = cursor == null
+                ? postJpaRepository.findExpiredCleanupFirstPage(
+                        EXPIRABLE_STATUSES, expiryThreshold, PageRequest.ofSize(batchSize))
+                : postJpaRepository.findExpiredCleanupNextPage(
+                        EXPIRABLE_STATUSES, expiryThreshold, cursor.createdAt(), cursor.id(), PageRequest.ofSize(batchSize));
 
         return page.stream()
                 .map(view -> new ExpiredPost(

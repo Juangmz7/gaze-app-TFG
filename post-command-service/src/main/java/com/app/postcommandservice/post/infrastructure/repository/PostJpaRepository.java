@@ -58,15 +58,15 @@ public interface PostJpaRepository extends JpaRepository<PostEntity, UUID> {
             @Param("newStatus") PostStatus newStatus);
 
     /**
-     * Keyset-paginated selection for the scheduled media-cleanup job (task 39): posts whose
-     * upload was never confirmed in time (still {@code PENDING}) or whose upload was already
-     * rejected ({@code MEDIA_UPLOAD_FAILED}), older than the upload window, not yet purged.
-     * {@code cursorCreatedAt}/{@code cursorId} are both {@code null} for the first page of a
-     * run; passing the previous page's last row as the cursor (rather than an {@code OFFSET})
-     * keeps each page's cost independent of how many pages came before, and keeps advancing
-     * past a post even if its own processing later fails, so one bad post cannot stall the
-     * batch on the next page. {@code pageable} must only ever be used for its page size
-     * ({@code PageRequest.ofSize(batchSize)}), never for its page number.
+     * First page of the keyset-paginated selection for the scheduled media-cleanup job
+     * (task 39): posts whose upload was never confirmed in time (still {@code PENDING}) or
+     * whose upload was already rejected ({@code MEDIA_UPLOAD_FAILED}), older than the upload
+     * window, not yet purged. {@code pageable} must only ever be used for its page size
+     * ({@code PageRequest.ofSize(batchSize)}), never for its page number. A separate method
+     * from {@link #findExpiredCleanupNextPage} (rather than one query with a nullable cursor)
+     * because binding a {@code NULL} parameter used only inside an {@code IS NULL} check with
+     * no concrete column on either side leaves Postgres unable to infer that parameter's type
+     * once the statement is server-side prepared.
      */
     @Query("""
             SELECT post.id AS id, post.status AS status, post.createdAt AS createdAt
@@ -74,12 +74,32 @@ public interface PostJpaRepository extends JpaRepository<PostEntity, UUID> {
             WHERE post.status IN :statuses
               AND post.createdAt < :threshold
               AND post.mediaPurgedAt IS NULL
-              AND (:cursorCreatedAt IS NULL
-                   OR post.createdAt > :cursorCreatedAt
+            ORDER BY post.createdAt ASC, post.id ASC
+            """)
+    List<PostMediaCleanupPostView> findExpiredCleanupFirstPage(
+            @Param("statuses") List<PostStatus> statuses,
+            @Param("threshold") Instant threshold,
+            Pageable pageable);
+
+    /**
+     * Subsequent page of the same selection as {@link #findExpiredCleanupFirstPage}, starting
+     * strictly after {@code (cursorCreatedAt, cursorId)} in {@code (createdAt, id)} order.
+     * Passing the previous page's last row as the cursor (rather than an {@code OFFSET}) keeps
+     * each page's cost independent of how many pages came before, and keeps advancing past a
+     * post even if its own processing later fails, so one bad post cannot stall the batch on
+     * the next page.
+     */
+    @Query("""
+            SELECT post.id AS id, post.status AS status, post.createdAt AS createdAt
+            FROM PostEntity post
+            WHERE post.status IN :statuses
+              AND post.createdAt < :threshold
+              AND post.mediaPurgedAt IS NULL
+              AND (post.createdAt > :cursorCreatedAt
                    OR (post.createdAt = :cursorCreatedAt AND post.id > :cursorId))
             ORDER BY post.createdAt ASC, post.id ASC
             """)
-    List<PostMediaCleanupPostView> findExpiredCleanupBatch(
+    List<PostMediaCleanupPostView> findExpiredCleanupNextPage(
             @Param("statuses") List<PostStatus> statuses,
             @Param("threshold") Instant threshold,
             @Param("cursorCreatedAt") Instant cursorCreatedAt,
