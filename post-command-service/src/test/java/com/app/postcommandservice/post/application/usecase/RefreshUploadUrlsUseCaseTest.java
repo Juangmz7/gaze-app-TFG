@@ -103,7 +103,7 @@ class RefreshUploadUrlsUseCaseTest {
         var freshExpiry = Instant.now().plus(Duration.ofMinutes(15));
         when(mediaUploadUrlSigner.sign(eq("https://cdn/blob.jpg"), any()))
                 .thenReturn(new SignedUploadUrl("https://cdn/blob.jpg?fresh-sas", freshExpiry));
-        when(passwordEncoder.encode("https://cdn/blob.jpg?fresh-sas")).thenReturn("new-hash");
+        when(passwordEncoder.encode(any())).thenReturn("new-hash");
 
         var response = useCase.refresh(new RefreshUploadUrlsCommand(POST_ID, AUTHOR_ID,
                 List.of(new ClientMediaUpload(mediaId, "https://cdn/blob.jpg?expired-sas", null))));
@@ -125,7 +125,7 @@ class RefreshUploadUrlsUseCaseTest {
                 POST_ID, AUTHOR_ID, PostStatus.PENDING, Instant.now().minus(Duration.ofHours(1)),
                 List.of(imageMedia(mediaId, STORED_HASH, storedExpiry)));
         when(refreshUploadUrlsRepository.findById(POST_ID)).thenReturn(Optional.of(upload));
-        when(passwordEncoder.matches("https://cdn/blob.jpg?still-valid-sas", STORED_HASH)).thenReturn(true);
+        when(passwordEncoder.matches(any(), eq(STORED_HASH))).thenReturn(true);
 
         var response = useCase.refresh(new RefreshUploadUrlsCommand(POST_ID, AUTHOR_ID,
                 List.of(new ClientMediaUpload(mediaId, "https://cdn/blob.jpg?still-valid-sas", null))));

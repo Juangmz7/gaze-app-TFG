@@ -1,8 +1,12 @@
 package com.app.postcommandservice.post.application.usecase;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -163,7 +167,7 @@ public class RefreshUploadUrlsUseCase {
         }
 
         var signed = mediaUploadUrlSigner.sign(blobUrl, postCreatedAt);
-        String hash = passwordEncoder.encode(signed.url());
+        String hash = passwordEncoder.encode(sha256Hex(signed.url()));
         return new ResolvedUrl(signed.url(), signed.expiresAt(), new SasUpdate(mediaId, thumbnail, hash, signed.expiresAt()));
     }
 
@@ -174,7 +178,23 @@ public class RefreshUploadUrlsUseCase {
         if (!storedExpiresAt.isAfter(Instant.now())) {
             return false;
         }
-        return passwordEncoder.matches(clientSuppliedUrl, storedHash);
+        return passwordEncoder.matches(sha256Hex(clientSuppliedUrl), storedHash);
+    }
+
+    /**
+     * BCrypt silently truncates (and {@code BCryptPasswordEncoder} rejects outright) inputs
+     * longer than 72 bytes, while a signed SAS url is routinely far longer than that. Hashing a
+     * fixed-length SHA-256 digest of the url instead of the url itself keeps BCrypt's salted,
+     * slow verification property (the actual security requirement here) while accepting a url
+     * of any length.
+     */
+    private String sha256Hex(String value) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 must be available on every JVM", e);
+        }
     }
 
     private Instant earliest(Instant current, Instant candidate) {
