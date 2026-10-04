@@ -187,6 +187,10 @@ public class PostMediaVerificationService {
             case CORRUPT_FILE -> "media file is corrupt";
             case DURATION_UNREADABLE -> "video duration could not be read";
             case DURATION_TOO_LONG -> "video exceeds the allowed duration";
+            // Never produced by MediaVerifier: UPLOAD_EXPIRED is built directly by the
+            // scheduled cleanup job (task 39), which never calls this method.
+            case UPLOAD_EXPIRED -> throw new IllegalStateException(
+                    "UPLOAD_EXPIRED is never produced by MediaVerifier");
         };
         return "Upload of post %s failed: %s at %s".formatted(postId, what, failure.mediaUrl());
     }
