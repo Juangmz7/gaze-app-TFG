@@ -1,5 +1,6 @@
 package com.app.postcommandservice.post.infrastructure.entity;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -72,4 +73,26 @@ public class PostMediaEntity {
 
     @Column(name = "media_order", nullable = false)
     private Integer mediaOrder;
+
+    /**
+     * BCrypt hash of the most recently issued upload SAS url for {@link #url} (task 38). Never
+     * the plain SAS, which is never persisted. {@code null} until a SAS has been issued via the
+     * refresh-upload-urls endpoint.
+     */
+    @Column(name = "upload_sas_hash")
+    private String uploadSasHash;
+
+    @Column(name = "upload_sas_expires_at")
+    private Instant uploadSasExpiresAt;
+
+    /**
+     * BCrypt hash of the most recently issued upload SAS url for {@link #thumbnailUrl}, used only
+     * for {@code VIDEO} media (task 38). {@code null} for {@code IMAGE} media and for any
+     * {@code VIDEO} media that has not had its thumbnail SAS refreshed yet.
+     */
+    @Column(name = "thumbnail_sas_hash")
+    private String thumbnailSasHash;
+
+    @Column(name = "thumbnail_sas_expires_at")
+    private Instant thumbnailSasExpiresAt;
 }

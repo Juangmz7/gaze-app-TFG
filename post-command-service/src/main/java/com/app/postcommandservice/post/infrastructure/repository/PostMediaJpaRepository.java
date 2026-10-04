@@ -1,5 +1,6 @@
 package com.app.postcommandservice.post.infrastructure.repository;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -32,4 +33,39 @@ public interface PostMediaJpaRepository extends JpaRepository<PostMediaEntity, U
             WHERE m.id = :mediaId
             """)
     int updateDuration(@Param("mediaId") UUID mediaId, @Param("durationMillis") Integer durationMillis);
+
+    @Query("""
+            SELECT m.id AS id, m.url AS url, m.thumbnailUrl AS thumbnailUrl,
+                   m.mediaType AS mediaType, m.mediaOrder AS mediaOrder,
+                   m.uploadSasHash AS uploadSasHash, m.uploadSasExpiresAt AS uploadSasExpiresAt,
+                   m.thumbnailSasHash AS thumbnailSasHash, m.thumbnailSasExpiresAt AS thumbnailSasExpiresAt
+            FROM PostMediaEntity m
+            WHERE m.post.id = :postId
+            ORDER BY m.mediaOrder ASC
+            """)
+    List<PostMediaRefreshUploadUrlsView> findRefreshUploadUrlsViewsByPostId(@Param("postId") UUID postId);
+
+    /**
+     * Persists a freshly signed upload SAS hash + expiry for {@code mediaId}'s content blob
+     * (task 38). The SAS itself is never persisted, only its BCrypt hash.
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            UPDATE PostMediaEntity m
+            SET m.uploadSasHash = :hash, m.uploadSasExpiresAt = :expiresAt
+            WHERE m.id = :mediaId
+            """)
+    int updateUploadSas(@Param("mediaId") UUID mediaId, @Param("hash") String hash, @Param("expiresAt") Instant expiresAt);
+
+    /**
+     * Persists a freshly signed upload SAS hash + expiry for {@code mediaId}'s thumbnail blob
+     * (task 38). Only ever invoked for {@code VIDEO} media.
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            UPDATE PostMediaEntity m
+            SET m.thumbnailSasHash = :hash, m.thumbnailSasExpiresAt = :expiresAt
+            WHERE m.id = :mediaId
+            """)
+    int updateThumbnailSas(@Param("mediaId") UUID mediaId, @Param("hash") String hash, @Param("expiresAt") Instant expiresAt);
 }
