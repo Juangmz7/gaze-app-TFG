@@ -178,3 +178,18 @@ ALTER TABLE post_request_idempotency
 
 ALTER TABLE post_request_idempotency
     ADD CONSTRAINT pk_post_request_idempotency PRIMARY KEY (user_id, correlation_id);
+
+-- Task 38: refresh-upload-urls endpoint persists each issued SAS hashed (never plain) with its
+-- expiry, keyed naturally by post_media's own id, so a still-valid client-held SAS can be
+-- recognised without re-signing.
+ALTER TABLE post_media
+    ADD COLUMN IF NOT EXISTS upload_sas_hash VARCHAR(255);
+
+ALTER TABLE post_media
+    ADD COLUMN IF NOT EXISTS upload_sas_expires_at TIMESTAMP WITH TIME ZONE;
+
+ALTER TABLE post_media
+    ADD COLUMN IF NOT EXISTS thumbnail_sas_hash VARCHAR(255);
+
+ALTER TABLE post_media
+    ADD COLUMN IF NOT EXISTS thumbnail_sas_expires_at TIMESTAMP WITH TIME ZONE;
