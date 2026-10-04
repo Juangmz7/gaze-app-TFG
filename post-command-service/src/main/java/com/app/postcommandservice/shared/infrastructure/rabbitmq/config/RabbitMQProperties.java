@@ -75,6 +75,13 @@ public class RabbitMQProperties {
             @Data
             public static class MediaRk {
                 private String uploaded;               // outgoing: rk.post.media.uploaded
+                private ValidationRk validation = new ValidationRk();
+
+                @Data
+                public static class ValidationRk {
+                    private String succeeded;           // outgoing: rk.post.media.validation.succeeded
+                    private String failed;               // outgoing: rk.post.media.validation.failed
+                }
             }
 
             @Data
