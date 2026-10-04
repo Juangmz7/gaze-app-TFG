@@ -33,6 +33,9 @@ rabbitmq:
       # --- media ---
       media:
         uploaded: rk.post.media.uploaded
+        validation:
+          succeeded: rk.post.media.validation.succeeded
+          failed: rk.post.media.validation.failed
 
       # --- view ---
       view:
