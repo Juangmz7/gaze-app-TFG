@@ -23,6 +23,8 @@ const (
 	QueueUserSlow = "q.post-query-service.user.slow"
 	// QueuePost receives all post/comment/like/share/collab domain events.
 	QueuePost = "q.post-query-service.post"
+	// QueueFeed receives post events used to build the user's feed (recommended and trending signals).
+	QueueFeed = "q.post-query-service.feed"
 )
 
 // RoutingKeyHeader is the Watermill message metadata key used to carry the
@@ -79,6 +81,10 @@ var PostRoutingKeys = []string{
 	"rk.post.collab.request.deleted",
 	"rk.post.collab.member.left",
 	"rk.post.collab.member.banned",
+}
+
+// FeedRoutingKeys lists the routing keys bound to QueueFeed.
+var FeedRoutingKeys = []string{
 	"rk.post.recommended.sent",
 	"rk.post.trending.sent",
 }
@@ -143,5 +149,15 @@ func PostSpec() Spec {
 		ExchangeType: "topic",
 		Queue:        QueuePost,
 		RoutingKeys:  PostRoutingKeys,
+	}
+}
+
+// FeedSpec is the topology for QueueFeed.
+func FeedSpec() Spec {
+	return Spec{
+		Exchange:     ExchangePostEvents,
+		ExchangeType: "topic",
+		Queue:        QueueFeed,
+		RoutingKeys:  FeedRoutingKeys,
 	}
 }

@@ -64,7 +64,7 @@ func (r Result) Close() error {
 }
 
 // Bootstrap builds the Watermill router with one consumer handler per queue
-// (user fast, user slow, post), the idempotency repository, every
+// (user fast, user slow, post, feed), the idempotency repository, every
 // bounded-context handler, and the feed-events publisher.
 func Bootstrap(ctx context.Context, amqpURI string, db *mongo.Database, logger *slog.Logger) (Result, error) {
 	wmLogger := watermill.NewSlogLogger(logger)
@@ -89,6 +89,9 @@ func Bootstrap(ctx context.Context, amqpURI string, db *mongo.Database, logger *
 		return Result{}, err
 	}
 	if err := addPostConsumer(wmRouter, amqpURI, db, idempotencyRepo, logger, &result); err != nil {
+		return Result{}, err
+	}
+	if err := addFeedConsumer(wmRouter, amqpURI, db, idempotencyRepo, logger, &result); err != nil {
 		return Result{}, err
 	}
 
@@ -176,6 +179,28 @@ func addPostConsumer(wmRouter *message.Router, amqpURI string, db *mongo.Databas
 	dispatcher := dispatch.New(spec.Queue, handlers, logger)
 
 	wmRouter.AddConsumerHandler("post-consumer", spec.Queue, subscriber, dispatcher.Handle)
+
+	return nil
+}
+
+func addFeedConsumer(wmRouter *message.Router, amqpURI string, db *mongo.Database, idempotencyRepo *idempotency.Repository, logger *slog.Logger, result *Result) error {
+	spec := topology.FeedSpec()
+
+	subscriber, err := newSubscriber(amqpURI, spec, watermill.NewSlogLogger(logger))
+	if err != nil {
+		return err
+	}
+	result.closers = append(result.closers, subscriber.Close)
+
+	// Every routing key listed in topology.FeedRoutingKeys is bound to this
+	// queue at the AMQP level (see topology.Builder). Neither
+	// "rk.post.recommended.sent" nor "rk.post.trending.sent" has a concrete
+	// use case yet; both are valid, bound deliveries that dispatch.Dispatcher
+	// logs and acknowledges until their own use case is implemented.
+	handlers := map[string]dispatch.EventHandlerFunc{}
+	dispatcher := dispatch.New(spec.Queue, handlers, logger)
+
+	wmRouter.AddConsumerHandler("feed-consumer", spec.Queue, subscriber, dispatcher.Handle)
 
 	return nil
 }
