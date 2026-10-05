@@ -18,18 +18,9 @@ const (
 // Queue names.
 const (
 	// QueueUserFast receives user events that should be projected quickly.
-	//
-	// NOTE: the queue name uses the "post-command-service" prefix, not
-	// "post-query-service". This matches feature_list.json task 41's
-	// technical_constraints verbatim. It looks like a copy-paste artifact
-	// from post-command-service's own topology, since this queue is declared
-	// and consumed by post-query-service. Implemented as specified; please
-	// confirm in review whether this should be renamed to
-	// "q.post-query-service.user.fast" in a follow-up migration.
-	QueueUserFast = "q.post-command-service.user.fast"
+	QueueUserFast = "q.post-query-service.user.fast"
 	// QueueUserSlow receives user events whose projection can tolerate more latency.
-	// See the QueueUserFast note above: same naming concern applies here.
-	QueueUserSlow = "q.post-command-service.user.slow"
+	QueueUserSlow = "q.post-query-service.user.slow"
 	// QueuePost receives all post/comment/like/share/collab domain events.
 	QueuePost = "q.post-query-service.post"
 )
