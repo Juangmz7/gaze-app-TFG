@@ -18,11 +18,11 @@ import (
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/topology"
 )
 
-// TestPublisher_Publish_RoutesUserFeedDeletedEventToTheFeedEventsExchange
+// TestPublisher_Publish_RoutesUserFeedExhaustedEventToTheFeedEventsExchange
 // proves the publisher against a real broker: the event lands on
-// x.feed.events with routing key rk.post.feed.deleted, independently
+// x.feed.events with routing key rk.post.feed.exhausted, independently
 // verified by a plain amqp091-go consumer bound to that exact routing key.
-func TestPublisher_Publish_RoutesUserFeedDeletedEventToTheFeedEventsExchange(t *testing.T) {
+func TestPublisher_Publish_RoutesUserFeedExhaustedEventToTheFeedEventsExchange(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
@@ -41,7 +41,7 @@ func TestPublisher_Publish_RoutesUserFeedDeletedEventToTheFeedEventsExchange(t *
 		t.Fatalf("container.AmqpURL() error = %v", err)
 	}
 
-	deliveries := declareVerificationQueue(t, ctx, amqpURI, topology.ExchangeFeedEvents, topology.RKFeedDeleted)
+	deliveries := declareVerificationQueue(t, ctx, amqpURI, topology.ExchangeFeedEvents, topology.RKFeedExhausted)
 
 	wmLogger := watermill.NewSlogLogger(slog.Default())
 	amqpPublisher, err := wmamqp.NewPublisher(router.NewPublisherConfig(amqpURI, topology.ExchangeFeedEvents), wmLogger)
@@ -77,7 +77,7 @@ func TestPublisher_Publish_RoutesUserFeedDeletedEventToTheFeedEventsExchange(t *
 			t.Fatalf("delivered payload UserID = %v, want %v", gotEvent.UserID, event.UserID)
 		}
 	case <-time.After(20 * time.Second):
-		t.Fatal("timed out waiting for the published event on x.feed.events/rk.post.feed.deleted")
+		t.Fatal("timed out waiting for the published event on x.feed.events/rk.post.feed.exhausted")
 	}
 }
 

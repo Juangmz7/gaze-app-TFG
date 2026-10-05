@@ -30,7 +30,7 @@ func (f *fakePublisher) Publish(topic string, messages ...*message.Message) erro
 
 func (f *fakePublisher) Close() error { return nil }
 
-func TestPublisher_Publish_SendsTheEventOnTheFeedDeletedRoutingKey(t *testing.T) {
+func TestPublisher_Publish_SendsTheEventOnTheFeedExhaustedRoutingKey(t *testing.T) {
 	fake := &fakePublisher{}
 	pub := publisher.NewPublisher(fake)
 
@@ -45,8 +45,8 @@ func TestPublisher_Publish_SendsTheEventOnTheFeedDeletedRoutingKey(t *testing.T)
 		t.Fatalf("Publish() error = %v, want nil", err)
 	}
 
-	if fake.gotTopic != topology.RKFeedDeleted {
-		t.Fatalf("Publish() topic = %q, want %q", fake.gotTopic, topology.RKFeedDeleted)
+	if fake.gotTopic != topology.RKFeedExhausted {
+		t.Fatalf("Publish() topic = %q, want %q", fake.gotTopic, topology.RKFeedExhausted)
 	}
 
 	var gotEvent publisher.Event

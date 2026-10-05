@@ -45,8 +45,8 @@ type Result struct {
 	// Router is the Watermill router. Call Run(ctx) to start consuming and
 	// Close() on shutdown.
 	Router *message.Router
-	// FeedDeletedPublisher publishes UserFeedDeletedEvent to x.feed.events.
-	FeedDeletedPublisher *publisher.Publisher
+	// FeedExhaustedPublisher publishes UserFeedExhaustedEvent to x.feed.events.
+	FeedExhaustedPublisher *publisher.Publisher
 	// closers are closed, in order, when the caller is done with Result.
 	closers []func() error
 }
@@ -92,11 +92,11 @@ func Bootstrap(ctx context.Context, amqpURI string, db *mongo.Database, logger *
 		return Result{}, err
 	}
 
-	pub, err := newFeedDeletedPublisher(amqpURI, wmLogger, &result)
+	pub, err := newFeedExhaustedPublisher(amqpURI, wmLogger, &result)
 	if err != nil {
 		return Result{}, err
 	}
-	result.FeedDeletedPublisher = pub
+	result.FeedExhaustedPublisher = pub
 
 	return result, nil
 }
@@ -191,7 +191,7 @@ func newSubscriber(amqpURI string, spec topology.Spec, wmLogger watermill.Logger
 	return subscriber, nil
 }
 
-func newFeedDeletedPublisher(amqpURI string, wmLogger watermill.LoggerAdapter, result *Result) (*publisher.Publisher, error) {
+func newFeedExhaustedPublisher(amqpURI string, wmLogger watermill.LoggerAdapter, result *Result) (*publisher.Publisher, error) {
 	cfg := router.NewPublisherConfig(amqpURI, topology.ExchangeFeedEvents)
 
 	amqpPublisher, err := wmamqp.NewPublisher(cfg, wmLogger)

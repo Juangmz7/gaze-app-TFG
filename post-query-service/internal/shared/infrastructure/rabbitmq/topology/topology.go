@@ -31,9 +31,9 @@ const (
 // queue is bound to many routing keys and handlers must dispatch on it.
 const RoutingKeyHeader = "x-routing-key"
 
-// RKFeedDeleted is the routing key used to publish UserFeedDeletedEvent to
-// ExchangeFeedEvents.
-const RKFeedDeleted = "rk.post.feed.deleted"
+// RKFeedExhausted is the routing key used to publish UserFeedExhaustedEvent
+// to ExchangeFeedEvents.
+const RKFeedExhausted = "rk.post.feed.exhausted"
 
 // UserFastRoutingKeys lists the routing keys bound to QueueUserFast.
 var UserFastRoutingKeys = []string{
