@@ -83,7 +83,7 @@ func TestPostConsumer_DuplicateEventDoesNotApplySideEffectTwice(t *testing.T) {
 
 	repository := newCountingPostRepository(postmongo.NewRepository(db))
 	uc := usecase.New(repository)
-	handler := postrabbitmq.New(idempotencyRepo, uc, testLogger())
+	handler := postrabbitmq.NewPostCreatedHandler(idempotencyRepo, uc, testPostCreatedLogger())
 
 	spec := topology.Spec{
 		Exchange:     "x.postcreated.duplicate.test",
@@ -93,9 +93,9 @@ func TestPostConsumer_DuplicateEventDoesNotApplySideEffectTwice(t *testing.T) {
 	}
 
 	handlers := map[string]dispatch.EventHandlerFunc{"rk.post.created": handler.Handle}
-	dispatcher := dispatch.New(spec.Queue, handlers, testLogger())
+	dispatcher := dispatch.New(spec.Queue, handlers, testPostCreatedLogger())
 
-	wmLogger := watermill.NewSlogLogger(testLogger())
+	wmLogger := watermill.NewSlogLogger(testPostCreatedLogger())
 	subscriber, err := wmamqp.NewSubscriber(router.NewSubscriberConfig(amqpURI, spec), wmLogger)
 	if err != nil {
 		t.Fatalf("wmamqp.NewSubscriber() error = %v", err)
@@ -128,7 +128,7 @@ func TestPostConsumer_DuplicateEventDoesNotApplySideEffectTwice(t *testing.T) {
 		t.Fatal("timed out waiting for the router to start running")
 	}
 
-	event := validEvent()
+	event := validPostCreatedEvent()
 	payload, err := json.Marshal(event)
 	if err != nil {
 		t.Fatalf("json.Marshal() error = %v", err)
