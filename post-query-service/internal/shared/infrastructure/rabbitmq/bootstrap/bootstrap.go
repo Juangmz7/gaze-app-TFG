@@ -75,12 +75,18 @@ func Bootstrap(ctx context.Context, amqpURI string, db *mongo.Database, logger *
 	}
 	wmRouter.AddMiddleware(router.NewRetryMiddleware(wmLogger).Middleware)
 
+	result := Result{Router: wmRouter}
+	ok := false
+	defer func() {
+		if !ok {
+			result.Close()
+		}
+	}()
+
 	idempotencyRepo := idempotency.NewRepository(db)
 	if err := idempotencyRepo.EnsureIndexes(ctx); err != nil {
 		return Result{}, fmt.Errorf("bootstrap rabbitmq: %w", err)
 	}
-
-	result := Result{Router: wmRouter}
 
 	if err := addUserFastConsumer(wmRouter, amqpURI, db, idempotencyRepo, logger, &result); err != nil {
 		return Result{}, err
@@ -101,6 +107,7 @@ func Bootstrap(ctx context.Context, amqpURI string, db *mongo.Database, logger *
 	}
 	result.FeedExhaustedPublisher = pub
 
+	ok = true
 	return result, nil
 }
 
