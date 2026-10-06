@@ -1,5 +1,5 @@
-// Package usecase implements the use case that projects a
-// PostLikeCreatedEvent into the like read model.
+// Package usecase implements the use cases that project
+// PostLikeCreatedEvent and PostLikeDeletedEvent into the like read model.
 package usecase
 
 import (
@@ -10,32 +10,34 @@ import (
 	"github.com/google/uuid"
 )
 
-// Input is the data required to project a newly created post like.
-type Input struct {
+// RecordLikeInput is the data required to project a newly created post
+// like.
+type RecordLikeInput struct {
 	LikeID    uuid.UUID
 	PostID    uuid.UUID
 	UserID    uuid.UUID
 	CreatedAt time.Time
 }
 
-// Repository persists the like read model. Implemented by
+// RecordLikeRepository persists the like read model. Implemented by
 // like/infrastructure/mongo.Repository.
-type Repository interface {
-	Insert(ctx context.Context, input Input) error
+type RecordLikeRepository interface {
+	Insert(ctx context.Context, input RecordLikeInput) error
 }
 
-// Usecase projects a PostLikeCreatedEvent into the like read model.
-type Usecase struct {
-	repository Repository
+// RecordLikeUsecase projects a PostLikeCreatedEvent into the like read
+// model.
+type RecordLikeUsecase struct {
+	repository RecordLikeRepository
 }
 
-// New creates a Usecase backed by repository.
-func New(repository Repository) *Usecase {
-	return &Usecase{repository: repository}
+// NewRecordLike creates a RecordLikeUsecase backed by repository.
+func NewRecordLike(repository RecordLikeRepository) *RecordLikeUsecase {
+	return &RecordLikeUsecase{repository: repository}
 }
 
 // Execute inserts the like read model described by input.
-func (u *Usecase) Execute(ctx context.Context, input Input) error {
+func (u *RecordLikeUsecase) Execute(ctx context.Context, input RecordLikeInput) error {
 	if input.LikeID == uuid.Nil {
 		return fmt.Errorf("record like usecase: like id is required")
 	}

@@ -30,7 +30,7 @@ func TestRepository_Insert_PersistsTheLikeReadModelAtVersionOne(t *testing.T) {
 	db := testDatabase(t, ctx)
 	repository := likemongo.NewRepository(db)
 
-	input := usecase.Input{
+	input := usecase.RecordLikeInput{
 		LikeID:    uuid.New(),
 		PostID:    uuid.New(),
 		UserID:    uuid.New(),
@@ -69,7 +69,7 @@ func TestRepository_Insert_IsIdempotentOnARetriedInsertOfTheSameLikeID(t *testin
 	}
 
 	likeID := uuid.New()
-	input := usecase.Input{LikeID: likeID, PostID: uuid.New(), UserID: uuid.New(), CreatedAt: time.Now().UTC()}
+	input := usecase.RecordLikeInput{LikeID: likeID, PostID: uuid.New(), UserID: uuid.New(), CreatedAt: time.Now().UTC()}
 	if err := repository.Insert(ctx, input); err != nil {
 		t.Fatalf("Insert() error = %v", err)
 	}
@@ -94,7 +94,7 @@ func TestRepository_Update_SucceedsAndIncrementsVersionWhenExpectedVersionMatche
 	repository := likemongo.NewRepository(db)
 
 	likeID := uuid.New()
-	if err := repository.Insert(ctx, usecase.Input{LikeID: likeID, PostID: uuid.New(), UserID: uuid.New(), CreatedAt: time.Now().UTC()}); err != nil {
+	if err := repository.Insert(ctx, usecase.RecordLikeInput{LikeID: likeID, PostID: uuid.New(), UserID: uuid.New(), CreatedAt: time.Now().UTC()}); err != nil {
 		t.Fatalf("Insert() error = %v", err)
 	}
 
@@ -126,7 +126,7 @@ func TestRepository_Update_ReturnsVersionConflictAndDoesNotModifyWhenExpectedVer
 
 	likeID := uuid.New()
 	originalPostID := uuid.New()
-	if err := repository.Insert(ctx, usecase.Input{LikeID: likeID, PostID: originalPostID, UserID: uuid.New(), CreatedAt: time.Now().UTC()}); err != nil {
+	if err := repository.Insert(ctx, usecase.RecordLikeInput{LikeID: likeID, PostID: originalPostID, UserID: uuid.New(), CreatedAt: time.Now().UTC()}); err != nil {
 		t.Fatalf("Insert() error = %v", err)
 	}
 
@@ -155,6 +155,44 @@ func findLike(t *testing.T, ctx context.Context, db *mongodriver.Database, likeI
 	}
 
 	return doc
+}
+
+func TestRepository_DeleteByPostAndUser_RemovesTheMatchingLikeReadModelDocument(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	db := testDatabase(t, ctx)
+	repository := likemongo.NewRepository(db)
+
+	postID := uuid.New()
+	userID := uuid.New()
+	if err := repository.Insert(ctx, usecase.RecordLikeInput{LikeID: uuid.New(), PostID: postID, UserID: userID, CreatedAt: time.Now().UTC()}); err != nil {
+		t.Fatalf("Insert() error = %v", err)
+	}
+
+	if err := repository.DeleteByPostAndUser(ctx, postID, userID); err != nil {
+		t.Fatalf("DeleteByPostAndUser() error = %v", err)
+	}
+
+	count, err := db.Collection("post_likes").CountDocuments(ctx, bson.D{{Key: "post_id", Value: postID.String()}, {Key: "user_id", Value: userID.String()}})
+	if err != nil {
+		t.Fatalf("CountDocuments() error = %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("CountDocuments() = %d, want 0 after DeleteByPostAndUser", count)
+	}
+}
+
+func TestRepository_DeleteByPostAndUser_IsANoOpWhenNoLikeMatches(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	db := testDatabase(t, ctx)
+	repository := likemongo.NewRepository(db)
+
+	if err := repository.DeleteByPostAndUser(ctx, uuid.New(), uuid.New()); err != nil {
+		t.Fatalf("DeleteByPostAndUser() error = %v, want nil for an absent document", err)
+	}
 }
 
 func testDatabase(t *testing.T, ctx context.Context) *mongodriver.Database {
