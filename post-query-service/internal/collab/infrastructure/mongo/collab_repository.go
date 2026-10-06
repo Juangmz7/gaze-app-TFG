@@ -161,3 +161,17 @@ func (r *Repository) Update(ctx context.Context, input usecase.CloseCollabInput)
 
 	return nil
 }
+
+// Delete idempotently removes collabID's collab read model document.
+// Deleting an already-absent document is not an error.
+func (r *Repository) Delete(ctx context.Context, collabID uuid.UUID) error {
+	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
+	defer cancel()
+
+	filter := bson.D{{Key: "collab_id", Value: collabID.String()}}
+	if _, err := r.collection.DeleteOne(ctx, filter); err != nil {
+		return fmt.Errorf("delete collab %s: %w", collabID, err)
+	}
+
+	return nil
+}

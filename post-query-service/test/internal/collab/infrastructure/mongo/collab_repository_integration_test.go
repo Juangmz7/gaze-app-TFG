@@ -194,6 +194,43 @@ func TestRepository_Update_ReturnsVersionConflictAndDoesNotModifyWhenExpectedVer
 	}
 }
 
+func TestRepository_Delete_RemovesAnExistingCollabReadModelDocument(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	db := testDatabase(t, ctx)
+	repository := collabmongo.NewRepository(db)
+
+	collabID := uuid.New()
+	if err := repository.Insert(ctx, usecase.RecordCollabOpenedInput{CollabID: collabID, PostID: uuid.New(), OwnerUserID: uuid.New(), CreatedAt: time.Now().UTC()}); err != nil {
+		t.Fatalf("Insert() error = %v", err)
+	}
+
+	if err := repository.Delete(ctx, collabID); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+
+	count, err := db.Collection("post_collabs").CountDocuments(ctx, bson.D{{Key: "collab_id", Value: collabID.String()}})
+	if err != nil {
+		t.Fatalf("CountDocuments() error = %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("CountDocuments() = %d, want 0 after Delete", count)
+	}
+}
+
+func TestRepository_Delete_IsANoOpWhenTheCollabWasNeverProjected(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	db := testDatabase(t, ctx)
+	repository := collabmongo.NewRepository(db)
+
+	if err := repository.Delete(ctx, uuid.New()); err != nil {
+		t.Fatalf("Delete() error = %v, want nil for an absent document", err)
+	}
+}
+
 func findCollab(t *testing.T, ctx context.Context, db *mongodriver.Database, collabID uuid.UUID) collabDocument {
 	t.Helper()
 
