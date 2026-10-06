@@ -1,5 +1,6 @@
-// Package usecase implements the use case that projects a
-// PostShareCreatedEvent into the share read model.
+// Package usecase implements the use cases that project
+// PostShareCreatedEvent and PostShareDeletedEvent into the share read
+// model.
 package usecase
 
 import (
@@ -10,32 +11,34 @@ import (
 	"github.com/google/uuid"
 )
 
-// Input is the data required to project a newly created post share.
-type Input struct {
+// RecordShareInput is the data required to project a newly created post
+// share.
+type RecordShareInput struct {
 	ShareID   uuid.UUID
 	PostID    uuid.UUID
 	UserID    uuid.UUID
 	CreatedAt time.Time
 }
 
-// Repository persists the share read model. Implemented by
+// RecordShareRepository persists the share read model. Implemented by
 // share/infrastructure/mongo.Repository.
-type Repository interface {
-	Insert(ctx context.Context, input Input) error
+type RecordShareRepository interface {
+	Insert(ctx context.Context, input RecordShareInput) error
 }
 
-// Usecase projects a PostShareCreatedEvent into the share read model.
-type Usecase struct {
-	repository Repository
+// RecordShareUsecase projects a PostShareCreatedEvent into the share read
+// model.
+type RecordShareUsecase struct {
+	repository RecordShareRepository
 }
 
-// New creates a Usecase backed by repository.
-func New(repository Repository) *Usecase {
-	return &Usecase{repository: repository}
+// NewRecordShare creates a RecordShareUsecase backed by repository.
+func NewRecordShare(repository RecordShareRepository) *RecordShareUsecase {
+	return &RecordShareUsecase{repository: repository}
 }
 
 // Execute inserts the share read model described by input.
-func (u *Usecase) Execute(ctx context.Context, input Input) error {
+func (u *RecordShareUsecase) Execute(ctx context.Context, input RecordShareInput) error {
 	if input.ShareID == uuid.Nil {
 		return fmt.Errorf("record share usecase: share id is required")
 	}

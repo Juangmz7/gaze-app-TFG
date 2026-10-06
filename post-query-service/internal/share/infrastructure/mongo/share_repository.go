@@ -82,7 +82,7 @@ func (r *Repository) EnsureIndexes(ctx context.Context) error {
 // creation event theoretically possible; when that retry hits the unique
 // index on share_id, Insert treats the duplicate-key error as an
 // already-applied insert and returns nil.
-func (r *Repository) Insert(ctx context.Context, input usecase.Input) error {
+func (r *Repository) Insert(ctx context.Context, input usecase.RecordShareInput) error {
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
 
@@ -132,6 +132,25 @@ func (r *Repository) Update(ctx context.Context, input UpdateInput) error {
 	}
 	if result.ModifiedCount == 0 {
 		return fmt.Errorf("update share %s: %w", input.ShareID, ErrVersionConflict)
+	}
+
+	return nil
+}
+
+// DeleteByPostAndUser idempotently removes the share read model document
+// matching postID and userID. See usecase.DeleteShareInput's doc comment
+// for why PostShareDeletedEvent is projected by this filter instead of by
+// share_id. Deleting when no document matches is not an error.
+func (r *Repository) DeleteByPostAndUser(ctx context.Context, postID, userID uuid.UUID) error {
+	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
+	defer cancel()
+
+	filter := bson.D{
+		{Key: "post_id", Value: postID.String()},
+		{Key: "user_id", Value: userID.String()},
+	}
+	if _, err := r.collection.DeleteOne(ctx, filter); err != nil {
+		return fmt.Errorf("delete share for post %s user %s: %w", postID, userID, err)
 	}
 
 	return nil

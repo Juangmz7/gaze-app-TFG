@@ -30,7 +30,7 @@ func TestRepository_Insert_PersistsTheShareReadModelAtVersionOne(t *testing.T) {
 	db := testDatabase(t, ctx)
 	repository := sharemongo.NewRepository(db)
 
-	input := usecase.Input{
+	input := usecase.RecordShareInput{
 		ShareID:   uuid.New(),
 		PostID:    uuid.New(),
 		UserID:    uuid.New(),
@@ -69,7 +69,7 @@ func TestRepository_Insert_IsIdempotentOnARetriedInsertOfTheSameShareID(t *testi
 	}
 
 	shareID := uuid.New()
-	input := usecase.Input{ShareID: shareID, PostID: uuid.New(), UserID: uuid.New(), CreatedAt: time.Now().UTC()}
+	input := usecase.RecordShareInput{ShareID: shareID, PostID: uuid.New(), UserID: uuid.New(), CreatedAt: time.Now().UTC()}
 	if err := repository.Insert(ctx, input); err != nil {
 		t.Fatalf("Insert() error = %v", err)
 	}
@@ -94,7 +94,7 @@ func TestRepository_Update_SucceedsAndIncrementsVersionWhenExpectedVersionMatche
 	repository := sharemongo.NewRepository(db)
 
 	shareID := uuid.New()
-	if err := repository.Insert(ctx, usecase.Input{ShareID: shareID, PostID: uuid.New(), UserID: uuid.New(), CreatedAt: time.Now().UTC()}); err != nil {
+	if err := repository.Insert(ctx, usecase.RecordShareInput{ShareID: shareID, PostID: uuid.New(), UserID: uuid.New(), CreatedAt: time.Now().UTC()}); err != nil {
 		t.Fatalf("Insert() error = %v", err)
 	}
 
@@ -123,7 +123,7 @@ func TestRepository_Update_ReturnsVersionConflictAndDoesNotModifyWhenExpectedVer
 
 	shareID := uuid.New()
 	originalPostID := uuid.New()
-	if err := repository.Insert(ctx, usecase.Input{ShareID: shareID, PostID: originalPostID, UserID: uuid.New(), CreatedAt: time.Now().UTC()}); err != nil {
+	if err := repository.Insert(ctx, usecase.RecordShareInput{ShareID: shareID, PostID: originalPostID, UserID: uuid.New(), CreatedAt: time.Now().UTC()}); err != nil {
 		t.Fatalf("Insert() error = %v", err)
 	}
 
@@ -152,6 +152,44 @@ func findShare(t *testing.T, ctx context.Context, db *mongodriver.Database, shar
 	}
 
 	return doc
+}
+
+func TestRepository_DeleteByPostAndUser_RemovesTheMatchingShareReadModelDocument(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	db := testDatabase(t, ctx)
+	repository := sharemongo.NewRepository(db)
+
+	postID := uuid.New()
+	userID := uuid.New()
+	if err := repository.Insert(ctx, usecase.RecordShareInput{ShareID: uuid.New(), PostID: postID, UserID: userID, CreatedAt: time.Now().UTC()}); err != nil {
+		t.Fatalf("Insert() error = %v", err)
+	}
+
+	if err := repository.DeleteByPostAndUser(ctx, postID, userID); err != nil {
+		t.Fatalf("DeleteByPostAndUser() error = %v", err)
+	}
+
+	count, err := db.Collection("post_shares").CountDocuments(ctx, bson.D{{Key: "post_id", Value: postID.String()}, {Key: "user_id", Value: userID.String()}})
+	if err != nil {
+		t.Fatalf("CountDocuments() error = %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("CountDocuments() = %d, want 0 after DeleteByPostAndUser", count)
+	}
+}
+
+func TestRepository_DeleteByPostAndUser_IsANoOpWhenNoShareMatches(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	db := testDatabase(t, ctx)
+	repository := sharemongo.NewRepository(db)
+
+	if err := repository.DeleteByPostAndUser(ctx, uuid.New(), uuid.New()); err != nil {
+		t.Fatalf("DeleteByPostAndUser() error = %v, want nil for an absent document", err)
+	}
 }
 
 func testDatabase(t *testing.T, ctx context.Context) *mongodriver.Database {
