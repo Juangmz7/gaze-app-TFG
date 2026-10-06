@@ -36,20 +36,22 @@ func (f *fakePostCollabLinkedIdempotencyRepository) MarkProcessed(ctx context.Co
 
 type fakePostCollabLinkedUsecase struct {
 	calls   int
-	gotIn   usecase.CreatePostInput
+	gotIn   usecase.LinkPostCollabInput
 	execErr error
 }
 
-func (f *fakePostCollabLinkedUsecase) Execute(ctx context.Context, input usecase.CreatePostInput) error {
+func (f *fakePostCollabLinkedUsecase) Execute(ctx context.Context, input usecase.LinkPostCollabInput) error {
 	f.calls++
 	f.gotIn = input
 	return f.execErr
 }
 
 // literalPostCollabLinkedEvent builds the real Java-shaped camelCase JSON
-// payload for CollabLinkedEvent as a literal map, per the task's CRITICAL
-// instruction: new handlers must be proven against real Java field names,
-// not a round-tripped Go struct.
+// payload for the slimmed CollabLinkedEvent as a literal map, per the
+// task's CRITICAL instruction: new handlers must be proven against real
+// Java field names, not a round-tripped Go struct. The event now carries
+// only the relational fact {id, correlationId, occurredAt, postId,
+// collabId}; no post content fields remain.
 func literalPostCollabLinkedEvent(t *testing.T, overrides map[string]any) []byte {
 	t.Helper()
 
@@ -58,13 +60,7 @@ func literalPostCollabLinkedEvent(t *testing.T, overrides map[string]any) []byte
 		"correlationId": uuid.New().String(),
 		"occurredAt":    time.Now().UTC().Format(time.RFC3339Nano),
 		"postId":        uuid.New().String(),
-		"userId":        uuid.New().String(),
 		"collabId":      uuid.New().String(),
-		"postType":      "COLLAB",
-		"description":   "a linked post",
-		"postTags":      []string{"go"},
-		"createdAt":     time.Now().UTC().Format(time.RFC3339Nano),
-		"updatedAt":     time.Now().UTC().Format(time.RFC3339Nano),
 	}
 	for k, v := range overrides {
 		payload[k] = v

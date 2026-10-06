@@ -209,7 +209,7 @@ func addPostConsumer(ctx context.Context, wmRouter *message.Router, amqpURI stri
 	}
 
 	postCreatedHandler := postrabbitmq.NewPostCreatedHandler(idempotencyRepo, postusecase.NewCreatePost(postRepository), logger)
-	postCollabLinkedHandler := postrabbitmq.NewPostCollabLinkedHandler(idempotencyRepo, postusecase.NewCreatePost(postRepository), logger)
+	postCollabLinkedHandler := postrabbitmq.NewPostCollabLinkedHandler(idempotencyRepo, postusecase.NewLinkPostCollab(postRepository), logger)
 	postUpdatedHandler := postrabbitmq.NewPostUpdatedHandler(idempotencyRepo, postusecase.NewUpdatePost(postRepository), logger)
 	postDeletedHandler := postrabbitmq.NewPostDeletedHandler(idempotencyRepo, postusecase.NewDeletePost(postRepository), logger)
 	likeCreatedHandler := likerabbitmq.NewPostLikeCreatedHandler(idempotencyRepo, likeusecase.NewRecordLike(likeRepository), logger)

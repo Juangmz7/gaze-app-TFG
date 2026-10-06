@@ -1,6 +1,7 @@
-// Package rabbitmq handles PostCreatedEvent and CollabLinkedEvent
-// deliveries from topology.ExchangePostEvents (routing keys rk.post.created
-// and rk.post.collab.linked).
+// Package rabbitmq handles post domain event deliveries from
+// topology.ExchangePostEvents. This file handles only PostCreatedEvent
+// (routing key rk.post.created); CollabLinkedEvent (rk.post.collab.linked)
+// has its own handler in postcollablinkedhandler.go.
 package rabbitmq
 
 import (

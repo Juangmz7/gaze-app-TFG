@@ -29,8 +29,7 @@ type CreatePostRepository interface {
 	Insert(ctx context.Context, input CreatePostInput) error
 }
 
-// CreatePostUsecase projects a PostCreatedEvent (or a CollabLinkedEvent,
-// which is semantically also a post creation) into the post read model.
+// CreatePostUsecase projects a PostCreatedEvent into the post read model.
 type CreatePostUsecase struct {
 	repository CreatePostRepository
 }

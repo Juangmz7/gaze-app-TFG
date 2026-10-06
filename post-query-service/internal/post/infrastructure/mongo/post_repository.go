@@ -40,8 +40,8 @@ type postDocument struct {
 }
 
 // Repository implements usecase.CreatePostRepository,
-// usecase.UpdatePostRepository, and usecase.DeletePostRepository against
-// MongoDB.
+// usecase.UpdatePostRepository, usecase.LinkPostCollabRepository, and
+// usecase.DeletePostRepository against MongoDB.
 type Repository struct {
 	collection *mongo.Collection
 }
@@ -160,6 +160,41 @@ func (r *Repository) Update(ctx context.Context, input usecase.UpdatePostInput) 
 	}
 	if result.ModifiedCount == 0 {
 		return fmt.Errorf("update post %s: %w", input.PostID, ErrVersionConflict)
+	}
+
+	return nil
+}
+
+// LinkCollab applies an optimistic-concurrency update that sets only the
+// collab_id of the post read model document identified by
+// input.PostID. It only succeeds when the stored document's version equals
+// input.ExpectedVersion; on success collab_id is set and the version is
+// incremented by one. If no document matched (either the post does not
+// exist or its version has already moved on), LinkCollab returns
+// ErrVersionConflict. This is a separate write path from Update: linking a
+// collab writes a foreign key, it never sources or overwrites post content
+// fields.
+func (r *Repository) LinkCollab(ctx context.Context, input usecase.LinkPostCollabInput) error {
+	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
+	defer cancel()
+
+	filter := bson.D{
+		{Key: "post_id", Value: input.PostID.String()},
+		{Key: "version", Value: input.ExpectedVersion},
+	}
+	update := bson.D{
+		{Key: "$set", Value: bson.D{
+			{Key: "collab_id", Value: input.CollabID.String()},
+		}},
+		{Key: "$inc", Value: bson.D{{Key: "version", Value: int64(1)}}},
+	}
+
+	result, err := r.collection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		return fmt.Errorf("link collab onto post %s: %w", input.PostID, err)
+	}
+	if result.ModifiedCount == 0 {
+		return fmt.Errorf("link collab onto post %s: %w", input.PostID, ErrVersionConflict)
 	}
 
 	return nil

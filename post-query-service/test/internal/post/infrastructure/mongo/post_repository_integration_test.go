@@ -21,6 +21,7 @@ import (
 type postDocument struct {
 	PostID      string    `bson:"post_id"`
 	UserID      string    `bson:"user_id"`
+	CollabID    string    `bson:"collab_id"`
 	PostType    string    `bson:"post_type"`
 	Description string    `bson:"description"`
 	Tags        []string  `bson:"tags"`
@@ -167,6 +168,73 @@ func TestRepository_Update_ReturnsVersionConflictAndDoesNotModifyWhenExpectedVer
 	got := findPost(t, ctx, db, postID)
 	if got.Description != "first version" {
 		t.Fatalf("stored document Description = %q, want unchanged %q", got.Description, "first version")
+	}
+	if got.Version != 1 {
+		t.Fatalf("stored document Version = %d, want unchanged 1", got.Version)
+	}
+}
+
+// TestRepository_LinkCollab_SucceedsAndIncrementsVersionWhenExpectedVersionMatches
+// proves LinkCollab applies the optimistic-concurrency contract and only
+// writes collab_id, leaving post content fields untouched.
+func TestRepository_LinkCollab_SucceedsAndIncrementsVersionWhenExpectedVersionMatches(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	db := testDatabase(t, ctx)
+	repository := postmongo.NewRepository(db)
+
+	postID := uuid.New()
+	if err := repository.Insert(ctx, usecase.CreatePostInput{PostID: postID, UserID: uuid.New(), PostType: "TEXT", Description: "first version"}); err != nil {
+		t.Fatalf("Insert() error = %v", err)
+	}
+
+	collabID := uuid.New()
+	link := usecase.LinkPostCollabInput{
+		PostID:          postID,
+		CollabID:        collabID,
+		ExpectedVersion: 1,
+	}
+	if err := repository.LinkCollab(ctx, link); err != nil {
+		t.Fatalf("LinkCollab() error = %v", err)
+	}
+
+	got := findPost(t, ctx, db, postID)
+	if got.CollabID != collabID.String() {
+		t.Fatalf("stored document CollabID = %q, want %q", got.CollabID, collabID.String())
+	}
+	if got.Description != "first version" {
+		t.Fatalf("stored document Description = %q, want unchanged %q", got.Description, "first version")
+	}
+	if got.Version != 2 {
+		t.Fatalf("stored document Version = %d, want 2", got.Version)
+	}
+}
+
+// TestRepository_LinkCollab_ReturnsVersionConflictAndDoesNotModifyWhenExpectedVersionIsStale
+// proves a stale ExpectedVersion neither modifies the document nor silently
+// succeeds; it returns ErrVersionConflict.
+func TestRepository_LinkCollab_ReturnsVersionConflictAndDoesNotModifyWhenExpectedVersionIsStale(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	db := testDatabase(t, ctx)
+	repository := postmongo.NewRepository(db)
+
+	postID := uuid.New()
+	if err := repository.Insert(ctx, usecase.CreatePostInput{PostID: postID, UserID: uuid.New(), PostType: "TEXT", Description: "first version"}); err != nil {
+		t.Fatalf("Insert() error = %v", err)
+	}
+
+	link := usecase.LinkPostCollabInput{PostID: postID, CollabID: uuid.New(), ExpectedVersion: 99}
+	err := repository.LinkCollab(ctx, link)
+	if !errors.Is(err, postmongo.ErrVersionConflict) {
+		t.Fatalf("LinkCollab() error = %v, want it to wrap ErrVersionConflict", err)
+	}
+
+	got := findPost(t, ctx, db, postID)
+	if got.CollabID != "" {
+		t.Fatalf("stored document CollabID = %q, want unchanged empty string", got.CollabID)
 	}
 	if got.Version != 1 {
 		t.Fatalf("stored document Version = %d, want unchanged 1", got.Version)
