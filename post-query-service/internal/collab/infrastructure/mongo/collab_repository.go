@@ -23,32 +23,30 @@ const collectionName = "post_collabs"
 const operationTimeout = 5 * time.Second
 
 // ErrVersionConflict is returned by Update when the stored document's
-// version does not match UpdateInput.ExpectedVersion, meaning the document
-// was modified by another writer since the version was read.
+// version does not match CloseCollabInput.ExpectedVersion, meaning the
+// document was modified by another writer since the version was read.
 var ErrVersionConflict = errors.New("collab version conflict")
 
 // collabDocument is the persisted shape of a collab read model entry.
+// Title, CreatedBy, ClosedBy, and Status are populated only once a
+// CollabClosedEvent is projected (see Update); the collab-opened Insert
+// path deliberately leaves them at their Go zero values, since
+// PostCollabOpenedEvent does not carry them. This is an incremental
+// fill-in by design, not an oversight.
 type collabDocument struct {
 	CollabID    string    `bson:"collab_id"`
 	PostID      string    `bson:"post_id"`
 	OwnerUserID string    `bson:"owner_user_id"`
+	Title       string    `bson:"title"`
+	CreatedBy   string    `bson:"created_by"`
+	ClosedBy    string    `bson:"closed_by"`
+	Status      string    `bson:"status"`
 	CreatedAt   time.Time `bson:"created_at"`
 	Version     int64     `bson:"version"`
 }
 
-// UpdateInput is the data required to apply an optimistic-concurrency
-// update to an existing collab read model document. collab is one of the
-// contexts that will gain a real update consumer (e.g. collab-closed) in a
-// follow-up task; this method is wired and tested at the repository level
-// now so that future use case does not need repository changes.
-type UpdateInput struct {
-	CollabID        uuid.UUID
-	ExpectedVersion int64
-	PostID          uuid.UUID
-	OwnerUserID     uuid.UUID
-}
-
-// Repository implements usecase.Repository against MongoDB.
+// Repository implements usecase.RecordCollabOpenedRepository and
+// usecase.CloseCollabRepository against MongoDB.
 type Repository struct {
 	collection *mongo.Collection
 }
@@ -85,7 +83,7 @@ func (r *Repository) EnsureIndexes(ctx context.Context) error {
 // creation event theoretically possible; when that retry hits the unique
 // index on collab_id, Insert treats the duplicate-key error as an
 // already-applied insert and returns nil.
-func (r *Repository) Insert(ctx context.Context, input usecase.Input) error {
+func (r *Repository) Insert(ctx context.Context, input usecase.RecordCollabOpenedInput) error {
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
 
@@ -107,13 +105,35 @@ func (r *Repository) Insert(ctx context.Context, input usecase.Input) error {
 	return nil
 }
 
+// GetVersion returns the current version of the collab read model document
+// identified by collabID, and whether it exists at all. CloseCollabUsecase
+// uses it to fill in CloseCollabInput.ExpectedVersion before calling
+// Update, since CollabClosedEvent carries no version of its own.
+func (r *Repository) GetVersion(ctx context.Context, collabID uuid.UUID) (int64, bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
+	defer cancel()
+
+	var doc struct {
+		Version int64 `bson:"version"`
+	}
+	err := r.collection.FindOne(ctx, bson.D{{Key: "collab_id", Value: collabID.String()}}).Decode(&doc)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return 0, false, nil
+		}
+		return 0, false, fmt.Errorf("get collab %s version: %w", collabID, err)
+	}
+
+	return doc.Version, true, nil
+}
+
 // Update applies an optimistic-concurrency update to the collab read model
 // document identified by input.CollabID. It only succeeds when the stored
 // document's version equals input.ExpectedVersion; on success the changed
 // fields are set and the version is incremented by one. If no document
 // matched (either the collab does not exist or its version has already
 // moved on), Update returns ErrVersionConflict.
-func (r *Repository) Update(ctx context.Context, input UpdateInput) error {
+func (r *Repository) Update(ctx context.Context, input usecase.CloseCollabInput) error {
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
 
@@ -123,8 +143,10 @@ func (r *Repository) Update(ctx context.Context, input UpdateInput) error {
 	}
 	update := bson.D{
 		{Key: "$set", Value: bson.D{
-			{Key: "post_id", Value: input.PostID.String()},
-			{Key: "owner_user_id", Value: input.OwnerUserID.String()},
+			{Key: "title", Value: input.Title},
+			{Key: "created_by", Value: input.CreatedBy.String()},
+			{Key: "closed_by", Value: input.ClosedBy.String()},
+			{Key: "status", Value: input.Status},
 		}},
 		{Key: "$inc", Value: bson.D{{Key: "version", Value: int64(1)}}},
 	}

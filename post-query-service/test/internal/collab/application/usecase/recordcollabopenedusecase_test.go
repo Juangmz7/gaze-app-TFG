@@ -11,23 +11,23 @@ import (
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/collab/application/usecase"
 )
 
-type fakeRepository struct {
+type fakeRecordCollabOpenedRepository struct {
 	insertCalls int
-	gotInput    usecase.Input
+	gotInput    usecase.RecordCollabOpenedInput
 	err         error
 }
 
-func (f *fakeRepository) Insert(ctx context.Context, input usecase.Input) error {
+func (f *fakeRecordCollabOpenedRepository) Insert(ctx context.Context, input usecase.RecordCollabOpenedInput) error {
 	f.insertCalls++
 	f.gotInput = input
 	return f.err
 }
 
-func TestUsecase_Execute_InsertsTheCollabReadModelForAValidInput(t *testing.T) {
-	repository := &fakeRepository{}
-	uc := usecase.New(repository)
+func TestRecordCollabOpenedUsecase_Execute_InsertsTheCollabReadModelForAValidInput(t *testing.T) {
+	repository := &fakeRecordCollabOpenedRepository{}
+	uc := usecase.NewRecordCollabOpened(repository)
 
-	input := usecase.Input{
+	input := usecase.RecordCollabOpenedInput{
 		CollabID:    uuid.New(),
 		PostID:      uuid.New(),
 		OwnerUserID: uuid.New(),
@@ -46,41 +46,41 @@ func TestUsecase_Execute_InsertsTheCollabReadModelForAValidInput(t *testing.T) {
 	}
 }
 
-func TestUsecase_Execute_ReturnsErrorWhenCollabIDIsMissing(t *testing.T) {
-	uc := usecase.New(&fakeRepository{})
+func TestRecordCollabOpenedUsecase_Execute_ReturnsErrorWhenCollabIDIsMissing(t *testing.T) {
+	uc := usecase.NewRecordCollabOpened(&fakeRecordCollabOpenedRepository{})
 
-	input := usecase.Input{PostID: uuid.New(), OwnerUserID: uuid.New()}
+	input := usecase.RecordCollabOpenedInput{PostID: uuid.New(), OwnerUserID: uuid.New()}
 
 	if err := uc.Execute(context.Background(), input); err == nil {
 		t.Fatal("Execute() error = nil, want an error when collab id is missing")
 	}
 }
 
-func TestUsecase_Execute_ReturnsErrorWhenPostIDIsMissing(t *testing.T) {
-	uc := usecase.New(&fakeRepository{})
+func TestRecordCollabOpenedUsecase_Execute_ReturnsErrorWhenPostIDIsMissing(t *testing.T) {
+	uc := usecase.NewRecordCollabOpened(&fakeRecordCollabOpenedRepository{})
 
-	input := usecase.Input{CollabID: uuid.New(), OwnerUserID: uuid.New()}
+	input := usecase.RecordCollabOpenedInput{CollabID: uuid.New(), OwnerUserID: uuid.New()}
 
 	if err := uc.Execute(context.Background(), input); err == nil {
 		t.Fatal("Execute() error = nil, want an error when post id is missing")
 	}
 }
 
-func TestUsecase_Execute_ReturnsErrorWhenOwnerUserIDIsMissing(t *testing.T) {
-	uc := usecase.New(&fakeRepository{})
+func TestRecordCollabOpenedUsecase_Execute_ReturnsErrorWhenOwnerUserIDIsMissing(t *testing.T) {
+	uc := usecase.NewRecordCollabOpened(&fakeRecordCollabOpenedRepository{})
 
-	input := usecase.Input{CollabID: uuid.New(), PostID: uuid.New()}
+	input := usecase.RecordCollabOpenedInput{CollabID: uuid.New(), PostID: uuid.New()}
 
 	if err := uc.Execute(context.Background(), input); err == nil {
 		t.Fatal("Execute() error = nil, want an error when owner user id is missing")
 	}
 }
 
-func TestUsecase_Execute_PropagatesTheRepositoryError(t *testing.T) {
+func TestRecordCollabOpenedUsecase_Execute_PropagatesTheRepositoryError(t *testing.T) {
 	wantErr := errors.New("mongo write failed")
-	uc := usecase.New(&fakeRepository{err: wantErr})
+	uc := usecase.NewRecordCollabOpened(&fakeRecordCollabOpenedRepository{err: wantErr})
 
-	input := usecase.Input{CollabID: uuid.New(), PostID: uuid.New(), OwnerUserID: uuid.New()}
+	input := usecase.RecordCollabOpenedInput{CollabID: uuid.New(), PostID: uuid.New(), OwnerUserID: uuid.New()}
 
 	if err := uc.Execute(context.Background(), input); !errors.Is(err, wantErr) {
 		t.Fatalf("Execute() error = %v, want it to wrap %v", err, wantErr)

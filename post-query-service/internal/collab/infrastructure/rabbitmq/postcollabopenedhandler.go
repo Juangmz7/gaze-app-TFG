@@ -1,6 +1,7 @@
 // Package rabbitmq handles the post-created variant of
-// PostCollabOpenedEvent from topology.ExchangePostEvents (routing key
-// rk.post.collab.opened.post-created).
+// PostCollabOpenedEvent and CollabClosedEvent from
+// topology.ExchangePostEvents (routing keys
+// rk.post.collab.opened.post-created and rk.post.collab.closed).
 package rabbitmq
 
 import (
@@ -17,12 +18,13 @@ import (
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/rmqerror"
 )
 
-// EventType identifies this event for idempotency bookkeeping.
-const EventType = "PostCollabOpenedPostCreatedEvent"
+// PostCollabOpenedEventType identifies this event for idempotency
+// bookkeeping.
+const PostCollabOpenedEventType = "PostCollabOpenedPostCreatedEvent"
 
-// Event is the wire shape of the post-created variant of
+// PostCollabOpenedEvent is the wire shape of the post-created variant of
 // PostCollabOpenedEvent published by post-command-service.
-type Event struct {
+type PostCollabOpenedEvent struct {
 	ID            uuid.UUID `json:"id"`
 	CorrelationID uuid.UUID `json:"correlation_id"`
 	OccurredAt    time.Time `json:"occurred_at"`
@@ -32,37 +34,39 @@ type Event struct {
 	CreatedAt     time.Time `json:"created_at"`
 }
 
-// IdempotencyRepository records and checks processed events.
-type IdempotencyRepository interface {
+// PostCollabOpenedIdempotencyRepository records and checks processed
+// events.
+type PostCollabOpenedIdempotencyRepository interface {
 	IsProcessed(ctx context.Context, eventID uuid.UUID) (bool, error)
 	MarkProcessed(ctx context.Context, eventID, correlationID uuid.UUID, eventType string) error
 }
 
-// Usecase executes the collab projection.
-type Usecase interface {
-	Execute(ctx context.Context, input usecase.Input) error
+// PostCollabOpenedUsecase executes the collab creation projection.
+type PostCollabOpenedUsecase interface {
+	Execute(ctx context.Context, input usecase.RecordCollabOpenedInput) error
 }
 
-// Handler decodes the event, enforces idempotency, and delegates to Usecase.
-type Handler struct {
-	idempotency IdempotencyRepository
-	usecase     Usecase
+// PostCollabOpenedHandler decodes the event, enforces idempotency, and
+// delegates to PostCollabOpenedUsecase.
+type PostCollabOpenedHandler struct {
+	idempotency PostCollabOpenedIdempotencyRepository
+	usecase     PostCollabOpenedUsecase
 	logger      *slog.Logger
 }
 
-// New creates a Handler.
-func New(idempotency IdempotencyRepository, usecase Usecase, logger *slog.Logger) *Handler {
-	return &Handler{idempotency: idempotency, usecase: usecase, logger: logger}
+// NewPostCollabOpenedHandler creates a PostCollabOpenedHandler.
+func NewPostCollabOpenedHandler(idempotency PostCollabOpenedIdempotencyRepository, usecase PostCollabOpenedUsecase, logger *slog.Logger) *PostCollabOpenedHandler {
+	return &PostCollabOpenedHandler{idempotency: idempotency, usecase: usecase, logger: logger}
 }
 
 // Handle implements dispatch.EventHandlerFunc.
-func (h *Handler) Handle(ctx context.Context, msg *message.Message) error {
-	var event Event
+func (h *PostCollabOpenedHandler) Handle(ctx context.Context, msg *message.Message) error {
+	var event PostCollabOpenedEvent
 	if err := json.Unmarshal(msg.Payload, &event); err != nil {
 		return rmqerror.NewPermanent(fmt.Errorf("decode post collab opened event: %w", err))
 	}
 
-	if err := validate(event); err != nil {
+	if err := validatePostCollabOpenedEvent(event); err != nil {
 		return rmqerror.NewPermanent(err)
 	}
 
@@ -75,7 +79,7 @@ func (h *Handler) Handle(ctx context.Context, msg *message.Message) error {
 		return nil
 	}
 
-	input := usecase.Input{
+	input := usecase.RecordCollabOpenedInput{
 		CollabID:    event.CollabID,
 		PostID:      event.PostID,
 		OwnerUserID: event.OwnerUserID,
@@ -85,14 +89,14 @@ func (h *Handler) Handle(ctx context.Context, msg *message.Message) error {
 		return fmt.Errorf("execute record collab opened usecase for event %s: %w", event.ID, err)
 	}
 
-	if err := h.idempotency.MarkProcessed(ctx, event.ID, event.CorrelationID, EventType); err != nil {
+	if err := h.idempotency.MarkProcessed(ctx, event.ID, event.CorrelationID, PostCollabOpenedEventType); err != nil {
 		return fmt.Errorf("mark post collab opened event %s processed: %w", event.ID, err)
 	}
 
 	return nil
 }
 
-func validate(event Event) error {
+func validatePostCollabOpenedEvent(event PostCollabOpenedEvent) error {
 	if event.ID == uuid.Nil {
 		return fmt.Errorf("post collab opened event: id is required")
 	}

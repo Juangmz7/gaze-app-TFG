@@ -17,54 +17,54 @@ import (
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/rmqerror"
 )
 
-type fakeIdempotencyRepository struct {
+type fakePostCollabOpenedIdempotencyRepository struct {
 	processed      map[uuid.UUID]bool
 	markedCtx      context.Context
 	markCalls      int
 	isProcessedCtx context.Context
 }
 
-func newFakeIdempotencyRepository() *fakeIdempotencyRepository {
-	return &fakeIdempotencyRepository{processed: map[uuid.UUID]bool{}}
+func newFakePostCollabOpenedIdempotencyRepository() *fakePostCollabOpenedIdempotencyRepository {
+	return &fakePostCollabOpenedIdempotencyRepository{processed: map[uuid.UUID]bool{}}
 }
 
-func (f *fakeIdempotencyRepository) IsProcessed(ctx context.Context, eventID uuid.UUID) (bool, error) {
+func (f *fakePostCollabOpenedIdempotencyRepository) IsProcessed(ctx context.Context, eventID uuid.UUID) (bool, error) {
 	f.isProcessedCtx = ctx
 	return f.processed[eventID], nil
 }
 
-func (f *fakeIdempotencyRepository) MarkProcessed(ctx context.Context, eventID, _ uuid.UUID, _ string) error {
+func (f *fakePostCollabOpenedIdempotencyRepository) MarkProcessed(ctx context.Context, eventID, _ uuid.UUID, _ string) error {
 	f.markCalls++
 	f.markedCtx = ctx
 	f.processed[eventID] = true
 	return nil
 }
 
-type fakeUsecase struct {
+type fakePostCollabOpenedUsecase struct {
 	calls   int
 	gotCtx  context.Context
-	gotIn   usecase.Input
+	gotIn   usecase.RecordCollabOpenedInput
 	execErr error
 }
 
-func (f *fakeUsecase) Execute(ctx context.Context, input usecase.Input) error {
+func (f *fakePostCollabOpenedUsecase) Execute(ctx context.Context, input usecase.RecordCollabOpenedInput) error {
 	f.calls++
 	f.gotCtx = ctx
 	f.gotIn = input
 	return f.execErr
 }
 
-type ctxKey struct{}
+type postCollabOpenedCtxKey struct{}
 
-func TestHandler_Handle_CallsUsecaseAndMarksProcessedForANewValidEvent(t *testing.T) {
-	idempotency := newFakeIdempotencyRepository()
-	uc := &fakeUsecase{}
-	handler := rabbitmq.New(idempotency, uc, testLogger())
+func TestPostCollabOpenedHandler_Handle_CallsUsecaseAndMarksProcessedForANewValidEvent(t *testing.T) {
+	idempotency := newFakePostCollabOpenedIdempotencyRepository()
+	uc := &fakePostCollabOpenedUsecase{}
+	handler := rabbitmq.NewPostCollabOpenedHandler(idempotency, uc, testPostCollabOpenedLogger())
 
-	event := validEvent()
-	ctx := context.WithValue(context.Background(), ctxKey{}, "trace-value")
+	event := validPostCollabOpenedEvent()
+	ctx := context.WithValue(context.Background(), postCollabOpenedCtxKey{}, "trace-value")
 
-	if err := handler.Handle(ctx, newMessage(t, event)); err != nil {
+	if err := handler.Handle(ctx, newPostCollabOpenedMessage(t, event)); err != nil {
 		t.Fatalf("Handle() error = %v, want nil", err)
 	}
 
@@ -83,22 +83,22 @@ func TestHandler_Handle_CallsUsecaseAndMarksProcessedForANewValidEvent(t *testin
 	if !idempotency.processed[event.ID] {
 		t.Fatal("idempotency record was not saved after a successful uc execution")
 	}
-	if uc.gotCtx.Value(ctxKey{}) != "trace-value" {
+	if uc.gotCtx.Value(postCollabOpenedCtxKey{}) != "trace-value" {
 		t.Fatal("context was not propagated from Handle() to the uc")
 	}
-	if idempotency.markedCtx.Value(ctxKey{}) != "trace-value" {
+	if idempotency.markedCtx.Value(postCollabOpenedCtxKey{}) != "trace-value" {
 		t.Fatal("context was not propagated from Handle() to the idempotency repository")
 	}
 }
 
-func TestHandler_Handle_SkipsUsecaseAndAcksWhenEventIsADuplicate(t *testing.T) {
-	event := validEvent()
-	idempotency := newFakeIdempotencyRepository()
+func TestPostCollabOpenedHandler_Handle_SkipsUsecaseAndAcksWhenEventIsADuplicate(t *testing.T) {
+	event := validPostCollabOpenedEvent()
+	idempotency := newFakePostCollabOpenedIdempotencyRepository()
 	idempotency.processed[event.ID] = true
-	uc := &fakeUsecase{}
-	handler := rabbitmq.New(idempotency, uc, testLogger())
+	uc := &fakePostCollabOpenedUsecase{}
+	handler := rabbitmq.NewPostCollabOpenedHandler(idempotency, uc, testPostCollabOpenedLogger())
 
-	if err := handler.Handle(context.Background(), newMessage(t, event)); err != nil {
+	if err := handler.Handle(context.Background(), newPostCollabOpenedMessage(t, event)); err != nil {
 		t.Fatalf("Handle() error = %v, want nil (duplicate events ack cleanly)", err)
 	}
 
@@ -110,14 +110,14 @@ func TestHandler_Handle_SkipsUsecaseAndAcksWhenEventIsADuplicate(t *testing.T) {
 	}
 }
 
-func TestHandler_Handle_MapsPayloadFieldsBeforeCallingUsecase(t *testing.T) {
-	idempotency := newFakeIdempotencyRepository()
-	uc := &fakeUsecase{}
-	handler := rabbitmq.New(idempotency, uc, testLogger())
+func TestPostCollabOpenedHandler_Handle_MapsPayloadFieldsBeforeCallingUsecase(t *testing.T) {
+	idempotency := newFakePostCollabOpenedIdempotencyRepository()
+	uc := &fakePostCollabOpenedUsecase{}
+	handler := rabbitmq.NewPostCollabOpenedHandler(idempotency, uc, testPostCollabOpenedLogger())
 
-	event := validEvent()
+	event := validPostCollabOpenedEvent()
 
-	if err := handler.Handle(context.Background(), newMessage(t, event)); err != nil {
+	if err := handler.Handle(context.Background(), newPostCollabOpenedMessage(t, event)); err != nil {
 		t.Fatalf("Handle() error = %v, want nil", err)
 	}
 
@@ -126,10 +126,10 @@ func TestHandler_Handle_MapsPayloadFieldsBeforeCallingUsecase(t *testing.T) {
 	}
 }
 
-func TestHandler_Handle_ReturnsAPermanentErrorForAMalformedPayload(t *testing.T) {
-	idempotency := newFakeIdempotencyRepository()
-	uc := &fakeUsecase{}
-	handler := rabbitmq.New(idempotency, uc, testLogger())
+func TestPostCollabOpenedHandler_Handle_ReturnsAPermanentErrorForAMalformedPayload(t *testing.T) {
+	idempotency := newFakePostCollabOpenedIdempotencyRepository()
+	uc := &fakePostCollabOpenedUsecase{}
+	handler := rabbitmq.NewPostCollabOpenedHandler(idempotency, uc, testPostCollabOpenedLogger())
 
 	msg := message.NewMessage("1", []byte(`not json`))
 
@@ -145,15 +145,15 @@ func TestHandler_Handle_ReturnsAPermanentErrorForAMalformedPayload(t *testing.T)
 	}
 }
 
-func TestHandler_Handle_ReturnsAPermanentErrorWhenRequiredFieldsAreMissing(t *testing.T) {
-	idempotency := newFakeIdempotencyRepository()
-	uc := &fakeUsecase{}
-	handler := rabbitmq.New(idempotency, uc, testLogger())
+func TestPostCollabOpenedHandler_Handle_ReturnsAPermanentErrorWhenRequiredFieldsAreMissing(t *testing.T) {
+	idempotency := newFakePostCollabOpenedIdempotencyRepository()
+	uc := &fakePostCollabOpenedUsecase{}
+	handler := rabbitmq.NewPostCollabOpenedHandler(idempotency, uc, testPostCollabOpenedLogger())
 
-	event := validEvent()
+	event := validPostCollabOpenedEvent()
 	event.CollabID = uuid.Nil
 
-	err := handler.Handle(context.Background(), newMessage(t, event))
+	err := handler.Handle(context.Background(), newPostCollabOpenedMessage(t, event))
 	if err == nil {
 		t.Fatal("Handle() error = nil, want an error for a missing collab_id")
 	}
@@ -162,12 +162,12 @@ func TestHandler_Handle_ReturnsAPermanentErrorWhenRequiredFieldsAreMissing(t *te
 	}
 }
 
-func TestHandler_Handle_ReturnsATransientErrorWhenTheUsecaseFails(t *testing.T) {
-	idempotency := newFakeIdempotencyRepository()
-	uc := &fakeUsecase{execErr: errors.New("mongo write failed")}
-	handler := rabbitmq.New(idempotency, uc, testLogger())
+func TestPostCollabOpenedHandler_Handle_ReturnsATransientErrorWhenTheUsecaseFails(t *testing.T) {
+	idempotency := newFakePostCollabOpenedIdempotencyRepository()
+	uc := &fakePostCollabOpenedUsecase{execErr: errors.New("mongo write failed")}
+	handler := rabbitmq.NewPostCollabOpenedHandler(idempotency, uc, testPostCollabOpenedLogger())
 
-	err := handler.Handle(context.Background(), newMessage(t, validEvent()))
+	err := handler.Handle(context.Background(), newPostCollabOpenedMessage(t, validPostCollabOpenedEvent()))
 	if err == nil {
 		t.Fatal("Handle() error = nil, want an error when the uc fails")
 	}
@@ -176,8 +176,8 @@ func TestHandler_Handle_ReturnsATransientErrorWhenTheUsecaseFails(t *testing.T) 
 	}
 }
 
-func validEvent() rabbitmq.Event {
-	return rabbitmq.Event{
+func validPostCollabOpenedEvent() rabbitmq.PostCollabOpenedEvent {
+	return rabbitmq.PostCollabOpenedEvent{
 		ID:            uuid.New(),
 		CorrelationID: uuid.New(),
 		OccurredAt:    time.Now().UTC(),
@@ -188,7 +188,7 @@ func validEvent() rabbitmq.Event {
 	}
 }
 
-func newMessage(t *testing.T, event rabbitmq.Event) *message.Message {
+func newPostCollabOpenedMessage(t *testing.T, event rabbitmq.PostCollabOpenedEvent) *message.Message {
 	t.Helper()
 
 	payload, err := json.Marshal(event)
@@ -199,6 +199,6 @@ func newMessage(t *testing.T, event rabbitmq.Event) *message.Message {
 	return message.NewMessage(uuid.NewString(), payload)
 }
 
-func testLogger() *slog.Logger {
+func testPostCollabOpenedLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }

@@ -1,5 +1,5 @@
-// Package usecase implements the use case that projects a
-// PostCollabOpenedEvent (post-created variant) into the collab read model.
+// Package usecase implements the use cases that project
+// PostCollabOpenedEvent and CollabClosedEvent into the collab read model.
 package usecase
 
 import (
@@ -10,32 +10,35 @@ import (
 	"github.com/google/uuid"
 )
 
-// Input is the data required to project a newly opened collaboration.
-type Input struct {
+// RecordCollabOpenedInput is the data required to project a newly opened
+// collaboration.
+type RecordCollabOpenedInput struct {
 	CollabID    uuid.UUID
 	PostID      uuid.UUID
 	OwnerUserID uuid.UUID
 	CreatedAt   time.Time
 }
 
-// Repository persists the collab read model. Implemented by
-// collab/infrastructure/mongo.Repository.
-type Repository interface {
-	Insert(ctx context.Context, input Input) error
+// RecordCollabOpenedRepository persists the collab read model. Implemented
+// by collab/infrastructure/mongo.Repository.
+type RecordCollabOpenedRepository interface {
+	Insert(ctx context.Context, input RecordCollabOpenedInput) error
 }
 
-// Usecase projects a PostCollabOpenedEvent into the collab read model.
-type Usecase struct {
-	repository Repository
+// RecordCollabOpenedUsecase projects a PostCollabOpenedEvent into the
+// collab read model.
+type RecordCollabOpenedUsecase struct {
+	repository RecordCollabOpenedRepository
 }
 
-// New creates a Usecase backed by repository.
-func New(repository Repository) *Usecase {
-	return &Usecase{repository: repository}
+// NewRecordCollabOpened creates a RecordCollabOpenedUsecase backed by
+// repository.
+func NewRecordCollabOpened(repository RecordCollabOpenedRepository) *RecordCollabOpenedUsecase {
+	return &RecordCollabOpenedUsecase{repository: repository}
 }
 
 // Execute inserts the collab read model described by input.
-func (u *Usecase) Execute(ctx context.Context, input Input) error {
+func (u *RecordCollabOpenedUsecase) Execute(ctx context.Context, input RecordCollabOpenedInput) error {
 	if input.CollabID == uuid.Nil {
 		return fmt.Errorf("record collab opened usecase: collab id is required")
 	}

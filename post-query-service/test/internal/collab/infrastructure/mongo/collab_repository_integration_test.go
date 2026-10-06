@@ -20,6 +20,10 @@ type collabDocument struct {
 	CollabID    string `bson:"collab_id"`
 	PostID      string `bson:"post_id"`
 	OwnerUserID string `bson:"owner_user_id"`
+	Title       string `bson:"title"`
+	CreatedBy   string `bson:"created_by"`
+	ClosedBy    string `bson:"closed_by"`
+	Status      string `bson:"status"`
 	Version     int64  `bson:"version"`
 }
 
@@ -30,7 +34,7 @@ func TestRepository_Insert_PersistsTheCollabReadModelAtVersionOne(t *testing.T) 
 	db := testDatabase(t, ctx)
 	repository := collabmongo.NewRepository(db)
 
-	input := usecase.Input{
+	input := usecase.RecordCollabOpenedInput{
 		CollabID:    uuid.New(),
 		PostID:      uuid.New(),
 		OwnerUserID: uuid.New(),
@@ -51,6 +55,9 @@ func TestRepository_Insert_PersistsTheCollabReadModelAtVersionOne(t *testing.T) 
 	if got.Version != 1 {
 		t.Fatalf("stored document Version = %d, want 1", got.Version)
 	}
+	if got.Title != "" || got.CreatedBy != "" || got.ClosedBy != "" || got.Status != "" {
+		t.Fatalf("stored document has non-zero closed-only fields after Insert: %+v, want all empty", got)
+	}
 }
 
 // TestRepository_Insert_IsIdempotentOnARetriedInsertOfTheSameCollabID
@@ -69,7 +76,7 @@ func TestRepository_Insert_IsIdempotentOnARetriedInsertOfTheSameCollabID(t *test
 	}
 
 	collabID := uuid.New()
-	input := usecase.Input{CollabID: collabID, PostID: uuid.New(), OwnerUserID: uuid.New(), CreatedAt: time.Now().UTC()}
+	input := usecase.RecordCollabOpenedInput{CollabID: collabID, PostID: uuid.New(), OwnerUserID: uuid.New(), CreatedAt: time.Now().UTC()}
 	if err := repository.Insert(ctx, input); err != nil {
 		t.Fatalf("Insert() error = %v", err)
 	}
@@ -86,6 +93,46 @@ func TestRepository_Insert_IsIdempotentOnARetriedInsertOfTheSameCollabID(t *test
 	}
 }
 
+func TestRepository_GetVersion_ReturnsTheStoredVersionWhenTheCollabExists(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	db := testDatabase(t, ctx)
+	repository := collabmongo.NewRepository(db)
+
+	collabID := uuid.New()
+	if err := repository.Insert(ctx, usecase.RecordCollabOpenedInput{CollabID: collabID, PostID: uuid.New(), OwnerUserID: uuid.New(), CreatedAt: time.Now().UTC()}); err != nil {
+		t.Fatalf("Insert() error = %v", err)
+	}
+
+	version, found, err := repository.GetVersion(ctx, collabID)
+	if err != nil {
+		t.Fatalf("GetVersion() error = %v", err)
+	}
+	if !found {
+		t.Fatal("GetVersion() found = false, want true for an existing collab")
+	}
+	if version != 1 {
+		t.Fatalf("GetVersion() version = %d, want 1", version)
+	}
+}
+
+func TestRepository_GetVersion_ReturnsNotFoundWhenTheCollabWasNeverProjected(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	db := testDatabase(t, ctx)
+	repository := collabmongo.NewRepository(db)
+
+	_, found, err := repository.GetVersion(ctx, uuid.New())
+	if err != nil {
+		t.Fatalf("GetVersion() error = %v", err)
+	}
+	if found {
+		t.Fatal("GetVersion() found = true, want false for a collab that was never projected")
+	}
+}
+
 func TestRepository_Update_SucceedsAndIncrementsVersionWhenExpectedVersionMatches(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -94,20 +141,26 @@ func TestRepository_Update_SucceedsAndIncrementsVersionWhenExpectedVersionMatche
 	repository := collabmongo.NewRepository(db)
 
 	collabID := uuid.New()
-	if err := repository.Insert(ctx, usecase.Input{CollabID: collabID, PostID: uuid.New(), OwnerUserID: uuid.New(), CreatedAt: time.Now().UTC()}); err != nil {
+	if err := repository.Insert(ctx, usecase.RecordCollabOpenedInput{CollabID: collabID, PostID: uuid.New(), OwnerUserID: uuid.New(), CreatedAt: time.Now().UTC()}); err != nil {
 		t.Fatalf("Insert() error = %v", err)
 	}
 
-	newPostID := uuid.New()
-	newOwnerUserID := uuid.New()
-	update := collabmongo.UpdateInput{CollabID: collabID, ExpectedVersion: 1, PostID: newPostID, OwnerUserID: newOwnerUserID}
+	createdBy := uuid.New()
+	closedBy := uuid.New()
+	update := usecase.CloseCollabInput{CollabID: collabID, ExpectedVersion: 1, Title: "closed collab", CreatedBy: createdBy, ClosedBy: closedBy, Status: "CLOSED"}
 	if err := repository.Update(ctx, update); err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}
 
 	got := findCollab(t, ctx, db, collabID)
-	if got.OwnerUserID != newOwnerUserID.String() {
-		t.Fatalf("stored document OwnerUserID = %q, want %q", got.OwnerUserID, newOwnerUserID.String())
+	if got.Title != "closed collab" {
+		t.Fatalf("stored document Title = %q, want %q", got.Title, "closed collab")
+	}
+	if got.ClosedBy != closedBy.String() {
+		t.Fatalf("stored document ClosedBy = %q, want %q", got.ClosedBy, closedBy.String())
+	}
+	if got.Status != "CLOSED" {
+		t.Fatalf("stored document Status = %q, want %q", got.Status, "CLOSED")
 	}
 	if got.Version != 2 {
 		t.Fatalf("stored document Version = %d, want 2", got.Version)
@@ -122,20 +175,19 @@ func TestRepository_Update_ReturnsVersionConflictAndDoesNotModifyWhenExpectedVer
 	repository := collabmongo.NewRepository(db)
 
 	collabID := uuid.New()
-	originalOwnerUserID := uuid.New()
-	if err := repository.Insert(ctx, usecase.Input{CollabID: collabID, PostID: uuid.New(), OwnerUserID: originalOwnerUserID, CreatedAt: time.Now().UTC()}); err != nil {
+	if err := repository.Insert(ctx, usecase.RecordCollabOpenedInput{CollabID: collabID, PostID: uuid.New(), OwnerUserID: uuid.New(), CreatedAt: time.Now().UTC()}); err != nil {
 		t.Fatalf("Insert() error = %v", err)
 	}
 
-	update := collabmongo.UpdateInput{CollabID: collabID, ExpectedVersion: 99, PostID: uuid.New(), OwnerUserID: uuid.New()}
+	update := usecase.CloseCollabInput{CollabID: collabID, ExpectedVersion: 99, Title: "should-not-apply", CreatedBy: uuid.New(), ClosedBy: uuid.New(), Status: "CLOSED"}
 	err := repository.Update(ctx, update)
 	if !errors.Is(err, collabmongo.ErrVersionConflict) {
 		t.Fatalf("Update() error = %v, want it to wrap ErrVersionConflict", err)
 	}
 
 	got := findCollab(t, ctx, db, collabID)
-	if got.OwnerUserID != originalOwnerUserID.String() {
-		t.Fatalf("stored document OwnerUserID = %q, want unchanged %q", got.OwnerUserID, originalOwnerUserID.String())
+	if got.Status != "" {
+		t.Fatalf("stored document Status = %q, want unchanged empty", got.Status)
 	}
 	if got.Version != 1 {
 		t.Fatalf("stored document Version = %d, want unchanged 1", got.Version)
