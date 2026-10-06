@@ -9,6 +9,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"github.com/google/uuid"
 
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/post/application/usecase"
 )
@@ -23,7 +24,7 @@ const operationTimeout = 5 * time.Second
 type postDocument struct {
 	PostID      string    `bson:"post_id"`
 	UserID      string    `bson:"user_id"`
-	CollabID    string    `bson:"collab_id,omitempty"`
+	CollabID    string    `bson:"collab_id"`
 	PostType    string    `bson:"post_type"`
 	Description string    `bson:"description"`
 	Tags        []string  `bson:"tags"`
@@ -46,11 +47,16 @@ func (r *Repository) Upsert(ctx context.Context, input usecase.Input) error {
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
 
+	collabId := ""
+	if input.CollabID != uuid.Nil {
+		collabId = input.CollabID.String()
+	}
+
 	filter := bson.D{{Key: "post_id", Value: input.PostID.String()}}
 	update := bson.D{{Key: "$set", Value: postDocument{
 		PostID:      input.PostID.String(),
 		UserID:      input.UserID.String(),
-		CollabID:    input.CollabID.String(),
+		CollabID:    collabId,
 		PostType:    input.PostType,
 		Description: input.Description,
 		Tags:        input.Tags,
