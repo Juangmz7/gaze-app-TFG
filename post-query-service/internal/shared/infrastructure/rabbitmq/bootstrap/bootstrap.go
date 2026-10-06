@@ -14,12 +14,18 @@ import (
 	"github.com/ThreeDotsLabs/watermill/message"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
+	blockusecase "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/block/application/usecase"
+	blockmongo "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/block/infrastructure/mongo"
+	blockrabbitmq "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/block/infrastructure/rabbitmq"
 	collabusecase "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/collab/application/usecase"
 	collabmongo "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/collab/infrastructure/mongo"
 	collabrabbitmq "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/collab/infrastructure/rabbitmq"
 	commentusecase "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/comment/application/usecase"
 	commentmongo "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/comment/infrastructure/mongo"
 	commentrabbitmq "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/comment/infrastructure/rabbitmq"
+	followusecase "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/follow/application/usecase"
+	followmongo "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/follow/infrastructure/mongo"
+	followrabbitmq "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/follow/infrastructure/rabbitmq"
 	likeusecase "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/like/application/usecase"
 	likemongo "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/like/infrastructure/mongo"
 	likerabbitmq "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/like/infrastructure/rabbitmq"
@@ -121,14 +127,28 @@ func addUserFastConsumer(ctx context.Context, wmRouter *message.Router, amqpURI 
 	result.closers = append(result.closers, subscriber.Close)
 
 	userRepository := usermongo.NewRepository(db)
-	if err := userRepository.EnsureIndexes(ctx); err != nil {
-		return fmt.Errorf("bootstrap rabbitmq: %w", err)
+	blockRepository := blockmongo.NewRepository(db)
+	followRepository := followmongo.NewRepository(db)
+	for _, ensure := range []func(context.Context) error{
+		userRepository.EnsureIndexes,
+		blockRepository.EnsureIndexes,
+		followRepository.EnsureIndexes,
+	} {
+		if err := ensure(ctx); err != nil {
+			return fmt.Errorf("bootstrap rabbitmq: %w", err)
+		}
 	}
-	uc := userusecase.NewRegisterUser(userRepository)
-	handler := userrabbitmq.NewUserRegisteredHandler(idempotencyRepo, uc, logger)
+
+	registerUserHandler := userrabbitmq.NewUserRegisteredHandler(idempotencyRepo, userusecase.NewRegisterUser(userRepository), logger)
+	updateUserHandler := userrabbitmq.NewUserUpdatedHandler(idempotencyRepo, userusecase.NewUpdateUser(userRepository), logger)
+	createBlockHandler := blockrabbitmq.NewUserBlockCreatedHandler(idempotencyRepo, blockusecase.NewCreateBlock(blockRepository), logger)
+	createFollowHandler := followrabbitmq.NewUserFollowCreatedHandler(idempotencyRepo, followusecase.NewCreateFollow(followRepository), logger)
 
 	handlers := map[string]dispatch.EventHandlerFunc{
-		"rk.user.registered": handler.Handle,
+		"rk.user.registered":     registerUserHandler.Handle,
+		"rk.user.updated":        updateUserHandler.Handle,
+		"rk.user.block.created":  createBlockHandler.Handle,
+		"rk.user.follow.created": createFollowHandler.Handle,
 	}
 	dispatcher := dispatch.New(spec.Queue, handlers, logger)
 
@@ -146,11 +166,14 @@ func addUserSlowConsumer(wmRouter *message.Router, amqpURI string, db *mongo.Dat
 	}
 	result.closers = append(result.closers, subscriber.Close)
 
-	uc := userusecase.NewDeleteUser(usermongo.NewRepository(db))
-	handler := userrabbitmq.NewUserDeletedHandler(idempotencyRepo, uc, logger)
+	deleteUserHandler := userrabbitmq.NewUserDeletedHandler(idempotencyRepo, userusecase.NewDeleteUser(usermongo.NewRepository(db)), logger)
+	deleteBlockHandler := blockrabbitmq.NewUserBlockDeletedHandler(idempotencyRepo, blockusecase.NewDeleteBlock(blockmongo.NewRepository(db)), logger)
+	deleteFollowHandler := followrabbitmq.NewUserFollowDeletedHandler(idempotencyRepo, followusecase.NewDeleteFollow(followmongo.NewRepository(db)), logger)
 
 	handlers := map[string]dispatch.EventHandlerFunc{
-		"rk.user.deleted": handler.Handle,
+		"rk.user.deleted":        deleteUserHandler.Handle,
+		"rk.user.block.deleted":  deleteBlockHandler.Handle,
+		"rk.user.follow.deleted": deleteFollowHandler.Handle,
 	}
 	dispatcher := dispatch.New(spec.Queue, handlers, logger)
 
@@ -185,11 +208,13 @@ func addPostConsumer(ctx context.Context, wmRouter *message.Router, amqpURI stri
 		}
 	}
 
-	postCreatedHandler := postrabbitmq.New(idempotencyRepo, postusecase.New(postRepository), logger)
+	postCreatedHandler := postrabbitmq.NewPostCreatedHandler(idempotencyRepo, postusecase.New(postRepository), logger)
+	postCollabLinkedHandler := postrabbitmq.NewPostCollabLinkedHandler(idempotencyRepo, postusecase.New(postRepository), logger)
 	likeCreatedHandler := likerabbitmq.New(idempotencyRepo, likeusecase.New(likeRepository), logger)
 	commentCreatedHandler := commentrabbitmq.New(idempotencyRepo, commentusecase.New(commentRepository), logger)
 	shareCreatedHandler := sharerabbitmq.New(idempotencyRepo, shareusecase.New(shareRepository), logger)
-	collabOpenedHandler := collabrabbitmq.New(idempotencyRepo, collabusecase.New(collabRepository), logger)
+	collabOpenedHandler := collabrabbitmq.NewPostCollabOpenedHandler(idempotencyRepo, collabusecase.NewRecordCollabOpened(collabRepository), logger)
+	collabClosedHandler := collabrabbitmq.NewPostCollabClosedHandler(idempotencyRepo, collabusecase.NewCloseCollab(collabRepository), logger)
 
 	// Every routing key listed in topology.PostRoutingKeys is bound to this
 	// queue at the AMQP level (see topology.Builder). Only the subset below
@@ -203,6 +228,8 @@ func addPostConsumer(ctx context.Context, wmRouter *message.Router, amqpURI stri
 		"rk.post.comment.created":            commentCreatedHandler.Handle,
 		"rk.post.share.created":              shareCreatedHandler.Handle,
 		"rk.post.collab.opened.post-created": collabOpenedHandler.Handle,
+		"rk.post.collab.closed":              collabClosedHandler.Handle,
+		"rk.post.collab.linked":              postCollabLinkedHandler.Handle,
 	}
 	dispatcher := dispatch.New(spec.Queue, handlers, logger)
 
