@@ -37,56 +37,108 @@ const RoutingKeyHeader = "x-routing-key"
 // to ExchangeFeedEvents.
 const RKFeedExhausted = "rk.post.feed.exhausted"
 
+// Routing keys bound to QueueUserFast.
+const (
+	RKUserRegistered    = "rk.user.registered"
+	RKUserUpdated       = "rk.user.updated"
+	RKUserBlockCreated  = "rk.user.block.created"
+	RKUserFollowCreated = "rk.user.follow.created"
+)
+
+// Routing keys bound to QueueUserSlow.
+const (
+	RKUserDeleted       = "rk.user.deleted"
+	RKUserBlockDeleted  = "rk.user.block.deleted"
+	RKUserFollowDeleted = "rk.user.follow.deleted"
+)
+
+// Routing keys bound to QueuePost, covering post, comment, like, share, and
+// collaboration domain events.
+const (
+	RKPostCreated                  = "rk.post.created"
+	RKPostUpdated                  = "rk.post.updated"
+	RKPostDeleted                  = "rk.post.deleted"
+	RKPostBanned                   = "rk.post.banned"
+	RKPostViewed                   = "rk.post.viewed"
+	RKPostLikeCreated              = "rk.post.like.created"
+	RKPostLikeDeleted              = "rk.post.like.deleted"
+	RKPostCommentCreated           = "rk.post.comment.created"
+	RKPostCommentUpdated           = "rk.post.comment.updated"
+	RKPostCommentDeleted           = "rk.post.comment.deleted"
+	RKPostCommentBanned            = "rk.post.comment.banned"
+	RKPostCommentLikeCreated       = "rk.post.comment.like.created"
+	RKPostCommentLikeDeleted       = "rk.post.comment.like.deleted"
+	RKPostShareCreated             = "rk.post.share.created"
+	RKPostShareDeleted             = "rk.post.share.deleted"
+	RKPostCollabOpenedPostCreated  = "rk.post.collab.opened.post-created"
+	RKPostCollabOpenedExistingPost = "rk.post.collab.opened.existing-post"
+	RKPostCollabClosed             = "rk.post.collab.closed"
+	RKPostCollabDeleted            = "rk.post.collab.deleted"
+	RKPostCollabLinked             = "rk.post.collab.linked"
+	RKPostCollabRequestCreated     = "rk.post.collab.request.created"
+	RKPostCollabRequestAccepted    = "rk.post.collab.request.accepted"
+	RKPostCollabRequestDeclined    = "rk.post.collab.request.declined"
+	RKPostCollabRequestDeleted     = "rk.post.collab.request.deleted"
+	RKPostCollabMemberLeft         = "rk.post.collab.member.left"
+	RKPostCollabMemberBanned       = "rk.post.collab.member.banned"
+)
+
+// Routing keys bound to QueueFeed.
+const (
+	RKPostRecommendedSent = "rk.post.recommended.sent"
+	RKPostTrendingSent    = "rk.post.trending.sent"
+)
+
 // UserFastRoutingKeys lists the routing keys bound to QueueUserFast.
 var UserFastRoutingKeys = []string{
-	"rk.user.registered",
-	"rk.user.updated",
-	"rk.user.block.created",
-	"rk.user.follow.created",
+	RKUserRegistered,
+	RKUserUpdated,
+	RKUserBlockCreated,
+	RKUserFollowCreated,
 }
 
 // UserSlowRoutingKeys lists the routing keys bound to QueueUserSlow.
 var UserSlowRoutingKeys = []string{
-	"rk.user.deleted",
-	"rk.user.block.deleted",
-	"rk.user.follow.deleted",
+	RKUserDeleted,
+	RKUserBlockDeleted,
+	RKUserFollowDeleted,
 }
 
 // PostRoutingKeys lists every routing key bound to QueuePost, covering post,
 // comment, like, share, and collaboration domain events.
 var PostRoutingKeys = []string{
-	"rk.post.created",
-	"rk.post.updated",
-	"rk.post.deleted",
-	"rk.post.banned",
-	"rk.post.viewed",
-	"rk.post.like.created",
-	"rk.post.like.deleted",
-	"rk.post.comment.created",
-	"rk.post.comment.updated",
-	"rk.post.comment.deleted",
-	"rk.post.comment.banned",
-	"rk.post.comment.like.created",
-	"rk.post.comment.like.deleted",
-	"rk.post.share.created",
-	"rk.post.share.deleted",
-	"rk.post.collab.opened.post-created",
-	"rk.post.collab.opened.existing-post",
-	"rk.post.collab.closed",
-	"rk.post.collab.deleted",
-	"rk.post.collab.linked",
-	"rk.post.collab.request.created",
-	"rk.post.collab.request.accepted",
-	"rk.post.collab.request.declined",
-	"rk.post.collab.request.deleted",
-	"rk.post.collab.member.left",
-	"rk.post.collab.member.banned",
+	RKPostCreated,
+	RKPostUpdated,
+	RKPostDeleted,
+	RKPostBanned,
+	RKPostViewed,
+	RKPostLikeCreated,
+	RKPostLikeDeleted,
+	RKPostCommentCreated,
+	RKPostCommentUpdated,
+	RKPostCommentDeleted,
+	RKPostCommentBanned,
+	RKPostCommentLikeCreated,
+	RKPostCommentLikeDeleted,
+	RKPostShareCreated,
+	RKPostShareDeleted,
+	RKPostCollabOpenedPostCreated,
+	RKPostCollabOpenedExistingPost,
+	RKPostCollabClosed,
+	RKPostCollabDeleted,
+	RKPostCollabLinked,
+	RKPostCollabRequestCreated,
+	RKPostCollabRequestAccepted,
+	RKPostCollabRequestDeclined,
+	RKPostCollabRequestDeleted,
+	RKPostCollabMemberLeft,
+	RKPostCollabMemberBanned,
 }
 
 // FeedRoutingKeys lists the routing keys bound to QueueFeed.
 var FeedRoutingKeys = []string{
-	"rk.post.recommended.sent",
-	"rk.post.trending.sent",
+	RKPostRecommendedSent,
+	RKPostTrendingSent,
 }
 
 // Spec describes one queue's AMQP topology: the exchange it binds to, its

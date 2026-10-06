@@ -145,10 +145,10 @@ func addUserFastConsumer(ctx context.Context, wmRouter *message.Router, amqpURI 
 	createFollowHandler := followrabbitmq.NewUserFollowCreatedHandler(idempotencyRepo, followusecase.NewCreateFollow(followRepository), logger)
 
 	handlers := map[string]dispatch.EventHandlerFunc{
-		"rk.user.registered":     registerUserHandler.Handle,
-		"rk.user.updated":        updateUserHandler.Handle,
-		"rk.user.block.created":  createBlockHandler.Handle,
-		"rk.user.follow.created": createFollowHandler.Handle,
+		topology.RKUserRegistered:    registerUserHandler.Handle,
+		topology.RKUserUpdated:       updateUserHandler.Handle,
+		topology.RKUserBlockCreated:  createBlockHandler.Handle,
+		topology.RKUserFollowCreated: createFollowHandler.Handle,
 	}
 	dispatcher := dispatch.New(spec.Queue, handlers, logger)
 
@@ -171,9 +171,9 @@ func addUserSlowConsumer(wmRouter *message.Router, amqpURI string, db *mongo.Dat
 	deleteFollowHandler := followrabbitmq.NewUserFollowDeletedHandler(idempotencyRepo, followusecase.NewDeleteFollow(followmongo.NewRepository(db)), logger)
 
 	handlers := map[string]dispatch.EventHandlerFunc{
-		"rk.user.deleted":        deleteUserHandler.Handle,
-		"rk.user.block.deleted":  deleteBlockHandler.Handle,
-		"rk.user.follow.deleted": deleteFollowHandler.Handle,
+		topology.RKUserDeleted:       deleteUserHandler.Handle,
+		topology.RKUserBlockDeleted:  deleteBlockHandler.Handle,
+		topology.RKUserFollowDeleted: deleteFollowHandler.Handle,
 	}
 	dispatcher := dispatch.New(spec.Queue, handlers, logger)
 
@@ -230,20 +230,20 @@ func addPostConsumer(ctx context.Context, wmRouter *message.Router, amqpURI stri
 	// their own use case is implemented (see feature_list.json follow-up
 	// work, task 41 deviation noted in the PR description).
 	handlers := map[string]dispatch.EventHandlerFunc{
-		"rk.post.created":                    postCreatedHandler.Handle,
-		"rk.post.updated":                    postUpdatedHandler.Handle,
-		"rk.post.deleted":                    postDeletedHandler.Handle,
-		"rk.post.like.created":               likeCreatedHandler.Handle,
-		"rk.post.like.deleted":               likeDeletedHandler.Handle,
-		"rk.post.comment.created":            commentCreatedHandler.Handle,
-		"rk.post.comment.updated":            commentUpdatedHandler.Handle,
-		"rk.post.comment.deleted":            commentDeletedHandler.Handle,
-		"rk.post.share.created":              shareCreatedHandler.Handle,
-		"rk.post.share.deleted":              shareDeletedHandler.Handle,
-		"rk.post.collab.opened.post-created": collabOpenedHandler.Handle,
-		"rk.post.collab.closed":              collabClosedHandler.Handle,
-		"rk.post.collab.deleted":             collabDeletedHandler.Handle,
-		"rk.post.collab.linked":              postCollabLinkedHandler.Handle,
+		topology.RKPostCreated:                 postCreatedHandler.Handle,
+		topology.RKPostUpdated:                 postUpdatedHandler.Handle,
+		topology.RKPostDeleted:                 postDeletedHandler.Handle,
+		topology.RKPostLikeCreated:             likeCreatedHandler.Handle,
+		topology.RKPostLikeDeleted:             likeDeletedHandler.Handle,
+		topology.RKPostCommentCreated:          commentCreatedHandler.Handle,
+		topology.RKPostCommentUpdated:          commentUpdatedHandler.Handle,
+		topology.RKPostCommentDeleted:          commentDeletedHandler.Handle,
+		topology.RKPostShareCreated:            shareCreatedHandler.Handle,
+		topology.RKPostShareDeleted:            shareDeletedHandler.Handle,
+		topology.RKPostCollabOpenedPostCreated: collabOpenedHandler.Handle,
+		topology.RKPostCollabClosed:            collabClosedHandler.Handle,
+		topology.RKPostCollabDeleted:           collabDeletedHandler.Handle,
+		topology.RKPostCollabLinked:            postCollabLinkedHandler.Handle,
 	}
 	dispatcher := dispatch.New(spec.Queue, handlers, logger)
 
