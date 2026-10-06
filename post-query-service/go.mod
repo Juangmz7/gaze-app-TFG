@@ -7,7 +7,7 @@ require (
 	github.com/ThreeDotsLabs/watermill v1.5.3
 	github.com/ThreeDotsLabs/watermill-amqp/v3 v3.1.0
 	github.com/google/uuid v1.6.0
-	github.com/rabbitmq/amqp091-go v1.11.0
+	github.com/rabbitmq/amqp091-go v1.14.0
 	github.com/testcontainers/testcontainers-go/modules/mongodb v0.44.0
 	github.com/testcontainers/testcontainers-go/modules/rabbitmq v0.44.0
 	go.mongodb.org/mongo-driver/v2 v2.9.1
