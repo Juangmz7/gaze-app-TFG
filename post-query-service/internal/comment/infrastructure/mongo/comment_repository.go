@@ -22,11 +22,6 @@ const collectionName = "post_comments"
 // operationTimeout bounds every Mongo call made by Repository.
 const operationTimeout = 5 * time.Second
 
-// ErrVersionConflict is returned by Update when the stored document's
-// version does not match UpdateInput.ExpectedVersion, meaning the document
-// was modified by another writer since the version was read.
-var ErrVersionConflict = errors.New("comment version conflict")
-
 // commentDocument is the persisted shape of a comment read model entry.
 type commentDocument struct {
 	CommentID string    `bson:"comment_id"`
@@ -34,23 +29,13 @@ type commentDocument struct {
 	UserID    string    `bson:"user_id"`
 	Content   string    `bson:"content"`
 	CreatedAt time.Time `bson:"created_at"`
+	UpdatedAt time.Time `bson:"updated_at"`
 	Version   int64     `bson:"version"`
 }
 
-// UpdateInput is the data required to apply an optimistic-concurrency
-// update to an existing comment read model document. No use case calls
-// Update yet; it exists so the repository/mongo layer exposes a
-// version-based update capability uniformly across every read-model
-// repository.
-type UpdateInput struct {
-	CommentID       uuid.UUID
-	ExpectedVersion int64
-	PostID          uuid.UUID
-	UserID          uuid.UUID
-	Content         string
-}
-
-// Repository implements usecase.Repository against MongoDB.
+// Repository implements usecase.RecordCommentRepository,
+// usecase.UpdateCommentRepository, and usecase.DeleteCommentRepository
+// against MongoDB.
 type Repository struct {
 	collection *mongo.Collection
 }
@@ -87,7 +72,7 @@ func (r *Repository) EnsureIndexes(ctx context.Context) error {
 // creation event theoretically possible; when that retry hits the unique
 // index on comment_id, Insert treats the duplicate-key error as an
 // already-applied insert and returns nil.
-func (r *Repository) Insert(ctx context.Context, input usecase.Input) error {
+func (r *Repository) Insert(ctx context.Context, input usecase.RecordCommentInput) error {
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
 
@@ -97,6 +82,7 @@ func (r *Repository) Insert(ctx context.Context, input usecase.Input) error {
 		UserID:    input.UserID.String(),
 		Content:   input.Content,
 		CreatedAt: input.CreatedAt,
+		UpdatedAt: input.CreatedAt,
 		Version:   1,
 	}
 
@@ -110,13 +96,62 @@ func (r *Repository) Insert(ctx context.Context, input usecase.Input) error {
 	return nil
 }
 
+// GetVersion returns the current version of the comment read model
+// document identified by commentID, and whether it exists at all.
+// UpdateCommentUsecase uses it to fill in UpdateCommentInput.ExpectedVersion
+// before calling Update, since CommentUpdatedEvent carries no version of
+// its own.
+func (r *Repository) GetVersion(ctx context.Context, commentID uuid.UUID) (int64, bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
+	defer cancel()
+
+	var doc struct {
+		Version int64 `bson:"version"`
+	}
+	err := r.collection.FindOne(ctx, bson.D{{Key: "comment_id", Value: commentID.String()}}).Decode(&doc)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return 0, false, nil
+		}
+		return 0, false, fmt.Errorf("get comment %s version: %w", commentID, err)
+	}
+
+	return doc.Version, true, nil
+}
+
+// FindContentAndUpdatedAt returns the currently stored Content and
+// UpdatedAt for the comment read model document identified by commentID,
+// and whether it exists at all. UpdateCommentUsecase uses it as a
+// version-conflict safety net (see that usecase's doc comment): because
+// CommentUpdatedEvent carries no event id for an idempotency check, this
+// lets Execute distinguish a harmless redelivery (stored fields already
+// equal the incoming event's) from a genuine conflict.
+func (r *Repository) FindContentAndUpdatedAt(ctx context.Context, commentID uuid.UUID) (string, time.Time, bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
+	defer cancel()
+
+	var doc struct {
+		Content   string    `bson:"content"`
+		UpdatedAt time.Time `bson:"updated_at"`
+	}
+	err := r.collection.FindOne(ctx, bson.D{{Key: "comment_id", Value: commentID.String()}}).Decode(&doc)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return "", time.Time{}, false, nil
+		}
+		return "", time.Time{}, false, fmt.Errorf("find comment %s content: %w", commentID, err)
+	}
+
+	return doc.Content, doc.UpdatedAt, true, nil
+}
+
 // Update applies an optimistic-concurrency update to the comment read model
 // document identified by input.CommentID. It only succeeds when the stored
 // document's version equals input.ExpectedVersion; on success the changed
 // fields are set and the version is incremented by one. If no document
 // matched (either the comment does not exist or its version has already
-// moved on), Update returns ErrVersionConflict.
-func (r *Repository) Update(ctx context.Context, input UpdateInput) error {
+// moved on), Update returns usecase.ErrCommentVersionConflict.
+func (r *Repository) Update(ctx context.Context, input usecase.UpdateCommentInput) error {
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
 
@@ -129,6 +164,7 @@ func (r *Repository) Update(ctx context.Context, input UpdateInput) error {
 			{Key: "post_id", Value: input.PostID.String()},
 			{Key: "user_id", Value: input.UserID.String()},
 			{Key: "content", Value: input.Content},
+			{Key: "updated_at", Value: input.UpdatedAt},
 		}},
 		{Key: "$inc", Value: bson.D{{Key: "version", Value: int64(1)}}},
 	}
@@ -138,7 +174,21 @@ func (r *Repository) Update(ctx context.Context, input UpdateInput) error {
 		return fmt.Errorf("update comment %s: %w", input.CommentID, err)
 	}
 	if result.ModifiedCount == 0 {
-		return fmt.Errorf("update comment %s: %w", input.CommentID, ErrVersionConflict)
+		return fmt.Errorf("update comment %s: %w", input.CommentID, usecase.ErrCommentVersionConflict)
+	}
+
+	return nil
+}
+
+// Delete idempotently removes commentID's comment read model document.
+// Deleting an already-absent document is not an error.
+func (r *Repository) Delete(ctx context.Context, commentID uuid.UUID) error {
+	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
+	defer cancel()
+
+	filter := bson.D{{Key: "comment_id", Value: commentID.String()}}
+	if _, err := r.collection.DeleteOne(ctx, filter); err != nil {
+		return fmt.Errorf("delete comment %s: %w", commentID, err)
 	}
 
 	return nil

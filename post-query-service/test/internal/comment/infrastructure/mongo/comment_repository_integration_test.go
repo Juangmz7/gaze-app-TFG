@@ -31,7 +31,7 @@ func TestRepository_Insert_PersistsTheCommentReadModelAtVersionOne(t *testing.T)
 	db := testDatabase(t, ctx)
 	repository := commentmongo.NewRepository(db)
 
-	input := usecase.Input{
+	input := usecase.RecordCommentInput{
 		CommentID: uuid.New(),
 		PostID:    uuid.New(),
 		UserID:    uuid.New(),
@@ -71,7 +71,7 @@ func TestRepository_Insert_IsIdempotentOnARetriedInsertOfTheSameCommentID(t *tes
 	}
 
 	commentID := uuid.New()
-	input := usecase.Input{CommentID: commentID, PostID: uuid.New(), UserID: uuid.New(), Content: "first", CreatedAt: time.Now().UTC()}
+	input := usecase.RecordCommentInput{CommentID: commentID, PostID: uuid.New(), UserID: uuid.New(), Content: "first", CreatedAt: time.Now().UTC()}
 	if err := repository.Insert(ctx, input); err != nil {
 		t.Fatalf("Insert() error = %v", err)
 	}
@@ -96,11 +96,11 @@ func TestRepository_Update_SucceedsAndIncrementsVersionWhenExpectedVersionMatche
 	repository := commentmongo.NewRepository(db)
 
 	commentID := uuid.New()
-	if err := repository.Insert(ctx, usecase.Input{CommentID: commentID, PostID: uuid.New(), UserID: uuid.New(), Content: "first", CreatedAt: time.Now().UTC()}); err != nil {
+	if err := repository.Insert(ctx, usecase.RecordCommentInput{CommentID: commentID, PostID: uuid.New(), UserID: uuid.New(), Content: "first", CreatedAt: time.Now().UTC()}); err != nil {
 		t.Fatalf("Insert() error = %v", err)
 	}
 
-	update := commentmongo.UpdateInput{CommentID: commentID, ExpectedVersion: 1, PostID: uuid.New(), UserID: uuid.New(), Content: "edited"}
+	update := usecase.UpdateCommentInput{CommentID: commentID, ExpectedVersion: 1, PostID: uuid.New(), UserID: uuid.New(), Content: "edited"}
 	if err := repository.Update(ctx, update); err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}
@@ -122,13 +122,13 @@ func TestRepository_Update_ReturnsVersionConflictAndDoesNotModifyWhenExpectedVer
 	repository := commentmongo.NewRepository(db)
 
 	commentID := uuid.New()
-	if err := repository.Insert(ctx, usecase.Input{CommentID: commentID, PostID: uuid.New(), UserID: uuid.New(), Content: "first", CreatedAt: time.Now().UTC()}); err != nil {
+	if err := repository.Insert(ctx, usecase.RecordCommentInput{CommentID: commentID, PostID: uuid.New(), UserID: uuid.New(), Content: "first", CreatedAt: time.Now().UTC()}); err != nil {
 		t.Fatalf("Insert() error = %v", err)
 	}
 
-	update := commentmongo.UpdateInput{CommentID: commentID, ExpectedVersion: 99, PostID: uuid.New(), UserID: uuid.New(), Content: "edited"}
+	update := usecase.UpdateCommentInput{CommentID: commentID, ExpectedVersion: 99, PostID: uuid.New(), UserID: uuid.New(), Content: "edited"}
 	err := repository.Update(ctx, update)
-	if !errors.Is(err, commentmongo.ErrVersionConflict) {
+	if !errors.Is(err, usecase.ErrCommentVersionConflict) {
 		t.Fatalf("Update() error = %v, want it to wrap ErrVersionConflict", err)
 	}
 
@@ -138,6 +138,132 @@ func TestRepository_Update_ReturnsVersionConflictAndDoesNotModifyWhenExpectedVer
 	}
 	if got.Version != 1 {
 		t.Fatalf("stored document Version = %d, want unchanged 1", got.Version)
+	}
+}
+
+func TestRepository_GetVersion_ReturnsTheStoredVersionWhenTheCommentExists(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	db := testDatabase(t, ctx)
+	repository := commentmongo.NewRepository(db)
+
+	commentID := uuid.New()
+	if err := repository.Insert(ctx, usecase.RecordCommentInput{CommentID: commentID, PostID: uuid.New(), UserID: uuid.New(), Content: "first", CreatedAt: time.Now().UTC()}); err != nil {
+		t.Fatalf("Insert() error = %v", err)
+	}
+
+	version, found, err := repository.GetVersion(ctx, commentID)
+	if err != nil {
+		t.Fatalf("GetVersion() error = %v", err)
+	}
+	if !found {
+		t.Fatal("GetVersion() found = false, want true for an existing comment")
+	}
+	if version != 1 {
+		t.Fatalf("GetVersion() version = %d, want 1", version)
+	}
+}
+
+func TestRepository_GetVersion_ReturnsNotFoundWhenTheCommentWasNeverProjected(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	db := testDatabase(t, ctx)
+	repository := commentmongo.NewRepository(db)
+
+	_, found, err := repository.GetVersion(ctx, uuid.New())
+	if err != nil {
+		t.Fatalf("GetVersion() error = %v", err)
+	}
+	if found {
+		t.Fatal("GetVersion() found = true, want false for a comment that was never projected")
+	}
+}
+
+func TestRepository_FindContentAndUpdatedAt_ReturnsTheStoredFieldsWhenTheCommentExists(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	db := testDatabase(t, ctx)
+	repository := commentmongo.NewRepository(db)
+
+	commentID := uuid.New()
+	if err := repository.Insert(ctx, usecase.RecordCommentInput{CommentID: commentID, PostID: uuid.New(), UserID: uuid.New(), Content: "first", CreatedAt: time.Now().UTC()}); err != nil {
+		t.Fatalf("Insert() error = %v", err)
+	}
+
+	updatedAt := time.Now().UTC().Add(time.Hour).Truncate(time.Millisecond)
+	update := usecase.UpdateCommentInput{CommentID: commentID, ExpectedVersion: 1, PostID: uuid.New(), UserID: uuid.New(), Content: "edited", UpdatedAt: updatedAt}
+	if err := repository.Update(ctx, update); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+
+	content, gotUpdatedAt, found, err := repository.FindContentAndUpdatedAt(ctx, commentID)
+	if err != nil {
+		t.Fatalf("FindContentAndUpdatedAt() error = %v", err)
+	}
+	if !found {
+		t.Fatal("FindContentAndUpdatedAt() found = false, want true for an existing comment")
+	}
+	if content != "edited" {
+		t.Fatalf("FindContentAndUpdatedAt() content = %q, want %q", content, "edited")
+	}
+	if !gotUpdatedAt.Equal(updatedAt) {
+		t.Fatalf("FindContentAndUpdatedAt() updatedAt = %v, want %v", gotUpdatedAt, updatedAt)
+	}
+}
+
+func TestRepository_FindContentAndUpdatedAt_ReturnsNotFoundWhenTheCommentWasNeverProjected(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	db := testDatabase(t, ctx)
+	repository := commentmongo.NewRepository(db)
+
+	_, _, found, err := repository.FindContentAndUpdatedAt(ctx, uuid.New())
+	if err != nil {
+		t.Fatalf("FindContentAndUpdatedAt() error = %v", err)
+	}
+	if found {
+		t.Fatal("FindContentAndUpdatedAt() found = true, want false for a comment that was never projected")
+	}
+}
+
+func TestRepository_Delete_RemovesAnExistingCommentReadModelDocument(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	db := testDatabase(t, ctx)
+	repository := commentmongo.NewRepository(db)
+
+	commentID := uuid.New()
+	if err := repository.Insert(ctx, usecase.RecordCommentInput{CommentID: commentID, PostID: uuid.New(), UserID: uuid.New(), Content: "first", CreatedAt: time.Now().UTC()}); err != nil {
+		t.Fatalf("Insert() error = %v", err)
+	}
+
+	if err := repository.Delete(ctx, commentID); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+
+	count, err := db.Collection("post_comments").CountDocuments(ctx, bson.D{{Key: "comment_id", Value: commentID.String()}})
+	if err != nil {
+		t.Fatalf("CountDocuments() error = %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("CountDocuments() = %d, want 0 after Delete", count)
+	}
+}
+
+func TestRepository_Delete_IsANoOpWhenTheCommentWasNeverProjected(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	db := testDatabase(t, ctx)
+	repository := commentmongo.NewRepository(db)
+
+	if err := repository.Delete(ctx, uuid.New()); err != nil {
+		t.Fatalf("Delete() error = %v, want nil for an absent document", err)
 	}
 }
 

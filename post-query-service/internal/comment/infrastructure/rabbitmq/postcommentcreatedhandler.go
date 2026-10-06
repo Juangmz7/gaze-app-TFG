@@ -1,5 +1,7 @@
-// Package rabbitmq handles PostCommentCreatedEvent deliveries from
-// topology.ExchangePostEvents (routing key rk.post.comment.created).
+// Package rabbitmq handles PostCommentCreatedEvent, CommentUpdatedEvent,
+// and CommentDeletedEvent deliveries from topology.ExchangePostEvents
+// (routing keys rk.post.comment.created, rk.post.comment.updated,
+// rk.post.comment.deleted).
 package rabbitmq
 
 import (
@@ -16,12 +18,13 @@ import (
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/rmqerror"
 )
 
-// EventType identifies this event for idempotency bookkeeping.
-const EventType = "PostCommentCreatedEvent"
+// PostCommentCreatedEventType identifies this event for idempotency
+// bookkeeping.
+const PostCommentCreatedEventType = "PostCommentCreatedEvent"
 
-// Event is the wire shape of PostCommentCreatedEvent published by
-// post-command-service.
-type Event struct {
+// PostCommentCreatedEvent is the wire shape of PostCommentCreatedEvent
+// published by post-command-service.
+type PostCommentCreatedEvent struct {
 	ID            uuid.UUID `json:"id"`
 	CorrelationID uuid.UUID `json:"correlation_id"`
 	OccurredAt    time.Time `json:"occurred_at"`
@@ -32,38 +35,39 @@ type Event struct {
 	CreatedAt     time.Time `json:"created_at"`
 }
 
-// IdempotencyRepository records and checks processed events.
-type IdempotencyRepository interface {
+// PostCommentCreatedIdempotencyRepository records and checks processed
+// events.
+type PostCommentCreatedIdempotencyRepository interface {
 	IsProcessed(ctx context.Context, eventID uuid.UUID) (bool, error)
 	MarkProcessed(ctx context.Context, eventID, correlationID uuid.UUID, eventType string) error
 }
 
-// Usecase executes the comment projection.
-type Usecase interface {
-	Execute(ctx context.Context, input usecase.Input) error
+// PostCommentCreatedUsecase executes the comment creation projection.
+type PostCommentCreatedUsecase interface {
+	Execute(ctx context.Context, input usecase.RecordCommentInput) error
 }
 
-// Handler decodes PostCommentCreatedEvent deliveries, enforces idempotency,
-// and delegates to Usecase.
-type Handler struct {
-	idempotency IdempotencyRepository
-	usecase     Usecase
+// PostCommentCreatedHandler decodes PostCommentCreatedEvent deliveries,
+// enforces idempotency, and delegates to PostCommentCreatedUsecase.
+type PostCommentCreatedHandler struct {
+	idempotency PostCommentCreatedIdempotencyRepository
+	usecase     PostCommentCreatedUsecase
 	logger      *slog.Logger
 }
 
-// New creates a Handler.
-func New(idempotency IdempotencyRepository, usecase Usecase, logger *slog.Logger) *Handler {
-	return &Handler{idempotency: idempotency, usecase: usecase, logger: logger}
+// NewPostCommentCreatedHandler creates a PostCommentCreatedHandler.
+func NewPostCommentCreatedHandler(idempotency PostCommentCreatedIdempotencyRepository, uc PostCommentCreatedUsecase, logger *slog.Logger) *PostCommentCreatedHandler {
+	return &PostCommentCreatedHandler{idempotency: idempotency, usecase: uc, logger: logger}
 }
 
 // Handle implements dispatch.EventHandlerFunc.
-func (h *Handler) Handle(ctx context.Context, msg *message.Message) error {
-	var event Event
+func (h *PostCommentCreatedHandler) Handle(ctx context.Context, msg *message.Message) error {
+	var event PostCommentCreatedEvent
 	if err := json.Unmarshal(msg.Payload, &event); err != nil {
 		return rmqerror.NewPermanent(fmt.Errorf("decode post comment created event: %w", err))
 	}
 
-	if err := validate(event); err != nil {
+	if err := validatePostCommentCreatedEvent(event); err != nil {
 		return rmqerror.NewPermanent(err)
 	}
 
@@ -76,7 +80,7 @@ func (h *Handler) Handle(ctx context.Context, msg *message.Message) error {
 		return nil
 	}
 
-	input := usecase.Input{
+	input := usecase.RecordCommentInput{
 		CommentID: event.CommentID,
 		PostID:    event.PostID,
 		UserID:    event.UserID,
@@ -87,14 +91,14 @@ func (h *Handler) Handle(ctx context.Context, msg *message.Message) error {
 		return fmt.Errorf("execute record comment usecase for event %s: %w", event.ID, err)
 	}
 
-	if err := h.idempotency.MarkProcessed(ctx, event.ID, event.CorrelationID, EventType); err != nil {
+	if err := h.idempotency.MarkProcessed(ctx, event.ID, event.CorrelationID, PostCommentCreatedEventType); err != nil {
 		return fmt.Errorf("mark post comment created event %s processed: %w", event.ID, err)
 	}
 
 	return nil
 }
 
-func validate(event Event) error {
+func validatePostCommentCreatedEvent(event PostCommentCreatedEvent) error {
 	if event.ID == uuid.Nil {
 		return fmt.Errorf("post comment created event: id is required")
 	}
