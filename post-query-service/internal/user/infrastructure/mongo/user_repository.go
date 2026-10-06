@@ -26,23 +26,22 @@ const operationTimeout = 5 * time.Second
 // was modified by another writer since the version was read.
 var ErrVersionConflict = errors.New("user version conflict")
 
-// userDocument is the persisted shape of a user read model entry.
+// userDocument is the persisted shape of a user read model entry. Email,
+// BioDescription, BioSocialMedia, PictureURL, AccountStatus, and UpdatedAt
+// are populated once a UserUpdatedEvent is projected (see Update); the
+// register-user Insert path leaves them at their Go zero values, since
+// UserRegisteredEvent does not carry them.
 type userDocument struct {
-	UserID    string    `bson:"user_id"`
-	Username  string    `bson:"username"`
-	CreatedAt time.Time `bson:"created_at"`
-	Version   int64     `bson:"version"`
-}
-
-// UpdateInput is the data required to apply an optimistic-concurrency
-// update to an existing user read model document. user is one of the
-// contexts that will gain a real update consumer (e.g. user-updated) in a
-// follow-up task; this method is wired and tested at the repository level
-// now so that future use case does not need repository changes.
-type UpdateInput struct {
-	UserID          uuid.UUID
-	ExpectedVersion int64
-	Username        string
+	UserID         string            `bson:"user_id"`
+	Username       string            `bson:"username"`
+	Email          string            `bson:"email"`
+	BioDescription string            `bson:"bio_description"`
+	BioSocialMedia map[string]string `bson:"bio_social_media"`
+	PictureURL     string            `bson:"picture_url"`
+	AccountStatus  string            `bson:"account_status"`
+	CreatedAt      time.Time         `bson:"created_at"`
+	UpdatedAt      time.Time         `bson:"updated_at"`
+	Version        int64             `bson:"version"`
 }
 
 // Repository implements usecase.RegisterUserRepository and
@@ -103,13 +102,35 @@ func (r *Repository) Insert(ctx context.Context, input usecase.RegisterUserInput
 	return nil
 }
 
+// GetVersion returns the current version of the user read model document
+// identified by userID, and whether it exists at all. UpdateUserUsecase
+// uses it to fill in UpdateUserInput.ExpectedVersion before calling
+// Update, since UserUpdatedEvent carries no version of its own.
+func (r *Repository) GetVersion(ctx context.Context, userID uuid.UUID) (int64, bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
+	defer cancel()
+
+	var doc struct {
+		Version int64 `bson:"version"`
+	}
+	err := r.collection.FindOne(ctx, bson.D{{Key: "user_id", Value: userID.String()}}).Decode(&doc)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return 0, false, nil
+		}
+		return 0, false, fmt.Errorf("get user %s version: %w", userID, err)
+	}
+
+	return doc.Version, true, nil
+}
+
 // Update applies an optimistic-concurrency update to the user read model
 // document identified by input.UserID. It only succeeds when the stored
 // document's version equals input.ExpectedVersion; on success the changed
 // fields are set and the version is incremented by one. If no document
 // matched (either the user does not exist or its version has already moved
 // on), Update returns ErrVersionConflict.
-func (r *Repository) Update(ctx context.Context, input UpdateInput) error {
+func (r *Repository) Update(ctx context.Context, input usecase.UpdateUserInput) error {
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
 
@@ -120,6 +141,12 @@ func (r *Repository) Update(ctx context.Context, input UpdateInput) error {
 	update := bson.D{
 		{Key: "$set", Value: bson.D{
 			{Key: "username", Value: input.Username},
+			{Key: "email", Value: input.Email},
+			{Key: "bio_description", Value: input.BioDescription},
+			{Key: "bio_social_media", Value: input.BioSocialMedia},
+			{Key: "picture_url", Value: input.PictureURL},
+			{Key: "account_status", Value: input.AccountStatus},
+			{Key: "updated_at", Value: input.UpdatedAt},
 		}},
 		{Key: "$inc", Value: bson.D{{Key: "version", Value: int64(1)}}},
 	}
