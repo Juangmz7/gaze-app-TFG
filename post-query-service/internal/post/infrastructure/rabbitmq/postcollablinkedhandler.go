@@ -49,7 +49,7 @@ type PostCollabLinkedIdempotencyRepository interface {
 // into a collaboration. It is the same post/application/usecase.Usecase
 // used by PostCreatedHandler.
 type PostCollabLinkedUsecase interface {
-	Execute(ctx context.Context, input usecase.Input) error
+	Execute(ctx context.Context, input usecase.CreatePostInput) error
 }
 
 // PostCollabLinkedHandler decodes PostCollabLinkedEvent deliveries,
@@ -85,7 +85,7 @@ func (h *PostCollabLinkedHandler) Handle(ctx context.Context, msg *message.Messa
 		return nil
 	}
 
-	input := usecase.Input{
+	input := usecase.CreatePostInput{
 		PostID:      event.PostID,
 		UserID:      event.UserID,
 		CollabID:    event.CollabID,

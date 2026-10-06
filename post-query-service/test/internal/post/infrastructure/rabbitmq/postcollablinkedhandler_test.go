@@ -36,11 +36,11 @@ func (f *fakePostCollabLinkedIdempotencyRepository) MarkProcessed(ctx context.Co
 
 type fakePostCollabLinkedUsecase struct {
 	calls   int
-	gotIn   usecase.Input
+	gotIn   usecase.CreatePostInput
 	execErr error
 }
 
-func (f *fakePostCollabLinkedUsecase) Execute(ctx context.Context, input usecase.Input) error {
+func (f *fakePostCollabLinkedUsecase) Execute(ctx context.Context, input usecase.CreatePostInput) error {
 	f.calls++
 	f.gotIn = input
 	return f.execErr

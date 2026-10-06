@@ -1,5 +1,6 @@
-// Package usecase implements the use case that projects a PostCreatedEvent
-// into the post read model.
+// Package usecase implements the use cases that project PostCreatedEvent,
+// CollabLinkedEvent, PostUpdatedEvent, and PostDeletedEvent into the post
+// read model.
 package usecase
 
 import (
@@ -10,8 +11,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// Input is the data required to project a newly created post.
-type Input struct {
+// CreatePostInput is the data required to project a newly created post.
+type CreatePostInput struct {
 	PostID      uuid.UUID
 	UserID      uuid.UUID
 	CollabID    uuid.UUID
@@ -22,24 +23,25 @@ type Input struct {
 	UpdatedAt   time.Time
 }
 
-// Repository persists the post read model. Implemented by
+// CreatePostRepository persists the post read model. Implemented by
 // post/infrastructure/mongo.Repository.
-type Repository interface {
-	Insert(ctx context.Context, input Input) error
+type CreatePostRepository interface {
+	Insert(ctx context.Context, input CreatePostInput) error
 }
 
-// Usecase projects a PostCreatedEvent into the post read model.
-type Usecase struct {
-	repository Repository
+// CreatePostUsecase projects a PostCreatedEvent (or a CollabLinkedEvent,
+// which is semantically also a post creation) into the post read model.
+type CreatePostUsecase struct {
+	repository CreatePostRepository
 }
 
-// New creates a Usecase backed by repository.
-func New(repository Repository) *Usecase {
-	return &Usecase{repository: repository}
+// NewCreatePost creates a CreatePostUsecase backed by repository.
+func NewCreatePost(repository CreatePostRepository) *CreatePostUsecase {
+	return &CreatePostUsecase{repository: repository}
 }
 
 // Execute inserts the post read model described by input.
-func (u *Usecase) Execute(ctx context.Context, input Input) error {
+func (u *CreatePostUsecase) Execute(ctx context.Context, input CreatePostInput) error {
 	if input.PostID == uuid.Nil {
 		return fmt.Errorf("create post usecase: post id is required")
 	}

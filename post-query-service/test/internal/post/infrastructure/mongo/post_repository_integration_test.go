@@ -38,7 +38,7 @@ func TestRepository_Insert_PersistsThePostReadModelAtVersionOne(t *testing.T) {
 	db := testDatabase(t, ctx)
 	repository := postmongo.NewRepository(db)
 
-	input := usecase.Input{
+	input := usecase.CreatePostInput{
 		PostID:      uuid.New(),
 		UserID:      uuid.New(),
 		PostType:    "TEXT",
@@ -86,7 +86,7 @@ func TestRepository_Insert_IsIdempotentOnARetriedInsertOfTheSamePostID(t *testin
 	}
 
 	postID := uuid.New()
-	input := usecase.Input{PostID: postID, UserID: uuid.New(), PostType: "TEXT", Description: "first version"}
+	input := usecase.CreatePostInput{PostID: postID, UserID: uuid.New(), PostType: "TEXT", Description: "first version"}
 	if err := repository.Insert(ctx, input); err != nil {
 		t.Fatalf("Insert() error = %v", err)
 	}
@@ -115,11 +115,11 @@ func TestRepository_Update_SucceedsAndIncrementsVersionWhenExpectedVersionMatche
 	repository := postmongo.NewRepository(db)
 
 	postID := uuid.New()
-	if err := repository.Insert(ctx, usecase.Input{PostID: postID, UserID: uuid.New(), PostType: "TEXT", Description: "first version"}); err != nil {
+	if err := repository.Insert(ctx, usecase.CreatePostInput{PostID: postID, UserID: uuid.New(), PostType: "TEXT", Description: "first version"}); err != nil {
 		t.Fatalf("Insert() error = %v", err)
 	}
 
-	update := postmongo.UpdateInput{
+	update := usecase.UpdatePostInput{
 		PostID:          postID,
 		ExpectedVersion: 1,
 		PostType:        "TEXT",
@@ -154,11 +154,11 @@ func TestRepository_Update_ReturnsVersionConflictAndDoesNotModifyWhenExpectedVer
 	repository := postmongo.NewRepository(db)
 
 	postID := uuid.New()
-	if err := repository.Insert(ctx, usecase.Input{PostID: postID, UserID: uuid.New(), PostType: "TEXT", Description: "first version"}); err != nil {
+	if err := repository.Insert(ctx, usecase.CreatePostInput{PostID: postID, UserID: uuid.New(), PostType: "TEXT", Description: "first version"}); err != nil {
 		t.Fatalf("Insert() error = %v", err)
 	}
 
-	update := postmongo.UpdateInput{PostID: postID, ExpectedVersion: 99, PostType: "TEXT", Description: "should not apply"}
+	update := usecase.UpdatePostInput{PostID: postID, ExpectedVersion: 99, PostType: "TEXT", Description: "should not apply"}
 	err := repository.Update(ctx, update)
 	if !errors.Is(err, postmongo.ErrVersionConflict) {
 		t.Fatalf("Update() error = %v, want it to wrap ErrVersionConflict", err)
@@ -170,6 +170,83 @@ func TestRepository_Update_ReturnsVersionConflictAndDoesNotModifyWhenExpectedVer
 	}
 	if got.Version != 1 {
 		t.Fatalf("stored document Version = %d, want unchanged 1", got.Version)
+	}
+}
+
+func TestRepository_GetVersion_ReturnsTheStoredVersionWhenThePostExists(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	db := testDatabase(t, ctx)
+	repository := postmongo.NewRepository(db)
+
+	postID := uuid.New()
+	if err := repository.Insert(ctx, usecase.CreatePostInput{PostID: postID, UserID: uuid.New(), PostType: "TEXT", Description: "first version"}); err != nil {
+		t.Fatalf("Insert() error = %v", err)
+	}
+
+	version, found, err := repository.GetVersion(ctx, postID)
+	if err != nil {
+		t.Fatalf("GetVersion() error = %v", err)
+	}
+	if !found {
+		t.Fatal("GetVersion() found = false, want true for an existing post")
+	}
+	if version != 1 {
+		t.Fatalf("GetVersion() version = %d, want 1", version)
+	}
+}
+
+func TestRepository_GetVersion_ReturnsNotFoundWhenThePostWasNeverProjected(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	db := testDatabase(t, ctx)
+	repository := postmongo.NewRepository(db)
+
+	_, found, err := repository.GetVersion(ctx, uuid.New())
+	if err != nil {
+		t.Fatalf("GetVersion() error = %v", err)
+	}
+	if found {
+		t.Fatal("GetVersion() found = true, want false for a post that was never projected")
+	}
+}
+
+func TestRepository_Delete_RemovesAnExistingPostReadModelDocument(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	db := testDatabase(t, ctx)
+	repository := postmongo.NewRepository(db)
+
+	postID := uuid.New()
+	if err := repository.Insert(ctx, usecase.CreatePostInput{PostID: postID, UserID: uuid.New(), PostType: "TEXT", Description: "first version"}); err != nil {
+		t.Fatalf("Insert() error = %v", err)
+	}
+
+	if err := repository.Delete(ctx, postID); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+
+	count, err := db.Collection("posts").CountDocuments(ctx, bson.D{{Key: "post_id", Value: postID.String()}})
+	if err != nil {
+		t.Fatalf("CountDocuments() error = %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("CountDocuments() = %d, want 0 after Delete", count)
+	}
+}
+
+func TestRepository_Delete_IsANoOpWhenThePostWasNeverProjected(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	db := testDatabase(t, ctx)
+	repository := postmongo.NewRepository(db)
+
+	if err := repository.Delete(ctx, uuid.New()); err != nil {
+		t.Fatalf("Delete() error = %v, want nil for an absent document", err)
 	}
 }
 

@@ -46,7 +46,7 @@ type PostCreatedIdempotencyRepository interface {
 // PostCreatedUsecase executes the post creation projection. Implemented by
 // post/application/usecase.Usecase.
 type PostCreatedUsecase interface {
-	Execute(ctx context.Context, input usecase.Input) error
+	Execute(ctx context.Context, input usecase.CreatePostInput) error
 }
 
 // PostCreatedHandler decodes PostCreatedEvent deliveries, enforces
@@ -82,7 +82,7 @@ func (h *PostCreatedHandler) Handle(ctx context.Context, msg *message.Message) e
 		return nil
 	}
 
-	input := usecase.Input{
+	input := usecase.CreatePostInput{
 		PostID:      event.PostID,
 		UserID:      event.UserID,
 		CollabID:    event.CollabID,

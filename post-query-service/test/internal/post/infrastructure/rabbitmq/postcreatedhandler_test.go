@@ -51,11 +51,11 @@ func (f *fakePostCreatedIdempotencyRepository) MarkProcessed(ctx context.Context
 type fakePostCreatedUsecase struct {
 	calls   int
 	gotCtx  context.Context
-	gotIn   usecase.Input
+	gotIn   usecase.CreatePostInput
 	execErr error
 }
 
-func (f *fakePostCreatedUsecase) Execute(ctx context.Context, input usecase.Input) error {
+func (f *fakePostCreatedUsecase) Execute(ctx context.Context, input usecase.CreatePostInput) error {
 	f.calls++
 	f.gotCtx = ctx
 	f.gotIn = input

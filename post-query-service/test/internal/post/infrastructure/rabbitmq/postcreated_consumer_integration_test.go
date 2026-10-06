@@ -43,7 +43,7 @@ func newCountingPostRepository(delegate *postmongo.Repository) *countingPostRepo
 	return &countingPostRepository{delegate: delegate, done: make(chan struct{}, 10)}
 }
 
-func (r *countingPostRepository) Insert(ctx context.Context, input usecase.Input) error {
+func (r *countingPostRepository) Insert(ctx context.Context, input usecase.CreatePostInput) error {
 	if err := r.delegate.Insert(ctx, input); err != nil {
 		return err
 	}
@@ -82,7 +82,7 @@ func TestPostConsumer_DuplicateEventDoesNotApplySideEffectTwice(t *testing.T) {
 	}
 
 	repository := newCountingPostRepository(postmongo.NewRepository(db))
-	uc := usecase.New(repository)
+	uc := usecase.NewCreatePost(repository)
 	handler := postrabbitmq.NewPostCreatedHandler(idempotencyRepo, uc, testPostCreatedLogger())
 
 	spec := topology.Spec{
