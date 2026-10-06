@@ -57,22 +57,25 @@ func run() error {
 	routerErrCh := make(chan error, 1)
 	go func() {
 		routerErrCh <- rabbitmqResult.Router.Run(ctx)
+
+
+		
+		stop()
 	}()
 
 	slog.Info("consuming rabbitmq events")
 
-	// mongoDatabase is also the injection point for future HTTP read
-	// repositories (e.g. post/infrastructure, comment/infrastructure).
-	if err := server.StartServer(ctx, serverCfg.Port, nil); err != nil {
-		return err
+	serverErr := server.StartServer(ctx, serverCfg.Port, nil)
+	stop()
+
+	routerErr := <-routerErrCh
+
+	if serverErr != nil {
+		slog.Error("server stopped with error", "error", serverErr)
+	}
+	if routerErr != nil {
+		slog.Error("rabbitmq router stopped with error", "error", routerErr)
 	}
 
-	if err := rabbitmqResult.Router.Close(); err != nil {
-		slog.Error("rabbitmq router close failed", "error", err)
-	}
-	if err := <-routerErrCh; err != nil {
-		slog.Error("rabbitmq router stopped with error", "error", err)
-	}
-
-	return nil
+	return errors.Join(serverErr, routerErr)
 }
