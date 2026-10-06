@@ -1,5 +1,6 @@
-// Package usecase implements the use case that projects a
-// PostCommentCreatedEvent into the comment read model.
+// Package usecase implements the use cases that project
+// PostCommentCreatedEvent, CommentUpdatedEvent, and CommentDeletedEvent
+// into the comment read model.
 package usecase
 
 import (
@@ -10,8 +11,9 @@ import (
 	"github.com/google/uuid"
 )
 
-// Input is the data required to project a newly created comment.
-type Input struct {
+// RecordCommentInput is the data required to project a newly created
+// comment.
+type RecordCommentInput struct {
 	CommentID uuid.UUID
 	PostID    uuid.UUID
 	UserID    uuid.UUID
@@ -19,24 +21,25 @@ type Input struct {
 	CreatedAt time.Time
 }
 
-// Repository persists the comment read model. Implemented by
+// RecordCommentRepository persists the comment read model. Implemented by
 // comment/infrastructure/mongo.Repository.
-type Repository interface {
-	Upsert(ctx context.Context, input Input) error
+type RecordCommentRepository interface {
+	Insert(ctx context.Context, input RecordCommentInput) error
 }
 
-// Usecase projects a PostCommentCreatedEvent into the comment read model.
-type Usecase struct {
-	repository Repository
+// RecordCommentUsecase projects a PostCommentCreatedEvent into the comment
+// read model.
+type RecordCommentUsecase struct {
+	repository RecordCommentRepository
 }
 
-// New creates a Usecase backed by repository.
-func New(repository Repository) *Usecase {
-	return &Usecase{repository: repository}
+// NewRecordComment creates a RecordCommentUsecase backed by repository.
+func NewRecordComment(repository RecordCommentRepository) *RecordCommentUsecase {
+	return &RecordCommentUsecase{repository: repository}
 }
 
-// Execute upserts the comment read model described by input.
-func (u *Usecase) Execute(ctx context.Context, input Input) error {
+// Execute inserts the comment read model described by input.
+func (u *RecordCommentUsecase) Execute(ctx context.Context, input RecordCommentInput) error {
 	if input.CommentID == uuid.Nil {
 		return fmt.Errorf("record comment usecase: comment id is required")
 	}
@@ -47,7 +50,7 @@ func (u *Usecase) Execute(ctx context.Context, input Input) error {
 		return fmt.Errorf("record comment usecase: user id is required")
 	}
 
-	if err := u.repository.Upsert(ctx, input); err != nil {
+	if err := u.repository.Insert(ctx, input); err != nil {
 		return fmt.Errorf("record comment usecase: %w", err)
 	}
 

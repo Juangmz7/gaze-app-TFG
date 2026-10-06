@@ -2,6 +2,7 @@ package mongo_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -16,56 +17,64 @@ import (
 )
 
 type likeDocument struct {
-	LikeID string `bson:"like_id"`
-	PostID string `bson:"post_id"`
-	UserID string `bson:"user_id"`
+	LikeID  string `bson:"like_id"`
+	PostID  string `bson:"post_id"`
+	UserID  string `bson:"user_id"`
+	Version int64  `bson:"version"`
 }
 
-func TestRepository_Upsert_PersistsTheLikeReadModel(t *testing.T) {
+func TestRepository_Insert_PersistsTheLikeReadModelAtVersionOne(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	db := testDatabase(t, ctx)
 	repository := likemongo.NewRepository(db)
 
-	input := usecase.Input{
+	input := usecase.RecordLikeInput{
 		LikeID:    uuid.New(),
 		PostID:    uuid.New(),
 		UserID:    uuid.New(),
 		CreatedAt: time.Now().UTC(),
 	}
 
-	if err := repository.Upsert(ctx, input); err != nil {
-		t.Fatalf("Upsert() error = %v", err)
+	if err := repository.Insert(ctx, input); err != nil {
+		t.Fatalf("Insert() error = %v", err)
 	}
 
-	var got likeDocument
-	err := db.Collection("post_likes").FindOne(ctx, bson.D{{Key: "like_id", Value: input.LikeID.String()}}).Decode(&got)
-	if err != nil {
-		t.Fatalf("FindOne() error = %v", err)
-	}
+	got := findLike(t, ctx, db, input.LikeID)
 	if got.PostID != input.PostID.String() {
 		t.Fatalf("stored document PostID = %q, want %q", got.PostID, input.PostID.String())
 	}
 	if got.UserID != input.UserID.String() {
 		t.Fatalf("stored document UserID = %q, want %q", got.UserID, input.UserID.String())
 	}
+	if got.Version != 1 {
+		t.Fatalf("stored document Version = %d, want 1", got.Version)
+	}
 }
 
-func TestRepository_Upsert_ReplacesTheExistingDocumentInsteadOfDuplicatingIt(t *testing.T) {
+// TestRepository_Insert_IsIdempotentOnARetriedInsertOfTheSameLikeID proves
+// the crash-and-retry race named by Insert's doc comment: a unique index on
+// like_id makes a second Insert of the same business id a no-op (duplicate
+// key treated as already-applied) rather than a second document or an
+// error, so EnsureIndexes must run first.
+func TestRepository_Insert_IsIdempotentOnARetriedInsertOfTheSameLikeID(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	db := testDatabase(t, ctx)
 	repository := likemongo.NewRepository(db)
+	if err := repository.EnsureIndexes(ctx); err != nil {
+		t.Fatalf("EnsureIndexes() error = %v", err)
+	}
 
 	likeID := uuid.New()
-	input := usecase.Input{LikeID: likeID, PostID: uuid.New(), UserID: uuid.New()}
-	if err := repository.Upsert(ctx, input); err != nil {
-		t.Fatalf("Upsert() error = %v", err)
+	input := usecase.RecordLikeInput{LikeID: likeID, PostID: uuid.New(), UserID: uuid.New(), CreatedAt: time.Now().UTC()}
+	if err := repository.Insert(ctx, input); err != nil {
+		t.Fatalf("Insert() error = %v", err)
 	}
-	if err := repository.Upsert(ctx, input); err != nil {
-		t.Fatalf("Upsert() error = %v", err)
+	if err := repository.Insert(ctx, input); err != nil {
+		t.Fatalf("Insert() error = %v, want nil on a retried insert of the same like id", err)
 	}
 
 	count, err := db.Collection("post_likes").CountDocuments(ctx, bson.D{{Key: "like_id", Value: likeID.String()}})
@@ -74,6 +83,115 @@ func TestRepository_Upsert_ReplacesTheExistingDocumentInsteadOfDuplicatingIt(t *
 	}
 	if count != 1 {
 		t.Fatalf("CountDocuments() = %d, want exactly 1 document for like_id %s", count, likeID)
+	}
+}
+
+func TestRepository_Update_SucceedsAndIncrementsVersionWhenExpectedVersionMatches(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	db := testDatabase(t, ctx)
+	repository := likemongo.NewRepository(db)
+
+	likeID := uuid.New()
+	if err := repository.Insert(ctx, usecase.RecordLikeInput{LikeID: likeID, PostID: uuid.New(), UserID: uuid.New(), CreatedAt: time.Now().UTC()}); err != nil {
+		t.Fatalf("Insert() error = %v", err)
+	}
+
+	newPostID := uuid.New()
+	newUserID := uuid.New()
+	update := likemongo.UpdateInput{LikeID: likeID, ExpectedVersion: 1, PostID: newPostID, UserID: newUserID}
+	if err := repository.Update(ctx, update); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+
+	got := findLike(t, ctx, db, likeID)
+	if got.PostID != newPostID.String() {
+		t.Fatalf("stored document PostID = %q, want %q", got.PostID, newPostID.String())
+	}
+	if got.UserID != newUserID.String() {
+		t.Fatalf("stored document UserID = %q, want %q", got.UserID, newUserID.String())
+	}
+	if got.Version != 2 {
+		t.Fatalf("stored document Version = %d, want 2", got.Version)
+	}
+}
+
+func TestRepository_Update_ReturnsVersionConflictAndDoesNotModifyWhenExpectedVersionIsStale(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	db := testDatabase(t, ctx)
+	repository := likemongo.NewRepository(db)
+
+	likeID := uuid.New()
+	originalPostID := uuid.New()
+	if err := repository.Insert(ctx, usecase.RecordLikeInput{LikeID: likeID, PostID: originalPostID, UserID: uuid.New(), CreatedAt: time.Now().UTC()}); err != nil {
+		t.Fatalf("Insert() error = %v", err)
+	}
+
+	update := likemongo.UpdateInput{LikeID: likeID, ExpectedVersion: 99, PostID: uuid.New(), UserID: uuid.New()}
+	err := repository.Update(ctx, update)
+	if !errors.Is(err, likemongo.ErrVersionConflict) {
+		t.Fatalf("Update() error = %v, want it to wrap ErrVersionConflict", err)
+	}
+
+	got := findLike(t, ctx, db, likeID)
+	if got.PostID != originalPostID.String() {
+		t.Fatalf("stored document PostID = %q, want unchanged %q", got.PostID, originalPostID.String())
+	}
+	if got.Version != 1 {
+		t.Fatalf("stored document Version = %d, want unchanged 1", got.Version)
+	}
+}
+
+func findLike(t *testing.T, ctx context.Context, db *mongodriver.Database, likeID uuid.UUID) likeDocument {
+	t.Helper()
+
+	var doc likeDocument
+	err := db.Collection("post_likes").FindOne(ctx, bson.D{{Key: "like_id", Value: likeID.String()}}).Decode(&doc)
+	if err != nil {
+		t.Fatalf("FindOne() error = %v", err)
+	}
+
+	return doc
+}
+
+func TestRepository_DeleteByPostAndUser_RemovesTheMatchingLikeReadModelDocument(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	db := testDatabase(t, ctx)
+	repository := likemongo.NewRepository(db)
+
+	postID := uuid.New()
+	userID := uuid.New()
+	if err := repository.Insert(ctx, usecase.RecordLikeInput{LikeID: uuid.New(), PostID: postID, UserID: userID, CreatedAt: time.Now().UTC()}); err != nil {
+		t.Fatalf("Insert() error = %v", err)
+	}
+
+	if err := repository.DeleteByPostAndUser(ctx, postID, userID); err != nil {
+		t.Fatalf("DeleteByPostAndUser() error = %v", err)
+	}
+
+	count, err := db.Collection("post_likes").CountDocuments(ctx, bson.D{{Key: "post_id", Value: postID.String()}, {Key: "user_id", Value: userID.String()}})
+	if err != nil {
+		t.Fatalf("CountDocuments() error = %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("CountDocuments() = %d, want 0 after DeleteByPostAndUser", count)
+	}
+}
+
+func TestRepository_DeleteByPostAndUser_IsANoOpWhenNoLikeMatches(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	db := testDatabase(t, ctx)
+	repository := likemongo.NewRepository(db)
+
+	if err := repository.DeleteByPostAndUser(ctx, uuid.New(), uuid.New()); err != nil {
+		t.Fatalf("DeleteByPostAndUser() error = %v, want nil for an absent document", err)
 	}
 }
 

@@ -1,5 +1,6 @@
-// Package rabbitmq handles PostCreatedEvent deliveries from
-// topology.ExchangePostEvents (routing key rk.post.created).
+// Package rabbitmq handles PostCreatedEvent and CollabLinkedEvent
+// deliveries from topology.ExchangePostEvents (routing keys rk.post.created
+// and rk.post.collab.linked).
 package rabbitmq
 
 import (
@@ -16,12 +17,12 @@ import (
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/rmqerror"
 )
 
-// EventType identifies this event for idempotency bookkeeping.
-const EventType = "PostCreatedEvent"
+// PostCreatedEventType identifies this event for idempotency bookkeeping.
+const PostCreatedEventType = "PostCreatedEvent"
 
-// Event is the wire shape of PostCreatedEvent published by
+// PostCreatedEvent is the wire shape of PostCreatedEvent published by
 // post-command-service.
-type Event struct {
+type PostCreatedEvent struct {
 	ID            uuid.UUID `json:"id"`
 	CorrelationID uuid.UUID `json:"correlation_id"`
 	OccurredAt    time.Time `json:"occurred_at"`
@@ -35,40 +36,40 @@ type Event struct {
 	UpdatedAt     time.Time `json:"updated_at"`
 }
 
-// IdempotencyRepository records and checks processed events. Implemented by
-// shared/infrastructure/rabbitmq/idempotency.Repository.
-type IdempotencyRepository interface {
+// PostCreatedIdempotencyRepository records and checks processed events.
+// Implemented by shared/infrastructure/rabbitmq/idempotency.Repository.
+type PostCreatedIdempotencyRepository interface {
 	IsProcessed(ctx context.Context, eventID uuid.UUID) (bool, error)
 	MarkProcessed(ctx context.Context, eventID, correlationID uuid.UUID, eventType string) error
 }
 
-// Usecase executes the post creation projection. Implemented by
+// PostCreatedUsecase executes the post creation projection. Implemented by
 // post/application/usecase.Usecase.
-type Usecase interface {
-	Execute(ctx context.Context, input usecase.Input) error
+type PostCreatedUsecase interface {
+	Execute(ctx context.Context, input usecase.CreatePostInput) error
 }
 
-// Handler decodes PostCreatedEvent deliveries, enforces idempotency, and
-// delegates to Usecase.
-type Handler struct {
-	idempotency IdempotencyRepository
-	usecase     Usecase
+// PostCreatedHandler decodes PostCreatedEvent deliveries, enforces
+// idempotency, and delegates to PostCreatedUsecase.
+type PostCreatedHandler struct {
+	idempotency PostCreatedIdempotencyRepository
+	usecase     PostCreatedUsecase
 	logger      *slog.Logger
 }
 
-// New creates a Handler.
-func New(idempotency IdempotencyRepository, usecase Usecase, logger *slog.Logger) *Handler {
-	return &Handler{idempotency: idempotency, usecase: usecase, logger: logger}
+// NewPostCreatedHandler creates a PostCreatedHandler.
+func NewPostCreatedHandler(idempotency PostCreatedIdempotencyRepository, usecase PostCreatedUsecase, logger *slog.Logger) *PostCreatedHandler {
+	return &PostCreatedHandler{idempotency: idempotency, usecase: usecase, logger: logger}
 }
 
 // Handle implements dispatch.EventHandlerFunc.
-func (h *Handler) Handle(ctx context.Context, msg *message.Message) error {
-	var event Event
+func (h *PostCreatedHandler) Handle(ctx context.Context, msg *message.Message) error {
+	var event PostCreatedEvent
 	if err := json.Unmarshal(msg.Payload, &event); err != nil {
 		return rmqerror.NewPermanent(fmt.Errorf("decode post created event: %w", err))
 	}
 
-	if err := validate(event); err != nil {
+	if err := validatePostCreatedEvent(event); err != nil {
 		return rmqerror.NewPermanent(err)
 	}
 
@@ -81,7 +82,7 @@ func (h *Handler) Handle(ctx context.Context, msg *message.Message) error {
 		return nil
 	}
 
-	input := usecase.Input{
+	input := usecase.CreatePostInput{
 		PostID:      event.PostID,
 		UserID:      event.UserID,
 		CollabID:    event.CollabID,
@@ -95,14 +96,14 @@ func (h *Handler) Handle(ctx context.Context, msg *message.Message) error {
 		return fmt.Errorf("execute create post usecase for event %s: %w", event.ID, err)
 	}
 
-	if err := h.idempotency.MarkProcessed(ctx, event.ID, event.CorrelationID, EventType); err != nil {
+	if err := h.idempotency.MarkProcessed(ctx, event.ID, event.CorrelationID, PostCreatedEventType); err != nil {
 		return fmt.Errorf("mark post created event %s processed: %w", event.ID, err)
 	}
 
 	return nil
 }
 
-func validate(event Event) error {
+func validatePostCreatedEvent(event PostCreatedEvent) error {
 	if event.ID == uuid.Nil {
 		return fmt.Errorf("post created event: id is required")
 	}

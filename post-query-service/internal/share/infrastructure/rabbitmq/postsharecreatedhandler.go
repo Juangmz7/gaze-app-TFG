@@ -1,5 +1,6 @@
-// Package rabbitmq handles PostShareCreatedEvent deliveries from
-// topology.ExchangePostEvents (routing key rk.post.share.created).
+// Package rabbitmq handles PostShareCreatedEvent and PostShareDeletedEvent
+// deliveries from topology.ExchangePostEvents (routing keys
+// rk.post.share.created and rk.post.share.deleted).
 package rabbitmq
 
 import (
@@ -16,12 +17,13 @@ import (
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/rmqerror"
 )
 
-// EventType identifies this event for idempotency bookkeeping.
-const EventType = "PostShareCreatedEvent"
+// PostShareCreatedEventType identifies this event for idempotency
+// bookkeeping.
+const PostShareCreatedEventType = "PostShareCreatedEvent"
 
-// Event is the wire shape of PostShareCreatedEvent published by
-// post-command-service.
-type Event struct {
+// PostShareCreatedEvent is the wire shape of PostShareCreatedEvent
+// published by post-command-service.
+type PostShareCreatedEvent struct {
 	ID            uuid.UUID `json:"id"`
 	CorrelationID uuid.UUID `json:"correlation_id"`
 	OccurredAt    time.Time `json:"occurred_at"`
@@ -31,38 +33,39 @@ type Event struct {
 	CreatedAt     time.Time `json:"created_at"`
 }
 
-// IdempotencyRepository records and checks processed events.
-type IdempotencyRepository interface {
+// PostShareCreatedIdempotencyRepository records and checks processed
+// events.
+type PostShareCreatedIdempotencyRepository interface {
 	IsProcessed(ctx context.Context, eventID uuid.UUID) (bool, error)
 	MarkProcessed(ctx context.Context, eventID, correlationID uuid.UUID, eventType string) error
 }
 
-// Usecase executes the share projection.
-type Usecase interface {
-	Execute(ctx context.Context, input usecase.Input) error
+// PostShareCreatedUsecase executes the share projection.
+type PostShareCreatedUsecase interface {
+	Execute(ctx context.Context, input usecase.RecordShareInput) error
 }
 
-// Handler decodes PostShareCreatedEvent deliveries, enforces idempotency,
-// and delegates to Usecase.
-type Handler struct {
-	idempotency IdempotencyRepository
-	usecase     Usecase
+// PostShareCreatedHandler decodes PostShareCreatedEvent deliveries,
+// enforces idempotency, and delegates to PostShareCreatedUsecase.
+type PostShareCreatedHandler struct {
+	idempotency PostShareCreatedIdempotencyRepository
+	usecase     PostShareCreatedUsecase
 	logger      *slog.Logger
 }
 
-// New creates a Handler.
-func New(idempotency IdempotencyRepository, usecase Usecase, logger *slog.Logger) *Handler {
-	return &Handler{idempotency: idempotency, usecase: usecase, logger: logger}
+// NewPostShareCreatedHandler creates a PostShareCreatedHandler.
+func NewPostShareCreatedHandler(idempotency PostShareCreatedIdempotencyRepository, usecase PostShareCreatedUsecase, logger *slog.Logger) *PostShareCreatedHandler {
+	return &PostShareCreatedHandler{idempotency: idempotency, usecase: usecase, logger: logger}
 }
 
 // Handle implements dispatch.EventHandlerFunc.
-func (h *Handler) Handle(ctx context.Context, msg *message.Message) error {
-	var event Event
+func (h *PostShareCreatedHandler) Handle(ctx context.Context, msg *message.Message) error {
+	var event PostShareCreatedEvent
 	if err := json.Unmarshal(msg.Payload, &event); err != nil {
 		return rmqerror.NewPermanent(fmt.Errorf("decode post share created event: %w", err))
 	}
 
-	if err := validate(event); err != nil {
+	if err := validatePostShareCreatedEvent(event); err != nil {
 		return rmqerror.NewPermanent(err)
 	}
 
@@ -75,7 +78,7 @@ func (h *Handler) Handle(ctx context.Context, msg *message.Message) error {
 		return nil
 	}
 
-	input := usecase.Input{
+	input := usecase.RecordShareInput{
 		ShareID:   event.ShareID,
 		PostID:    event.PostID,
 		UserID:    event.UserID,
@@ -85,14 +88,14 @@ func (h *Handler) Handle(ctx context.Context, msg *message.Message) error {
 		return fmt.Errorf("execute record share usecase for event %s: %w", event.ID, err)
 	}
 
-	if err := h.idempotency.MarkProcessed(ctx, event.ID, event.CorrelationID, EventType); err != nil {
+	if err := h.idempotency.MarkProcessed(ctx, event.ID, event.CorrelationID, PostShareCreatedEventType); err != nil {
 		return fmt.Errorf("mark post share created event %s processed: %w", event.ID, err)
 	}
 
 	return nil
 }
 
-func validate(event Event) error {
+func validatePostShareCreatedEvent(event PostShareCreatedEvent) error {
 	if event.ID == uuid.Nil {
 		return fmt.Errorf("post share created event: id is required")
 	}

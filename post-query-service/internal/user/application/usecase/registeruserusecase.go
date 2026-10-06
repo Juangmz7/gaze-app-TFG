@@ -20,7 +20,7 @@ type RegisterUserInput struct {
 // RegisterUserRepository persists the user read model. Implemented by
 // user/infrastructure/mongo.Repository.
 type RegisterUserRepository interface {
-	Upsert(ctx context.Context, input RegisterUserInput) error
+	Insert(ctx context.Context, input RegisterUserInput) error
 }
 
 // RegisterUserUsecase projects a UserRegisteredEvent into the user read model.
@@ -33,7 +33,7 @@ func NewRegisterUser(repository RegisterUserRepository) *RegisterUserUsecase {
 	return &RegisterUserUsecase{repository: repository}
 }
 
-// Execute upserts the user read model described by input.
+// Execute inserts the user read model described by input.
 func (u *RegisterUserUsecase) Execute(ctx context.Context, input RegisterUserInput) error {
 	if input.UserID == uuid.Nil {
 		return fmt.Errorf("register user usecase: user id is required")
@@ -42,7 +42,7 @@ func (u *RegisterUserUsecase) Execute(ctx context.Context, input RegisterUserInp
 		return fmt.Errorf("register user usecase: username is required")
 	}
 
-	if err := u.repository.Upsert(ctx, input); err != nil {
+	if err := u.repository.Insert(ctx, input); err != nil {
 		return fmt.Errorf("register user usecase: %w", err)
 	}
 

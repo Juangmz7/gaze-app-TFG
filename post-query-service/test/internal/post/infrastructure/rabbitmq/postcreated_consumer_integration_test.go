@@ -43,8 +43,8 @@ func newCountingPostRepository(delegate *postmongo.Repository) *countingPostRepo
 	return &countingPostRepository{delegate: delegate, done: make(chan struct{}, 10)}
 }
 
-func (r *countingPostRepository) Upsert(ctx context.Context, input usecase.Input) error {
-	if err := r.delegate.Upsert(ctx, input); err != nil {
+func (r *countingPostRepository) Insert(ctx context.Context, input usecase.CreatePostInput) error {
+	if err := r.delegate.Insert(ctx, input); err != nil {
 		return err
 	}
 
@@ -82,8 +82,8 @@ func TestPostConsumer_DuplicateEventDoesNotApplySideEffectTwice(t *testing.T) {
 	}
 
 	repository := newCountingPostRepository(postmongo.NewRepository(db))
-	uc := usecase.New(repository)
-	handler := postrabbitmq.New(idempotencyRepo, uc, testLogger())
+	uc := usecase.NewCreatePost(repository)
+	handler := postrabbitmq.NewPostCreatedHandler(idempotencyRepo, uc, testPostCreatedLogger())
 
 	spec := topology.Spec{
 		Exchange:     "x.postcreated.duplicate.test",
@@ -93,9 +93,9 @@ func TestPostConsumer_DuplicateEventDoesNotApplySideEffectTwice(t *testing.T) {
 	}
 
 	handlers := map[string]dispatch.EventHandlerFunc{"rk.post.created": handler.Handle}
-	dispatcher := dispatch.New(spec.Queue, handlers, testLogger())
+	dispatcher := dispatch.New(spec.Queue, handlers, testPostCreatedLogger())
 
-	wmLogger := watermill.NewSlogLogger(testLogger())
+	wmLogger := watermill.NewSlogLogger(testPostCreatedLogger())
 	subscriber, err := wmamqp.NewSubscriber(router.NewSubscriberConfig(amqpURI, spec), wmLogger)
 	if err != nil {
 		t.Fatalf("wmamqp.NewSubscriber() error = %v", err)
@@ -128,7 +128,7 @@ func TestPostConsumer_DuplicateEventDoesNotApplySideEffectTwice(t *testing.T) {
 		t.Fatal("timed out waiting for the router to start running")
 	}
 
-	event := validEvent()
+	event := validPostCreatedEvent()
 	payload, err := json.Marshal(event)
 	if err != nil {
 		t.Fatalf("json.Marshal() error = %v", err)
@@ -153,7 +153,7 @@ func TestPostConsumer_DuplicateEventDoesNotApplySideEffectTwice(t *testing.T) {
 	waitForQueueDepth(t, ctx, amqpURI, spec.Queue, 0, 30*time.Second)
 
 	if got := repository.callCount(); got != 1 {
-		t.Fatalf("repository Upsert() calls = %d, want exactly 1 for two deliveries of the same event", got)
+		t.Fatalf("repository Insert() calls = %d, want exactly 1 for two deliveries of the same event", got)
 	}
 
 	waitForQueueDepth(t, ctx, amqpURI, topology.DLQName(spec.Queue), 0, 10*time.Second)

@@ -11,23 +11,23 @@ import (
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/share/application/usecase"
 )
 
-type fakeRepository struct {
-	upsertCalls int
-	gotInput    usecase.Input
+type fakeRecordShareRepository struct {
+	insertCalls int
+	gotInput    usecase.RecordShareInput
 	err         error
 }
 
-func (f *fakeRepository) Upsert(ctx context.Context, input usecase.Input) error {
-	f.upsertCalls++
+func (f *fakeRecordShareRepository) Insert(ctx context.Context, input usecase.RecordShareInput) error {
+	f.insertCalls++
 	f.gotInput = input
 	return f.err
 }
 
-func TestUsecase_Execute_UpsertsTheShareReadModelForAValidInput(t *testing.T) {
-	repository := &fakeRepository{}
-	uc := usecase.New(repository)
+func TestRecordShareUsecase_Execute_InsertsTheShareReadModelForAValidInput(t *testing.T) {
+	repository := &fakeRecordShareRepository{}
+	uc := usecase.NewRecordShare(repository)
 
-	input := usecase.Input{
+	input := usecase.RecordShareInput{
 		ShareID:   uuid.New(),
 		PostID:    uuid.New(),
 		UserID:    uuid.New(),
@@ -38,49 +38,49 @@ func TestUsecase_Execute_UpsertsTheShareReadModelForAValidInput(t *testing.T) {
 		t.Fatalf("Execute() error = %v, want nil", err)
 	}
 
-	if repository.upsertCalls != 1 {
-		t.Fatalf("Upsert() calls = %d, want 1", repository.upsertCalls)
+	if repository.insertCalls != 1 {
+		t.Fatalf("Insert() calls = %d, want 1", repository.insertCalls)
 	}
 	if repository.gotInput.ShareID != input.ShareID {
-		t.Fatalf("Upsert() ShareID = %v, want %v", repository.gotInput.ShareID, input.ShareID)
+		t.Fatalf("Insert() ShareID = %v, want %v", repository.gotInput.ShareID, input.ShareID)
 	}
 }
 
-func TestUsecase_Execute_ReturnsErrorWhenShareIDIsMissing(t *testing.T) {
-	uc := usecase.New(&fakeRepository{})
+func TestRecordShareUsecase_Execute_ReturnsErrorWhenShareIDIsMissing(t *testing.T) {
+	uc := usecase.NewRecordShare(&fakeRecordShareRepository{})
 
-	input := usecase.Input{PostID: uuid.New(), UserID: uuid.New()}
+	input := usecase.RecordShareInput{PostID: uuid.New(), UserID: uuid.New()}
 
 	if err := uc.Execute(context.Background(), input); err == nil {
 		t.Fatal("Execute() error = nil, want an error when share id is missing")
 	}
 }
 
-func TestUsecase_Execute_ReturnsErrorWhenPostIDIsMissing(t *testing.T) {
-	uc := usecase.New(&fakeRepository{})
+func TestRecordShareUsecase_Execute_ReturnsErrorWhenPostIDIsMissing(t *testing.T) {
+	uc := usecase.NewRecordShare(&fakeRecordShareRepository{})
 
-	input := usecase.Input{ShareID: uuid.New(), UserID: uuid.New()}
+	input := usecase.RecordShareInput{ShareID: uuid.New(), UserID: uuid.New()}
 
 	if err := uc.Execute(context.Background(), input); err == nil {
 		t.Fatal("Execute() error = nil, want an error when post id is missing")
 	}
 }
 
-func TestUsecase_Execute_ReturnsErrorWhenUserIDIsMissing(t *testing.T) {
-	uc := usecase.New(&fakeRepository{})
+func TestRecordShareUsecase_Execute_ReturnsErrorWhenUserIDIsMissing(t *testing.T) {
+	uc := usecase.NewRecordShare(&fakeRecordShareRepository{})
 
-	input := usecase.Input{ShareID: uuid.New(), PostID: uuid.New()}
+	input := usecase.RecordShareInput{ShareID: uuid.New(), PostID: uuid.New()}
 
 	if err := uc.Execute(context.Background(), input); err == nil {
 		t.Fatal("Execute() error = nil, want an error when user id is missing")
 	}
 }
 
-func TestUsecase_Execute_PropagatesTheRepositoryError(t *testing.T) {
+func TestRecordShareUsecase_Execute_PropagatesTheRepositoryError(t *testing.T) {
 	wantErr := errors.New("mongo write failed")
-	uc := usecase.New(&fakeRepository{err: wantErr})
+	uc := usecase.NewRecordShare(&fakeRecordShareRepository{err: wantErr})
 
-	input := usecase.Input{ShareID: uuid.New(), PostID: uuid.New(), UserID: uuid.New()}
+	input := usecase.RecordShareInput{ShareID: uuid.New(), PostID: uuid.New(), UserID: uuid.New()}
 
 	if err := uc.Execute(context.Background(), input); !errors.Is(err, wantErr) {
 		t.Fatalf("Execute() error = %v, want it to wrap %v", err, wantErr)
