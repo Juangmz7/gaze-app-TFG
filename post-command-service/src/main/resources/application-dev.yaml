@@ -4,9 +4,9 @@ spring:
   # --- PostgreSQL ---
   datasource:
     driver-class-name: org.postgresql.Driver
-    url: jdbc:postgresql://localhost:5433/post_command_service_db
+    url: jdbc:postgresql://localhost:5434/post_command_service_db
     username: post_command_user
-    password: post_command_pass
+    password: super_secret_post_command_postgres_password_123
     hikari:
       pool-name: post-command-service-hikari-pool-dev
 
@@ -56,8 +56,6 @@ logging:
     org.hibernate.SQL: DEBUG
     org.hibernate.orm.jdbc.bind: TRACE
     org.springframework.amqp: DEBUG
-    org.neo4j.driver: DEBUG
-    org.springframework.data.neo4j: DEBUG
     io.opentelemetry: DEBUG
 
 # --- OpenTelemetry (local Grafana LGTM stack) ---

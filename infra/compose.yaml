@@ -184,6 +184,62 @@ services:
     networks:
       - infra_net
 
+  post_command_postgres:
+    image: postgres:16-alpine
+    container_name: post_command_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POST_COMMAND_POSTGRES_DB:-post_command_service_db}
+      POSTGRES_USER: ${POST_COMMAND_POSTGRES_USER:-post_command_user}
+      POSTGRES_PASSWORD: ${POST_COMMAND_POSTGRES_PASSWORD}
+    ports:
+      - "${POST_COMMAND_POSTGRES_PORT:-5434}:5432"
+    volumes:
+      - post_command_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POST_COMMAND_POSTGRES_USER:-post_command_user} -d ${POST_COMMAND_POSTGRES_DB:-post_command_service_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - infra_net
+
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:latest
+    container_name: azurite
+    restart: unless-stopped
+    command: ["azurite", "--blobHost", "0.0.0.0", "--queueHost", "0.0.0.0", "--tableHost", "0.0.0.0", "--location", "/data", "--debug", "/data/debug.log"]
+    ports:
+      - "${AZURITE_BLOB_PORT:-10000}:10000"
+      - "${AZURITE_QUEUE_PORT:-10001}:10001"
+      - "${AZURITE_TABLE_PORT:-10002}:10002"
+    volumes:
+      - azurite_data:/data
+    networks:
+      - infra_net
+
+  recommendation_postgres:
+    image: postgres:16-alpine
+    container_name: recommendation_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${RECOMMENDATION_POSTGRES_DB:-recommendation_db}
+      POSTGRES_USER: ${RECOMMENDATION_POSTGRES_USER:-recommendation_user}
+      POSTGRES_PASSWORD: ${RECOMMENDATION_POSTGRES_PASSWORD}
+    ports:
+      - "${RECOMMENDATION_POSTGRES_PORT:-5435}:5432"
+    volumes:
+      - recommendation_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${RECOMMENDATION_POSTGRES_USER:-recommendation_user} -d ${RECOMMENDATION_POSTGRES_DB:-recommendation_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - infra_net
+
 volumes:
   keycloak_postgres_data:
   rabbitmq_data:
@@ -191,6 +247,9 @@ volumes:
   social_postgres_data:
   social_neo4j_data:
   redis_data:
+  post_command_postgres_data:
+  azurite_data:
+  recommendation_postgres_data:
 
 networks:
   infra_net:

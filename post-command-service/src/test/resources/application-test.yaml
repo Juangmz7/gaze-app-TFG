@@ -28,15 +28,13 @@ spring:
 logging:
   level:
     root: INFO
-    com.app.socialservice: DEBUG
+    com.app.postcommandservice: DEBUG
     org.springframework.web: DEBUG
     org.springframework.security: DEBUG
     org.springframework.security.oauth2: TRACE
     org.hibernate.SQL: DEBUG
     org.hibernate.orm.jdbc.bind: TRACE
     org.springframework.amqp: DEBUG
-    org.neo4j.driver: DEBUG
-    org.springframework.data.neo4j: DEBUG
 
 # --- OpenTelemetry ---
 management:
