@@ -88,13 +88,13 @@ func Bootstrap(ctx context.Context, amqpURI string, db *mongo.Database, logger *
 		return Result{}, fmt.Errorf("bootstrap rabbitmq: %w", err)
 	}
 
-	if err := addUserFastConsumer(wmRouter, amqpURI, db, idempotencyRepo, logger, &result); err != nil {
+	if err := addUserFastConsumer(ctx, wmRouter, amqpURI, db, idempotencyRepo, logger, &result); err != nil {
 		return Result{}, err
 	}
 	if err := addUserSlowConsumer(wmRouter, amqpURI, db, idempotencyRepo, logger, &result); err != nil {
 		return Result{}, err
 	}
-	if err := addPostConsumer(wmRouter, amqpURI, db, idempotencyRepo, logger, &result); err != nil {
+	if err := addPostConsumer(ctx, wmRouter, amqpURI, db, idempotencyRepo, logger, &result); err != nil {
 		return Result{}, err
 	}
 	if err := addFeedConsumer(wmRouter, amqpURI, db, idempotencyRepo, logger, &result); err != nil {
@@ -111,7 +111,7 @@ func Bootstrap(ctx context.Context, amqpURI string, db *mongo.Database, logger *
 	return result, nil
 }
 
-func addUserFastConsumer(wmRouter *message.Router, amqpURI string, db *mongo.Database, idempotencyRepo *idempotency.Repository, logger *slog.Logger, result *Result) error {
+func addUserFastConsumer(ctx context.Context, wmRouter *message.Router, amqpURI string, db *mongo.Database, idempotencyRepo *idempotency.Repository, logger *slog.Logger, result *Result) error {
 	spec := topology.UserFastSpec()
 
 	subscriber, err := newSubscriber(amqpURI, spec, watermill.NewSlogLogger(logger))
@@ -120,7 +120,11 @@ func addUserFastConsumer(wmRouter *message.Router, amqpURI string, db *mongo.Dat
 	}
 	result.closers = append(result.closers, subscriber.Close)
 
-	uc := userusecase.NewRegisterUser(usermongo.NewRepository(db))
+	userRepository := usermongo.NewRepository(db)
+	if err := userRepository.EnsureIndexes(ctx); err != nil {
+		return fmt.Errorf("bootstrap rabbitmq: %w", err)
+	}
+	uc := userusecase.NewRegisterUser(userRepository)
 	handler := userrabbitmq.NewUserRegisteredHandler(idempotencyRepo, uc, logger)
 
 	handlers := map[string]dispatch.EventHandlerFunc{
@@ -155,7 +159,7 @@ func addUserSlowConsumer(wmRouter *message.Router, amqpURI string, db *mongo.Dat
 	return nil
 }
 
-func addPostConsumer(wmRouter *message.Router, amqpURI string, db *mongo.Database, idempotencyRepo *idempotency.Repository, logger *slog.Logger, result *Result) error {
+func addPostConsumer(ctx context.Context, wmRouter *message.Router, amqpURI string, db *mongo.Database, idempotencyRepo *idempotency.Repository, logger *slog.Logger, result *Result) error {
 	spec := topology.PostSpec()
 
 	subscriber, err := newSubscriber(amqpURI, spec, watermill.NewSlogLogger(logger))
@@ -164,11 +168,28 @@ func addPostConsumer(wmRouter *message.Router, amqpURI string, db *mongo.Databas
 	}
 	result.closers = append(result.closers, subscriber.Close)
 
-	postCreatedHandler := postrabbitmq.New(idempotencyRepo, postusecase.New(postmongo.NewRepository(db)), logger)
-	likeCreatedHandler := likerabbitmq.New(idempotencyRepo, likeusecase.New(likemongo.NewRepository(db)), logger)
-	commentCreatedHandler := commentrabbitmq.New(idempotencyRepo, commentusecase.New(commentmongo.NewRepository(db)), logger)
-	shareCreatedHandler := sharerabbitmq.New(idempotencyRepo, shareusecase.New(sharemongo.NewRepository(db)), logger)
-	collabOpenedHandler := collabrabbitmq.New(idempotencyRepo, collabusecase.New(collabmongo.NewRepository(db)), logger)
+	postRepository := postmongo.NewRepository(db)
+	likeRepository := likemongo.NewRepository(db)
+	commentRepository := commentmongo.NewRepository(db)
+	shareRepository := sharemongo.NewRepository(db)
+	collabRepository := collabmongo.NewRepository(db)
+	for _, ensure := range []func(context.Context) error{
+		postRepository.EnsureIndexes,
+		likeRepository.EnsureIndexes,
+		commentRepository.EnsureIndexes,
+		shareRepository.EnsureIndexes,
+		collabRepository.EnsureIndexes,
+	} {
+		if err := ensure(ctx); err != nil {
+			return fmt.Errorf("bootstrap rabbitmq: %w", err)
+		}
+	}
+
+	postCreatedHandler := postrabbitmq.New(idempotencyRepo, postusecase.New(postRepository), logger)
+	likeCreatedHandler := likerabbitmq.New(idempotencyRepo, likeusecase.New(likeRepository), logger)
+	commentCreatedHandler := commentrabbitmq.New(idempotencyRepo, commentusecase.New(commentRepository), logger)
+	shareCreatedHandler := sharerabbitmq.New(idempotencyRepo, shareusecase.New(shareRepository), logger)
+	collabOpenedHandler := collabrabbitmq.New(idempotencyRepo, collabusecase.New(collabRepository), logger)
 
 	// Every routing key listed in topology.PostRoutingKeys is bound to this
 	// queue at the AMQP level (see topology.Builder). Only the subset below

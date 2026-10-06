@@ -12,18 +12,18 @@ import (
 )
 
 type fakeRegisterUserRepository struct {
-	upsertCalls int
+	insertCalls int
 	gotInput    usecase.RegisterUserInput
 	err         error
 }
 
-func (f *fakeRegisterUserRepository) Upsert(ctx context.Context, input usecase.RegisterUserInput) error {
-	f.upsertCalls++
+func (f *fakeRegisterUserRepository) Insert(ctx context.Context, input usecase.RegisterUserInput) error {
+	f.insertCalls++
 	f.gotInput = input
 	return f.err
 }
 
-func TestRegisterUserUsecase_Execute_UpsertsTheUserReadModelForAValidInput(t *testing.T) {
+func TestRegisterUserUsecase_Execute_InsertsTheUserReadModelForAValidInput(t *testing.T) {
 	repository := &fakeRegisterUserRepository{}
 	uc := usecase.NewRegisterUser(repository)
 
@@ -37,11 +37,11 @@ func TestRegisterUserUsecase_Execute_UpsertsTheUserReadModelForAValidInput(t *te
 		t.Fatalf("Execute() error = %v, want nil", err)
 	}
 
-	if repository.upsertCalls != 1 {
-		t.Fatalf("Upsert() calls = %d, want 1", repository.upsertCalls)
+	if repository.insertCalls != 1 {
+		t.Fatalf("Insert() calls = %d, want 1", repository.insertCalls)
 	}
 	if repository.gotInput.UserID != input.UserID {
-		t.Fatalf("Upsert() UserID = %v, want %v", repository.gotInput.UserID, input.UserID)
+		t.Fatalf("Insert() UserID = %v, want %v", repository.gotInput.UserID, input.UserID)
 	}
 }
 

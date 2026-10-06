@@ -12,18 +12,18 @@ import (
 )
 
 type fakeRepository struct {
-	upsertCalls int
+	insertCalls int
 	gotInput    usecase.Input
 	err         error
 }
 
-func (f *fakeRepository) Upsert(ctx context.Context, input usecase.Input) error {
-	f.upsertCalls++
+func (f *fakeRepository) Insert(ctx context.Context, input usecase.Input) error {
+	f.insertCalls++
 	f.gotInput = input
 	return f.err
 }
 
-func TestUsecase_Execute_UpsertsTheLikeReadModelForAValidInput(t *testing.T) {
+func TestUsecase_Execute_InsertsTheLikeReadModelForAValidInput(t *testing.T) {
 	repository := &fakeRepository{}
 	uc := usecase.New(repository)
 
@@ -38,11 +38,11 @@ func TestUsecase_Execute_UpsertsTheLikeReadModelForAValidInput(t *testing.T) {
 		t.Fatalf("Execute() error = %v, want nil", err)
 	}
 
-	if repository.upsertCalls != 1 {
-		t.Fatalf("Upsert() calls = %d, want 1", repository.upsertCalls)
+	if repository.insertCalls != 1 {
+		t.Fatalf("Insert() calls = %d, want 1", repository.insertCalls)
 	}
 	if repository.gotInput.LikeID != input.LikeID {
-		t.Fatalf("Upsert() LikeID = %v, want %v", repository.gotInput.LikeID, input.LikeID)
+		t.Fatalf("Insert() LikeID = %v, want %v", repository.gotInput.LikeID, input.LikeID)
 	}
 }
 

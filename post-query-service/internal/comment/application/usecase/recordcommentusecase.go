@@ -22,7 +22,7 @@ type Input struct {
 // Repository persists the comment read model. Implemented by
 // comment/infrastructure/mongo.Repository.
 type Repository interface {
-	Upsert(ctx context.Context, input Input) error
+	Insert(ctx context.Context, input Input) error
 }
 
 // Usecase projects a PostCommentCreatedEvent into the comment read model.
@@ -35,7 +35,7 @@ func New(repository Repository) *Usecase {
 	return &Usecase{repository: repository}
 }
 
-// Execute upserts the comment read model described by input.
+// Execute inserts the comment read model described by input.
 func (u *Usecase) Execute(ctx context.Context, input Input) error {
 	if input.CommentID == uuid.Nil {
 		return fmt.Errorf("record comment usecase: comment id is required")
@@ -47,7 +47,7 @@ func (u *Usecase) Execute(ctx context.Context, input Input) error {
 		return fmt.Errorf("record comment usecase: user id is required")
 	}
 
-	if err := u.repository.Upsert(ctx, input); err != nil {
+	if err := u.repository.Insert(ctx, input); err != nil {
 		return fmt.Errorf("record comment usecase: %w", err)
 	}
 

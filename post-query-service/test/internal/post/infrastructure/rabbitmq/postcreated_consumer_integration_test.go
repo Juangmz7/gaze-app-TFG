@@ -43,8 +43,8 @@ func newCountingPostRepository(delegate *postmongo.Repository) *countingPostRepo
 	return &countingPostRepository{delegate: delegate, done: make(chan struct{}, 10)}
 }
 
-func (r *countingPostRepository) Upsert(ctx context.Context, input usecase.Input) error {
-	if err := r.delegate.Upsert(ctx, input); err != nil {
+func (r *countingPostRepository) Insert(ctx context.Context, input usecase.Input) error {
+	if err := r.delegate.Insert(ctx, input); err != nil {
 		return err
 	}
 
@@ -153,7 +153,7 @@ func TestPostConsumer_DuplicateEventDoesNotApplySideEffectTwice(t *testing.T) {
 	waitForQueueDepth(t, ctx, amqpURI, spec.Queue, 0, 30*time.Second)
 
 	if got := repository.callCount(); got != 1 {
-		t.Fatalf("repository Upsert() calls = %d, want exactly 1 for two deliveries of the same event", got)
+		t.Fatalf("repository Insert() calls = %d, want exactly 1 for two deliveries of the same event", got)
 	}
 
 	waitForQueueDepth(t, ctx, amqpURI, topology.DLQName(spec.Queue), 0, 10*time.Second)

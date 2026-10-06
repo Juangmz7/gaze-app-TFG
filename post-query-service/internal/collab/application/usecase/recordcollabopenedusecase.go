@@ -21,7 +21,7 @@ type Input struct {
 // Repository persists the collab read model. Implemented by
 // collab/infrastructure/mongo.Repository.
 type Repository interface {
-	Upsert(ctx context.Context, input Input) error
+	Insert(ctx context.Context, input Input) error
 }
 
 // Usecase projects a PostCollabOpenedEvent into the collab read model.
@@ -34,7 +34,7 @@ func New(repository Repository) *Usecase {
 	return &Usecase{repository: repository}
 }
 
-// Execute upserts the collab read model described by input.
+// Execute inserts the collab read model described by input.
 func (u *Usecase) Execute(ctx context.Context, input Input) error {
 	if input.CollabID == uuid.Nil {
 		return fmt.Errorf("record collab opened usecase: collab id is required")
@@ -46,7 +46,7 @@ func (u *Usecase) Execute(ctx context.Context, input Input) error {
 		return fmt.Errorf("record collab opened usecase: owner user id is required")
 	}
 
-	if err := u.repository.Upsert(ctx, input); err != nil {
+	if err := u.repository.Insert(ctx, input); err != nil {
 		return fmt.Errorf("record collab opened usecase: %w", err)
 	}
 
