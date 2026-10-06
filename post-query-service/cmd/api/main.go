@@ -44,20 +44,11 @@ func run() error {
 
 	slog.Info("connected to mongodb", "database", cfg.Mongo.Database)
 
-	rabbitmqResult, err := bootstrap.Bootstrap(ctx, cfg.RabbitMQ.AMQPURI(), mongoDatabase, slog.Default())
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if closeErr := rabbitmqResult.Close(); closeErr != nil {
-			slog.Error("rabbitmq shutdown failed", "error", closeErr)
-		}
-	}()
-
-	routerErrCh := make(chan error, 1)
-	go func() {
-		routerErrCh <- rabbitmqResult.Router.Run(ctx)
-	}()
+	// RunWithRetry rebuilds the router/subscribers/publisher from scratch on
+	// every AMQP connection loss, with linear backoff, instead of letting a
+	// single bootstrap.Bootstrap failure silently stop event consumption for
+	// good while the HTTP server keeps reporting healthy.
+	rabbitmqDone := bootstrap.RunWithRetry(ctx, cfg.RabbitMQ.AMQPURI(), mongoDatabase, slog.Default())
 
 	slog.Info("consuming rabbitmq events")
 
@@ -67,12 +58,10 @@ func run() error {
 		return err
 	}
 
-	if err := rabbitmqResult.Router.Close(); err != nil {
-		slog.Error("rabbitmq router close failed", "error", err)
-	}
-	if err := <-routerErrCh; err != nil {
-		slog.Error("rabbitmq router stopped with error", "error", err)
-	}
+	// Block until the retry loop has torn down its current RabbitMQ
+	// resources and exited, so run() does not disconnect Mongo (via its own
+	// deferred call above) while RabbitMQ cleanup is still in flight.
+	<-rabbitmqDone
 
 	return nil
 }
