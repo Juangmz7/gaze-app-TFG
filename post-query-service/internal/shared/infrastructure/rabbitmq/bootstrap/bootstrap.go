@@ -208,13 +208,20 @@ func addPostConsumer(ctx context.Context, wmRouter *message.Router, amqpURI stri
 		}
 	}
 
-	postCreatedHandler := postrabbitmq.NewPostCreatedHandler(idempotencyRepo, postusecase.New(postRepository), logger)
-	postCollabLinkedHandler := postrabbitmq.NewPostCollabLinkedHandler(idempotencyRepo, postusecase.New(postRepository), logger)
-	likeCreatedHandler := likerabbitmq.New(idempotencyRepo, likeusecase.New(likeRepository), logger)
-	commentCreatedHandler := commentrabbitmq.New(idempotencyRepo, commentusecase.New(commentRepository), logger)
-	shareCreatedHandler := sharerabbitmq.New(idempotencyRepo, shareusecase.New(shareRepository), logger)
+	postCreatedHandler := postrabbitmq.NewPostCreatedHandler(idempotencyRepo, postusecase.NewCreatePost(postRepository), logger)
+	postCollabLinkedHandler := postrabbitmq.NewPostCollabLinkedHandler(idempotencyRepo, postusecase.NewCreatePost(postRepository), logger)
+	postUpdatedHandler := postrabbitmq.NewPostUpdatedHandler(idempotencyRepo, postusecase.NewUpdatePost(postRepository), logger)
+	postDeletedHandler := postrabbitmq.NewPostDeletedHandler(idempotencyRepo, postusecase.NewDeletePost(postRepository), logger)
+	likeCreatedHandler := likerabbitmq.NewPostLikeCreatedHandler(idempotencyRepo, likeusecase.NewRecordLike(likeRepository), logger)
+	likeDeletedHandler := likerabbitmq.NewPostLikeDeletedHandler(idempotencyRepo, likeusecase.NewDeleteLike(likeRepository), logger)
+	commentCreatedHandler := commentrabbitmq.NewPostCommentCreatedHandler(idempotencyRepo, commentusecase.NewRecordComment(commentRepository), logger)
+	commentUpdatedHandler := commentrabbitmq.NewCommentUpdatedHandler(commentusecase.NewUpdateComment(commentRepository, logger), logger)
+	commentDeletedHandler := commentrabbitmq.NewCommentDeletedHandler(idempotencyRepo, commentusecase.NewDeleteComment(commentRepository), logger)
+	shareCreatedHandler := sharerabbitmq.NewPostShareCreatedHandler(idempotencyRepo, shareusecase.NewRecordShare(shareRepository), logger)
+	shareDeletedHandler := sharerabbitmq.NewPostShareDeletedHandler(idempotencyRepo, shareusecase.NewDeleteShare(shareRepository), logger)
 	collabOpenedHandler := collabrabbitmq.NewPostCollabOpenedHandler(idempotencyRepo, collabusecase.NewRecordCollabOpened(collabRepository), logger)
 	collabClosedHandler := collabrabbitmq.NewPostCollabClosedHandler(idempotencyRepo, collabusecase.NewCloseCollab(collabRepository), logger)
+	collabDeletedHandler := collabrabbitmq.NewCollabDeletedHandler(idempotencyRepo, collabusecase.NewDeleteCollab(collabRepository), logger)
 
 	// Every routing key listed in topology.PostRoutingKeys is bound to this
 	// queue at the AMQP level (see topology.Builder). Only the subset below
@@ -224,11 +231,18 @@ func addPostConsumer(ctx context.Context, wmRouter *message.Router, amqpURI stri
 	// work, task 41 deviation noted in the PR description).
 	handlers := map[string]dispatch.EventHandlerFunc{
 		"rk.post.created":                    postCreatedHandler.Handle,
+		"rk.post.updated":                    postUpdatedHandler.Handle,
+		"rk.post.deleted":                    postDeletedHandler.Handle,
 		"rk.post.like.created":               likeCreatedHandler.Handle,
+		"rk.post.like.deleted":               likeDeletedHandler.Handle,
 		"rk.post.comment.created":            commentCreatedHandler.Handle,
+		"rk.post.comment.updated":            commentUpdatedHandler.Handle,
+		"rk.post.comment.deleted":            commentDeletedHandler.Handle,
 		"rk.post.share.created":              shareCreatedHandler.Handle,
+		"rk.post.share.deleted":              shareDeletedHandler.Handle,
 		"rk.post.collab.opened.post-created": collabOpenedHandler.Handle,
 		"rk.post.collab.closed":              collabClosedHandler.Handle,
+		"rk.post.collab.deleted":             collabDeletedHandler.Handle,
 		"rk.post.collab.linked":              postCollabLinkedHandler.Handle,
 	}
 	dispatcher := dispatch.New(spec.Queue, handlers, logger)
