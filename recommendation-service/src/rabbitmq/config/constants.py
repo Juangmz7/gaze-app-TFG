@@ -56,8 +56,12 @@ class PostRoutingKey(StrEnum):
     FEED_EXHAUSTED = "rk.post.feed.exhausted"
 
 
+# Feed events arrive on x.feed.events (published by post-query-service) but are
+# handled by the post queue/listener together with the post events.
+FEED_ROUTING_KEYS = [PostRoutingKey.FEED_EXHAUSTED.value]
+
 USER_ROUTING_KEYS = [rk.value for rk in UserRoutingKey]
-POST_ROUTING_KEYS = [rk.value for rk in PostRoutingKey]
+POST_ROUTING_KEYS = [rk.value for rk in PostRoutingKey if rk.value not in FEED_ROUTING_KEYS]
 
 
 # --- Dead Letter routing keys ---
@@ -84,6 +88,14 @@ INCOMING_QUEUES = [
         "exchange": POST_EXCHANGE,
         "queue": POST_QUEUE,
         "routing_keys": POST_ROUTING_KEYS,
+        "dead_letter_exchange": POST_DLX,
+        "dead_letter_queue": POST_DLQ,
+        "dead_letter_routing_key": POST_DLQ_ROUTING_KEY,
+    },
+    {
+        "exchange": FEED_EXCHANGE,
+        "queue": POST_QUEUE,
+        "routing_keys": FEED_ROUTING_KEYS,
         "dead_letter_exchange": POST_DLX,
         "dead_letter_queue": POST_DLQ,
         "dead_letter_routing_key": POST_DLQ_ROUTING_KEY,
