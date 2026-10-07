@@ -49,8 +49,13 @@ func (s *fakeStore) MarkFailedAttempt(_ context.Context, id uuid.UUID, status ou
 
 // fakePublisher fails for the event ids listed in failFor.
 type fakePublisher struct {
-	failFor   map[uuid.UUID]error
-	published []uuid.UUID
+	unavailable error
+	failFor     map[uuid.UUID]error
+	published   []uuid.UUID
+}
+
+func (p *fakePublisher) Ready(context.Context) error {
+	return p.unavailable
 }
 
 func (p *fakePublisher) Publish(_ context.Context, event outbox.Event) error {
@@ -117,6 +122,21 @@ func TestRelay_RelayBatch_MovesEventToFailedOnceAttemptsAreExhausted(t *testing.
 
 	if len(store.failed) != 1 || store.failed[0].status != outbox.StatusFailed {
 		t.Fatalf("failed = %+v, want one FAILED release", store.failed)
+	}
+}
+
+func TestRelay_RelayBatch_ClaimsNothingWhileTheBrokerIsUnreachable(t *testing.T) {
+	event := pendingEvent(0)
+	store := &fakeStore{queue: []outbox.Event{event}}
+	publisher := &fakePublisher{unavailable: errors.New("connection refused")}
+
+	if err := newTestRelay(store, publisher).RelayBatch(context.Background()); err != nil {
+		t.Fatalf("RelayBatch() error = %v", err)
+	}
+
+	if len(store.queue) != 1 || len(store.failed) != 0 {
+		t.Fatalf("RelayBatch() claimed or released events while the broker was down: queue=%d failed=%v",
+			len(store.queue), store.failed)
 	}
 }
 

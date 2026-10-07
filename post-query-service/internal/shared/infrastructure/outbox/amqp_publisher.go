@@ -34,6 +34,15 @@ func NewAMQPPublisher(uri string, logger *slog.Logger) *AMQPPublisher {
 	return &AMQPPublisher{uri: uri, confirmTimeout: defaultConfirmTimeout, logger: logger}
 }
 
+// Ready (re)connects if needed and reports whether the broker is reachable.
+func (p *AMQPPublisher) Ready(_ context.Context) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	_, err := p.ensureChannel()
+	return err
+}
+
 // Publish sends event as a persistent JSON message (message id = event id)
 // and waits for the broker confirm. Publishes are serialized so a returned
 // message is always attributed to the event that caused it.

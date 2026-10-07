@@ -20,9 +20,13 @@ class FakeBroker:
     """Records publishes; outcomes maps a message id to an exception to raise
     or to "returned" (acked but unroutable)."""
 
-    def __init__(self, outcomes=None):
+    def __init__(self, outcomes=None, available=True):
         self.outcomes = outcomes or {}
+        self.available = available
         self.published = []
+
+    async def ping(self, timeout):
+        return self.available
 
     async def publish(self, message, **kwargs):
         outcome = self.outcomes.get(kwargs["message_id"])
@@ -154,6 +158,19 @@ async def test_relay_reclaims_only_events_whose_lock_expired(session_provider, d
     assert [kwargs["message_id"] for _, kwargs in broker.published] == [str(stale.id)]
     assert fetch(db_session_factory, stale.id)["attempts"] == 2
     assert fetch(db_session_factory, fresh.id)["status"] == "PROCESSING"
+
+
+async def test_relay_claims_nothing_while_the_broker_is_unreachable(session_provider, db_session_factory):
+    # Arrange
+    event = add_event(db_session_factory)
+
+    # Act
+    await OutboxRelayWorker(session_provider, FakeBroker(available=False)).relay_batch()
+
+    # Assert
+    row = fetch(db_session_factory, event.id)
+    assert row["status"] == "PENDING"
+    assert row["attempts"] == 0
 
 
 def test_concurrent_claims_return_each_event_exactly_once(session_provider, db_session_factory):

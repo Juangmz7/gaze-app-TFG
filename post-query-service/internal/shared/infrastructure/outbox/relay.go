@@ -22,6 +22,8 @@ type RelayStore interface {
 // Publisher publishes one event and returns nil only once the broker has
 // confirmed it.
 type Publisher interface {
+	// Ready reports whether the broker is reachable.
+	Ready(ctx context.Context) error
 	Publish(ctx context.Context, event Event) error
 }
 
@@ -89,6 +91,14 @@ func (r *Relay) Start(ctx context.Context) <-chan struct{} {
 // RelayBatch publishes up to BatchSize events, oldest first. It stops at the
 // first failed publish so later events are not sent ahead of it.
 func (r *Relay) RelayBatch(ctx context.Context) error {
+	// Claiming consumes an attempt, so nothing is claimed while the broker is
+	// unreachable: an outage longer than MaxAttempts batches must not move
+	// events to FAILED.
+	if err := r.publisher.Ready(ctx); err != nil {
+		r.logger.Warn("outbox relay skipped, broker unavailable", "error", err)
+		return nil
+	}
+
 	for i := 0; i < r.cfg.BatchSize; i++ {
 		if ctx.Err() != nil {
 			return nil

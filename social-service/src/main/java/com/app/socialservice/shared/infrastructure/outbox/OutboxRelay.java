@@ -8,6 +8,7 @@ import java.util.concurrent.TimeUnit;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.amqp.AmqpException;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessageDeliveryMode;
 import org.springframework.amqp.core.MessageProperties;
@@ -43,6 +44,10 @@ public class OutboxRelay {
 
     @Scheduled(fixedDelayString = "${outbox.relay.fixed-delay-ms:5000}")
     public void relay() {
+        if (!brokerAvailable()) {
+            return;
+        }
+
         for (int i = 0; i < BATCH_SIZE; i++) {
             var claimed = outboxRepository.claimNext(Instant.now().minus(LOCK_TIMEOUT));
             if (claimed.isEmpty()) {
@@ -64,6 +69,20 @@ public class OutboxRelay {
         var deleted = outboxRepository.deleteProcessedBefore(Instant.now().minus(PROCESSED_RETENTION));
         if (deleted > 0) {
             log.info("Deleted {} processed outbox events older than {}", deleted, PROCESSED_RETENTION);
+        }
+    }
+
+    /*
+     * Claiming consumes an attempt, so nothing is claimed while the broker is unreachable:
+     * an outage longer than MAX_ATTEMPTS cycles must not move events to FAILED.
+     */
+    private boolean brokerAvailable() {
+        try {
+            rabbitTemplate.execute(channel -> null);
+            return true;
+        } catch (AmqpException ex) {
+            log.warn("Outbox relay skipped, broker unavailable: {}", ex.getMessage());
+            return false;
         }
     }
 

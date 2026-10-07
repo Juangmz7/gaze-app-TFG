@@ -102,6 +102,13 @@ class OutboxRelayWorker:
     async def relay_batch(self) -> None:
         """Publishes up to batch_size rows, oldest first. Stops at the first
         failed publish so later events are not sent ahead of it."""
+        # Claiming consumes an attempt, so nothing is claimed while the broker is
+        # unreachable: an outage longer than max_attempts cycles must not move
+        # events to FAILED.
+        if not await self._broker.ping(timeout=self._confirm_timeout_s):
+            logger.warning("Outbox relay skipped, broker unavailable")
+            return
+
         for _ in range(self._batch_size):
             row = await asyncio.to_thread(self._claim_next)
             if row is None:

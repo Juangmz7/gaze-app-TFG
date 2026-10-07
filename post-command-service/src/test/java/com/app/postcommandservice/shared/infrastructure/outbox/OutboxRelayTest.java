@@ -10,6 +10,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.amqp.AmqpConnectException;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessageDeliveryMode;
 import org.springframework.amqp.core.MessageProperties;
@@ -109,6 +110,15 @@ class OutboxRelayTest {
         outboxRelay.relay();
 
         verify(outboxRepository).markFailedAttempt(event.getId(), EventStatus.PENDING.name(), "connection refused");
+    }
+
+    @Test
+    void shouldNotClaimAnythingWhileTheBrokerIsUnreachable() {
+        when(rabbitTemplate.execute(any())).thenThrow(new AmqpConnectException(new java.net.ConnectException("refused")));
+
+        outboxRelay.relay();
+
+        verify(outboxRepository, never()).claimNext(any());
     }
 
     @Test
