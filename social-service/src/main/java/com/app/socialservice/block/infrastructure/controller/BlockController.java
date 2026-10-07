@@ -53,7 +53,7 @@ public class BlockController {
         return ResponseEntity.ok().build();
     }
 
-    @GetMapping("/block/users")
+    @GetMapping("/users")
     public ResponseEntity<List<BlockedUserResponse>> getBlockedUsers(
             @RequestParam(defaultValue = "0") @Min(value = 0, message = "page must be greater than or equal to 0") int page) {
         var requesterUserId = securityUtils.getUserId();
