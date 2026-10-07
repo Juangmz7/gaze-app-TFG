@@ -23,7 +23,7 @@ POST_DLQ = f"{POST_QUEUE}-dlq"
 
 # --- User routing keys ---
 class UserRoutingKey(StrEnum):
-    FOLLOW_DELETED = "rk.user.follow.delete"
+    FOLLOW_DELETED = "rk.user.follow.deleted"
     FOLLOW_CREATED = "rk.user.follow.created"
     BLOCK_DELETED = "rk.user.block.deleted"
     DELETED = "rk.user.deleted"
