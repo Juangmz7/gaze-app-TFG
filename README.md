@@ -75,7 +75,7 @@ docker compose --env-file .env -f app/compose.yaml up -d --build
 - **JWT validation**: the issuer is `http://localhost:<KC_PORT>/realms/auth-service` (tokens obtained from the host), while the signing keys are fetched from `keycloak:8080` inside the network.
 - **post-query-service** (Go) is built with the repository root as context, since it resolves `common-packages/go-utils` through `go.work`.
 - **recommendation-service** runs the Alembic migrations, then the FastStream worker under `opentelemetry-instrument` (OTLP gRPC to `grafana-lgtm:4317`), on CPU (`MODEL_DEVICE=cpu`). The embedding model is downloaded at build time.
-- Credentials containing `@`, `/` or `:` must be URL-encoded in the URIs built from them (`POST_QUERY_MONGO_URI`, `DATABASE_URL`, `RABBITMQ_URL`).
+- Credentials containing `@`, `/` or `:` must be URL-encoded in the URIs built from them (`DATABASE_URL`, `RABBITMQ_URL`).
 
 ### 4. Default ports
 

@@ -102,7 +102,8 @@ services:
     restart: unless-stopped
     environment:
       HTTP_PORT: 8080
-      POST_QUERY_MONGO_URI: mongodb://${POST_QUERY_MONGO_USER}:${POST_QUERY_MONGO_PASSWORD}@post-query-mongo:27017/?authSource=admin
+      # Replica set rs0 without auth (see ../compose.yaml)
+      POST_QUERY_MONGO_URI: mongodb://post_query_mongo:27017/post_query?replicaSet=rs0
       POST_QUERY_MONGO_DATABASE: ${POST_QUERY_MONGO_DATABASE:-post_query}
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_PORT: 5672
