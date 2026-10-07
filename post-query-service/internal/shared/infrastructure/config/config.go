@@ -49,7 +49,8 @@ type RabbitMQConfig struct {
 // AMQPURI builds the amqp:// connection URI from the configured host, port,
 // and credentials.
 func (c RabbitMQConfig) AMQPURI() string {
-	return fmt.Sprintf("amqp://%s:%s@%s:%s/", url.QueryEscape(c.User), url.QueryEscape(c.Password), c.Host, c.Port)
+	u := url.URL{Scheme: "amqp", User: url.UserPassword(c.User, c.Password), Host: c.Host + ":" + c.Port, Path: "/"}
+	return u.String()
 }
 
 // AppConfig holds the post-query-service-specific configuration. The HTTP
