@@ -47,6 +47,24 @@ func Connect(ctx context.Context, uri, databaseName string) (*mongo.Client, *mon
 	return client, client.Database(databaseName), nil
 }
 
+// WithTransaction runs fn inside a multi-document transaction (requires a
+// replica set). Every write fn makes with the ctx it receives (for example a
+// read-model update plus outbox.Store.Add) commits or aborts together; fn
+// returning an error aborts the transaction. The driver retries fn on
+// transient transaction errors, so fn must be safe to re-run.
+func WithTransaction(ctx context.Context, client *mongo.Client, fn func(ctx context.Context) error) error {
+	session, err := client.StartSession()
+	if err != nil {
+		return fmt.Errorf("start mongo session: %w", err)
+	}
+	defer session.EndSession(context.WithoutCancel(ctx))
+
+	_, err = session.WithTransaction(ctx, func(ctx context.Context) (any, error) {
+		return nil, fn(ctx)
+	})
+	return err
+}
+
 // Disconnect closes client using its own bounded timeout context, independent
 // of any cancelled shutdown context, so the driver has time to flush cleanly.
 func Disconnect(client *mongo.Client) error {
