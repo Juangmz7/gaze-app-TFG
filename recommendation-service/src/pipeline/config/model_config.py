@@ -1,3 +1,5 @@
+import os
+
 from sentence_transformers import SentenceTransformer
 
 
@@ -6,5 +8,5 @@ def load_semantic_embedding_model(
 ) -> SentenceTransformer:
     return SentenceTransformer(
         model_name,
-        device="cuda"
+        device=os.getenv("MODEL_DEVICE", "cuda")
     )
