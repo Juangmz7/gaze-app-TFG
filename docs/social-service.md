@@ -14,7 +14,7 @@ The service is divided into distinct bounded contexts (domains):
 ## Key Design Choices
 1. **Clean Architecture**: Dependencies always point inwards. Infrastructure depends on Application; Application depends on Domain. The Domain has zero external dependencies (no Spring or DB annotations).
 2. **Polyglot Persistence**: We use PostgreSQL as our primary source of truth (ACID guarantees), and Neo4j as a secondary graph database (for traversing social connections like friends-of-friends).
-3. **Transactional Outbox Pattern**: To reliably publish events to RabbitMQ without distributed transactions, we save events to an `outbox` table in the *same transaction* as the domain changes. A separate process then relays them to RabbitMQ.
+3. **Transactional Outbox Pattern**: To reliably publish events to RabbitMQ without distributed transactions, we save events to an `outbox` table in the *same transaction* as the domain changes. A relay then publishes them to RabbitMQ with publisher confirms (at-least-once; consumers deduplicate by message id). PostgreSQL is the source of truth and Neo4j is a projection fed by those events, so the outbox never spans two databases.
 4. **Event-Driven**: We avoid synchronous HTTP calls between microservices where possible. State changes are communicated via RabbitMQ events.
 
 Explore the `docs` folder inside each domain package for detailed layer-specific documentation.
