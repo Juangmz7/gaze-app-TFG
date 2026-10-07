@@ -8,8 +8,8 @@ import com.app.postcommandservice.like.application.commands.ValidatePostLikeComm
 import com.app.postcommandservice.like.application.commands.ValidatePostUnlikeCommand;
 import com.app.postcommandservice.like.application.repository.PostLikeCommandPublisher;
 import com.app.postcommandservice.shared.infrastructure.entity.OutboxEvent;
-import com.app.postcommandservice.shared.infrastructure.mapper.JsonMapper;
 import com.app.postcommandservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
+import com.app.postcommandservice.shared.infrastructure.outbox.OutboxDestination;
 import com.app.postcommandservice.shared.infrastructure.rabbitmq.publisher.EventPublisher;
 
 @Component
@@ -18,7 +18,6 @@ public class ValidatePostLikeCommandPublisher implements PostLikeCommandPublishe
 
     private final RabbitTemplate rabbitTemplate;
     private final RabbitMQProperties rabbitMQProperties;
-    private final JsonMapper jsonMapper;
 
     @Override
     public void publish(ValidatePostLikeCommand command) {
@@ -36,15 +35,15 @@ public class ValidatePostLikeCommandPublisher implements PostLikeCommandPublishe
     }
 
     @Override
-    public void publish(OutboxEvent outboxEvent) {
+    public OutboxDestination destination(OutboxEvent outboxEvent) {
+        var commands = rabbitMQProperties.getExchange().getPost().getCommands();
+
         if (ValidatePostLikeCommand.class.getSimpleName().equals(outboxEvent.getEventType())) {
-            publish(jsonMapper.fromJson(outboxEvent.getPayload(), ValidatePostLikeCommand.class));
-            return;
+            return new OutboxDestination(commands, rabbitMQProperties.getRk().getPost().getLike().getValidate());
         }
 
         if (ValidatePostUnlikeCommand.class.getSimpleName().equals(outboxEvent.getEventType())) {
-            publish(jsonMapper.fromJson(outboxEvent.getPayload(), ValidatePostUnlikeCommand.class));
-            return;
+            return new OutboxDestination(commands, rabbitMQProperties.getRk().getPost().getUnlike().getValidate());
         }
 
         throw new IllegalArgumentException("Unsupported outbox event type: " + outboxEvent.getEventType());

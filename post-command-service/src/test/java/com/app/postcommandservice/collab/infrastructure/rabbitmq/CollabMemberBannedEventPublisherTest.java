@@ -14,21 +14,19 @@ import com.app.postcommandservice.collab.domain.model.valueobj.CollabMemberRole;
 import com.app.postcommandservice.collab.domain.model.valueobj.CollabMemberStatus;
 import com.app.postcommandservice.collab.infrastructure.events.CollabMemberBannedEvent;
 import com.app.postcommandservice.shared.infrastructure.entity.OutboxEvent;
+import com.app.postcommandservice.shared.infrastructure.outbox.OutboxDestination;
 import com.app.postcommandservice.shared.infrastructure.enums.EventStatus;
 import com.app.postcommandservice.shared.infrastructure.mapper.JsonMapper;
 import com.app.postcommandservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class CollabMemberBannedEventPublisherTest {
 
-    @Mock
-    private RabbitTemplate rabbitTemplate;
 
-    @Mock
-    private JsonMapper jsonMapper;
 
     @Mock
     private RabbitMQProperties rabbitMQProperties;
@@ -74,8 +72,6 @@ class CollabMemberBannedEventPublisherTest {
                 .status(EventStatus.PENDING)
                 .createdAt(payload.occurredAt())
                 .build();
-
-        when(jsonMapper.fromJson("{json}", CollabMemberBannedEvent.class)).thenReturn(payload);
         when(rabbitMQProperties.getExchange()).thenReturn(exchanges);
         when(exchanges.getPost()).thenReturn(postExchange);
         when(postExchange.getEvents()).thenReturn("x.post.events");
@@ -85,8 +81,7 @@ class CollabMemberBannedEventPublisherTest {
         when(collabRk.getMember()).thenReturn(memberRk);
         when(memberRk.getBanned()).thenReturn("rk.post.collab.member.banned");
 
-        publisher.publish(outboxEvent);
-
-        verify(rabbitTemplate).convertAndSend("x.post.events", "rk.post.collab.member.banned", payload);
+        assertThat(publisher.destination(outboxEvent))
+                .isEqualTo(new OutboxDestination("x.post.events", "rk.post.collab.member.banned"));
     }
 }

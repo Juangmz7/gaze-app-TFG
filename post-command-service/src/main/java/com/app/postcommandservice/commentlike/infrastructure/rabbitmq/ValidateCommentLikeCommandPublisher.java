@@ -8,8 +8,8 @@ import com.app.postcommandservice.commentlike.application.commands.ValidateComme
 import com.app.postcommandservice.commentlike.application.commands.ValidateCommentUnlikeCommand;
 import com.app.postcommandservice.commentlike.application.repository.PostCommentLikeCommandPublisher;
 import com.app.postcommandservice.shared.infrastructure.entity.OutboxEvent;
-import com.app.postcommandservice.shared.infrastructure.mapper.JsonMapper;
 import com.app.postcommandservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
+import com.app.postcommandservice.shared.infrastructure.outbox.OutboxDestination;
 import com.app.postcommandservice.shared.infrastructure.rabbitmq.publisher.EventPublisher;
 
 @Component
@@ -18,7 +18,6 @@ public class ValidateCommentLikeCommandPublisher implements PostCommentLikeComma
 
     private final RabbitTemplate rabbitTemplate;
     private final RabbitMQProperties rabbitMQProperties;
-    private final JsonMapper jsonMapper;
 
     @Override
     public void publish(ValidateCommentLikeCommand command) {
@@ -36,15 +35,16 @@ public class ValidateCommentLikeCommandPublisher implements PostCommentLikeComma
     }
 
     @Override
-    public void publish(OutboxEvent outboxEvent) {
+    public OutboxDestination destination(OutboxEvent outboxEvent) {
+        var commands = rabbitMQProperties.getExchange().getPost().getCommands();
+        var commentLikeRk = rabbitMQProperties.getRk().getPost().getComment().getLike();
+
         if (ValidateCommentLikeCommand.class.getSimpleName().equals(outboxEvent.getEventType())) {
-            publish(jsonMapper.fromJson(outboxEvent.getPayload(), ValidateCommentLikeCommand.class));
-            return;
+            return new OutboxDestination(commands, commentLikeRk.getValidate());
         }
 
         if (ValidateCommentUnlikeCommand.class.getSimpleName().equals(outboxEvent.getEventType())) {
-            publish(jsonMapper.fromJson(outboxEvent.getPayload(), ValidateCommentUnlikeCommand.class));
-            return;
+            return new OutboxDestination(commands, commentLikeRk.getDeleted());
         }
 
         throw new IllegalArgumentException("Unsupported outbox event type: " + outboxEvent.getEventType());

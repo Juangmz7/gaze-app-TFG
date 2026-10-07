@@ -12,6 +12,7 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
 
 import com.app.postcommandservice.share.application.commands.CreatePostShareCommand;
 import com.app.postcommandservice.shared.infrastructure.entity.OutboxEvent;
+import com.app.postcommandservice.shared.infrastructure.outbox.OutboxDestination;
 import com.app.postcommandservice.shared.infrastructure.mapper.JsonMapper;
 import com.app.postcommandservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 
@@ -28,8 +29,6 @@ class CreatePostShareCommandPublisherTest {
     @Mock
     private RabbitMQProperties rabbitMQProperties;
 
-    @Mock
-    private JsonMapper jsonMapper;
 
     @Mock
     private RabbitMQProperties.Exchanges exchanges;
@@ -94,11 +93,9 @@ class CreatePostShareCommandPublisherTest {
         when(postRk.getShare()).thenReturn(shareRk);
         when(shareRk.getCreate()).thenReturn(createRk);
         when(createRk.getValidate()).thenReturn("rk.post.share.create.validate");
-        when(jsonMapper.fromJson(outboxEvent.getPayload(), CreatePostShareCommand.class)).thenReturn(command);
 
-        publisher.publish(outboxEvent);
-
-        verify(rabbitTemplate).convertAndSend("x.post.commands", "rk.post.share.create.validate", command);
+        assertThat(publisher.destination(outboxEvent))
+                .isEqualTo(new OutboxDestination("x.post.commands", "rk.post.share.create.validate"));
     }
 
     private CreatePostShareCommand command() {

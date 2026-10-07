@@ -13,6 +13,7 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import com.app.postcommandservice.commentlike.domain.model.CommentLikeSource;
 import com.app.postcommandservice.commentlike.infrastructure.events.PostCommentLikeCreatedEvent;
 import com.app.postcommandservice.shared.infrastructure.entity.OutboxEvent;
+import com.app.postcommandservice.shared.infrastructure.outbox.OutboxDestination;
 import com.app.postcommandservice.shared.infrastructure.mapper.JsonMapper;
 import com.app.postcommandservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 
@@ -23,11 +24,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class PostCommentLikeCreatedEventPublisherTest {
 
-    @Mock
-    private RabbitTemplate rabbitTemplate;
 
-    @Mock
-    private JsonMapper jsonMapper;
 
     @Mock
     private RabbitMQProperties rabbitMQProperties;
@@ -78,8 +75,6 @@ class PostCommentLikeCreatedEventPublisherTest {
                 .payload("{json}")
                 .eventType(PostCommentLikeCreatedEvent.class.getSimpleName())
                 .build();
-
-        when(jsonMapper.fromJson("{json}", PostCommentLikeCreatedEvent.class)).thenReturn(payload);
         when(rabbitMQProperties.getExchange()).thenReturn(exchanges);
         when(exchanges.getPost()).thenReturn(postExchange);
         when(postExchange.getEvents()).thenReturn("x.post.events");
@@ -89,8 +84,7 @@ class PostCommentLikeCreatedEventPublisherTest {
         when(commentRk.getLike()).thenReturn(likeRk);
         when(likeRk.getCreated()).thenReturn("rk.post.comment.like.created");
 
-        publisher.publish(outboxEvent);
-
-        verify(rabbitTemplate).convertAndSend("x.post.events", "rk.post.comment.like.created", payload);
+        assertThat(publisher.destination(outboxEvent))
+                .isEqualTo(new OutboxDestination("x.post.events", "rk.post.comment.like.created"));
     }
 }
