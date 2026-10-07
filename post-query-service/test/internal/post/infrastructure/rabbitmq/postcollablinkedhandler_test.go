@@ -1,0 +1,171 @@
+package rabbitmq_test
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/ThreeDotsLabs/watermill/message"
+	"github.com/google/uuid"
+
+	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/post/application/usecase"
+	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/post/infrastructure/rabbitmq"
+	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/rmqerror"
+)
+
+type fakePostCollabLinkedIdempotencyRepository struct {
+	processed map[uuid.UUID]bool
+	markCalls int
+}
+
+func newFakePostCollabLinkedIdempotencyRepository() *fakePostCollabLinkedIdempotencyRepository {
+	return &fakePostCollabLinkedIdempotencyRepository{processed: map[uuid.UUID]bool{}}
+}
+
+func (f *fakePostCollabLinkedIdempotencyRepository) IsProcessed(ctx context.Context, eventID uuid.UUID) (bool, error) {
+	return f.processed[eventID], nil
+}
+
+func (f *fakePostCollabLinkedIdempotencyRepository) MarkProcessed(ctx context.Context, eventID, _ uuid.UUID, _ string) error {
+	f.markCalls++
+	f.processed[eventID] = true
+	return nil
+}
+
+type fakePostCollabLinkedUsecase struct {
+	calls   int
+	gotIn   usecase.LinkPostCollabInput
+	execErr error
+}
+
+func (f *fakePostCollabLinkedUsecase) Execute(ctx context.Context, input usecase.LinkPostCollabInput) error {
+	f.calls++
+	f.gotIn = input
+	return f.execErr
+}
+
+// literalPostCollabLinkedEvent builds the real Java-shaped camelCase JSON
+// payload for the slimmed CollabLinkedEvent as a literal map, per the
+// task's CRITICAL instruction: new handlers must be proven against real
+// Java field names, not a round-tripped Go struct. The event now carries
+// only the relational fact {id, correlationId, occurredAt, postId,
+// collabId}; no post content fields remain.
+func literalPostCollabLinkedEvent(t *testing.T, overrides map[string]any) []byte {
+	t.Helper()
+
+	payload := map[string]any{
+		"id":            uuid.New().String(),
+		"correlationId": uuid.New().String(),
+		"occurredAt":    time.Now().UTC().Format(time.RFC3339Nano),
+		"postId":        uuid.New().String(),
+		"collabId":      uuid.New().String(),
+	}
+	for k, v := range overrides {
+		payload[k] = v
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	return body
+}
+
+func TestPostCollabLinkedHandler_Handle_DecodesCamelCaseJSONAndCallsUsecase(t *testing.T) {
+	idempotency := newFakePostCollabLinkedIdempotencyRepository()
+	uc := &fakePostCollabLinkedUsecase{}
+	handler := rabbitmq.NewPostCollabLinkedHandler(idempotency, uc, testPostCreatedLogger())
+
+	postID := uuid.New()
+	collabID := uuid.New()
+	payload := literalPostCollabLinkedEvent(t, map[string]any{
+		"postId":   postID.String(),
+		"collabId": collabID.String(),
+	})
+
+	if err := handler.Handle(context.Background(), message.NewMessage(uuid.NewString(), payload)); err != nil {
+		t.Fatalf("Handle() error = %v, want nil", err)
+	}
+
+	if uc.calls != 1 {
+		t.Fatalf("uc Execute() calls = %d, want 1", uc.calls)
+	}
+	if uc.gotIn.PostID != postID {
+		t.Fatalf("uc Execute() PostID = %v, want %v", uc.gotIn.PostID, postID)
+	}
+	if uc.gotIn.CollabID != collabID {
+		t.Fatalf("uc Execute() CollabID = %v, want %v", uc.gotIn.CollabID, collabID)
+	}
+}
+
+func TestPostCollabLinkedHandler_Handle_SkipsUsecaseAndAcksWhenEventIsADuplicate(t *testing.T) {
+	eventID := uuid.New()
+	idempotency := newFakePostCollabLinkedIdempotencyRepository()
+	idempotency.processed[eventID] = true
+	uc := &fakePostCollabLinkedUsecase{}
+	handler := rabbitmq.NewPostCollabLinkedHandler(idempotency, uc, testPostCreatedLogger())
+
+	payload := literalPostCollabLinkedEvent(t, map[string]any{"id": eventID.String()})
+
+	if err := handler.Handle(context.Background(), message.NewMessage(uuid.NewString(), payload)); err != nil {
+		t.Fatalf("Handle() error = %v, want nil (duplicate events ack cleanly)", err)
+	}
+	if uc.calls != 0 {
+		t.Fatalf("uc Execute() calls = %d, want 0 for a duplicate event", uc.calls)
+	}
+	if idempotency.markCalls != 0 {
+		t.Fatalf("MarkProcessed() calls = %d, want 0 for a duplicate event", idempotency.markCalls)
+	}
+}
+
+func TestPostCollabLinkedHandler_Handle_ReturnsAPermanentErrorForAMalformedPayload(t *testing.T) {
+	idempotency := newFakePostCollabLinkedIdempotencyRepository()
+	uc := &fakePostCollabLinkedUsecase{}
+	handler := rabbitmq.NewPostCollabLinkedHandler(idempotency, uc, testPostCreatedLogger())
+
+	err := handler.Handle(context.Background(), message.NewMessage("1", []byte(`not json`)))
+	if err == nil {
+		t.Fatal("Handle() error = nil, want an error for a malformed payload")
+	}
+	if !rmqerror.IsPermanent(err) {
+		t.Fatal("Handle() error is not permanent, want a permanent error so it skips retries")
+	}
+	if uc.calls != 0 {
+		t.Fatalf("uc Execute() calls = %d, want 0 for a malformed payload", uc.calls)
+	}
+}
+
+func TestPostCollabLinkedHandler_Handle_ReturnsAPermanentErrorWhenRequiredFieldsAreMissing(t *testing.T) {
+	idempotency := newFakePostCollabLinkedIdempotencyRepository()
+	uc := &fakePostCollabLinkedUsecase{}
+	handler := rabbitmq.NewPostCollabLinkedHandler(idempotency, uc, testPostCreatedLogger())
+
+	payload := literalPostCollabLinkedEvent(t, map[string]any{"collabId": ""})
+
+	err := handler.Handle(context.Background(), message.NewMessage(uuid.NewString(), payload))
+	if err == nil {
+		t.Fatal("Handle() error = nil, want an error for a missing collabId")
+	}
+	if !rmqerror.IsPermanent(err) {
+		t.Fatal("Handle() error is not permanent, want a permanent error for an invalid envelope")
+	}
+}
+
+func TestPostCollabLinkedHandler_Handle_ReturnsATransientErrorWhenTheUsecaseFails(t *testing.T) {
+	idempotency := newFakePostCollabLinkedIdempotencyRepository()
+	uc := &fakePostCollabLinkedUsecase{execErr: errors.New("mongo write failed")}
+	handler := rabbitmq.NewPostCollabLinkedHandler(idempotency, uc, testPostCreatedLogger())
+
+	payload := literalPostCollabLinkedEvent(t, nil)
+
+	err := handler.Handle(context.Background(), message.NewMessage(uuid.NewString(), payload))
+	if err == nil {
+		t.Fatal("Handle() error = nil, want an error when the uc fails")
+	}
+	if rmqerror.IsPermanent(err) {
+		t.Fatal("Handle() error is permanent, want a transient error so retries apply")
+	}
+}
