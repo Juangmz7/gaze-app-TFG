@@ -48,6 +48,8 @@ Technical decisions:
 - Docker + Docker Compose (with BuildKit, the default in modern Docker, for the apps' build caches)
 
 ### 1. Configure environment
+Run these steps sequentially in the same shell, starting from the repository root. After the first command, stay in `infra/local` for the remaining commands.
+
 ```bash
 cd infra/local
 cp .env_template .env
@@ -56,7 +58,6 @@ Fill in `.env` with real values (DB passwords, Keycloak admin credentials, Rabbi
 
 ### 2. Start the infrastructure stack
 ```bash
-cd infra/local
 docker compose up -d
 docker compose ps    # wait until everything is healthy; rabbitmq-init ends as "Exited (0)"
 ```
@@ -66,7 +67,6 @@ This brings up, in dependency order: `postgres-keycloak` → `rabbitmq` → `rab
 
 ### 3. (Optional) Start the microservices in containers
 ```bash
-cd infra/local
 docker compose --env-file .env -f app/compose.yaml up -d --build
 ```
 `--env-file .env` is required: Compose otherwise looks for `.env` next to `app/compose.yaml`.
@@ -109,7 +109,6 @@ Ports are overridable via the corresponding `*_PORT` variables in `infra/local/.
 
 ### 6. Bring the stacks down
 ```bash
-cd infra/local
 docker compose --env-file .env -f app/compose.yaml down
 docker compose down        # keep volumes (data persists)
 docker compose down -v     # also wipe volumes (fresh state)
