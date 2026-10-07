@@ -347,6 +347,9 @@ public class RabbitMQConfig {
 
         var template = new RabbitTemplate(cachingConnectionFactory);
         template.setMessageConverter(messageConverter);
+        // Unroutable messages are returned to the publisher instead of silently dropped
+        // (requires spring.rabbitmq.publisher-returns). Used by the outbox relay.
+        template.setMandatory(true);
 
         return template;
     }
