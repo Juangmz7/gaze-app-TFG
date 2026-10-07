@@ -1,3 +1,15 @@
+# Local development / testing only.
+# Backing services (databases, broker, IAM, observability). The microservices
+# themselves live in app/compose.yaml and join the same `infra_net` network.
+#
+# Ports are published on 127.0.0.1 only: Redis and Mongo have no hardening and
+# Docker bypasses the host firewall. Drop the prefix to reach them from
+# another machine.
+
+# Pinned project name: keeps the existing `infra_*` volumes (and their data)
+# now that this file lives in infra/local instead of infra/.
+name: infra
+
 services:
   postgres-keycloak:
     image: postgres:16-alpine
@@ -19,40 +31,43 @@ services:
       - infra_net
 
   keycloak:
-    build: 
+    build:
       context: ./keycloak
       dockerfile: Dockerfile
     container_name: keycloak
     restart: unless-stopped
-    
+
     environment:
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://postgres-keycloak:5432/keycloak
       KC_DB_USERNAME: keycloak
       KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
-      
+
       KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN}
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
-      
+
       # Production Hostname (MUST match the actual URL users visit)
       #KC_HOSTNAME: ${KC_HOSTNAME:-https://auth.domain.com}
-      
+
       # Production Proxy Settings
       # Keycloak requires HTTPS in prod. If you use a reverse proxy (like Nginx),
       # enable these settings to let Keycloak know it is behind a secure proxy.
       #KC_PROXY_HEADERS: xforwarded
-      #KC_HTTP_ENABLED: "true" 
-      
+      #KC_HTTP_ENABLED: "true"
+
       # RabbitMQ Event Listener Plugin Config
-      KK_TO_RMQ_URL: ${RABBITMQ_HOST:-rabbitmq}
-      KK_TO_RMQ_PORT: ${RABBITMQ_PORT:-5672}
+      # Host and port are the INTERNAL ones (container-to-container). Do not
+      # reuse RABBITMQ_PORT here: that variable only controls the port
+      # published on the host.
+      KK_TO_RMQ_URL: rabbitmq
+      KK_TO_RMQ_PORT: 5672
       KK_TO_RMQ_USERNAME: ${RABBITMQ_USER}
       KK_TO_RMQ_PASSWORD: ${RABBITMQ_PASSWORD}
       KK_TO_RMQ_VHOST: /
       KK_TO_RMQ_EXCHANGE: x.auth.events
-      
+
     ports:
-      - "${KC_PORT:-8080}:8080"
+      - "127.0.0.1:${KC_PORT:-8080}:8080"
     volumes:
       - ./keycloak/realms:/opt/keycloak/data/import
     depends_on:
@@ -71,8 +86,8 @@ services:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
     ports:
-      - "${RABBITMQ_PORT:-5672}:5672"
-      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+      - "127.0.0.1:${RABBITMQ_PORT:-5672}:5672"
+      - "127.0.0.1:${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
     healthcheck:
@@ -90,20 +105,32 @@ services:
       dockerfile: Dockerfile
     container_name: rabbitmq_init
     env_file: .env
+    # Same as Keycloak: connect over the internal network, regardless of the
+    # host-published RABBITMQ_PORT coming from .env.
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
     depends_on:
       rabbitmq:
         condition: service_healthy
     restart: "no"
     networks:
       - infra_net
-  
-  grafana-lgtm:
-    image: 'grafana/otel-lgtm:latest'
-    ports:
-      - '3000:3000'
-      - '4317:4317'
-      - '4318:4318'
 
+  grafana-lgtm:
+    image: grafana/otel-lgtm:latest
+    container_name: grafana-lgtm
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"   # Grafana UI
+      - "127.0.0.1:4317:4317"   # OTLP gRPC
+      - "127.0.0.1:4318:4318"   # OTLP HTTP
+    networks:
+      - infra_net
+
+  # Databases below get a hyphenated network alias: java.net.URI rejects
+  # underscores in hostnames (e.g. bolt://social_neo4j:7687), so the
+  # containerized apps reach them by alias instead.
   social_postgres:
     image: postgres:16-alpine
     container_name: social_postgres
@@ -113,7 +140,7 @@ services:
       POSTGRES_USER: ${SOCIAL_POSTGRES_USER:-social_user}
       POSTGRES_PASSWORD: ${SOCIAL_POSTGRES_PASSWORD}
     ports:
-      - "${SOCIAL_POSTGRES_PORT:-5433}:5432"
+      - "127.0.0.1:${SOCIAL_POSTGRES_PORT:-5433}:5432"
     volumes:
       - social_postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -123,7 +150,8 @@ services:
       retries: 5
       start_period: 10s
     networks:
-      - infra_net
+      infra_net:
+        aliases: [social-postgres]
 
   social_neo4j:
     image: neo4j:5-community
@@ -132,8 +160,8 @@ services:
     environment:
       NEO4J_AUTH: ${SOCIAL_NEO4J_USER:-neo4j}/${SOCIAL_NEO4J_PASSWORD}
     ports:
-      - "${SOCIAL_NEO4J_HTTP_PORT:-7474}:7474"
-      - "${SOCIAL_NEO4J_BOLT_PORT:-7687}:7687"
+      - "127.0.0.1:${SOCIAL_NEO4J_HTTP_PORT:-7474}:7474"
+      - "127.0.0.1:${SOCIAL_NEO4J_BOLT_PORT:-7687}:7687"
     volumes:
       - social_neo4j_data:/data
     healthcheck:
@@ -143,15 +171,16 @@ services:
       retries: 5
       start_period: 30s
     networks:
-      - infra_net
-  
+      infra_net:
+        aliases: [social-neo4j]
+
   redis:
     image: redis:7-alpine
     container_name: redis
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -163,26 +192,37 @@ services:
     networks:
       - infra_net
 
+  # Single-node replica set: post-query-service needs multi-document
+  # transactions for its transactional outbox. No auth (a replica set with auth
+  # also needs a keyFile), so the port is published on 127.0.0.1 only.
+  # URIs: from containers mongodb://post_query_mongo:27017/post_query?replicaSet=rs0,
+  # from the host mongodb://localhost:27017/post_query?directConnection=true
+  # (the replica set advertises post_query_mongo, which does not resolve outside Docker).
+  # If startup fails on an old volume created with auth, recreate post_query_mongo_data.
   post_query_mongo:
     image: mongo:7
     container_name: post_query_mongo
     restart: unless-stopped
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: ${POST_QUERY_MONGO_USER}
-      MONGO_INITDB_ROOT_PASSWORD: ${POST_QUERY_MONGO_PASSWORD}
-      MONGO_INITDB_DATABASE: ${POST_QUERY_MONGO_DATABASE:-post_query}
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
     ports:
-      - "${POST_QUERY_MONGO_PORT:-27017}:27017"
+      - "127.0.0.1:${POST_QUERY_MONGO_PORT:-27017}:27017"
     volumes:
       - post_query_mongo_data:/data/db
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      # Initiates the replica set on first run, then just reports status
+      test:
+        - CMD
+        - mongosh
+        - --quiet
+        - --eval
+        - "try { rs.status().ok } catch (e) { rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'post_query_mongo:27017'}]}).ok }"
       interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 15s
     networks:
-      - infra_net
+      infra_net:
+        aliases: [post-query-mongo]
 
   post_command_postgres:
     image: postgres:16-alpine
@@ -193,7 +233,7 @@ services:
       POSTGRES_USER: ${POST_COMMAND_POSTGRES_USER:-post_command_user}
       POSTGRES_PASSWORD: ${POST_COMMAND_POSTGRES_PASSWORD}
     ports:
-      - "${POST_COMMAND_POSTGRES_PORT:-5434}:5432"
+      - "127.0.0.1:${POST_COMMAND_POSTGRES_PORT:-5434}:5432"
     volumes:
       - post_command_postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -203,7 +243,8 @@ services:
       retries: 5
       start_period: 10s
     networks:
-      - infra_net
+      infra_net:
+        aliases: [post-command-postgres]
 
   azurite:
     image: mcr.microsoft.com/azure-storage/azurite:latest
@@ -211,16 +252,18 @@ services:
     restart: unless-stopped
     command: ["azurite", "--blobHost", "0.0.0.0", "--queueHost", "0.0.0.0", "--tableHost", "0.0.0.0", "--location", "/data", "--debug", "/data/debug.log"]
     ports:
-      - "${AZURITE_BLOB_PORT:-10000}:10000"
-      - "${AZURITE_QUEUE_PORT:-10001}:10001"
-      - "${AZURITE_TABLE_PORT:-10002}:10002"
+      - "127.0.0.1:${AZURITE_BLOB_PORT:-10000}:10000"
+      - "127.0.0.1:${AZURITE_QUEUE_PORT:-10001}:10001"
+      - "127.0.0.1:${AZURITE_TABLE_PORT:-10002}:10002"
     volumes:
       - azurite_data:/data
     networks:
       - infra_net
 
   recommendation_postgres:
-    image: postgres:16-alpine
+    # pgvector image: the recommendation-service migrations run
+    # CREATE EXTENSION vector, which plain postgres:16-alpine does not ship.
+    image: pgvector/pgvector:pg16
     container_name: recommendation_postgres
     restart: unless-stopped
     environment:
@@ -228,7 +271,7 @@ services:
       POSTGRES_USER: ${RECOMMENDATION_POSTGRES_USER:-recommendation_user}
       POSTGRES_PASSWORD: ${RECOMMENDATION_POSTGRES_PASSWORD}
     ports:
-      - "${RECOMMENDATION_POSTGRES_PORT:-5435}:5432"
+      - "127.0.0.1:${RECOMMENDATION_POSTGRES_PORT:-5435}:5432"
     volumes:
       - recommendation_postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -238,7 +281,8 @@ services:
       retries: 5
       start_period: 10s
     networks:
-      - infra_net
+      infra_net:
+        aliases: [recommendation-postgres]
 
 volumes:
   keycloak_postgres_data:
@@ -253,4 +297,7 @@ volumes:
 
 networks:
   infra_net:
+    # Fixed name so app/compose.yaml can join it as `external` without
+    # Compose prefixing it with the project name.
+    name: infra_net
     driver: bridge
