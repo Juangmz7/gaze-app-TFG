@@ -11,20 +11,20 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 
 import com.app.postcommandservice.shared.infrastructure.entity.OutboxEvent;
+import com.app.postcommandservice.shared.infrastructure.outbox.OutboxDestination;
 import com.app.postcommandservice.shared.infrastructure.mapper.JsonMapper;
 import com.app.postcommandservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 import com.app.postcommandservice.view.domain.model.PostViewExitReason;
 import com.app.postcommandservice.view.domain.model.PostViewSource;
 import com.app.postcommandservice.view.infrastructure.events.PostViewedEvent;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class PostViewedEventPublisherTest {
 
-    @Mock
-    private RabbitTemplate rabbitTemplate;
 
     @Mock
     private RabbitMQProperties rabbitMQProperties;
@@ -41,8 +41,6 @@ class PostViewedEventPublisherTest {
     @Mock
     private RabbitMQProperties.RoutingKeys.PostRk postRk;
 
-    @Mock
-    private JsonMapper jsonMapper;
 
     @InjectMocks
     private PostViewedEventPublisher publisher;
@@ -70,8 +68,6 @@ class PostViewedEventPublisherTest {
                 .correlationId(UUID.randomUUID())
                 .payload("{\"payload\":true}")
                 .build();
-
-        when(jsonMapper.fromJson(outboxEvent.getPayload(), PostViewedEvent.class)).thenReturn(event);
         when(rabbitMQProperties.getExchange()).thenReturn(exchanges);
         when(exchanges.getPost()).thenReturn(postExchange);
         when(postExchange.getEvents()).thenReturn("x.post.events");
@@ -79,8 +75,7 @@ class PostViewedEventPublisherTest {
         when(routingKeys.getPost()).thenReturn(postRk);
         when(postRk.getViewed()).thenReturn("rk.post.viewed");
 
-        publisher.publish(outboxEvent);
-
-        verify(rabbitTemplate).convertAndSend("x.post.events", "rk.post.viewed", event);
+        assertThat(publisher.destination(outboxEvent))
+                .isEqualTo(new OutboxDestination("x.post.events", "rk.post.viewed"));
     }
 }

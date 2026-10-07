@@ -10,6 +10,7 @@ import (
 	"github.com/Juangmz7/TFG/common-packages/go-utils/server"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/config"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/database"
+	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/outbox"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/bootstrap"
 )
 
@@ -44,6 +45,20 @@ func run() error {
 
 	slog.Info("connected to mongodb", "database", cfg.Mongo.Database)
 
+	// Transactional outbox relay: publishes events stored by use cases (in the
+	// same Mongo transaction as their state change) with publisher confirms.
+	outboxStore := outbox.NewStore(mongoDatabase)
+	if err := outboxStore.EnsureIndexes(ctx); err != nil {
+		return err
+	}
+	outboxPublisher := outbox.NewAMQPPublisher(cfg.RabbitMQ.AMQPURI(), slog.Default())
+	defer func() {
+		if closeErr := outboxPublisher.Close(); closeErr != nil {
+			slog.Error("outbox publisher close failed", "error", closeErr)
+		}
+	}()
+	outboxDone := outbox.NewRelay(outboxStore, outboxPublisher, outbox.DefaultRelayConfig(), slog.Default()).Start(ctx)
+
 	// RunWithRetry rebuilds the router/subscribers/publisher from scratch on
 	// every AMQP connection loss, with linear backoff, instead of letting a
 	// single bootstrap.Bootstrap failure silently stop event consumption for
@@ -62,6 +77,7 @@ func run() error {
 	// resources and exited, so run() does not disconnect Mongo (via its own
 	// deferred call above) while RabbitMQ cleanup is still in flight.
 	<-rabbitmqDone
+	<-outboxDone
 
 	return nil
 }

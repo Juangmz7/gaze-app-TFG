@@ -14,6 +14,7 @@ import com.app.postcommandservice.commentlike.application.commands.ValidateComme
 import com.app.postcommandservice.commentlike.application.commands.ValidateCommentUnlikeCommand;
 import com.app.postcommandservice.commentlike.domain.model.CommentLikeSource;
 import com.app.postcommandservice.shared.infrastructure.entity.OutboxEvent;
+import com.app.postcommandservice.shared.infrastructure.outbox.OutboxDestination;
 import com.app.postcommandservice.shared.infrastructure.mapper.JsonMapper;
 import com.app.postcommandservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 
@@ -30,8 +31,6 @@ class ValidateCommentLikeCommandPublisherTest {
     @Mock
     private RabbitMQProperties rabbitMQProperties;
 
-    @Mock
-    private JsonMapper jsonMapper;
 
     @Mock
     private RabbitMQProperties.Exchanges exchanges;
@@ -115,11 +114,9 @@ class ValidateCommentLikeCommandPublisherTest {
         when(postRk.getComment()).thenReturn(commentRk);
         when(commentRk.getLike()).thenReturn(likeRk);
         when(likeRk.getValidate()).thenReturn("rk.post.comment.like.validate");
-        when(jsonMapper.fromJson(outboxEvent.getPayload(), ValidateCommentLikeCommand.class)).thenReturn(command);
 
-        publisher.publish(outboxEvent);
-
-        verify(rabbitTemplate).convertAndSend("x.post.commands", "rk.post.comment.like.validate", command);
+        assertThat(publisher.destination(outboxEvent))
+                .isEqualTo(new OutboxDestination("x.post.commands", "rk.post.comment.like.validate"));
     }
 
     @Test
@@ -176,10 +173,8 @@ class ValidateCommentLikeCommandPublisherTest {
         when(postRk.getComment()).thenReturn(commentRk);
         when(commentRk.getLike()).thenReturn(likeRk);
         when(likeRk.getDeleted()).thenReturn("rk.post.comment.like.deleted");
-        when(jsonMapper.fromJson(outboxEvent.getPayload(), ValidateCommentUnlikeCommand.class)).thenReturn(command);
 
-        publisher.publish(outboxEvent);
-
-        verify(rabbitTemplate).convertAndSend("x.post.commands", "rk.post.comment.like.deleted", command);
+        assertThat(publisher.destination(outboxEvent))
+                .isEqualTo(new OutboxDestination("x.post.commands", "rk.post.comment.like.deleted"));
     }
 }

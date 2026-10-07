@@ -35,6 +35,8 @@ from shared.config.database import (
     SQLAlchemySessionProvider,
     SQLAlchemyTransactionManager,
 )
+from shared.outbox.outbox_publisher import OutboxPublisher
+from pipeline.usecase.trending_feed_use_case import TrendingFeedUseCase
 from shared.repository.impl.sql_alchemy_processed_events_repository import (
     SqlAlchemyProcessedEventsRepository,
 )
@@ -145,6 +147,8 @@ class Container:
         self.transaction_manager = SQLAlchemyTransactionManager()
 
         self.processed_events_repository = SqlAlchemyProcessedEventsRepository(self.session_provider)
+        self.outbox_publisher = OutboxPublisher()
+        self.trending_feed_usecase = TrendingFeedUseCase(self.outbox_publisher, self.transaction_manager)
 
         self.follow_repository = SqlAlchemyFollowRepository(self.session_provider)
         self.block_repository = SqlAlchemyBlockRepository(self.session_provider)

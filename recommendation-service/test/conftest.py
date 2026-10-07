@@ -60,6 +60,28 @@ def postgres_url() -> Iterator[str]:
         yield url
 
 
+@pytest.fixture(scope="session")
+def rabbitmq_url() -> Iterator[str]:
+    pytest.importorskip("testcontainers.core.container")
+
+    if not _docker_available():
+        pytest.skip("Docker is not available for RabbitMQ integration tests")
+
+    from testcontainers.core.container import DockerContainer
+    from testcontainers.core.wait_strategies import LogMessageWaitStrategy
+
+    image = os.getenv("TEST_RABBITMQ_IMAGE", "rabbitmq:4.3-management-alpine")
+    container = (
+        DockerContainer(image)
+        .with_exposed_ports(5672)
+        .waiting_for(LogMessageWaitStrategy("Server startup complete"))
+    )
+    with container as rabbitmq:
+        host = rabbitmq.get_container_host_ip()
+        port = rabbitmq.get_exposed_port(5672)
+        yield f"amqp://guest:guest@{host}:{port}/"
+
+
 @pytest.fixture()
 def db_session_factory(postgres_url: str):
 
@@ -80,6 +102,7 @@ def db_session_factory(postgres_url: str):
         "post_tag_features",
         "user_features",
         "user_creator_features",
+        "outbox_events",
     ]
     with engine.begin() as conn:
         conn.execute(text(f"TRUNCATE {', '.join(tables)} RESTART IDENTITY CASCADE"))

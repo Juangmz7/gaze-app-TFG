@@ -3,28 +3,116 @@ package publisher_test
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"testing"
 	"time"
 
-	"github.com/ThreeDotsLabs/watermill"
-	wmamqp "github.com/ThreeDotsLabs/watermill-amqp/v3/pkg/amqp"
 	"github.com/google/uuid"
 	rawamqp "github.com/rabbitmq/amqp091-go"
+	"github.com/testcontainers/testcontainers-go/modules/mongodb"
 	"github.com/testcontainers/testcontainers-go/modules/rabbitmq"
+	mongodriver "go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
+	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/database"
+	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/outbox"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/publisher"
-	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/router"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/topology"
 )
 
-// TestPublisher_Publish_RoutesUserFeedExhaustedEventToTheFeedEventsExchange
-// proves the publisher against a real broker: the event lands on
-// x.feed.events with routing key rk.post.feed.exhausted, independently
-// verified by a plain amqp091-go consumer bound to that exact routing key.
-func TestPublisher_Publish_RoutesUserFeedExhaustedEventToTheFeedEventsExchange(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+// TestPublisher_Publish_IsRelayedToTheFeedEventsExchange proves the full path
+// against real MongoDB (replica set) and RabbitMQ: the event is stored in the
+// outbox inside a transaction, the relay publishes it to x.feed.events with
+// routing key rk.post.feed.exhausted, and a plain amqp091-go consumer receives
+// the camelCase payload recommendation-service expects.
+func TestPublisher_Publish_IsRelayedToTheFeedEventsExchange(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
+
+	client := startReplicaSetMongo(t, ctx)
+	amqpURI := startRabbitMQ(t, ctx)
+	deliveries := declareVerificationQueue(t, ctx, amqpURI, topology.ExchangeFeedEvents, topology.RKFeedExhausted)
+
+	store := outbox.NewStore(client.Database("feed_exhausted_publisher_test"))
+	if err := store.EnsureIndexes(ctx); err != nil {
+		t.Fatalf("EnsureIndexes() error = %v", err)
+	}
+
+	event := publisher.Event{
+		ID:            uuid.New(),
+		CorrelationID: uuid.New(),
+		OccurredAt:    time.Now().UTC(),
+		UserID:        uuid.New(),
+	}
+
+	err := database.WithTransaction(ctx, client, func(ctx context.Context) error {
+		return publisher.NewPublisher(store).Publish(ctx, event)
+	})
+	if err != nil {
+		t.Fatalf("Publish() in transaction error = %v", err)
+	}
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	amqpPublisher := outbox.NewAMQPPublisher(amqpURI, logger)
+	t.Cleanup(func() { amqpPublisher.Close() })
+
+	if err := outbox.NewRelay(store, amqpPublisher, outbox.DefaultRelayConfig(), logger).RelayBatch(ctx); err != nil {
+		t.Fatalf("RelayBatch() error = %v", err)
+	}
+
+	select {
+	case delivery := <-deliveries:
+		if delivery.MessageId != event.ID.String() {
+			t.Fatalf("MessageId = %q, want the event id %q", delivery.MessageId, event.ID)
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(delivery.Body, &payload); err != nil {
+			t.Fatalf("json.Unmarshal() error = %v", err)
+		}
+		if payload["userId"] != event.UserID.String() || payload["correlationId"] != event.CorrelationID.String() {
+			t.Fatalf("delivered payload = %v, want camelCase userId/correlationId of %+v", payload, event)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("timed out waiting for the event on x.feed.events/rk.post.feed.exhausted")
+	}
+}
+
+// startReplicaSetMongo starts a single-node replica set (transactions need
+// one) and connects directly to it.
+func startReplicaSetMongo(t *testing.T, ctx context.Context) *mongodriver.Client {
+	t.Helper()
+
+	container, err := mongodb.Run(ctx, "mongo:7", mongodb.WithReplicaSet("rs0"))
+	if err != nil {
+		t.Fatalf("mongodb.Run() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if terminateErr := container.Terminate(context.Background()); terminateErr != nil {
+			t.Logf("container.Terminate() error = %v", terminateErr)
+		}
+	})
+
+	endpoint, err := container.PortEndpoint(ctx, "27017/tcp", "")
+	if err != nil {
+		t.Fatalf("container.PortEndpoint() error = %v", err)
+	}
+
+	client, err := mongodriver.Connect(options.Client().ApplyURI("mongodb://" + endpoint + "/?directConnection=true"))
+	if err != nil {
+		t.Fatalf("mongo.Connect() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if disconnectErr := client.Disconnect(context.Background()); disconnectErr != nil {
+			t.Logf("client.Disconnect() error = %v", disconnectErr)
+		}
+	})
+
+	return client
+}
+
+func startRabbitMQ(t *testing.T, ctx context.Context) string {
+	t.Helper()
 
 	container, err := rabbitmq.Run(ctx, "rabbitmq:4.3-management-alpine")
 	if err != nil {
@@ -40,45 +128,7 @@ func TestPublisher_Publish_RoutesUserFeedExhaustedEventToTheFeedEventsExchange(t
 	if err != nil {
 		t.Fatalf("container.AmqpURL() error = %v", err)
 	}
-
-	deliveries := declareVerificationQueue(t, ctx, amqpURI, topology.ExchangeFeedEvents, topology.RKFeedExhausted)
-
-	wmLogger := watermill.NewSlogLogger(slog.Default())
-	amqpPublisher, err := wmamqp.NewPublisher(router.NewPublisherConfig(amqpURI, topology.ExchangeFeedEvents), wmLogger)
-	if err != nil {
-		t.Fatalf("wmamqp.NewPublisher() error = %v", err)
-	}
-	t.Cleanup(func() {
-		if closeErr := amqpPublisher.Close(); closeErr != nil {
-			t.Logf("amqpPublisher.Close() error = %v", closeErr)
-		}
-	})
-
-	pub := publisher.NewPublisher(amqpPublisher)
-
-	event := publisher.Event{
-		ID:            uuid.New(),
-		CorrelationID: uuid.New(),
-		OccurredAt:    time.Now().UTC(),
-		UserID:        uuid.New(),
-	}
-
-	if err := pub.Publish(ctx, event); err != nil {
-		t.Fatalf("Publish() error = %v", err)
-	}
-
-	select {
-	case delivery := <-deliveries:
-		var gotEvent publisher.Event
-		if err := json.Unmarshal(delivery.Body, &gotEvent); err != nil {
-			t.Fatalf("json.Unmarshal() error = %v", err)
-		}
-		if gotEvent.UserID != event.UserID {
-			t.Fatalf("delivered payload UserID = %v, want %v", gotEvent.UserID, event.UserID)
-		}
-	case <-time.After(20 * time.Second):
-		t.Fatal("timed out waiting for the published event on x.feed.events/rk.post.feed.exhausted")
-	}
+	return amqpURI
 }
 
 // declareVerificationQueue declares its own exclusive queue bound to
