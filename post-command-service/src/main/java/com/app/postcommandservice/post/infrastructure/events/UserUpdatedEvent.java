@@ -3,16 +3,20 @@ package com.app.postcommandservice.post.infrastructure.events;
 import java.time.Instant;
 import java.util.UUID;
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import lombok.Builder;
 
-@JsonIgnoreProperties(ignoreUnknown = true)
+@Builder
 public record UserUpdatedEvent(
         UUID id,
         UUID correlationId,
         Instant occurredAt,
+
         UUID userId,
         String username,
+        String email,
+        UserBioEventPayload bio,
+        String pictureUrl,
+        String accountStatus,
         Instant createdAt,
         Instant updatedAt
-) {
-}
+){}

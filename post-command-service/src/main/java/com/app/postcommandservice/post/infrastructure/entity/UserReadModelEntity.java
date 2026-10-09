@@ -3,10 +3,7 @@ package com.app.postcommandservice.post.infrastructure.entity;
 import java.time.Instant;
 import java.util.UUID;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.Id;
-import jakarta.persistence.Table;
+import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -26,6 +23,12 @@ public class UserReadModelEntity {
 
     @Column(nullable = false, unique = true)
     private String username;
+
+    @Column(nullable = false, unique = true)
+    private String email;
+
+    @Embedded
+    private UserBioPayload bio;
 
     @Column(nullable = false, updatable = false)
     private Instant createdAt;

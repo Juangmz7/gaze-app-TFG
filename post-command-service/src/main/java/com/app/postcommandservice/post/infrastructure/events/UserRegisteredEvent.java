@@ -11,6 +11,8 @@ public record UserRegisteredEvent(
         UUID correlationId,
         Instant occurredAt,
         UUID userId,
-        String username
+        String username,
+        String email,
+        UserBioEventPayload bio
 ) {
 }

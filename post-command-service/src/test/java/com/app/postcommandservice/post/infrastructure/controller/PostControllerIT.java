@@ -46,6 +46,7 @@ import com.app.postcommandservice.collab.infrastructure.repository.CollabMemberJ
 import com.app.postcommandservice.collab.infrastructure.repository.CollabRequestIdempotencyJpaRepository;
 import com.app.postcommandservice.post.infrastructure.entity.BlockReadModelEntity;
 import com.app.postcommandservice.post.infrastructure.entity.BlockReadModelId;
+import com.app.postcommandservice.post.infrastructure.entity.UserBioPayload;
 import com.app.postcommandservice.post.infrastructure.entity.UserReadModelEntity;
 import com.app.postcommandservice.post.infrastructure.repository.BlockReadModelJpaRepository;
 import com.app.postcommandservice.post.infrastructure.repository.PostJpaRepository;
@@ -969,7 +970,14 @@ class PostControllerIT {
 
     private void seedUser(UUID userId, String username) {
         var now = Instant.now();
-        userReadModelJpaRepository.save(new UserReadModelEntity(userId, username, now, now));
+        userReadModelJpaRepository.save(new UserReadModelEntity(
+                userId,
+                username,
+                username + "@email.com",
+                new UserBioPayload(username + "'s description", Map.of("Tiktok", username)),
+                now,
+                now
+        ));
     }
 
     private com.app.postcommandservice.post.infrastructure.entity.PostEntity seedPost(

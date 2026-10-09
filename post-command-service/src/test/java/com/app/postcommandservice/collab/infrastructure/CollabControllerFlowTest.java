@@ -2,11 +2,7 @@ package com.app.postcommandservice.collab.infrastructure;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -14,6 +10,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
+import com.app.postcommandservice.post.infrastructure.entity.UserBioPayload;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
@@ -147,7 +144,12 @@ class CollabControllerFlowTest {
 
     @Test
     void shouldOpenCollabPersistMemberPostAndPublishEvent() throws Exception {
-        seedUser(UUID.randomUUID(), "alice");
+        seedUser(
+                UUID.randomUUID(),
+                "alice",
+                "alice@email.com",
+                new UserBioPayload("Alice's description", Map.of("Tiktok", "Alice_09"))
+        );
 
         String queueName = "test.collab.opened." + UUID.randomUUID();
         RabbitAdmin rabbitAdmin = new RabbitAdmin(connectionFactory);
@@ -1344,11 +1346,17 @@ class CollabControllerFlowTest {
         new RabbitAdmin(connectionFactory).deleteQueue(queueName);
     }
 
-    private void seedUser(UUID userId, String username) {
+    private void seedUser(UUID userId, String username, String email, UserBioPayload bio) {
         var now = Instant.now();
-
         userReadModelJpaRepository.save(
-                new UserReadModelEntity(userId, username, now, now)
+                new UserReadModelEntity(
+                        userId,
+                        username,
+                        email,
+                        bio,
+                        now,
+                        now
+                )
         );
     }
 
