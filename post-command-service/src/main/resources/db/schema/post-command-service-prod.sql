@@ -154,3 +154,27 @@ BEGIN
 END $$;
 
 DROP TABLE IF EXISTS post_tagged_users;
+
+-- Security fix: scope post-creation request idempotency by (userId, correlationId) instead of
+-- correlationId alone, so one user cannot reuse/discover another user's post by colliding on a
+-- client-chosen correlation id. Also adds request_hash to detect same-key/different-payload reuse.
+ALTER TABLE post_request_idempotency
+    ADD COLUMN IF NOT EXISTS user_id UUID;
+
+UPDATE post_request_idempotency pri
+SET user_id = p.user_id
+FROM posts p
+WHERE p.id = pri.post_id
+  AND pri.user_id IS NULL;
+
+ALTER TABLE post_request_idempotency
+    ALTER COLUMN user_id SET NOT NULL;
+
+ALTER TABLE post_request_idempotency
+    ADD COLUMN IF NOT EXISTS request_hash VARCHAR(64);
+
+ALTER TABLE post_request_idempotency
+    DROP CONSTRAINT IF EXISTS post_request_idempotency_pkey;
+
+ALTER TABLE post_request_idempotency
+    ADD CONSTRAINT pk_post_request_idempotency PRIMARY KEY (user_id, correlation_id);

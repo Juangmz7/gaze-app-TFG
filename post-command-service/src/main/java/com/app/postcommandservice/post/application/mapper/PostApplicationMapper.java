@@ -1,5 +1,6 @@
 package com.app.postcommandservice.post.application.mapper;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -32,6 +33,10 @@ public final class PostApplicationMapper {
     }
 
     public static PostResponse toResponse(Post post) {
+        return toResponse(post, toMediaResponse(post.getMedia()), null);
+    }
+
+    public static PostResponse toResponse(Post post, List<PostMediaResponse> mediaResponses, Instant uploadExpiresAt) {
         return new PostResponse(
                 post.getId().value(),
                 post.getUserId().value(),
@@ -39,7 +44,9 @@ public final class PostApplicationMapper {
                 post.getPostType(),
                 post.getDescription().value(),
                 post.getTags().value(),
-                toMediaResponse(post.getMedia()),
+                mediaResponses,
+                post.getStatus(),
+                uploadExpiresAt,
                 post.getCreatedAt(),
                 post.getUpdatedAt()
         );
@@ -47,15 +54,21 @@ public final class PostApplicationMapper {
 
     public static List<PostMediaResponse> toMediaResponse(List<PostMedia> media) {
         return media.stream()
-                .map(postMedia -> new PostMediaResponse(
-                        postMedia.getId(),
-                        postMedia.getUrl(),
-                        postMedia.getThumbnailUrl(),
-                        postMedia.getMediaType(),
-                        postMedia.getDuration(),
-                        postMedia.getTaggedUsers(),
-                        postMedia.getOrder()
-                ))
+                .map(postMedia -> toMediaResponse(postMedia, null, null))
                 .toList();
+    }
+
+    public static PostMediaResponse toMediaResponse(PostMedia postMedia, String uploadUrl, String thumbnailUploadUrl) {
+        return new PostMediaResponse(
+                postMedia.getId(),
+                postMedia.getUrl(),
+                postMedia.getThumbnailUrl(),
+                postMedia.getMediaType(),
+                postMedia.getDuration(),
+                postMedia.getTaggedUsers(),
+                postMedia.getOrder(),
+                uploadUrl,
+                thumbnailUploadUrl
+        );
     }
 }
