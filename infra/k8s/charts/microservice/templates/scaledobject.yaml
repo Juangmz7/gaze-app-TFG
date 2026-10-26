@@ -1,0 +1,59 @@
+{{- $as := .Values.autoscaling }}
+{{- if and $as.enabled (or $as.rabbitmq.queues $as.cpu.enabled) }}
+{{- if and $as.rabbitmq.queues (not (include "microservice.hasSecret" .)) }}
+{{- fail "autoscaling.rabbitmq.queues needs secretEnv or existingSecret holding autoscaling.rabbitmq.hostSecretKey" }}
+{{- end }}
+{{- if $as.rabbitmq.queues }}
+# Credentials KEDA uses to read the queue depth, taken from the service
+# Secret (amqp://user:pass@host:5672/).
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: {{ include "microservice.fullname" . }}-rabbitmq
+  labels:
+    {{- include "microservice.labels" . | nindent 4 }}
+spec:
+  secretTargetRef:
+    - parameter: host
+      name: {{ include "microservice.secretName" . }}
+      key: {{ $as.rabbitmq.hostSecretKey }}
+---
+{{- end }}
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "microservice.fullname" . }}
+  labels:
+    {{- include "microservice.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    name: {{ include "microservice.fullname" . }}
+  minReplicaCount: {{ $as.minReplicas }}
+  maxReplicaCount: {{ $as.maxReplicas }}
+  pollingInterval: {{ $as.pollingInterval }}
+  cooldownPeriod: {{ $as.cooldownPeriod }}
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        {{- toYaml $as.behavior | nindent 8 }}
+  triggers:
+    {{- range $as.rabbitmq.queues }}
+    - type: rabbitmq
+      name: {{ .name | replace "." "-" | trunc 63 | trimSuffix "-" }}
+      metadata:
+        protocol: amqp
+        mode: QueueLength
+        queueName: {{ .name | quote }}
+        vhostName: {{ $as.rabbitmq.vhost | quote }}
+        value: {{ .value | default "20" | quote }}
+        activationValue: {{ .activationValue | default "0" | quote }}
+      authenticationRef:
+        name: {{ include "microservice.fullname" $ }}-rabbitmq
+    {{- end }}
+    {{- if $as.cpu.enabled }}
+    - type: cpu
+      metricType: Utilization
+      metadata:
+        value: {{ $as.cpu.utilization | quote }}
+    {{- end }}
+{{- end }}

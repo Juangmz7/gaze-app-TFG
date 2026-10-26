@@ -1,0 +1,82 @@
+# post-command-service: dev environment (single-node k3s on WSL2).
+# Spring "dev" profile with its localhost endpoints overridden, like
+# infra/local/app/compose.yaml. PostgreSQL and Azurite live outside the
+# cluster (local compose stack on the k3s host), reached through the
+# in-cluster names of infra/k8s/platform/external-databases.
+
+environment: dev
+
+env:
+  SPRING_PROFILES_ACTIVE: dev
+  # --- PostgreSQL (external: compose post_command_postgres) ---
+  SPRING_DATASOURCE_URL: jdbc:postgresql://post-command-postgres.external-databases.svc.cluster.local:5432/post_command_service_db
+  SPRING_DATASOURCE_USERNAME: post_command_user
+  # --- RabbitMQ (in-cluster, dedicated user) ---
+  SPRING_RABBITMQ_HOST: rabbitmq.rabbitmq-dev.svc.cluster.local
+  SPRING_RABBITMQ_PORT: "5672"
+  SPRING_RABBITMQ_USERNAME: post-command-service
+  # --- Redis (in-cluster) ---
+  SPRING_DATA_REDIS_HOST: redis.redis-dev.svc.cluster.local
+  SPRING_DATA_REDIS_PORT: "6379"
+  # --- Azure Blob Storage (external: compose azurite) ---
+  # The account key is Azurite's well-known key from application-dev.yaml.
+  # SAS URLs handed to clients point at this in-cluster name, which only
+  # resolves inside the cluster.
+  AZURE_STORAGE_ACCOUNT_URL: http://azurite.external-databases.svc.cluster.local:10000/devstoreaccount1
+  # --- Keycloak: tokens carry the public issuer; keys are fetched in-cluster ---
+  SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: https://auth.dev.gaze.localhost/realms/auth-service
+  SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak-service.keycloak-dev.svc.cluster.local:8080/realms/auth-service/protocol/openid-connect/certs
+  # --- OpenTelemetry (cluster collector, OTLP HTTP) ---
+  MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://gaze-collector.observability.svc.cluster.local:4318/v1/traces
+  MANAGEMENT_OPENTELEMETRY_LOGGING_EXPORT_OTLP_ENDPOINT: http://gaze-collector.observability.svc.cluster.local:4318/v1/logs
+  MANAGEMENT_OTLP_METRICS_EXPORT_URL: http://gaze-collector.observability.svc.cluster.local:4318/v1/metrics
+  OTEL_RESOURCE_ATTRIBUTES: deployment.environment.name=dev
+
+# Local development values only (same as application-dev.yaml). Moved to
+# Vault together with the prod values.
+secretEnv:
+  SPRING_DATASOURCE_PASSWORD: super_secret_post_command_postgres_password_123
+  SPRING_RABBITMQ_PASSWORD: super_secret_post_command_service_rabbitmq_password_123
+  SPRING_DATA_REDIS_PASSWORD: super_secret_redis_password_123
+  RABBITMQ_AMQP_URI: amqp://post-command-service:super_secret_post_command_service_rabbitmq_password_123@rabbitmq.rabbitmq-dev.svc.cluster.local:5672/
+
+httpRoute:
+  parentRef:
+    namespace: gateway-dev
+  hostnames:
+    - api.dev.gaze.localhost
+
+autoscaling:
+  minReplicas: 1
+  maxReplicas: 3
+
+networkPolicy:
+  gatewayNamespace: gateway-dev
+  egress:
+    - name: rabbitmq
+      namespace: rabbitmq-dev
+      podLabels:
+        app.kubernetes.io/component: rabbitmq
+      ports: [5672]
+    - name: redis
+      namespace: redis-dev
+      podLabels:
+        app.kubernetes.io/name: redis
+      ports: [6379]
+    - name: keycloak (JWKS)
+      namespace: keycloak-dev
+      podLabels:
+        app.kubernetes.io/managed-by: keycloak-operator
+      ports: [8080]
+    - name: otel-collector
+      namespace: observability
+      podLabels:
+        app.kubernetes.io/component: opentelemetry-collector
+      ports: [4317, 4318]
+  externalEgress:
+    # Databases on the k3s host (compose, DB_BIND_IP=0.0.0.0), reached through
+    # infra/k8s/platform/external-databases: after the Service DNAT the
+    # traffic goes to the node's pod-network gateway on the published port.
+    - name: postgres (5434) + azurite (10000)
+      cidr: 10.42.0.1/32
+      ports: [5434, 10000]

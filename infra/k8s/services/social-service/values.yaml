@@ -1,0 +1,46 @@
+# social-service: values shared by every environment.
+# Chart: infra/k8s/charts/microservice. Per-env overrides: values-<env>.yaml.
+
+image:
+  repository: docker.io/juangmz7/social-service
+
+# application-dev.yaml and application-prod.yaml both set server.port=8081
+containerPort: 8081
+
+probes:
+  liveness:
+    path: /actuator/health/liveness
+  readiness:
+    path: /actuator/health/readiness
+  startup:
+    path: /actuator/health/liveness
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    memory: 1Gi
+
+env:
+  SPRING_APPLICATION_NAME: social-service
+  # Heap sized from the container memory limit; crash fast on OOM so the
+  # pod restarts instead of limping.
+  JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError"
+
+httpRoute:
+  enabled: true
+  pathPrefixes:
+    - /api/social
+
+autoscaling:
+  enabled: true
+  rabbitmq:
+    # TODO(queues): mock names until the real queues to scale on are chosen
+    # (candidates in social-service/src/main/resources/application.yaml).
+    queues:
+      - name: q.social-service.mock-queue-1
+        value: "50"
+  cpu:
+    enabled: true
+    utilization: "75"
