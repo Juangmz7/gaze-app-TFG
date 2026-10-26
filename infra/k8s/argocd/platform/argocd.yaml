@@ -17,7 +17,7 @@ spec:
         releaseName: argocd
         valueFiles:
           - $values/infra/k8s/bootstrap/argocd-values.yaml
-    - repoURL: https://github.com/Juangmz7/Gaze-app.git
+    - repoURL: https://github.com/Juangmz7/gaze-app-TFG.git
       targetRevision: main
       ref: values
   destination:

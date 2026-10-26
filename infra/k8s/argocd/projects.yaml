@@ -11,7 +11,7 @@ metadata:
 spec:
   description: Cluster-wide controllers and their configuration
   sourceRepos:
-    - https://github.com/Juangmz7/Gaze-app.git
+    - https://github.com/Juangmz7/gaze-app-TFG.git
     - https://argoproj.github.io/argo-helm
     - docker.io/envoyproxy
     - https://charts.jetstack.io
@@ -49,7 +49,7 @@ metadata:
 spec:
   description: Per-environment infrastructure (gateway, rabbitmq, redis, keycloak)
   sourceRepos:
-    - https://github.com/Juangmz7/Gaze-app.git
+    - https://github.com/Juangmz7/gaze-app-TFG.git
   destinations:
     - server: https://kubernetes.default.svc
       namespace: gateway-*
@@ -78,7 +78,7 @@ metadata:
 spec:
   description: Gaze microservices (chart infra/k8s/charts/microservice)
   sourceRepos:
-    - https://github.com/Juangmz7/Gaze-app.git
+    - https://github.com/Juangmz7/gaze-app-TFG.git
   destinations:
     - server: https://kubernetes.default.svc
       namespace: "*-service-dev"
