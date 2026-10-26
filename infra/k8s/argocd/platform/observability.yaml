@@ -1,0 +1,29 @@
+# Shared telemetry pipeline (OTel Collector -> LGTM) for every environment.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: observability
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-3"
+spec:
+  project: platform
+  source:
+    repoURL: https://github.com/Juangmz7/Gaze-app.git
+    targetRevision: main
+    path: infra/k8s/platform/observability
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    managedNamespaceMetadata:
+      labels:
+        gaze.app/tier: observability
+        pod-security.kubernetes.io/enforce: baseline
+        pod-security.kubernetes.io/warn: restricted
+    syncOptions:
+      - CreateNamespace=true
+      - SkipDryRunOnMissingResource=true

@@ -1,0 +1,92 @@
+# Grafana LGTM all-in-one (Loki, Grafana, Tempo, Mimir/Prometheus), the same
+# backend as the local compose stack. Fine for local k3s; on AKS replace it with
+# the per-component charts or a managed backend (only the collector
+# exporter changes). Grafana is not routed publicly:
+#   kubectl -n observability port-forward svc/lgtm 3000
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: lgtm-data
+  namespace: observability
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lgtm
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: lgtm
+spec:
+  selector:
+    app.kubernetes.io/name: lgtm
+  ports:
+    - name: grafana
+      port: 3000
+      targetPort: grafana
+    - name: otlp-grpc
+      port: 4317
+      targetPort: otlp-grpc
+    - name: otlp-http
+      port: 4318
+      targetPort: otlp-http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lgtm
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: lgtm
+    app.kubernetes.io/part-of: gaze
+spec:
+  replicas: 1
+  # RWO volume: never run two pods on it.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: lgtm
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: lgtm
+        app.kubernetes.io/part-of: gaze
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: lgtm
+          image: grafana/otel-lgtm:0.38.0
+          ports:
+            - name: grafana
+              containerPort: 3000
+            - name: otlp-grpc
+              containerPort: 4317
+            - name: otlp-http
+              containerPort: 4318
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: grafana
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 250m
+              memory: 1Gi
+            limits:
+              memory: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: lgtm-data

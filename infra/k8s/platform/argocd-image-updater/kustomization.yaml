@@ -1,0 +1,7 @@
+# Argo CD Image Updater controller (+ ImageUpdater CRD), in the Argo CD
+# namespace. What it updates is declared in infra/k8s/platform/image-updates.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: argocd
+resources:
+  - https://raw.githubusercontent.com/argoproj-labs/argocd-image-updater/v1.4.0/config/install.yaml
