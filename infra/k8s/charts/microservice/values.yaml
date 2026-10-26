@@ -201,3 +201,11 @@ migrations:
   args: []
   backoffLimit: 3
   activeDeadlineSeconds: 600
+  # The Job only runs the migration tool, not the service, so it reserves far
+  # less than the Deployment (whose "resources" it used to copy).
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
