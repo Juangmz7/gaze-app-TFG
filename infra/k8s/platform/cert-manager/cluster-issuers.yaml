@@ -44,7 +44,7 @@ spec:
   acme:
     server: https://acme-v02.api.letsencrypt.org/directory
     # TODO(aks): contact email for expiry notices.
-    email: CHANGE_ME@example.com
+    email: juannito@gmail.com
     privateKeySecretRef:
       name: letsencrypt-prod-account-key
     solvers:
