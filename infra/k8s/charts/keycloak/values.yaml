@@ -40,7 +40,7 @@ database:
   name: keycloak
   username: keycloak
   # Local development value only; Vault provides it in real environments.
-  password: keycloak_postgres_admin_pass_123
+  password: CHANGE_ME
   # Where the traffic really goes once Services are resolved (NetworkPolicy
   # egress): for the local k3s host, its pod-network gateway and the
   # published port; for a managed database, its private endpoint.

@@ -13,9 +13,8 @@ database:
   port: 5432
   name: keycloak
   username: keycloak
-  # TODO(dev): POSTGRES_PASSWORD from infra/local/.env is not committed
-  # anywhere; put the same value here.
-  password: CHANGE_ME
+  # Same as POSTGRES_PASSWORD in infra/local/.env (local development only).
+  password: keycloak_postgres_admin_pass_123
   egress:
     cidr: 10.42.0.1/32
     port: 5436

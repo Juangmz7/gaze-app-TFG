@@ -90,7 +90,7 @@ The compose stack runs with Docker Engine on the same WSL2 Ubuntu as k3s. Pods c
 ## How to run (k3s on WSL2 Ubuntu)
 1. In Ubuntu: enable systemd (`/etc/wsl.conf` → `[boot]` `systemd=true`, then `wsl --shutdown` from Windows), install Docker Engine and helm, and disable Docker Desktop's WSL integration for this distro.
 2. Start the databases with `DB_BIND_IP=0.0.0.0` in `infra/local/.env`: `docker compose -f infra/local/compose.yaml --env-file infra/local/.env up -d`.
-3. Fill the two dev passwords that are not committed anywhere: `database.password` in `environments/dev/keycloak.yaml` (= `POSTGRES_PASSWORD`) and `DATABASE_URL` in `services/recommendation-service/values-dev.yaml` (= `RECOMMENDATION_POSTGRES_PASSWORD`).
+3. Fill the dev password that is not committed: `DATABASE_URL` in `services/recommendation-service/values-dev.yaml` (= `RECOMMENDATION_POSTGRES_PASSWORD`). `database.password` in `environments/dev/keycloak.yaml` must stay equal to `POSTGRES_PASSWORD` in `infra/local/.env`.
 4. `./infra/k8s/bootstrap/bootstrap.sh`: installs k3s `v1.35.2+k3s1` with `bootstrap/k3s-config.yaml` (Traefik off, fixed CIDRs, Secrets encrypted at rest), checks the pod CIDR, installs Argo CD and applies the root app. Argo CD then syncs from `main`.
 5. From Windows, an elevated PowerShell: `infra/k8s/bootstrap/windows-portproxy.ps1` (again after each WSL restart). It forwards `127.0.0.1:80/443` to the WSL IP, because k3s exposes the Gateway through iptables, which WSL's localhost forwarding doesn't see. `kubectl` from Windows works with the kubeconfig at `~/.kube/config` in Ubuntu (API on `127.0.0.1:6443`).
 
