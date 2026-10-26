@@ -1,0 +1,27 @@
+# Gateway for the prod environment (namespace gateway-prod).
+
+environment: prod
+
+# TODO(aks): replace with the real domain.
+hostnames:
+  api: api.gaze.localhost
+  auth: auth.gaze.localhost
+
+tls:
+  # Let's Encrypt (HTTP-01 through this Gateway). Needs a public DNS name.
+  clusterIssuer: letsencrypt-prod
+
+proxy:
+  replicas: 2
+  pdbMinAvailable: 1
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+
+trafficPolicy:
+  rateLimit:
+    requests: 600
+    unit: Minute

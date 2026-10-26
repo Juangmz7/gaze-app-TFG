@@ -5,6 +5,11 @@
 # Ports are published on 127.0.0.1 only: Redis and Mongo have no hardening and
 # Docker bypasses the host firewall. Drop the prefix to reach them from
 # another machine.
+#
+# The databases used by the k3s cluster (infra/k8s) bind to ${DB_BIND_IP}
+# instead (default 127.0.0.1). Set DB_BIND_IP=0.0.0.0 in .env when this stack
+# runs next to k3s: pods reach the databases through the node, which only
+# works if they listen on more than loopback.
 
 # Pinned project name: keeps the existing `infra_*` volumes (and their data)
 # now that this file lives in infra/local instead of infra/.
@@ -19,6 +24,9 @@ services:
       POSTGRES_DB: keycloak
       POSTGRES_USER: keycloak
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      # Used by the Keycloak of the k3s cluster (infra/k8s).
+      - "${DB_BIND_IP:-127.0.0.1}:${KEYCLOAK_POSTGRES_PORT:-5436}:5432"
     volumes:
       - keycloak_postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -140,7 +148,7 @@ services:
       POSTGRES_USER: ${SOCIAL_POSTGRES_USER:-social_user}
       POSTGRES_PASSWORD: ${SOCIAL_POSTGRES_PASSWORD}
     ports:
-      - "127.0.0.1:${SOCIAL_POSTGRES_PORT:-5433}:5432"
+      - "${DB_BIND_IP:-127.0.0.1}:${SOCIAL_POSTGRES_PORT:-5433}:5432"
     volumes:
       - social_postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -161,7 +169,7 @@ services:
       NEO4J_AUTH: ${SOCIAL_NEO4J_USER:-neo4j}/${SOCIAL_NEO4J_PASSWORD}
     ports:
       - "127.0.0.1:${SOCIAL_NEO4J_HTTP_PORT:-7474}:7474"
-      - "127.0.0.1:${SOCIAL_NEO4J_BOLT_PORT:-7687}:7687"
+      - "${DB_BIND_IP:-127.0.0.1}:${SOCIAL_NEO4J_BOLT_PORT:-7687}:7687"
     volumes:
       - social_neo4j_data:/data
     healthcheck:
@@ -205,7 +213,7 @@ services:
     restart: unless-stopped
     command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
     ports:
-      - "127.0.0.1:${POST_QUERY_MONGO_PORT:-27017}:27017"
+      - "${DB_BIND_IP:-127.0.0.1}:${POST_QUERY_MONGO_PORT:-27017}:27017"
     volumes:
       - post_query_mongo_data:/data/db
     healthcheck:
@@ -233,7 +241,7 @@ services:
       POSTGRES_USER: ${POST_COMMAND_POSTGRES_USER:-post_command_user}
       POSTGRES_PASSWORD: ${POST_COMMAND_POSTGRES_PASSWORD}
     ports:
-      - "127.0.0.1:${POST_COMMAND_POSTGRES_PORT:-5434}:5432"
+      - "${DB_BIND_IP:-127.0.0.1}:${POST_COMMAND_POSTGRES_PORT:-5434}:5432"
     volumes:
       - post_command_postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -252,7 +260,7 @@ services:
     restart: unless-stopped
     command: ["azurite", "--blobHost", "0.0.0.0", "--queueHost", "0.0.0.0", "--tableHost", "0.0.0.0", "--location", "/data", "--debug", "/data/debug.log"]
     ports:
-      - "127.0.0.1:${AZURITE_BLOB_PORT:-10000}:10000"
+      - "${DB_BIND_IP:-127.0.0.1}:${AZURITE_BLOB_PORT:-10000}:10000"
       - "127.0.0.1:${AZURITE_QUEUE_PORT:-10001}:10001"
       - "127.0.0.1:${AZURITE_TABLE_PORT:-10002}:10002"
     volumes:
@@ -271,7 +279,7 @@ services:
       POSTGRES_USER: ${RECOMMENDATION_POSTGRES_USER:-recommendation_user}
       POSTGRES_PASSWORD: ${RECOMMENDATION_POSTGRES_PASSWORD}
     ports:
-      - "127.0.0.1:${RECOMMENDATION_POSTGRES_PORT:-5435}:5432"
+      - "${DB_BIND_IP:-127.0.0.1}:${RECOMMENDATION_POSTGRES_PORT:-5435}:5432"
     volumes:
       - recommendation_postgres_data:/var/lib/postgresql/data
     healthcheck:

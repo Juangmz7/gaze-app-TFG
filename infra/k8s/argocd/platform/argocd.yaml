@@ -1,0 +1,31 @@
+# Argo CD manages itself after bootstrap (infra/k8s/bootstrap/bootstrap.sh
+# installs the same chart version with the same values).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-10"
+spec:
+  project: platform
+  sources:
+    - repoURL: https://argoproj.github.io/argo-helm
+      chart: argo-cd
+      targetRevision: 10.11.6
+      helm:
+        releaseName: argocd
+        valueFiles:
+          - $values/infra/k8s/bootstrap/argocd-values.yaml
+    - repoURL: https://github.com/Juangmz7/Gaze-app.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true

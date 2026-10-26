@@ -1,0 +1,108 @@
+{{- $np := .Values.networkPolicy }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  labels:
+    {{- include "gateway.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  labels:
+    {{- include "gateway.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-proxy
+  labels:
+    {{- include "gateway.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: envoy
+      app.kubernetes.io/component: proxy
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Public listeners. Envoy Gateway shifts privileged ports by 10000
+    # (80 -> 10080, 443 -> 10443) so the proxy runs unprivileged.
+    - ports:
+        - protocol: TCP
+          port: 10080
+        - protocol: TCP
+          port: 10443
+  egress:
+    # Control plane: xDS (18000) and the global rate limit service (8081).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $np.controlPlaneNamespace }}
+      ports:
+        - protocol: TCP
+          port: 18000
+        - protocol: TCP
+          port: 8081
+    # Backends: only this environment's service and identity namespaces.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              gaze.app/env: {{ .Values.environment }}
+              gaze.app/tier: app
+        - namespaceSelector:
+            matchLabels:
+              gaze.app/env: {{ .Values.environment }}
+              gaze.app/tier: identity
+      ports:
+        {{- range $np.backendPorts }}
+        - protocol: TCP
+          port: {{ . }}
+        {{- end }}
+---
+# cert-manager ACME HTTP-01 solver pods (Let's Encrypt issuer on AKS) are
+# created in this namespace and receive the challenge through the proxies.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-acme-solver
+  labels:
+    {{- include "gateway.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      acme.cert-manager.io/http01-solver: "true"
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: envoy
+      ports:
+        - protocol: TCP
+          port: 8089

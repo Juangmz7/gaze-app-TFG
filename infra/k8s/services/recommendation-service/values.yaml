@@ -1,0 +1,66 @@
+# recommendation-service: values shared by every environment.
+# Chart: infra/k8s/charts/microservice. Per-env overrides: values-<env>.yaml.
+# FastStream worker: consumes RabbitMQ, serves only the /healthz probes.
+
+image:
+  repository: docker.io/juangmz7/recommendation-service
+
+# Start only the worker; migrations run in the pre-sync Job below instead of
+# the image CMD, so several replicas never migrate concurrently.
+command:
+  - opentelemetry-instrument
+  - faststream
+  - run
+  - rabbitmq.config.connection:app
+  - --host
+  - 0.0.0.0
+  - --port
+  - "8000"
+
+containerPort: 8000
+
+# Workers have no HTTP route; probes hit the container port directly.
+service:
+  enabled: false
+
+probes:
+  liveness:
+    path: /healthz/live
+  readiness:
+    path: /healthz/ready
+  # Loading the embedding model on CPU is slow: allow up to 5 minutes.
+  startup:
+    path: /healthz/live
+    periodSeconds: 10
+    failureThreshold: 30
+
+# Qwen3-Embedding-0.6B on CPU.
+resources:
+  requests:
+    cpu: 500m
+    memory: 2Gi
+  limits:
+    memory: 3Gi
+
+env:
+  MODEL_DEVICE: cpu
+  OTEL_SERVICE_NAME: recommendation-service
+  OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+  # The model is baked into the image (HF_HOME): never call the Hub at runtime.
+  HF_HUB_OFFLINE: "1"
+  TRANSFORMERS_OFFLINE: "1"
+  # Read-only root filesystem: caches and bytecode go to the /tmp emptyDir.
+  HOME: /tmp
+  PYTHONDONTWRITEBYTECODE: "1"
+
+migrations:
+  enabled: true
+  command: ["alembic", "upgrade", "head"]
+
+autoscaling:
+  enabled: true
+  rabbitmq:
+    # TODO(queues): mock names until the real queues to scale on are chosen.
+    queues:
+      - name: q.recommendation-service.mock-queue-1
+        value: "100"

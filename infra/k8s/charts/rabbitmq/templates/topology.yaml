@@ -1,0 +1,62 @@
+{{- /*
+Messaging Topology Operator resources. They live in the same namespace as the
+RabbitmqCluster, so no cross-namespace topology access is needed.
+*/}}
+{{- range .Values.users }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: user-{{ .name }}
+  labels:
+    {{- include "rabbitmq.labels" $ | nindent 4 }}
+    # Required for the Topology Operator to read a user-provided secret.
+    rabbitmq.com/topology-operator: "true"
+type: Opaque
+stringData:
+  username: {{ .name | quote }}
+  password: {{ .password | quote }}
+---
+apiVersion: rabbitmq.com/v1beta1
+kind: User
+metadata:
+  name: {{ .name }}
+  labels:
+    {{- include "rabbitmq.labels" $ | nindent 4 }}
+spec:
+  tags: {{ .tags | default list | toJson }}
+  importCredentialsSecret:
+    name: user-{{ .name }}
+  {{- include "rabbitmq.clusterRef" $ | nindent 2 }}
+---
+apiVersion: rabbitmq.com/v1beta1
+kind: Permission
+metadata:
+  name: {{ .name }}
+  labels:
+    {{- include "rabbitmq.labels" $ | nindent 4 }}
+spec:
+  vhost: "/"
+  user: {{ .name | quote }}
+  permissions:
+    configure: {{ .permissions.configure | quote }}
+    write: {{ .permissions.write | quote }}
+    read: {{ .permissions.read | quote }}
+  {{- include "rabbitmq.clusterRef" $ | nindent 2 }}
+{{- end }}
+{{- range .Values.exchanges }}
+---
+apiVersion: rabbitmq.com/v1beta1
+kind: Exchange
+metadata:
+  name: {{ .name | replace "." "-" }}
+  labels:
+    {{- include "rabbitmq.labels" $ | nindent 4 }}
+spec:
+  name: {{ .name | quote }}
+  type: {{ .type }}
+  durable: true
+  autoDelete: false
+  vhost: "/"
+  {{- include "rabbitmq.clusterRef" $ | nindent 2 }}
+{{- end }}

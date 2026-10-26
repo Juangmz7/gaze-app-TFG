@@ -1,0 +1,57 @@
+# Local CA for k3s (*.gaze.localhost): a self-signed root signs every
+# Gateway certificate. Export it to trust it locally:
+#   kubectl -n cert-manager get secret gaze-local-ca -o jsonpath='{.data.ca\.crt}' | base64 -d > gaze-local-ca.crt
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: selfsigned-bootstrap
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: gaze-local-ca
+  namespace: cert-manager
+spec:
+  isCA: true
+  commonName: Gaze Local CA
+  secretName: gaze-local-ca
+  duration: 87600h # 10 years
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    group: cert-manager.io
+    kind: ClusterIssuer
+    name: selfsigned-bootstrap
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: gaze-local-ca
+spec:
+  ca:
+    secretName: gaze-local-ca
+---
+# Public certificates for prod (AKS), solved over HTTP-01 through the prod
+# Gateway's plain HTTP listener.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    # TODO(aks): contact email for expiry notices.
+    email: CHANGE_ME@example.com
+    privateKeySecretRef:
+      name: letsencrypt-prod-account-key
+    solvers:
+      - http01:
+          gatewayHTTPRoute:
+            parentRefs:
+              - kind: Gateway
+                name: gaze
+                namespace: gateway-prod
+                sectionName: http

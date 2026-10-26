@@ -1,0 +1,53 @@
+# Keycloak for the prod environment (namespace keycloak-prod).
+
+environment: prod
+
+# TODO(aks): replace with the real domain.
+hostname: auth.gaze.localhost
+# Admin console only through kubectl port-forward.
+exposeAdminConsole: false
+
+instances: 2
+
+resources:
+  requests:
+    cpu: "1"
+    memory: 1536Mi
+  limits:
+    memory: 2Gi
+
+# TODO(vault): credentials come from Vault before prod is enabled.
+database:
+  host: CHANGE_ME.postgres.database.azure.com
+  port: 5432
+  name: keycloak
+  username: keycloak
+  password: CHANGE_ME
+  # TODO(aks): narrow to the private endpoint of the managed database.
+  egress:
+    cidr: 10.0.0.0/8
+    port: 5432
+
+rabbitmq:
+  host: rabbitmq.rabbitmq-prod.svc.cluster.local
+  namespace: rabbitmq-prod
+  username: keycloak
+  password: CHANGE_ME
+
+realm:
+  # No Postman callback in prod.
+  clientRedirectUris:
+    mobile-app:
+      - myapp://callback
+
+gateway:
+  namespace: gateway-prod
+
+rateLimit:
+  requests: 60
+  unit: Minute
+
+networkPolicy:
+  clientNamespaces:
+    - social-service-prod
+    - post-command-service-prod

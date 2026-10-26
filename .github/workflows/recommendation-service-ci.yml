@@ -7,11 +7,14 @@ on:
       - "recommendation-service/**"
       - ".github/workflows/recommendation-service-ci.yml"
   push:
-    branches-ignore: [main]
     paths:
       - "recommendation-service/**"
       - ".github/workflows/recommendation-service-ci.yml"
+      - ".github/workflows/docker-publish.yml"
   workflow_dispatch: {}
+
+permissions:
+  contents: read
 
 concurrency:
   group: recommendation-service-ci-${{ github.ref }}
@@ -37,3 +40,13 @@ jobs:
 
       - name: Run tests
         run: pytest
+
+  publish:
+    needs: test
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    uses: ./.github/workflows/docker-publish.yml
+    with:
+      image: juangmz7/recommendation-service
+      context: recommendation-service
+      dockerfile: recommendation-service/Dockerfile
+    secrets: inherit

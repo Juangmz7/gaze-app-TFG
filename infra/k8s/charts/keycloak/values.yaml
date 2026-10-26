@@ -1,0 +1,81 @@
+# Overridden per environment in infra/k8s/environments/<env>/keycloak.yaml.
+
+environment: dev
+
+operator:
+  image: quay.io/keycloak/keycloak-operator:25.0.6
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+
+# Custom image (infra/local/keycloak/Dockerfile): RabbitMQ event listener
+# plugin + optimized build. Argo CD Image Updater pins the latest digest.
+image:
+  repository: docker.io/juangmz7/keycloak
+  tag: latest
+
+instances: 1
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    memory: 1536Mi
+
+# Public URL of Keycloak (token issuer). Must match the Gateway listener.
+hostname: auth.dev.gaze.localhost
+
+# The admin console is only routed publicly when true. Otherwise reach it
+# with kubectl port-forward svc/keycloak-service 8080.
+exposeAdminConsole: false
+
+# External PostgreSQL (out of the cluster).
+database:
+  host: keycloak-postgres.external-databases.svc.cluster.local
+  port: 5432
+  name: keycloak
+  username: keycloak
+  # Local development value only; Vault provides it in real environments.
+  password: CHANGE_ME
+  # Where the traffic really goes once Services are resolved (NetworkPolicy
+  # egress): for the local k3s host, its pod-network gateway and the
+  # published port; for a managed database, its private endpoint.
+  egress:
+    cidr: 10.42.0.1/32
+    port: 5436
+
+# keycloak-to-rabbitmq event listener (publishes REGISTER/UPDATE/DELETE...
+# events that the services consume).
+rabbitmq:
+  host: rabbitmq.rabbitmq-dev.svc.cluster.local
+  port: 5672
+  vhost: /
+  exchange: x.auth.events
+  username: keycloak
+  password: CHANGE_ME
+  namespace: rabbitmq-dev
+
+# Overrides of the realm export in files/auth-service-realm.json.
+realm:
+  # clientId -> redirectUris
+  clientRedirectUris: {}
+
+gateway:
+  name: gaze
+  namespace: gateway-dev
+  sectionName: https-auth
+
+# Per-IP limit for the identity endpoints (login, token, registration),
+# stricter than the Gateway default. Merged with the Gateway-wide policy.
+rateLimit:
+  requests: 60
+  unit: Minute
+
+networkPolicy:
+  # Services that fetch the JWKS in-cluster.
+  clientNamespaces: []
+  observabilityNamespace: observability

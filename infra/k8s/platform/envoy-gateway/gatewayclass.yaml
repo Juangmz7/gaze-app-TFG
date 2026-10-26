@@ -1,0 +1,9 @@
+# Single GatewayClass for the cluster. Each environment's Gateway brings its
+# own EnvoyProxy (infrastructure.parametersRef) and, in Gateway Namespace
+# Mode, its proxies run in the Gateway's namespace (gateway-<env>).
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: envoy-gateway
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller

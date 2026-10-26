@@ -1,0 +1,257 @@
+# Databases that live OUTSIDE the cluster, published as stable in-cluster
+# names: <db>.external-databases.svc.cluster.local:<standard port>.
+#
+# Local k3s (single node on WSL2): the infra/local compose stack runs on the
+# same host with DB_BIND_IP=0.0.0.0, so every database is reachable from pods
+# at the node's pod-network gateway, 10.42.0.1 (first IP of the node's pod
+# CIDR, cluster-cidr 10.42.0.0/16 in bootstrap/k3s-config.yaml), on its
+# published port (infra/local/.env). The services' NetworkPolicies allow
+# egress to exactly 10.42.0.1/32 on those ports.
+#
+# AKS: the prod values address the managed databases by their own hostnames,
+# so this layer is not used there.
+---
+# social-service: host port 5433
+apiVersion: v1
+kind: Service
+metadata:
+  name: social-postgres
+  namespace: external-databases
+  labels:
+    app.kubernetes.io/name: social-postgres
+    app.kubernetes.io/part-of: gaze
+spec:
+  # No selector: endpoints come from the EndpointSlice below.
+  ports:
+    - name: postgres
+      port: 5432
+      protocol: TCP
+---
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: social-postgres-host
+  namespace: external-databases
+  labels:
+    kubernetes.io/service-name: social-postgres
+    endpointslice.kubernetes.io/managed-by: argocd
+    app.kubernetes.io/part-of: gaze
+addressType: IPv4
+ports:
+  - name: postgres
+    port: 5433
+    protocol: TCP
+endpoints:
+  - addresses: ["10.42.0.1"]
+    conditions:
+      ready: true
+---
+# social-service: host port 7687
+apiVersion: v1
+kind: Service
+metadata:
+  name: social-neo4j
+  namespace: external-databases
+  labels:
+    app.kubernetes.io/name: social-neo4j
+    app.kubernetes.io/part-of: gaze
+spec:
+  # No selector: endpoints come from the EndpointSlice below.
+  ports:
+    - name: bolt
+      port: 7687
+      protocol: TCP
+---
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: social-neo4j-host
+  namespace: external-databases
+  labels:
+    kubernetes.io/service-name: social-neo4j
+    endpointslice.kubernetes.io/managed-by: argocd
+    app.kubernetes.io/part-of: gaze
+addressType: IPv4
+ports:
+  - name: bolt
+    port: 7687
+    protocol: TCP
+endpoints:
+  - addresses: ["10.42.0.1"]
+    conditions:
+      ready: true
+---
+# post-command-service: host port 5434
+apiVersion: v1
+kind: Service
+metadata:
+  name: post-command-postgres
+  namespace: external-databases
+  labels:
+    app.kubernetes.io/name: post-command-postgres
+    app.kubernetes.io/part-of: gaze
+spec:
+  # No selector: endpoints come from the EndpointSlice below.
+  ports:
+    - name: postgres
+      port: 5432
+      protocol: TCP
+---
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: post-command-postgres-host
+  namespace: external-databases
+  labels:
+    kubernetes.io/service-name: post-command-postgres
+    endpointslice.kubernetes.io/managed-by: argocd
+    app.kubernetes.io/part-of: gaze
+addressType: IPv4
+ports:
+  - name: postgres
+    port: 5434
+    protocol: TCP
+endpoints:
+  - addresses: ["10.42.0.1"]
+    conditions:
+      ready: true
+---
+# post-command-service (Azure Blob emulator): host port 10000
+apiVersion: v1
+kind: Service
+metadata:
+  name: azurite
+  namespace: external-databases
+  labels:
+    app.kubernetes.io/name: azurite
+    app.kubernetes.io/part-of: gaze
+spec:
+  # No selector: endpoints come from the EndpointSlice below.
+  ports:
+    - name: blob
+      port: 10000
+      protocol: TCP
+---
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: azurite-host
+  namespace: external-databases
+  labels:
+    kubernetes.io/service-name: azurite
+    endpointslice.kubernetes.io/managed-by: argocd
+    app.kubernetes.io/part-of: gaze
+addressType: IPv4
+ports:
+  - name: blob
+    port: 10000
+    protocol: TCP
+endpoints:
+  - addresses: ["10.42.0.1"]
+    conditions:
+      ready: true
+---
+# post-query-service: host port 27017
+apiVersion: v1
+kind: Service
+metadata:
+  name: post-query-mongo
+  namespace: external-databases
+  labels:
+    app.kubernetes.io/name: post-query-mongo
+    app.kubernetes.io/part-of: gaze
+spec:
+  # No selector: endpoints come from the EndpointSlice below.
+  ports:
+    - name: mongodb
+      port: 27017
+      protocol: TCP
+---
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: post-query-mongo-host
+  namespace: external-databases
+  labels:
+    kubernetes.io/service-name: post-query-mongo
+    endpointslice.kubernetes.io/managed-by: argocd
+    app.kubernetes.io/part-of: gaze
+addressType: IPv4
+ports:
+  - name: mongodb
+    port: 27017
+    protocol: TCP
+endpoints:
+  - addresses: ["10.42.0.1"]
+    conditions:
+      ready: true
+---
+# recommendation-service: host port 5435
+apiVersion: v1
+kind: Service
+metadata:
+  name: recommendation-postgres
+  namespace: external-databases
+  labels:
+    app.kubernetes.io/name: recommendation-postgres
+    app.kubernetes.io/part-of: gaze
+spec:
+  # No selector: endpoints come from the EndpointSlice below.
+  ports:
+    - name: postgres
+      port: 5432
+      protocol: TCP
+---
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: recommendation-postgres-host
+  namespace: external-databases
+  labels:
+    kubernetes.io/service-name: recommendation-postgres
+    endpointslice.kubernetes.io/managed-by: argocd
+    app.kubernetes.io/part-of: gaze
+addressType: IPv4
+ports:
+  - name: postgres
+    port: 5435
+    protocol: TCP
+endpoints:
+  - addresses: ["10.42.0.1"]
+    conditions:
+      ready: true
+---
+# keycloak: host port 5436
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak-postgres
+  namespace: external-databases
+  labels:
+    app.kubernetes.io/name: keycloak-postgres
+    app.kubernetes.io/part-of: gaze
+spec:
+  # No selector: endpoints come from the EndpointSlice below.
+  ports:
+    - name: postgres
+      port: 5432
+      protocol: TCP
+---
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: keycloak-postgres-host
+  namespace: external-databases
+  labels:
+    kubernetes.io/service-name: keycloak-postgres
+    endpointslice.kubernetes.io/managed-by: argocd
+    app.kubernetes.io/part-of: gaze
+addressType: IPv4
+ports:
+  - name: postgres
+    port: 5436
+    protocol: TCP
+endpoints:
+  - addresses: ["10.42.0.1"]
+    conditions:
+      ready: true

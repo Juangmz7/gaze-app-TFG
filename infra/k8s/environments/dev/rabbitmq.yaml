@@ -1,0 +1,32 @@
+# RabbitMQ for the dev environment (namespace rabbitmq-dev).
+
+environment: dev
+replicas: 1
+
+# Local development passwords only (same values as each service's
+# values-dev.yaml). Moved to Vault together with the prod values.
+users:
+  - name: social-service
+    password: super_secret_social_service_rabbitmq_password_123
+    permissions: { configure: ".*", write: ".*", read: ".*" }
+  - name: post-command-service
+    password: super_secret_post_command_service_rabbitmq_password_123
+    permissions: { configure: ".*", write: ".*", read: ".*" }
+  - name: post-query-service
+    password: super_secret_post_query_service_rabbitmq_password_123
+    permissions: { configure: ".*", write: ".*", read: ".*" }
+  - name: recommendation-service
+    password: super_secret_recommendation_service_rabbitmq_password_123
+    permissions: { configure: ".*", write: ".*", read: ".*" }
+  # Keycloak only publishes auth events.
+  - name: keycloak
+    password: super_secret_keycloak_rabbitmq_password_123
+    permissions: { configure: "^$", write: "^x\\.auth\\.events$", read: "^$" }
+
+networkPolicy:
+  clientNamespaces:
+    - social-service-dev
+    - post-command-service-dev
+    - post-query-service-dev
+    - recommendation-service-dev
+    - keycloak-dev

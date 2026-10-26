@@ -10,14 +10,17 @@ on:
       - "go.work.sum"
       - ".github/workflows/post-query-service-ci.yml"
   push:
-    branches-ignore: [main]
     paths:
       - "post-query-service/**"
       - "common-packages/go-utils/**"
       - "go.work"
       - "go.work.sum"
       - ".github/workflows/post-query-service-ci.yml"
+      - ".github/workflows/docker-publish.yml"
   workflow_dispatch: {}
+
+permissions:
+  contents: read
 
 concurrency:
   group: post-query-service-ci-${{ github.ref }}
@@ -41,3 +44,14 @@ jobs:
 
       - name: Run tests
         run: go test -v ./...
+
+  publish:
+    needs: test
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    uses: ./.github/workflows/docker-publish.yml
+    with:
+      image: juangmz7/post-query-service
+      # Repo root: the Go build needs go.work and common-packages/go-utils.
+      context: .
+      dockerfile: post-query-service/Dockerfile
+    secrets: inherit

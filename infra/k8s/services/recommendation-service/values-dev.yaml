@@ -1,0 +1,42 @@
+# recommendation-service: dev environment (single-node k3s on WSL2).
+# PostgreSQL (pgvector) lives outside the cluster: compose
+# recommendation_postgres on the k3s host, reached through
+# infra/k8s/platform/external-databases.
+
+environment: dev
+
+env:
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://gaze-collector.observability.svc.cluster.local:4317
+  OTEL_RESOURCE_ATTRIBUTES: deployment.environment.name=dev
+
+# Local development values only. Moved to Vault together with the prod values.
+secretEnv:
+  # TODO(dev): RECOMMENDATION_POSTGRES_PASSWORD from infra/local/.env is not
+  # committed anywhere; put the same value here (URL-encoded).
+  DATABASE_URL: postgresql+psycopg://recommendation_user:CHANGE_ME@recommendation-postgres.external-databases.svc.cluster.local:5432/recommendation_db
+  RABBITMQ_URL: amqp://recommendation-service:super_secret_recommendation_service_rabbitmq_password_123@rabbitmq.rabbitmq-dev.svc.cluster.local:5672/
+  RABBITMQ_AMQP_URI: amqp://recommendation-service:super_secret_recommendation_service_rabbitmq_password_123@rabbitmq.rabbitmq-dev.svc.cluster.local:5672/
+
+autoscaling:
+  minReplicas: 1
+  maxReplicas: 2
+
+networkPolicy:
+  egress:
+    - name: rabbitmq
+      namespace: rabbitmq-dev
+      podLabels:
+        app.kubernetes.io/component: rabbitmq
+      ports: [5672]
+    - name: otel-collector
+      namespace: observability
+      podLabels:
+        app.kubernetes.io/component: opentelemetry-collector
+      ports: [4317, 4318]
+  externalEgress:
+    # Databases on the k3s host (compose, DB_BIND_IP=0.0.0.0), reached through
+    # infra/k8s/platform/external-databases: after the Service DNAT the
+    # traffic goes to the node's pod-network gateway on the published port.
+    - name: postgres (5435)
+      cidr: 10.42.0.1/32
+      ports: [5435]

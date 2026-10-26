@@ -1,6 +1,6 @@
 import os
 
-from faststream import FastStream
+from faststream.asgi import AsgiFastStream, AsgiResponse, get, make_ping_asgi
 from faststream.rabbit import RabbitBroker
 from faststream.rabbit.opentelemetry import RabbitTelemetryMiddleware
 
@@ -22,7 +22,21 @@ broker = RabbitBroker(
     ],
 )
 
-app = FastStream(broker)
+
+@get
+async def liveness(scope) -> AsgiResponse:
+    return AsgiResponse(b"", status_code=204)
+
+
+# ASGI app only to serve the Kubernetes probes: liveness reports the process
+# is up, readiness pings the broker (204 when connected, 500 otherwise).
+app = AsgiFastStream(
+    broker,
+    asgi_routes=[
+        ("/healthz/live", liveness),
+        ("/healthz/ready", make_ping_asgi(broker, timeout=5.0)),
+    ],
+)
 
 @app.after_startup
 async def configure_rabbitmq() -> None:

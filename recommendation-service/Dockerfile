@@ -21,6 +21,10 @@ RUN pip install --no-cache-dir -r requirements.txt \
     opentelemetry-exporter-otlp \
  && opentelemetry-bootstrap -a install
 
+# Model cache outside /root so the Kubernetes pod (non-root, read-only root
+# filesystem) can read it; HF_HUB_OFFLINE is set at runtime there.
+ENV HF_HOME=/opt/huggingface
+
 # Pre-download the HuggingFace embedding model (cached while dependencies don't change)
 RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('Qwen/Qwen3-Embedding-0.6B', device='cpu')"
 
@@ -30,7 +34,11 @@ COPY src/ ./src/
 
 ENV PYTHONPATH=/app/src
 
+# Kubernetes liveness/readiness probes (/healthz/live, /healthz/ready)
+EXPOSE 8000
+
 # Run migrations, then start FastStream wrapped in opentelemetry-instrument.
-# Migrations at startup are fine with a single replica; move them to an init
-# step before scaling out.
-CMD ["sh", "-c", "alembic upgrade head && exec opentelemetry-instrument faststream run rabbitmq.config.connection:app"]
+# Migrations at startup are fine with a single replica (compose). On
+# Kubernetes the Helm chart runs `alembic upgrade head` in a pre-sync Job and
+# overrides this command to start only the worker.
+CMD ["sh", "-c", "alembic upgrade head && exec opentelemetry-instrument faststream run rabbitmq.config.connection:app --host 0.0.0.0 --port 8000"]

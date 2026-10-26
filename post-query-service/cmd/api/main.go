@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -10,6 +11,7 @@ import (
 	"github.com/Juangmz7/TFG/common-packages/go-utils/server"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/config"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/database"
+	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/health"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/bootstrap"
 )
 
@@ -54,7 +56,10 @@ func run() error {
 
 	// mongoDatabase is also the injection point for future HTTP read
 	// repositories (e.g. post/infrastructure, comment/infrastructure).
-	if err := server.StartServer(ctx, serverCfg.Port, nil); err != nil {
+	mux := http.NewServeMux()
+	health.Register(mux, mongoClient)
+
+	if err := server.StartServer(ctx, serverCfg.Port, mux); err != nil {
 		return err
 	}
 

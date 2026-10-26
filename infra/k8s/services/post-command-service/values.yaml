@@ -1,0 +1,47 @@
+# post-command-service: values shared by every environment.
+# Chart: infra/k8s/charts/microservice. Per-env overrides: values-<env>.yaml.
+
+image:
+  repository: docker.io/juangmz7/post-command-service
+
+# application-dev.yaml and application-prod.yaml both set server.port=8082
+containerPort: 8082
+
+probes:
+  liveness:
+    path: /actuator/health/liveness
+  readiness:
+    path: /actuator/health/readiness
+  startup:
+    path: /actuator/health/liveness
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    memory: 1Gi
+
+env:
+  SPRING_APPLICATION_NAME: post-command-service
+  JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError"
+
+httpRoute:
+  enabled: true
+  pathPrefixes:
+    - /api/posts
+    - /api/collabs
+
+autoscaling:
+  enabled: true
+  rabbitmq:
+    # TODO(queues): mock names until the real queues to scale on are chosen
+    # (candidates in post-command-service/src/main/resources/application.yaml).
+    queues:
+      - name: q.post-command-service.mock-queue-1
+        value: "50"
+      - name: q.post-command-service.mock-queue-2
+        value: "50"
+  cpu:
+    enabled: true
+    utilization: "75"

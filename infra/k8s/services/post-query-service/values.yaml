@@ -1,0 +1,46 @@
+# post-query-service: values shared by every environment.
+# Chart: infra/k8s/charts/microservice. Per-env overrides: values-<env>.yaml.
+
+image:
+  repository: docker.io/juangmz7/post-query-service
+
+containerPort: 8080
+
+probes:
+  liveness:
+    path: /healthz/live
+  readiness:
+    path: /healthz/ready
+  startup:
+    path: /healthz/live
+    failureThreshold: 12
+
+# Static Go binary: small footprint.
+resources:
+  requests:
+    cpu: 100m
+    memory: 64Mi
+  limits:
+    memory: 256Mi
+
+env:
+  HTTP_PORT: "8080"
+  POST_QUERY_MONGO_DATABASE: post_query
+
+# TODO(routes): the query API has no endpoints yet. Enable and set its
+# prefixes once they exist (they must not overlap post-command-service's
+# /api/posts and /api/collabs, or use method matches to split them).
+httpRoute:
+  enabled: false
+  pathPrefixes: []
+
+autoscaling:
+  enabled: true
+  rabbitmq:
+    # TODO(queues): mock names until the real queues to scale on are chosen.
+    queues:
+      - name: q.post-query-service.mock-queue-1
+        value: "100"
+  cpu:
+    enabled: true
+    utilization: "75"

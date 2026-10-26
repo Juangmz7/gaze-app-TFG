@@ -1,0 +1,45 @@
+# post-query-service: dev environment (single-node k3s on WSL2).
+# MongoDB lives outside the cluster (compose post_query_mongo on the k3s host,
+# single-node replica set without auth), reached through
+# infra/k8s/platform/external-databases. The replica set advertises
+# post_query_mongo:27017, which doesn't resolve in the cluster, so connect
+# directly to the (only, primary) member: transactions still work.
+
+environment: dev
+
+env:
+  POST_QUERY_MONGO_URI: mongodb://post-query-mongo.external-databases.svc.cluster.local:27017/post_query?directConnection=true
+  RABBITMQ_HOST: rabbitmq.rabbitmq-dev.svc.cluster.local
+  RABBITMQ_PORT: "5672"
+  RABBITMQ_USER: post-query-service
+
+# Local development values only. Moved to Vault together with the prod values.
+secretEnv:
+  RABBITMQ_PASSWORD: super_secret_post_query_service_rabbitmq_password_123
+  RABBITMQ_AMQP_URI: amqp://post-query-service:super_secret_post_query_service_rabbitmq_password_123@rabbitmq.rabbitmq-dev.svc.cluster.local:5672/
+
+httpRoute:
+  parentRef:
+    namespace: gateway-dev
+  hostnames:
+    - api.dev.gaze.localhost
+
+autoscaling:
+  minReplicas: 1
+  maxReplicas: 3
+
+networkPolicy:
+  gatewayNamespace: gateway-dev
+  egress:
+    - name: rabbitmq
+      namespace: rabbitmq-dev
+      podLabels:
+        app.kubernetes.io/component: rabbitmq
+      ports: [5672]
+  externalEgress:
+    # Databases on the k3s host (compose, DB_BIND_IP=0.0.0.0), reached through
+    # infra/k8s/platform/external-databases: after the Service DNAT the
+    # traffic goes to the node's pod-network gateway on the published port.
+    - name: mongodb (27017)
+      cidr: 10.42.0.1/32
+      ports: [27017]

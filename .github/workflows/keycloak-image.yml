@@ -1,0 +1,26 @@
+name: keycloak image
+
+# Custom Keycloak (RabbitMQ event listener plugin, optimized build) used by
+# the Keycloak Operator in infra/k8s.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "infra/local/keycloak/Dockerfile"
+      - ".github/workflows/keycloak-image.yml"
+      - ".github/workflows/docker-publish.yml"
+  workflow_dispatch: {}
+
+concurrency:
+  group: keycloak-image-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    uses: ./.github/workflows/docker-publish.yml
+    with:
+      image: juangmz7/keycloak
+      context: infra/local/keycloak
+      dockerfile: infra/local/keycloak/Dockerfile
+    secrets: inherit
