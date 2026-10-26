@@ -1,0 +1,45 @@
+# Keycloak for the dev environment (namespace keycloak-dev).
+
+environment: dev
+
+hostname: auth.dev.gaze.localhost
+exposeAdminConsole: true
+
+# External PostgreSQL: compose postgres-keycloak on the k3s host, published on
+# KEYCLOAK_POSTGRES_PORT (5436) and reached through
+# infra/k8s/platform/external-databases.
+database:
+  host: keycloak-postgres.external-databases.svc.cluster.local
+  port: 5432
+  name: keycloak
+  username: keycloak
+  # TODO(dev): POSTGRES_PASSWORD from infra/local/.env is not committed
+  # anywhere; put the same value here.
+  password: CHANGE_ME
+  egress:
+    cidr: 10.42.0.1/32
+    port: 5436
+
+rabbitmq:
+  host: rabbitmq.rabbitmq-dev.svc.cluster.local
+  namespace: rabbitmq-dev
+  username: keycloak
+  password: super_secret_keycloak_rabbitmq_password_123
+
+realm:
+  clientRedirectUris:
+    mobile-app:
+      - myapp://callback
+      - https://oauth.pstmn.io/v1/callback
+
+gateway:
+  namespace: gateway-dev
+
+rateLimit:
+  requests: 120
+  unit: Minute
+
+networkPolicy:
+  clientNamespaces:
+    - social-service-dev
+    - post-command-service-dev

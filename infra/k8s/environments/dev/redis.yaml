@@ -1,0 +1,11 @@
+# Redis for the dev environment (namespace redis-dev).
+
+environment: dev
+
+# Local development value only (same as the services' values-dev.yaml).
+password: super_secret_redis_password_123
+
+networkPolicy:
+  clientNamespaces:
+    - social-service-dev
+    - post-command-service-dev

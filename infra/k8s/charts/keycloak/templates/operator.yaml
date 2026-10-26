@@ -1,0 +1,184 @@
+{{- /*
+Namespaced part of the Keycloak Operator 25.0.6 install manifest
+(keycloak/keycloak-k8s-resources/25.0.6/kubernetes/kubernetes.yml), deployed
+into this environment's namespace so it only manages this Keycloak. The CRDs
+and shared ClusterRoles are installed once by infra/k8s/platform/keycloak-operator.
+*/}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: keycloak-operator
+  labels:
+    {{- include "keycloak.labels" . | nindent 4 }}
+    {{- include "keycloak.operatorLabels" . | nindent 4 }}
+---
+# Upstream binds it to the operator SA in the hardcoded "keycloak"
+# namespace; suffixed so each environment gets its own binding.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: keycloak-operator-clusterrole-binding-{{ .Release.Namespace }}
+  labels:
+    {{- include "keycloak.labels" . | nindent 4 }}
+    {{- include "keycloak.operatorLabels" . | nindent 4 }}
+roleRef:
+  kind: ClusterRole
+  apiGroup: rbac.authorization.k8s.io
+  name: keycloak-operator-clusterrole
+subjects:
+  - kind: ServiceAccount
+    name: keycloak-operator
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: keycloak-operator-role
+  labels:
+    {{- include "keycloak.labels" . | nindent 4 }}
+    {{- include "keycloak.operatorLabels" . | nindent 4 }}
+rules:
+  - apiGroups: ["apps"]
+    resources: ["statefulsets"]
+    verbs: ["get", "list", "watch", "create", "delete", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["secrets", "services"]
+    verbs: ["get", "list", "watch", "create", "delete", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "create", "delete", "patch", "update"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch", "create", "delete", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: keycloak-operator-role-binding
+  labels:
+    {{- include "keycloak.labels" . | nindent 4 }}
+    {{- include "keycloak.operatorLabels" . | nindent 4 }}
+roleRef:
+  kind: Role
+  apiGroup: rbac.authorization.k8s.io
+  name: keycloak-operator-role
+subjects:
+  - kind: ServiceAccount
+    name: keycloak-operator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: keycloakrealmimportcontroller-role-binding
+  labels:
+    {{- include "keycloak.labels" . | nindent 4 }}
+roleRef:
+  kind: ClusterRole
+  apiGroup: rbac.authorization.k8s.io
+  name: keycloakrealmimportcontroller-cluster-role
+subjects:
+  - kind: ServiceAccount
+    name: keycloak-operator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: keycloakcontroller-role-binding
+  labels:
+    {{- include "keycloak.labels" . | nindent 4 }}
+roleRef:
+  kind: ClusterRole
+  apiGroup: rbac.authorization.k8s.io
+  name: keycloakcontroller-cluster-role
+subjects:
+  - kind: ServiceAccount
+    name: keycloak-operator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: keycloak-operator-view
+  labels:
+    {{- include "keycloak.labels" . | nindent 4 }}
+    {{- include "keycloak.operatorLabels" . | nindent 4 }}
+roleRef:
+  kind: ClusterRole
+  apiGroup: rbac.authorization.k8s.io
+  name: view
+subjects:
+  - kind: ServiceAccount
+    name: keycloak-operator
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak-operator
+  labels:
+    {{- include "keycloak.labels" . | nindent 4 }}
+    {{- include "keycloak.operatorLabels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: keycloak-operator
+  template:
+    metadata:
+      labels:
+        {{- include "keycloak.operatorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: keycloak-operator
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: keycloak-operator
+          image: {{ .Values.operator.image }}
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: KUBERNETES_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: RELATED_IMAGE_KEYCLOAK
+              value: quay.io/keycloak/keycloak:{{ .Chart.AppVersion }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /q/health/started
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /q/health/live
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /q/health/ready
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.operator.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]

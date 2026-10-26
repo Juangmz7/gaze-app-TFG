@@ -1,0 +1,103 @@
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: {{ .Values.gatewayName }}-proxy
+  labels:
+    {{- include "gateway.labels" . | nindent 4 }}
+spec:
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyDeployment:
+        replicas: {{ .Values.proxy.replicas }}
+        container:
+          resources:
+            {{- toYaml .Values.proxy.resources | nindent 12 }}
+      envoyService:
+        type: LoadBalancer
+        externalTrafficPolicy: {{ .Values.proxy.externalTrafficPolicy }}
+      {{- if gt (int .Values.proxy.pdbMinAvailable) 0 }}
+      envoyPDB:
+        minAvailable: {{ .Values.proxy.pdbMinAvailable }}
+      {{- end }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: {{ .Values.gatewayName }}
+  labels:
+    {{- include "gateway.labels" . | nindent 4 }}
+  annotations:
+    # cert-manager issues {{ .Values.tls.secretName }} for every HTTPS listener hostname.
+    cert-manager.io/cluster-issuer: {{ .Values.tls.clusterIssuer }}
+spec:
+  gatewayClassName: {{ .Values.gatewayClassName }}
+  # Proxies of this Gateway run in this namespace (Gateway Namespace Mode),
+  # configured by the EnvoyProxy above.
+  infrastructure:
+    parametersRef:
+      group: gateway.envoyproxy.io
+      kind: EnvoyProxy
+      name: {{ .Values.gatewayName }}-proxy
+  listeners:
+    # Plain HTTP only redirects to HTTPS (and serves ACME HTTP-01 challenges).
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: Same
+    - name: https-api
+      protocol: HTTPS
+      port: 443
+      hostname: {{ .Values.hostnames.api }}
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: {{ .Values.tls.secretName }}
+      allowedRoutes:
+        kinds:
+          - kind: HTTPRoute
+        # Only this environment's service namespaces may attach routes.
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              gaze.app/env: {{ .Values.environment }}
+              gaze.app/tier: app
+    - name: https-auth
+      protocol: HTTPS
+      port: 443
+      hostname: {{ .Values.hostnames.auth }}
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: {{ .Values.tls.secretName }}
+      allowedRoutes:
+        kinds:
+          - kind: HTTPRoute
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              gaze.app/env: {{ .Values.environment }}
+              gaze.app/tier: identity
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: https-redirect
+  labels:
+    {{- include "gateway.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+    - name: {{ .Values.gatewayName }}
+      sectionName: http
+  rules:
+    - filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            statusCode: 301

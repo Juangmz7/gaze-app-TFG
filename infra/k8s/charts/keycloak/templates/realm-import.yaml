@@ -1,0 +1,27 @@
+{{- /*
+auth-service realm, from the same export used by the local compose stack
+(copy kept in files/; keep both in sync). Imports only when the realm does
+not exist yet: later changes are made in Keycloak, not re-imported.
+*/}}
+{{- $realm := .Files.Get "files/auth-service-realm.json" | fromJson }}
+{{- $clients := list }}
+{{- range $realm.clients }}
+{{- $client := . }}
+{{- with (get $.Values.realm.clientRedirectUris $client.clientId) }}
+{{- $_ := set $client "redirectUris" . }}
+{{- end }}
+{{- $clients = append $clients $client }}
+{{- end }}
+{{- $_ := set $realm "clients" $clients }}
+apiVersion: k8s.keycloak.org/v2alpha1
+kind: KeycloakRealmImport
+metadata:
+  name: auth-service
+  labels:
+    {{- include "keycloak.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  keycloakCRName: keycloak
+  realm:
+    {{- toYaml $realm | nindent 4 }}

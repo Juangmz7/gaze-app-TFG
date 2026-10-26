@@ -1,0 +1,64 @@
+{{- $tp := .Values.trafficPolicy }}
+# Client side (downstream) settings for every listener.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: ClientTrafficPolicy
+metadata:
+  name: {{ .Values.gatewayName }}
+  labels:
+    {{- include "gateway.labels" . | nindent 4 }}
+spec:
+  {{- include "gateway.targetRef" . | nindent 2 }}
+  tls:
+    minVersion: "1.2"
+  {{- if gt (int .Values.clientIPDetection.xForwardedForTrustedHops) 0 }}
+  clientIPDetection:
+    xForwardedFor:
+      numTrustedHops: {{ .Values.clientIPDetection.xForwardedForTrustedHops }}
+  {{- end }}
+  timeout:
+    http:
+      requestReceivedTimeout: 10s
+      idleTimeout: 60s
+---
+# Backend (upstream) protection for every route attached to the Gateway.
+# Routes may override it (see the Keycloak chart, which only overrides the
+# rate limit with mergeType: StrategicMerge).
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: {{ .Values.gatewayName }}
+  labels:
+    {{- include "gateway.labels" . | nindent 4 }}
+spec:
+  {{- include "gateway.targetRef" . | nindent 2 }}
+  # Global (Redis-backed) limit so it holds across all proxy replicas; each
+  # client IP gets its own bucket.
+  rateLimit:
+    global:
+      rules:
+        - clientSelectors:
+            - sourceCIDR:
+                type: Distinct
+                value: 0.0.0.0/0
+          limit:
+            requests: {{ $tp.rateLimit.requests }}
+            unit: {{ $tp.rateLimit.unit }}
+  circuitBreaker:
+    {{- toYaml $tp.circuitBreaker | nindent 4 }}
+  healthCheck:
+    passive:
+      {{- toYaml $tp.passiveHealthCheck | nindent 6 }}
+  retry:
+    numRetries: {{ $tp.retry.numRetries }}
+    perRetry:
+      backOff:
+        baseInterval: 100ms
+        maxInterval: 1s
+    retryOn:
+      triggers:
+        {{- toYaml $tp.retry.triggers | nindent 8 }}
+  timeout:
+    tcp:
+      connectTimeout: {{ $tp.timeout.connectTimeout }}
+    http:
+      requestTimeout: {{ $tp.timeout.requestTimeout }}

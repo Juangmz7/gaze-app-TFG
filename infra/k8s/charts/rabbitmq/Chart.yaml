@@ -1,0 +1,10 @@
+apiVersion: v2
+name: rabbitmq
+description: >-
+  Per-environment RabbitMQ broker managed by the RabbitMQ Cluster Operator,
+  with its topology (users, permissions, exchanges) managed by the Messaging
+  Topology Operator, and NetworkPolicies isolating it to the environment's
+  clients.
+type: application
+version: 0.1.0
+appVersion: "4.3.7"

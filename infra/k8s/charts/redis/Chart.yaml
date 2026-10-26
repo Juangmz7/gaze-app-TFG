@@ -1,0 +1,9 @@
+apiVersion: v2
+name: redis
+description: >-
+  Per-environment Redis (cache) as a hardened single-node StatefulSet with
+  password auth, AOF persistence and NetworkPolicies limiting it to the
+  environment's clients.
+type: application
+version: 0.1.0
+appVersion: "7.4.11"

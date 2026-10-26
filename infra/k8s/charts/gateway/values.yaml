@@ -1,0 +1,68 @@
+# Overridden per environment in infra/k8s/environments/<env>/gateway.yaml.
+
+environment: dev
+
+gatewayName: gaze
+gatewayClassName: envoy-gateway
+
+hostnames:
+  api: api.dev.gaze.localhost
+  auth: auth.dev.gaze.localhost
+
+tls:
+  # cert-manager ClusterIssuer that signs the listener certificate.
+  clusterIssuer: gaze-local-ca
+  secretName: gaze-tls
+
+# Envoy proxy fleet (EnvoyProxy resource).
+proxy:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+  # Local keeps the client source IP (needed for per-IP rate limiting).
+  externalTrafficPolicy: Local
+  pdbMinAvailable: 0
+
+# Gateway-wide BackendTrafficPolicy: applies to every route that does not
+# override it.
+trafficPolicy:
+  # Requests per client IP (each IP has its own bucket).
+  rateLimit:
+    requests: 600
+    unit: Minute
+  # Per backend: shed load instead of queueing when a service is saturated.
+  circuitBreaker:
+    maxConnections: 1024
+    maxPendingRequests: 256
+    maxParallelRequests: 1024
+    maxParallelRetries: 16
+  # Outlier detection: eject pods that keep failing.
+  passiveHealthCheck:
+    consecutive5XxErrors: 5
+    consecutiveGatewayErrors: 3
+    interval: 5s
+    baseEjectionTime: 30s
+    maxEjectionPercent: 50
+  # Only retry when the request never reached the app (safe for POST).
+  retry:
+    numRetries: 2
+    triggers: [connect-failure, refused-stream]
+  timeout:
+    connectTimeout: 5s
+    requestTimeout: 30s
+
+# Behind a CDN / L7 load balancer that sets X-Forwarded-For, set this to the
+# number of trusted hops so rate limiting sees the real client IP.
+clientIPDetection:
+  xForwardedForTrustedHops: 0
+
+networkPolicy:
+  # Namespaces of the Envoy Gateway control plane (xDS 18000, rate limit
+  # service 8081).
+  controlPlaneNamespace: envoy-gateway-system
+  # Container ports of the backends the proxies may reach.
+  backendPorts: [8080, 8081, 8082]
