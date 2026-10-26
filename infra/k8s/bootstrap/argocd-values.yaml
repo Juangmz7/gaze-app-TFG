@@ -11,6 +11,11 @@ dex:
   enabled: false
 
 configs:
+  params:
+    # Compare against what the API server would store (defaults included),
+    # not the raw manifests: otherwise defaulted fields (HTTPRoute backendRef
+    # group/weight, StatefulSet volumeClaimTemplates) keep apps OutOfSync.
+    controller.diff.server.side: "true"
   cm:
     # Applications report the health of their resources, so sync waves in
     # the app-of-apps wait for each layer to be healthy before the next one.
