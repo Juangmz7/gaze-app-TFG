@@ -46,19 +46,35 @@ ok "databases published on the host (${DB_PORTS[*]})"
 # --- k3s ---------------------------------------------------------------------
 if ! command -v k3s >/dev/null 2>&1; then
   sudo mkdir -p /etc/rancher/k3s
-  sudo install -m 0600 "${SCRIPT_DIR}/k3s-config.yaml" /etc/rancher/k3s/config.yaml
+  # World-readable (it holds no secrets): kubectl is the k3s binary and reads
+  # it too, warning when it can't.
+  sudo install -m 0644 "${SCRIPT_DIR}/k3s-config.yaml" /etc/rancher/k3s/config.yaml
   curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="${K3S_VERSION}" sh -s - server
+elif ! sudo test -f /etc/rancher/k3s/config.yaml; then
+  # Installed outside this script: node name, CIDRs and Secrets encryption
+  # can't be changed on an existing cluster, so it has to be reinstalled.
+  fail "k3s $(k3s --version | awk 'NR==1 {print $3}') is already installed without bootstrap/k3s-config.yaml: remove it with 'sudo /usr/local/bin/k3s-uninstall.sh' and run this script again"
 elif ! sudo cmp -s "${SCRIPT_DIR}/k3s-config.yaml" /etc/rancher/k3s/config.yaml; then
-  fail "/etc/rancher/k3s/config.yaml differs from bootstrap/k3s-config.yaml: copy it and run 'sudo systemctl restart k3s'"
+  sudo diff -u /etc/rancher/k3s/config.yaml "${SCRIPT_DIR}/k3s-config.yaml" || true
+  fail "/etc/rancher/k3s/config.yaml differs from bootstrap/k3s-config.yaml (diff above): copy it and run 'sudo systemctl restart k3s'"
 fi
+sudo chmod 0644 /etc/rancher/k3s/config.yaml
 
 mkdir -p "${HOME}/.kube"
 sudo install -m 0600 -o "$(id -u)" -g "$(id -g)" /etc/rancher/k3s/k3s.yaml "${HOME}/.kube/config"
 export KUBECONFIG="${HOME}/.kube/config"
 
-kubectl wait --for=condition=Ready node --all --timeout=180s >/dev/null
-pod_cidr="$(kubectl get node gaze -o jsonpath='{.spec.podCIDR}')"
+# Right after the install the node isn't registered yet, and it gets its pod
+# CIDR a few seconds after registering.
+pod_cidr=""
+for _ in $(seq 1 90); do
+  pod_cidr="$(kubectl get node gaze -o jsonpath='{.spec.podCIDR}' 2>/dev/null || true)"
+  [ -n "$pod_cidr" ] && break
+  sleep 2
+done
+[ -n "$pod_cidr" ] || fail "node gaze has no pod CIDR after 3 minutes: check 'sudo journalctl -u k3s'"
 [ "$pod_cidr" = "10.42.0.0/24" ] || fail "node pod CIDR is ${pod_cidr}, expected 10.42.0.0/24 (external-databases points at 10.42.0.1)"
+kubectl wait --for=condition=Ready node/gaze --timeout=180s >/dev/null
 ok "k3s ${K3S_VERSION} running (pod CIDR ${pod_cidr})"
 
 # --- Argo CD -----------------------------------------------------------------
