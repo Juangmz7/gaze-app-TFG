@@ -54,7 +54,7 @@ Every workload namespace starts with a **default-deny** NetworkPolicy (ingress a
 One chart, configured only through values: Deployment (non-root, read-only root FS, seccomp, dropped capabilities, startup/liveness/readiness probes), Service, HTTPRoute, PDB, NetworkPolicies, ConfigMap (`env`), Secret (`secretEnv`, dev only) or `existingSecret`, KEDA `ScaledObject` and an optional migration Job (Argo CD Sync hook that runs before the new pods, used by recommendation-service for `alembic upgrade head`).
 
 ### Autoscaling (KEDA)
-`autoscaling.rabbitmq.queues` is a list: each entry becomes a `rabbitmq` trigger (`QueueLength`, value = messages per replica) authenticated with the `RABBITMQ_AMQP_URI` key of the service Secret. HTTP services also scale on CPU. **Queue names are mocks** (`q.<service>.mock-queue-N`) until the real ones are chosen.
+`autoscaling.rabbitmq.queues` is a list: each entry becomes a `rabbitmq` trigger (`QueueLength`, value = messages per replica) authenticated with the `RABBITMQ_AMQP_URI` key of the service Secret. HTTP services also scale on CPU. Every queue a service consumes is listed, with a threshold by priority: `20` where a user waits for the result (sign-up, like/share validation), `50`–`100` for read models and counters, `200`–`300` for background work (deletion cleanup, feed signals, recommendation features). The HPA follows the trigger that asks for the most replicas. With `protocol: amqp` KEDA counts ready messages only, so messages already prefetched by a consumer don't count.
 
 ### Continuous delivery
 - CI (`.github/workflows/<service>-ci.yml`) runs the tests on every push (any branch) and pull request. Only on `main`, and only after the `test` job is green, its `publish` job pushes `docker.io/juangmz7/<service>:latest` and `:<commit sha>` through the reusable `docker-publish.yml` (secrets `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`). The Keycloak image has no tests and is published by `keycloak-image.yml`.
@@ -95,6 +95,5 @@ The compose stack runs with Docker Engine on the same WSL2 Ubuntu as k3s. Pods c
 5. From Windows, an elevated PowerShell: `infra/k8s/bootstrap/windows-portproxy.ps1` (again after each WSL restart). It forwards `127.0.0.1:80/443` to the WSL IP, because k3s exposes the Gateway through iptables, which WSL's localhost forwarding doesn't see. `kubectl` from Windows works with the kubeconfig at `~/.kube/config` in Ubuntu (API on `127.0.0.1:6443`).
 
 ## Pending (TODO markers in the files)
-- Real RabbitMQ queue names for KEDA (`TODO(queues)`).
 - post-query-service routes (`TODO(routes)`).
 - Prod: enable it in both ApplicationSets (`enabled: "true"`), real domain, managed DB hosts, Vault/External Secrets, Workload Identity client id, narrower egress CIDRs (`TODO(aks)`, `TODO(vault)`).

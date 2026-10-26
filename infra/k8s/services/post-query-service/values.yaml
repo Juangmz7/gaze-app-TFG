@@ -37,10 +37,23 @@ httpRoute:
 autoscaling:
   enabled: true
   rabbitmq:
-    # TODO(queues): mock names until the real queues to scale on are chosen.
+    # Queues it consumes (internal/shared/infrastructure/rabbitmq/topology).
+    # value = ready messages per replica before scaling out: low where a user
+    # waits for the result, higher where the work is background bookkeeping.
     queues:
-      - name: q.post-query-service.mock-queue-1
-        value: "100"
+      # Post / comment / like / share / collab read models: a new post or
+      # comment only shows up once it is projected.
+      - name: q.post-query-service.post
+        value: "50"
+      # New and updated users, follows and blocks (what the feed filters on).
+      - name: q.post-query-service.user.fast
+        value: "50"
+      # Recommended / trending signals from recommendation-service.
+      - name: q.post-query-service.feed
+        value: "200"
+      # Deletions, unfollows and unblocks, latency-tolerant by design.
+      - name: q.post-query-service.user.slow
+        value: "300"
   cpu:
     enabled: true
     utilization: "75"

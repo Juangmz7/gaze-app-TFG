@@ -36,11 +36,34 @@ httpRoute:
 autoscaling:
   enabled: true
   rabbitmq:
-    # TODO(queues): mock names until the real queues to scale on are chosen
-    # (candidates in social-service/src/main/resources/application.yaml).
+    # Queues it consumes (social-service/src/main/resources/application.yaml).
+    # value = ready messages per replica before scaling out: low where a user
+    # waits for the result, higher where the work is background bookkeeping.
     queues:
-      - name: q.social-service.mock-queue-1
+      # Sign-up from Keycloak and its Neo4j copy: the profile and graph node
+      # must exist before the new user's first request or follow.
+      - name: q.social-service.auth.register
+        value: "20"
+      - name: q.social-service.user.register
+        value: "20"
+      - name: q.social-service.auth.update
         value: "50"
+      # Follower / post counters and block lists shown on profiles.
+      - name: q.social-service.user.follow.created
+        value: "100"
+      - name: q.social-service.user.follow.deleted
+        value: "100"
+      - name: q.social-service.user.block.created
+        value: "100"
+      - name: q.social-service.post.created
+        value: "100"
+      - name: q.social-service.post.deleted
+        value: "100"
+      # Account deletion cleanup: nobody waits on it.
+      - name: q.social-service.auth.delete
+        value: "300"
+      - name: q.social-service.user.deleted
+        value: "300"
   cpu:
     enabled: true
     utilization: "75"

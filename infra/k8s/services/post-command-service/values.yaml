@@ -35,13 +35,20 @@ httpRoute:
 autoscaling:
   enabled: true
   rabbitmq:
-    # TODO(queues): mock names until the real queues to scale on are chosen
-    # (candidates in post-command-service/src/main/resources/application.yaml).
+    # Queues it consumes (post-command-service/src/main/resources/application.yaml).
+    # value = ready messages per replica before scaling out: low where a user
+    # waits for the result, higher where the work is background bookkeeping.
     queues:
-      - name: q.post-command-service.mock-queue-1
+      # Like / unlike / share / comment-like validations and view processing:
+      # the user's action is confirmed when they are handled.
+      - name: q.post-command-service.post
+        value: "20"
+      # User read model: new and updated users, follows and blocks.
+      - name: q.post-command-service.user.fast
         value: "50"
-      - name: q.post-command-service.mock-queue-2
-        value: "50"
+      # User read model: deletions, unfollows and unblocks, latency-tolerant.
+      - name: q.post-command-service.user.slow
+        value: "300"
   cpu:
     enabled: true
     utilization: "75"

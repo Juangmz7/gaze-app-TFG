@@ -60,7 +60,11 @@ migrations:
 autoscaling:
   enabled: true
   rabbitmq:
-    # TODO(queues): mock names until the real queues to scale on are chosen.
+    # Queues it consumes (src/rabbitmq/config/constants.py). Everything here
+    # feeds the recommendation features asynchronously and each replica is
+    # heavy (it loads the embedding model), so it tolerates a large backlog.
     queues:
-      - name: q.recommendation-service.mock-queue-1
-        value: "100"
+      - name: q.recommendation-service.post
+        value: "200"
+      - name: q.recommendation-service.user
+        value: "200"
