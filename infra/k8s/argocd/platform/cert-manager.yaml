@@ -17,6 +17,11 @@ spec:
     helm:
       releaseName: cert-manager
       valuesObject:
+        global:
+          # Leader election leases in its own namespace instead of kube-system
+          # (the chart's default), so the app stays within its namespace.
+          leaderElection:
+            namespace: cert-manager
         crds:
           enabled: true
           keep: true
