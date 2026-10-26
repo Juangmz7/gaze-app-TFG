@@ -43,3 +43,14 @@ rabbitmq:
     post:
       created: rk.post.created
       deleted: rk.post.deleted
+
+# --- Actuator (Kubernetes probes: /actuator/health/liveness and /readiness) ---
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
