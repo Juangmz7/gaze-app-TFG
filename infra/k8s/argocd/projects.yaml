@@ -1,0 +1,112 @@
+# Argo CD projects: least privilege per layer. A change in a service's values
+# can only create the namespaced kinds listed in "apps", in that service's
+# namespaces; it can never touch platform or infra resources.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: platform
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-20"
+spec:
+  description: Cluster-wide controllers and their configuration
+  sourceRepos:
+    - https://github.com/Juangmz7/Gaze-app.git
+    - https://argoproj.github.io/argo-helm
+    - docker.io/envoyproxy
+    - https://charts.jetstack.io
+    - https://kedacore.github.io/charts
+    - https://open-telemetry.github.io/opentelemetry-helm-charts
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: argocd
+    - server: https://kubernetes.default.svc
+      namespace: envoy-gateway-system
+    - server: https://kubernetes.default.svc
+      namespace: cert-manager
+    - server: https://kubernetes.default.svc
+      namespace: keda
+    - server: https://kubernetes.default.svc
+      namespace: rabbitmq-system
+    - server: https://kubernetes.default.svc
+      namespace: opentelemetry-operator-system
+    - server: https://kubernetes.default.svc
+      namespace: observability
+    - server: https://kubernetes.default.svc
+      namespace: external-databases
+  # CRDs, ClusterRoles, GatewayClass, ClusterIssuers, ...
+  clusterResourceWhitelist:
+    - group: "*"
+      kind: "*"
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: env-infra
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-20"
+spec:
+  description: Per-environment infrastructure (gateway, rabbitmq, redis, keycloak)
+  sourceRepos:
+    - https://github.com/Juangmz7/Gaze-app.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: gateway-*
+    - server: https://kubernetes.default.svc
+      namespace: rabbitmq-dev
+    - server: https://kubernetes.default.svc
+      namespace: rabbitmq-prod
+    - server: https://kubernetes.default.svc
+      namespace: redis-*
+    - server: https://kubernetes.default.svc
+      namespace: keycloak-*
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    # Per-environment binding of the Keycloak Operator.
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: apps
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-20"
+spec:
+  description: Gaze microservices (chart infra/k8s/charts/microservice)
+  sourceRepos:
+    - https://github.com/Juangmz7/Gaze-app.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: "*-service-dev"
+    - server: https://kubernetes.default.svc
+      namespace: "*-service-prod"
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+  namespaceResourceWhitelist:
+    - group: ""
+      kind: ConfigMap
+    - group: ""
+      kind: Secret
+    - group: ""
+      kind: Service
+    - group: ""
+      kind: ServiceAccount
+    - group: apps
+      kind: Deployment
+    - group: batch
+      kind: Job
+    - group: policy
+      kind: PodDisruptionBudget
+    - group: networking.k8s.io
+      kind: NetworkPolicy
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+    - group: keda.sh
+      kind: ScaledObject
+    - group: keda.sh
+      kind: TriggerAuthentication

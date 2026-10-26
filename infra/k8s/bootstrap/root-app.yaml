@@ -1,0 +1,23 @@
+# App of apps: everything in infra/k8s/argocd (projects, platform
+# Applications, ApplicationSets), applied once by bootstrap.sh. From then on
+# every change reaches the cluster through git.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Juangmz7/Gaze-app.git
+    targetRevision: main
+    path: infra/k8s/argocd
+    directory:
+      recurse: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

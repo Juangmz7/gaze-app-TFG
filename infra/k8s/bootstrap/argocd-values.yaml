@@ -1,0 +1,92 @@
+# Values of the argo-cd Helm chart (argoproj/argo-helm), used both by
+# bootstrap.sh (first install) and by the self-managing "argocd" Application.
+
+global:
+  # NetworkPolicies for every Argo CD component.
+  networkPolicy:
+    create: true
+
+# Not exposed through the Gateway: kubectl -n argocd port-forward svc/argocd-server 8080:443
+dex:
+  enabled: false
+
+configs:
+  cm:
+    # Applications report the health of their resources, so sync waves in
+    # the app-of-apps wait for each layer to be healthy before the next one.
+    resource.customizations.health.argoproj.io_Application: |
+      hs = {}
+      hs.status = "Progressing"
+      hs.message = ""
+      if obj.status ~= nil then
+        if obj.status.health ~= nil then
+          hs.status = obj.status.health.status
+          if obj.status.health.message ~= nil then
+            hs.message = obj.status.health.message
+          end
+        end
+      end
+      return hs
+    # Chart default list (argo-cd 10.11.6) minus EndpointSlice: the
+    # external-databases layer declares EndpointSlices that point Services at
+    # the k3s host, and Argo CD can't sync excluded kinds. Re-check this list
+    # when upgrading the chart.
+    resource.exclusions: |
+      - apiGroups:
+        - ''
+        kinds:
+        - Endpoints
+      - apiGroups:
+        - coordination.k8s.io
+        kinds:
+        - Lease
+      - apiGroups:
+        - authentication.k8s.io
+        - authorization.k8s.io
+        kinds:
+        - SelfSubjectReview
+        - TokenReview
+        - LocalSubjectAccessReview
+        - SelfSubjectAccessReview
+        - SelfSubjectRulesReview
+        - SubjectAccessReview
+      - apiGroups:
+        - certificates.k8s.io
+        kinds:
+        - CertificateSigningRequest
+      - apiGroups:
+        - cert-manager.io
+        kinds:
+        - CertificateRequest
+      - apiGroups:
+        - cilium.io
+        kinds:
+        - CiliumIdentity
+        - CiliumEndpoint
+        - CiliumEndpointSlice
+      - apiGroups:
+        - kyverno.io
+        - reports.kyverno.io
+        - wgpolicyk8s.io
+        kinds:
+        - PolicyReport
+        - ClusterPolicyReport
+        - EphemeralReport
+        - ClusterEphemeralReport
+        - AdmissionReport
+        - ClusterAdmissionReport
+        - BackgroundScanReport
+        - ClusterBackgroundScanReport
+        - UpdateRequest
+    # KEDA owns the replica count of every autoscaled Deployment through
+    # its HPA; never show it as drift.
+    resource.customizations.ignoreDifferences.apps_Deployment: |
+      jsonPointers:
+        - /spec/replicas
+  repositories:
+    # Envoy Gateway's chart is published as an OCI artifact on Docker Hub.
+    envoyproxy:
+      name: envoyproxy
+      type: helm
+      url: docker.io/envoyproxy
+      enableOCI: "true"
