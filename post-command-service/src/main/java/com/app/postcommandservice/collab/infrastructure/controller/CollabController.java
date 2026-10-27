@@ -78,7 +78,7 @@ public class CollabController {
                 request.postTags(),
                 request.media() == null
                         ? java.util.List.of()
-                        : request.media().stream().map(com.app.postcommandservice.post.infrastructure.controller.PostMediaRequest::toCommand).toList()
+                        : request.media().stream().map(OpenCollabAndCreatePostMediaRequest::toCommand).toList()
         );
 
         return ResponseEntity.ok(

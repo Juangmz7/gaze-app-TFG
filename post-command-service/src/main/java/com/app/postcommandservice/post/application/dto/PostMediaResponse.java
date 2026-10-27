@@ -14,6 +14,8 @@ public record PostMediaResponse(
         MediaType mediaType,
         @JsonInclude(JsonInclude.Include.NON_NULL) Integer duration,
         Set<String> taggedUsers,
-        int order
+        int order,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String uploadUrl,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String thumbnailUploadUrl
 ) {
 }

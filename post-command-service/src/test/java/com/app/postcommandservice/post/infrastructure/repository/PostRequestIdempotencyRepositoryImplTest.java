@@ -12,8 +12,10 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.app.postcommandservice.post.infrastructure.entity.PostRequestIdempotencyEntity;
+import com.app.postcommandservice.post.infrastructure.entity.PostRequestIdempotencyId;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -37,30 +39,49 @@ class PostRequestIdempotencyRepositoryImplTest {
     }
 
     @Test
-    void shouldAcquireTransactionScopedCorrelationLock() {
+    void shouldAcquireTransactionScopedCorrelationLockKeyedByUserAndCorrelation() {
+        var userId = UUID.randomUUID();
         var correlationId = UUID.randomUUID();
+        var expectedLockKey = userId + ":" + correlationId;
 
         when(entityManager.createNativeQuery(
-                "SELECT pg_advisory_xact_lock(CAST(hashtext(CAST(:correlationId AS text)) AS bigint))"
+                "SELECT pg_advisory_xact_lock(hashtextextended(:lockKey, 0))"
         )).thenReturn(query);
-        when(query.setParameter("correlationId", correlationId.toString())).thenReturn(query);
+        when(query.setParameter("lockKey", expectedLockKey)).thenReturn(query);
 
-        repository.acquireCorrelationLock(correlationId);
+        repository.acquireCorrelationLock(userId, correlationId);
 
         verify(query).getSingleResult();
     }
 
     @Test
-    void shouldSaveAndResolvePostIdByCorrelationId() {
+    void shouldSaveAndResolveExistingRecordByUserAndCorrelationId() {
+        var userId = UUID.randomUUID();
         var correlationId = UUID.randomUUID();
         var postId = UUID.randomUUID();
-        var entity = new PostRequestIdempotencyEntity(correlationId, postId, null);
+        var requestHash = "a".repeat(64);
+        var entity = new PostRequestIdempotencyEntity(
+                new PostRequestIdempotencyId(userId, correlationId), postId, requestHash, null);
 
-        when(postRequestIdempotencyJpaRepository.findById(correlationId)).thenReturn(Optional.of(entity));
+        when(postRequestIdempotencyJpaRepository.findById(new PostRequestIdempotencyId(userId, correlationId)))
+                .thenReturn(Optional.of(entity));
 
-        repository.save(correlationId, postId);
+        repository.save(userId, correlationId, postId, requestHash);
 
-        verify(postRequestIdempotencyJpaRepository).save(org.mockito.ArgumentMatchers.any(PostRequestIdempotencyEntity.class));
-        assertThat(repository.findPostIdByCorrelationId(correlationId)).contains(postId);
+        verify(postRequestIdempotencyJpaRepository).save(any(PostRequestIdempotencyEntity.class));
+        assertThat(repository.find(userId, correlationId))
+                .contains(new com.app.postcommandservice.post.application.repository
+                        .PostRequestIdempotencyRepository.ExistingIdempotencyRecord(postId, requestHash));
+    }
+
+    @Test
+    void shouldResolveNoRecordWhenNoneExistsForUserAndCorrelationId() {
+        var userId = UUID.randomUUID();
+        var correlationId = UUID.randomUUID();
+
+        when(postRequestIdempotencyJpaRepository.findById(new PostRequestIdempotencyId(userId, correlationId)))
+                .thenReturn(Optional.empty());
+
+        assertThat(repository.find(userId, correlationId)).isEmpty();
     }
 }

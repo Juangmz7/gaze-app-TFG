@@ -2,6 +2,7 @@ package com.app.postcommandservice.post.infrastructure.config;
 
 import java.time.Duration;
 
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 
 import lombok.Data;
@@ -24,4 +25,11 @@ public class PostMediaProperties {
      */
     @NotNull
     private Duration uploadWindow = Duration.ofHours(48);
+
+    /**
+     * Maximum number of usernames that may be tagged on a single {@code PostMedia} item
+     * (task 33). Enforced in the application layer when building media for a new post.
+     */
+    @Min(1)
+    private int maxTaggedUsers = 30;
 }

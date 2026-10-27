@@ -239,14 +239,18 @@ class CollabControllerFlowTest {
                 "correlationId", correlationId,
                 "description", "basic post",
                 "postTags", Set.of("basic"),
-                "media", List.of(Map.of("url", "https://cdn/image.jpg", "mediaType", "IMAGE", "order", 1))
+                "media", List.of(Map.of("mediaType", "IMAGE", "order", 1))
         ));
 
+        // The collab-open flow does not record post-request idempotency (it uses its own
+        // collab-request idempotency instead, see OpenCollabAndCreatePostUseCase), so reusing
+        // the same correlationId on the plain create-post endpoint is a genuinely new creation,
+        // not an idempotent replay -> 201 Created, not 200 OK.
         var basicPostResponse = mockMvc.perform(post("/api/posts")
                         .with(jwtFor(CREATOR_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(basicPostPayload))
-                .andExpect(status().isOk())
+                .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.postType").value("BASIC"))
                 .andExpect(jsonPath("$.collabId").doesNotExist())
                 .andReturn()
