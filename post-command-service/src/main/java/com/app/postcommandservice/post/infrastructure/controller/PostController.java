@@ -30,6 +30,7 @@ import com.app.postcommandservice.collab.application.usecase.OpenCollabForExisti
 import com.app.postcommandservice.post.application.commands.CheckPostCollabLinkStatusCommand;
 import com.app.postcommandservice.like.application.usecase.DispatchValidatePostLikeCommandUseCase;
 import com.app.postcommandservice.like.application.usecase.DispatchValidatePostUnlikeCommandUseCase;
+import com.app.postcommandservice.post.application.commands.ConfirmMediaUploadCommand;
 import com.app.postcommandservice.post.application.commands.CreatePostCommand;
 import com.app.postcommandservice.post.application.commands.DeletePostCommand;
 import com.app.postcommandservice.post.application.commands.LinkExistingPostToCollabCommand;
@@ -37,6 +38,7 @@ import com.app.postcommandservice.post.application.commands.UpdatePostCommand;
 import com.app.postcommandservice.post.application.dto.PostCollabLinkStatusResponse;
 import com.app.postcommandservice.post.application.dto.PostResponse;
 import com.app.postcommandservice.post.application.usecase.CheckPostCollabLinkStatusUseCase;
+import com.app.postcommandservice.post.application.usecase.ConfirmMediaUploadUseCase;
 import com.app.postcommandservice.post.application.usecase.CreatePostUseCase;
 import com.app.postcommandservice.post.application.usecase.DeletePostUseCase;
 import com.app.postcommandservice.post.application.usecase.LinkExistingPostToCollabUseCase;
@@ -55,6 +57,7 @@ import com.app.postcommandservice.view.application.usecase.DispatchProcessPostVi
 public class PostController {
 
     private final CreatePostUseCase createPostUseCase;
+    private final ConfirmMediaUploadUseCase confirmMediaUploadUseCase;
     private final CheckPostCollabLinkStatusUseCase checkPostCollabLinkStatusUseCase;
     private final UpdatePostUseCase updatePostUseCase;
     private final DeletePostUseCase deletePostUseCase;
@@ -92,6 +95,17 @@ public class PostController {
         var result = createPostUseCase.createPost(command);
         var status = result.created() ? HttpStatus.CREATED : HttpStatus.OK;
         return ResponseEntity.status(status).body(result.response());
+    }
+
+    @PostMapping("/{postId}/media/confirm")
+    public ResponseEntity<Void> confirmMediaUpload(@PathVariable("postId") java.util.UUID postId) {
+        var currentUserId = securityUtils.getUserId();
+        if (currentUserId == null) {
+            throw new AuthenticationCredentialsNotFoundException("JWT subject claim is missing or invalid");
+        }
+
+        confirmMediaUploadUseCase.confirm(new ConfirmMediaUploadCommand(postId, currentUserId));
+        return ResponseEntity.accepted().build();
     }
 
     @GetMapping("/{postId}/collab-status")

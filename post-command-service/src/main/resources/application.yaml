@@ -7,6 +7,7 @@ posts:
 rabbitmq:
   queue:
     post: q.post-command-service.post
+    post-media: q.post-command-service.post.media
     user:
       slow: q.post-command-service.user.slow
       fast: q.post-command-service.user.fast
@@ -26,6 +27,10 @@ rabbitmq:
       deleted: rk.post.deleted
       banned: rk.post.banned
       viewed: rk.post.viewed
+
+      # --- media ---
+      media:
+        uploaded: rk.post.media.uploaded
 
       # --- view ---
       view:
