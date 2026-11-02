@@ -56,6 +56,20 @@ public class Post {
         return new Post(id, userId, collabId, postInfo, media, PostStatus.ACCEPTED, null, null);
     }
 
+    /**
+     * Creates a post awaiting client media upload confirmation (task 33). Media urls must
+     * already be server-generated at this point; {@code duration} stays {@code null} until
+     * the upload is confirmed and the post transitions to {@code ACCEPTED} (task 37).
+     */
+    public static Post createPending(
+            PostId id,
+            UserId userId,
+            UUID collabId,
+            PostInfo postInfo,
+            List<PostMedia> media) {
+        return new Post(id, userId, collabId, postInfo, media, PostStatus.PENDING, null, null);
+    }
+
     public PostUpdateResult update(PostInfo newPostInfo) {
         Objects.requireNonNull(newPostInfo, "postInfo must not be null");
 

@@ -121,6 +121,8 @@ class OpenCollabAndCreatePostUseCaseTest {
                 "hello",
                 Set.of("spring"),
                 List.of(),
+                PostStatus.ACCEPTED,
+                null,
                 Instant.now(),
                 Instant.now()
         );

@@ -2,6 +2,7 @@ package com.app.postcommandservice.post.infrastructure.controller;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -88,7 +89,9 @@ public class PostController {
                 toMediaCommands(request.media())
         );
 
-        return ResponseEntity.ok(createPostUseCase.createPost(command));
+        var result = createPostUseCase.createPost(command);
+        var status = result.created() ? HttpStatus.CREATED : HttpStatus.OK;
+        return ResponseEntity.status(status).body(result.response());
     }
 
     @GetMapping("/{postId}/collab-status")

@@ -22,4 +22,19 @@ class PostMediaPropertiesTest {
 
         assertThat(properties.getUploadWindow()).isEqualTo(Duration.ofHours(12));
     }
+
+    @Test
+    void shouldDefaultMaxTaggedUsersToThirty() {
+        PostMediaProperties properties = new PostMediaProperties();
+
+        assertThat(properties.getMaxTaggedUsers()).isEqualTo(30);
+    }
+
+    @Test
+    void shouldAllowOverridingMaxTaggedUsers() {
+        PostMediaProperties properties = new PostMediaProperties();
+        properties.setMaxTaggedUsers(5);
+
+        assertThat(properties.getMaxTaggedUsers()).isEqualTo(5);
+    }
 }

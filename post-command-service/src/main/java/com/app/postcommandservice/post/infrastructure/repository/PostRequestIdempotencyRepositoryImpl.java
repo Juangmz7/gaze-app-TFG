@@ -9,6 +9,7 @@ import org.springframework.stereotype.Repository;
 
 import com.app.postcommandservice.post.application.repository.PostRequestIdempotencyRepository;
 import com.app.postcommandservice.post.infrastructure.entity.PostRequestIdempotencyEntity;
+import com.app.postcommandservice.post.infrastructure.entity.PostRequestIdempotencyId;
 
 @Repository
 @RequiredArgsConstructor
@@ -18,21 +19,29 @@ public class PostRequestIdempotencyRepositoryImpl implements PostRequestIdempote
     private final EntityManager entityManager;
 
     @Override
-    public void acquireCorrelationLock(UUID correlationId) {
+    public void acquireCorrelationLock(UUID userId, UUID correlationId) {
+        String lockKey = userId.toString() + ":" + correlationId.toString();
         entityManager.createNativeQuery(
-                        "SELECT pg_advisory_xact_lock(CAST(hashtext(CAST(:correlationId AS text)) AS bigint))"
+                        "SELECT pg_advisory_xact_lock(hashtextextended(:lockKey, 0))"
                 )
-                .setParameter("correlationId", correlationId.toString())
+                .setParameter("lockKey", lockKey)
                 .getSingleResult();
     }
 
     @Override
-    public Optional<UUID> findPostIdByCorrelationId(UUID correlationId) {
-        return postRequestIdempotencyJpaRepository.findById(correlationId).map(PostRequestIdempotencyEntity::getPostId);
+    public Optional<ExistingIdempotencyRecord> find(UUID userId, UUID correlationId) {
+        return postRequestIdempotencyJpaRepository
+                .findById(new PostRequestIdempotencyId(userId, correlationId))
+                .map(entity -> new ExistingIdempotencyRecord(entity.getPostId(), entity.getRequestHash()));
     }
 
     @Override
-    public void save(UUID correlationId, UUID postId) {
-        postRequestIdempotencyJpaRepository.save(new PostRequestIdempotencyEntity(correlationId, postId, null));
+    public void save(UUID userId, UUID correlationId, UUID postId, String requestHash) {
+        postRequestIdempotencyJpaRepository.save(new PostRequestIdempotencyEntity(
+                new PostRequestIdempotencyId(userId, correlationId),
+                postId,
+                requestHash,
+                null
+        ));
     }
 }
