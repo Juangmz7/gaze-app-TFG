@@ -29,7 +29,46 @@ final class MediaVerifierFixtures {
     }
 
     static byte[] validMp4(int durationSeconds, int timescale) {
-        return buildMp4(durationSeconds, timescale, 0);
+        return buildMp4("isom", 0, (long) durationSeconds * timescale, timescale, 0);
+    }
+
+    /** A valid MP4 (10s duration) whose {@code ftyp} box declares {@code majorBrand}. */
+    static byte[] mp4WithMajorBrand(String majorBrand) {
+        return buildMp4(majorBrand, 0, 10L * 600, 600, 0);
+    }
+
+    /**
+     * An MP4 whose {@code mvhd} box has the given {@code version} and whose duration field holds
+     * exactly {@code rawDuration} (the low 32 bits for version 0, all 64 bits for version 1).
+     * The field is patched in the serialized bytes so values mp4parser would refuse to write
+     * (e.g. negative ones) can still be produced.
+     */
+    static byte[] mp4WithRawDuration(int version, long rawDuration, int timescale) {
+        byte[] bytes = buildMp4("isom", version, 0, timescale, 0);
+        int mvhd = indexOf(bytes, "mvhd".getBytes(StandardCharsets.US_ASCII));
+        if (mvhd < 0 || bytes[mvhd + 4] != version) {
+            throw new IllegalStateException("Could not build an mvhd box of version " + version);
+        }
+        ByteBuffer buffer = ByteBuffer.wrap(bytes);
+        if (version == 0) {
+            buffer.putInt(mvhd + 20, (int) rawDuration);
+        } else {
+            buffer.putLong(mvhd + 28, rawDuration);
+        }
+        return bytes;
+    }
+
+    private static int indexOf(byte[] data, byte[] pattern) {
+        outer:
+        for (int i = 0; i <= data.length - pattern.length; i++) {
+            for (int j = 0; j < pattern.length; j++) {
+                if (data[i + j] != pattern[j]) {
+                    continue outer;
+                }
+            }
+            return i;
+        }
+        return -1;
     }
 
     /**
@@ -38,16 +77,18 @@ final class MediaVerifierFixtures {
      * end of the file, exercising the real-world "moov atom at the end" case.
      */
     static byte[] validMp4WithMoovAtEnd(int durationSeconds, int timescale, int mdatFillerBytes) {
-        return buildMp4(durationSeconds, timescale, mdatFillerBytes);
+        return buildMp4("isom", 0, (long) durationSeconds * timescale, timescale, mdatFillerBytes);
     }
 
-    private static byte[] buildMp4(int durationSeconds, int timescale, int mdatFillerBytes) {
+    private static byte[] buildMp4(
+            String majorBrand, int version, long durationTicks, int timescale, int mdatFillerBytes) {
         try {
-            FileTypeBox ftyp = new FileTypeBox("isom", 512, List.of("isom", "iso2", "mp41"));
+            FileTypeBox ftyp = new FileTypeBox(majorBrand, 512, List.of("isom", "iso2", "mp41"));
 
             MovieHeaderBox mvhd = new MovieHeaderBox();
             mvhd.setTimescale(timescale);
-            mvhd.setDuration((long) durationSeconds * timescale);
+            mvhd.setDuration(durationTicks);
+            mvhd.setVersion(version);
             mvhd.setCreationTime(new Date());
             mvhd.setModificationTime(new Date());
 

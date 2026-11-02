@@ -8,6 +8,8 @@ package com.app.postcommandservice.post.application.port;
  */
 public enum MediaVerificationFailureReason {
     BLOB_NOT_FOUND,
+    /** The blob was overwritten between reading its properties and downloading its content. */
+    BLOB_MODIFIED,
     EMPTY_BLOB,
     FILE_TOO_LARGE,
     UNSUPPORTED_FORMAT,

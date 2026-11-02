@@ -13,6 +13,7 @@ import com.app.postcommandservice.post.infrastructure.config.PostMediaProperties
 import com.azure.storage.blob.BlobContainerClient;
 import com.azure.storage.blob.BlobServiceClient;
 import com.azure.storage.blob.BlobServiceClientBuilder;
+import com.azure.storage.blob.models.BlobStorageException;
 import com.azure.storage.common.StorageSharedKeyCredential;
 
 import org.junit.jupiter.api.AfterAll;
@@ -25,6 +26,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Proves {@link AzureMediaVerifier} end-to-end against a real Azurite emulator, mirroring
@@ -157,6 +159,24 @@ class AzureMediaVerifierAzuriteTest {
         assertThat(result).isInstanceOf(MediaVerificationResult.Failure.class);
         assertThat(((MediaVerificationResult.Failure) result).reason())
                 .isEqualTo(MediaVerificationFailureReason.CORRUPT_FILE);
+    }
+
+    @Test
+    void shouldRefuseDownloadsWhenTheBlobChangedSinceItsPropertiesWereRead() {
+        AzureBlobContentClient contentClient = new AzureBlobContentClientImpl(blobContainerClient);
+        String blobName = UUID.randomUUID().toString();
+        byte[] original = MediaVerifierFixtures.jpeg(1024);
+        blobContainerClient.getBlobClient(blobName).upload(new ByteArrayInputStream(original), original.length, true);
+        String blobUrl = accountUrl + "/" + CONTAINER_NAME + "/" + blobName;
+
+        AzureBlobContentClient.BlobSnapshot snapshot = contentClient.fetchProperties(blobUrl);
+        byte[] replacement = MediaVerifierFixtures.png(1024);
+        blobContainerClient.getBlobClient(blobName).upload(
+                new ByteArrayInputStream(replacement), replacement.length, true);
+
+        assertThatThrownBy(() -> contentClient.downloadRange(blobUrl, snapshot.eTag(), 0, 64))
+                .isInstanceOf(BlobStorageException.class)
+                .satisfies(e -> assertThat(((BlobStorageException) e).getStatusCode()).isEqualTo(412));
     }
 
     @Test

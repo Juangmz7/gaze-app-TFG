@@ -33,11 +33,15 @@ import org.springframework.stereotype.Component;
  * are additionally streamed to a temporary file to extract their duration via
  * {@code org.mp4parser}, since the Azure SDK exposes no media metadata.
  *
+ * <p>Every content download is conditioned on the ETag read alongside the blob's size
+ * ({@code If-Match}), so all checks apply to the exact blob version whose size was validated.</p>
+ *
  * <p>Business inconsistencies are always returned as a {@link MediaVerificationResult.Failure},
- * never thrown. {@link BlobStorageException} with a 404 status is the only Azure error mapped to
- * a failure ({@code BLOB_NOT_FOUND}); every other exception (timeouts, 5xx, network failures)
- * propagates so a message-driven caller can retry. This class performs no database access and
- * is not transactional.</p>
+ * never thrown. The only Azure errors mapped to a failure are a {@link BlobStorageException}
+ * with a 404 status ({@code BLOB_NOT_FOUND}) and, on a download, a 412 ETag mismatch
+ * ({@code BLOB_MODIFIED}); every other exception (timeouts, 5xx, network failures) propagates
+ * so a message-driven caller can retry. This class performs no database access and is not
+ * transactional.</p>
  */
 @Component
 public class AzureMediaVerifier implements MediaVerifier {
@@ -50,6 +54,16 @@ public class AzureMediaVerifier implements MediaVerifier {
     private static final int HEADER_BYTES = 64;
 
     private static final Set<DetectedFormat> VIDEO_FORMATS = EnumSet.of(DetectedFormat.MP4, DetectedFormat.MOV);
+
+    /**
+     * {@code ftyp} major brands accepted as MP4. Anything else carrying an {@code ftyp} box
+     * (e.g. HEIC images, 3GP, M4A audio) is reported as an unknown format.
+     */
+    private static final Set<String> MP4_MAJOR_BRANDS = Set.of(
+            "isom", "iso2", "iso3", "iso4", "iso5", "iso6", "mp41", "mp42", "avc1", "M4V ");
+
+    /** {@code mvhd} version-0 duration value meaning "unknown duration" (all 32 bits set). */
+    private static final long UNKNOWN_DURATION_V0 = 0xFFFFFFFFL;
 
     private final AzureBlobContentClient contentClient;
     private final PostMediaProperties mediaProperties;
@@ -89,16 +103,14 @@ public class AzureMediaVerifier implements MediaVerifier {
 
     private MediaVerificationResult.Failure verifyBlob(
             UUID mediaId, String blobUrl, Role role, Map<UUID, Integer> videoDurationsSeconds) {
-        long size;
+        AzureBlobContentClient.BlobSnapshot snapshot;
         try {
-            size = contentClient.fetchContentLength(blobUrl);
+            snapshot = contentClient.fetchProperties(blobUrl);
         } catch (BlobStorageException e) {
-            if (e.getStatusCode() == 404) {
-                return failure(MediaVerificationFailureReason.BLOB_NOT_FOUND, mediaId, blobUrl,
-                        "Blob not found: " + blobUrl);
-            }
-            throw e;
+            return mapStorageFailure(e, mediaId, blobUrl);
         }
+        long size = snapshot.contentLength();
+        String eTag = snapshot.eTag();
 
         if (size <= 0) {
             return failure(MediaVerificationFailureReason.EMPTY_BLOB, mediaId, blobUrl,
@@ -111,7 +123,12 @@ public class AzureMediaVerifier implements MediaVerifier {
                     "Blob size " + size + " exceeds the max of " + maxBytes + " bytes: " + blobUrl);
         }
 
-        byte[] header = contentClient.downloadRange(blobUrl, 0, Math.min(size, HEADER_BYTES));
+        byte[] header;
+        try {
+            header = contentClient.downloadRange(blobUrl, eTag, 0, Math.min(size, HEADER_BYTES));
+        } catch (BlobStorageException e) {
+            return mapStorageFailure(e, mediaId, blobUrl);
+        }
         DetectedFormat detected = detectFormat(header);
 
         if (detected == DetectedFormat.UNKNOWN) {
@@ -138,14 +155,36 @@ public class AzureMediaVerifier implements MediaVerifier {
         if (!expectsVideo) {
             return null;
         }
-        return extractDuration(mediaId, blobUrl, videoDurationsSeconds);
+        return extractDuration(mediaId, blobUrl, eTag, videoDurationsSeconds);
+    }
+
+    /**
+     * Maps a 404 to {@code BLOB_NOT_FOUND} and a 412 (ETag no longer matches: the blob was
+     * overwritten mid-verification) to {@code BLOB_MODIFIED}. Any other status is rethrown so
+     * the caller can retry.
+     */
+    private static MediaVerificationResult.Failure mapStorageFailure(
+            BlobStorageException e, UUID mediaId, String blobUrl) {
+        if (e.getStatusCode() == 404) {
+            return failure(MediaVerificationFailureReason.BLOB_NOT_FOUND, mediaId, blobUrl,
+                    "Blob not found: " + blobUrl);
+        }
+        if (e.getStatusCode() == 412) {
+            return failure(MediaVerificationFailureReason.BLOB_MODIFIED, mediaId, blobUrl,
+                    "Blob was modified during verification: " + blobUrl);
+        }
+        throw e;
     }
 
     private MediaVerificationResult.Failure extractDuration(
-            UUID mediaId, String blobUrl, Map<UUID, Integer> videoDurationsSeconds) {
+            UUID mediaId, String blobUrl, String eTag, Map<UUID, Integer> videoDurationsSeconds) {
         Path tempFile = Path.of(System.getProperty("java.io.tmpdir"), "media-verifier-" + UUID.randomUUID() + ".bin");
         try {
-            contentClient.downloadToFile(blobUrl, tempFile);
+            try {
+                contentClient.downloadToFile(blobUrl, eTag, tempFile);
+            } catch (BlobStorageException e) {
+                return mapStorageFailure(e, mediaId, blobUrl);
+            }
 
             int durationSeconds;
             try (IsoFile isoFile = new IsoFile(tempFile.toString())) {
@@ -155,8 +194,15 @@ public class AzureMediaVerifier implements MediaVerifier {
                     return failure(MediaVerificationFailureReason.DURATION_UNREADABLE, mediaId, blobUrl,
                             "Could not read a movie header box from blob: " + blobUrl);
                 }
-                durationSeconds = (int) Math.round(
-                        (double) movieHeaderBox.getDuration() / movieHeaderBox.getTimescale());
+                long ticks = durationTicks(movieHeaderBox);
+                long roundedSeconds = ticks < 0
+                        ? -1
+                        : Math.round((double) ticks / movieHeaderBox.getTimescale());
+                if (roundedSeconds < 0 || roundedSeconds > Integer.MAX_VALUE) {
+                    return failure(MediaVerificationFailureReason.DURATION_UNREADABLE, mediaId, blobUrl,
+                            "Unknown or out-of-range video duration in blob: " + blobUrl);
+                }
+                durationSeconds = (int) roundedSeconds;
             } catch (IOException | RuntimeException e) {
                 // mp4parser throws on structurally unreadable ISO BMFF content (e.g. a
                 // truncated or corrupted moov box) that the magic-byte check above could not
@@ -178,6 +224,21 @@ public class AzureMediaVerifier implements MediaVerifier {
         } finally {
             deleteQuietly(tempFile);
         }
+    }
+
+    /**
+     * The {@code mvhd} duration in timescale ticks, or {@code -1} if it is unknown or invalid.
+     * Version 0 stores an unsigned 32-bit value (which mp4parser may surface sign-extended),
+     * with all bits set meaning "unknown"; version 1 stores a 64-bit value, where a negative
+     * value (including the all-bits-set "unknown" sentinel) is invalid.
+     */
+    private static long durationTicks(MovieHeaderBox movieHeaderBox) {
+        long raw = movieHeaderBox.getDuration();
+        if (movieHeaderBox.getVersion() == 0) {
+            long unsigned = raw & 0xFFFFFFFFL;
+            return unsigned == UNKNOWN_DURATION_V0 ? -1 : unsigned;
+        }
+        return raw < 0 ? -1 : raw;
     }
 
     private static void deleteQuietly(Path tempFile) {
@@ -212,9 +273,13 @@ public class AzureMediaVerifier implements MediaVerifier {
         }
         if (matchesAscii(header, 4, "ftyp")) {
             String majorBrand = asciiAt(header, 8, 4);
-            return majorBrand != null && majorBrand.trim().equalsIgnoreCase("qt")
-                    ? DetectedFormat.MOV
-                    : DetectedFormat.MP4;
+            if (majorBrand == null) {
+                return DetectedFormat.UNKNOWN;
+            }
+            if (majorBrand.trim().equalsIgnoreCase("qt")) {
+                return DetectedFormat.MOV;
+            }
+            return MP4_MAJOR_BRANDS.contains(majorBrand) ? DetectedFormat.MP4 : DetectedFormat.UNKNOWN;
         }
         return DetectedFormat.UNKNOWN;
     }

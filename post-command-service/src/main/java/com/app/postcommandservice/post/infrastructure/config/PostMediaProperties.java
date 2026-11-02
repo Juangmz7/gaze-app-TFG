@@ -54,6 +54,7 @@ public class PostMediaProperties {
      * Optional maximum VIDEO duration, in seconds. {@code null} means no limit. Enforced by
      * {@code MediaVerifier} (task 36) after extracting the duration from the blob.
      */
+    @Positive
     private Integer maxVideoDurationSeconds;
 
     /**
