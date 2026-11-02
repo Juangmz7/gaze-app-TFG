@@ -30,6 +30,7 @@ import com.app.postcommandservice.post.application.commands.PostMediaCommand;
 import com.app.postcommandservice.post.application.dto.PostResponse;
 import com.app.postcommandservice.post.application.repository.PostRepository;
 import com.app.postcommandservice.post.application.usecase.CreatePostUseCase;
+import com.app.postcommandservice.post.domain.exception.IdempotencyKeyReuseException;
 import com.app.postcommandservice.post.domain.model.Post;
 import com.app.postcommandservice.post.domain.model.valueobj.PostType;
 import com.app.postcommandservice.shared.domain.model.user.valueobj.UserId;
@@ -111,6 +112,11 @@ public class OpenCollabAndCreatePostUseCase {
             var existingPost = postRepository.findById(existingEntityId.get())
                     .orElseThrow(() -> new IllegalStateException(
                             "Idempotency record exists but post was not found: " + existingEntityId.get()));
+            // correlationId is only a lookup key: a replay must never surface (or re-sign upload
+            // urls for) a collab post owned by another user.
+            if (!existingPost.getUserId().value().equals(command.currentUserId())) {
+                throw new IdempotencyKeyReuseException();
+            }
             var existingCollabId = existingPost.getCollabId();
             if (existingCollabId == null) {
                 throw new IllegalStateException("Idempotency record exists but post has no collab: " + existingPost.getId());

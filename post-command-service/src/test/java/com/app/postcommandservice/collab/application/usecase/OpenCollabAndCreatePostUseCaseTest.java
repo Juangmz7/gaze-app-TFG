@@ -35,6 +35,7 @@ import com.app.postcommandservice.post.application.commands.PostMediaCommand;
 import com.app.postcommandservice.post.application.dto.PostResponse;
 import com.app.postcommandservice.post.application.repository.PostRepository;
 import com.app.postcommandservice.post.application.usecase.CreatePostUseCase;
+import com.app.postcommandservice.post.domain.exception.IdempotencyKeyReuseException;
 import com.app.postcommandservice.post.domain.model.Post;
 import com.app.postcommandservice.post.domain.model.PostInfo;
 import com.app.postcommandservice.post.domain.model.PostMedia;
@@ -51,6 +52,7 @@ import com.app.postcommandservice.shared.infrastructure.mapper.JsonMapper;
 import com.app.postcommandservice.shared.infrastructure.repository.OutboxEventRepository;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
@@ -303,6 +305,32 @@ class OpenCollabAndCreatePostUseCaseTest {
         verify(collabMemberRepository, never()).save(any(CollabMember.class));
         verify(createPostUseCase, never()).createPendingPost(any(CreatePostCommand.class));
         verify(createPostUseCase).signUploadUrls(existingPost);
+        verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
+    }
+
+    @Test
+    void shouldRejectReplayWhenCorrelationIdBelongsToAnotherUsersCollabPost() {
+        var collabId = UUID.randomUUID();
+        var postId = UUID.randomUUID();
+        var existingPost = persistedCollabPost(postId, collabId);
+
+        when(collabRequestIdempotencyRepository.findEntityIdByCorrelationId(CORRELATION_ID)).thenReturn(Optional.of(postId));
+        when(postRepository.findById(postId)).thenReturn(Optional.of(existingPost));
+
+        assertThatThrownBy(() -> openCollabAndCreatePostUseCase.open(new OpenCollabAndCreatePostCommand(
+                CORRELATION_ID,
+                UUID.randomUUID(),
+                "ignored",
+                "ignored",
+                Set.of(),
+                defaultMedia()
+        ))).isInstanceOf(IdempotencyKeyReuseException.class);
+
+        verify(collabRepository, never()).findById(any(UUID.class));
+        verify(createPostUseCase, never()).signUploadUrls(any(Post.class));
+        verify(collabRepository, never()).save(any(Collab.class));
+        verify(collabMemberRepository, never()).save(any(CollabMember.class));
+        verify(createPostUseCase, never()).createPendingPost(any(CreatePostCommand.class));
         verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
     }
 
