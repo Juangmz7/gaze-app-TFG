@@ -167,6 +167,11 @@ FROM posts p
 WHERE p.id = pri.post_id
   AND pri.user_id IS NULL;
 
+-- Rows that could not be backfilled (e.g. referencing a post that no longer exists) cannot be
+-- scoped to an owner; drop them so SET NOT NULL succeeds. They are only replay records.
+DELETE FROM post_request_idempotency
+WHERE user_id IS NULL;
+
 ALTER TABLE post_request_idempotency
     ALTER COLUMN user_id SET NOT NULL;
 
