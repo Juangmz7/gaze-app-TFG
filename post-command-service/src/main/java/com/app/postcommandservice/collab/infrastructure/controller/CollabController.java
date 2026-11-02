@@ -41,6 +41,7 @@ import com.app.postcommandservice.collab.application.usecase.BanCollabMemberUseC
 import com.app.postcommandservice.collab.application.usecase.CloseCollabUseCase;
 import com.app.postcommandservice.collab.application.usecase.OpenCollabAndCreatePostUseCase;
 import com.app.postcommandservice.collab.application.usecase.RequestToJoinCollabUseCase;
+import com.app.postcommandservice.post.infrastructure.controller.PostMediaRequest;
 import com.app.postcommandservice.shared.infrastructure.security.SecurityUtils;
 
 @RestController
@@ -78,7 +79,7 @@ public class CollabController {
                 request.postTags(),
                 request.media() == null
                         ? java.util.List.of()
-                        : request.media().stream().map(OpenCollabAndCreatePostMediaRequest::toCommand).toList()
+                        : request.media().stream().map(PostMediaRequest::toCommand).toList()
         );
 
         return ResponseEntity.ok(
