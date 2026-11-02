@@ -14,7 +14,6 @@ import java.util.UUID;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -42,11 +41,13 @@ import com.app.postcommandservice.post.infrastructure.config.PostMediaProperties
  * (task 33) or a previous call to this endpoint have expired. Blob urls never change; only the
  * SAS is renewed.
  *
- * <p>Each issued SAS is persisted hashed (BCrypt) with its expiry, keyed by its owning
- * {@code post_media} row. Since BCrypt hashes cannot be reversed, recognising a still-valid,
- * previously issued SAS requires the client to resend the SAS url(s) it currently holds; this
- * use case then calls {@link PasswordEncoder#matches} once per media item against the row it
- * already knows applies (never a scan over many rows).</p>
+ * <p>Each issued SAS is persisted as the hex SHA-256 digest of its url, with its expiry, keyed
+ * by its owning {@code post_media} row. A SAS embeds a high-entropy HMAC signature, so a fast,
+ * unsalted digest is sufficient (unlike low-entropy passwords, it cannot be brute-forced) and a
+ * slow KDF such as BCrypt would only add CPU cost per request. Since the digest cannot be
+ * reversed, recognising a still-valid, previously issued SAS requires the client to resend the
+ * SAS url(s) it currently holds; this use case then digests each one and compares it, in
+ * constant time, against the row it already knows applies (never a scan over many rows).</p>
  *
  * <p>{@link #refresh(RefreshUploadUrlsCommand)} is deliberately NOT {@code @Transactional}: it
  * reads a snapshot in its own short read-only transaction via {@code self}, calls the
@@ -64,19 +65,16 @@ public class RefreshUploadUrlsUseCase {
     private final RefreshUploadUrlsRepository refreshUploadUrlsRepository;
     private final PostMediaProperties postMediaProperties;
     private final MediaUploadUrlSigner mediaUploadUrlSigner;
-    private final PasswordEncoder passwordEncoder;
     private final RefreshUploadUrlsUseCase self;
 
     public RefreshUploadUrlsUseCase(
             RefreshUploadUrlsRepository refreshUploadUrlsRepository,
             PostMediaProperties postMediaProperties,
             MediaUploadUrlSigner mediaUploadUrlSigner,
-            PasswordEncoder passwordEncoder,
             @Lazy RefreshUploadUrlsUseCase self) {
         this.refreshUploadUrlsRepository = refreshUploadUrlsRepository;
         this.postMediaProperties = postMediaProperties;
         this.mediaUploadUrlSigner = mediaUploadUrlSigner;
-        this.passwordEncoder = passwordEncoder;
         this.self = self;
     }
 
@@ -167,7 +165,7 @@ public class RefreshUploadUrlsUseCase {
         }
 
         var signed = mediaUploadUrlSigner.sign(blobUrl, postCreatedAt);
-        String hash = passwordEncoder.encode(sha256Hex(signed.url()));
+        String hash = sha256Hex(signed.url());
         return new ResolvedUrl(signed.url(), signed.expiresAt(), new SasUpdate(mediaId, thumbnail, hash, signed.expiresAt()));
     }
 
@@ -178,15 +176,14 @@ public class RefreshUploadUrlsUseCase {
         if (!storedExpiresAt.isAfter(Instant.now())) {
             return false;
         }
-        return passwordEncoder.matches(sha256Hex(clientSuppliedUrl), storedHash);
+        return MessageDigest.isEqual(
+                sha256Hex(clientSuppliedUrl).getBytes(StandardCharsets.US_ASCII),
+                storedHash.getBytes(StandardCharsets.US_ASCII));
     }
 
     /**
-     * BCrypt silently truncates (and {@code BCryptPasswordEncoder} rejects outright) inputs
-     * longer than 72 bytes, while a signed SAS url is routinely far longer than that. Hashing a
-     * fixed-length SHA-256 digest of the url instead of the url itself keeps BCrypt's salted,
-     * slow verification property (the actual security requirement here) while accepting a url
-     * of any length.
+     * Lower-case hex SHA-256 digest of {@code value}: the stored form of an issued SAS url,
+     * and the form a client-supplied url is reduced to before the constant-time comparison.
      */
     private String sha256Hex(String value) {
         try {

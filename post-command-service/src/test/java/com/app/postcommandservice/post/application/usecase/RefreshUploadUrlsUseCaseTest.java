@@ -1,7 +1,11 @@
 package com.app.postcommandservice.post.application.usecase;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -10,7 +14,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.security.crypto.password.PasswordEncoder;
 
 import com.app.postcommandservice.post.application.commands.RefreshUploadUrlsCommand;
 import com.app.postcommandservice.post.application.commands.RefreshUploadUrlsCommand.ClientMediaUpload;
@@ -42,14 +45,20 @@ class RefreshUploadUrlsUseCaseTest {
     private static final UUID AUTHOR_ID = UUID.randomUUID();
     private static final String STORED_HASH = "stored-hash";
 
+    private static String sha256Hex(String value) {
+        try {
+            return HexFormat.of().formatHex(
+                    MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
     @Mock
     private RefreshUploadUrlsRepository refreshUploadUrlsRepository;
 
     @Mock
     private MediaUploadUrlSigner mediaUploadUrlSigner;
-
-    @Mock
-    private PasswordEncoder passwordEncoder;
 
     private PostMediaProperties postMediaProperties;
 
@@ -67,7 +76,6 @@ class RefreshUploadUrlsUseCaseTest {
                 refreshUploadUrlsRepository,
                 postMediaProperties,
                 mediaUploadUrlSigner,
-                passwordEncoder,
                 null);
         try {
             var selfField = RefreshUploadUrlsUseCase.class.getDeclaredField("self");
@@ -103,7 +111,6 @@ class RefreshUploadUrlsUseCaseTest {
         var freshExpiry = Instant.now().plus(Duration.ofMinutes(15));
         when(mediaUploadUrlSigner.sign(eq("https://cdn/blob.jpg"), any()))
                 .thenReturn(new SignedUploadUrl("https://cdn/blob.jpg?fresh-sas", freshExpiry));
-        when(passwordEncoder.encode(any())).thenReturn("new-hash");
 
         var response = useCase.refresh(new RefreshUploadUrlsCommand(POST_ID, AUTHOR_ID,
                 List.of(new ClientMediaUpload(mediaId, "https://cdn/blob.jpg?expired-sas", null))));
@@ -113,7 +120,8 @@ class RefreshUploadUrlsUseCaseTest {
         assertThat(response.media().getFirst().uploadUrl()).isEqualTo("https://cdn/blob.jpg?fresh-sas");
         assertThat(response.media().getFirst().thumbnailUploadUrl()).isNull();
         assertThat(response.uploadExpiresAt()).isEqualTo(freshExpiry);
-        verify(refreshUploadUrlsRepository).updateUploadSas(mediaId, "new-hash", freshExpiry);
+        verify(refreshUploadUrlsRepository).updateUploadSas(
+                mediaId, sha256Hex("https://cdn/blob.jpg?fresh-sas"), freshExpiry);
     }
 
     @Test
@@ -123,9 +131,8 @@ class RefreshUploadUrlsUseCaseTest {
         var storedExpiry = Instant.now().plus(Duration.ofMinutes(20));
         var upload = new RefreshableUpload(
                 POST_ID, AUTHOR_ID, PostStatus.PENDING, Instant.now().minus(Duration.ofHours(1)),
-                List.of(imageMedia(mediaId, STORED_HASH, storedExpiry)));
+                List.of(imageMedia(mediaId, sha256Hex("https://cdn/blob.jpg?still-valid-sas"), storedExpiry)));
         when(refreshUploadUrlsRepository.findById(POST_ID)).thenReturn(Optional.of(upload));
-        when(passwordEncoder.matches(any(), eq(STORED_HASH))).thenReturn(true);
 
         var response = useCase.refresh(new RefreshUploadUrlsCommand(POST_ID, AUTHOR_ID,
                 List.of(new ClientMediaUpload(mediaId, "https://cdn/blob.jpg?still-valid-sas", null))));
@@ -134,6 +141,27 @@ class RefreshUploadUrlsUseCaseTest {
         assertThat(response.uploadExpiresAt()).isEqualTo(storedExpiry);
         verify(mediaUploadUrlSigner, never()).sign(any(), any());
         verify(refreshUploadUrlsRepository, never()).updateUploadSas(any(), any(), any());
+    }
+
+    @Test
+    void shouldSignAFreshSasGivenAnUnexpiredButNonMatchingClientSas() {
+        var useCase = useCase(Duration.ofHours(48));
+        var mediaId = UUID.randomUUID();
+        var upload = new RefreshableUpload(
+                POST_ID, AUTHOR_ID, PostStatus.PENDING, Instant.now().minus(Duration.ofHours(1)),
+                List.of(imageMedia(mediaId, sha256Hex("https://cdn/blob.jpg?issued-sas"),
+                        Instant.now().plus(Duration.ofMinutes(20)))));
+        when(refreshUploadUrlsRepository.findById(POST_ID)).thenReturn(Optional.of(upload));
+        var freshExpiry = Instant.now().plus(Duration.ofMinutes(15));
+        when(mediaUploadUrlSigner.sign(eq("https://cdn/blob.jpg"), any()))
+                .thenReturn(new SignedUploadUrl("https://cdn/blob.jpg?fresh-sas", freshExpiry));
+
+        var response = useCase.refresh(new RefreshUploadUrlsCommand(POST_ID, AUTHOR_ID,
+                List.of(new ClientMediaUpload(mediaId, "https://cdn/blob.jpg?forged-sas", null))));
+
+        assertThat(response.media().getFirst().uploadUrl()).isEqualTo("https://cdn/blob.jpg?fresh-sas");
+        verify(refreshUploadUrlsRepository).updateUploadSas(
+                mediaId, sha256Hex("https://cdn/blob.jpg?fresh-sas"), freshExpiry);
     }
 
     @Test
@@ -153,7 +181,6 @@ class RefreshUploadUrlsUseCaseTest {
                 .thenReturn(new SignedUploadUrl("https://cdn/video.mp4?sas2", Instant.now().plus(Duration.ofMinutes(10))));
         when(mediaUploadUrlSigner.sign(eq("https://cdn/thumb.jpg"), any()))
                 .thenReturn(new SignedUploadUrl("https://cdn/thumb.jpg?sas3", Instant.now().plus(Duration.ofMinutes(10))));
-        when(passwordEncoder.encode(any())).thenReturn("hash");
 
         var response = useCase.refresh(new RefreshUploadUrlsCommand(POST_ID, AUTHOR_ID, List.of()));
 
@@ -163,7 +190,8 @@ class RefreshUploadUrlsUseCaseTest {
         assertThat(imageResponse.thumbnailUploadUrl()).isNull();
         assertThat(videoResponse.uploadUrl()).isEqualTo("https://cdn/video.mp4?sas2");
         assertThat(videoResponse.thumbnailUploadUrl()).isEqualTo("https://cdn/thumb.jpg?sas3");
-        verify(refreshUploadUrlsRepository).updateThumbnailSas(eq(videoId), eq("hash"), any());
+        verify(refreshUploadUrlsRepository).updateThumbnailSas(
+                eq(videoId), eq(sha256Hex("https://cdn/thumb.jpg?sas3")), any());
     }
 
     @Test
