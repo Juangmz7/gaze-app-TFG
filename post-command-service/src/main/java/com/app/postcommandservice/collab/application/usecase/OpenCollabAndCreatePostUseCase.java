@@ -28,10 +28,12 @@ import com.app.postcommandservice.collab.infrastructure.mapper.CollabEventMapper
 import com.app.postcommandservice.post.application.commands.CreatePostCommand;
 import com.app.postcommandservice.post.application.commands.PostMediaCommand;
 import com.app.postcommandservice.post.application.dto.PostResponse;
+import com.app.postcommandservice.post.application.mapper.PostApplicationMapper;
 import com.app.postcommandservice.post.application.repository.PostRepository;
 import com.app.postcommandservice.post.application.usecase.CreatePostUseCase;
 import com.app.postcommandservice.post.domain.exception.IdempotencyKeyReuseException;
 import com.app.postcommandservice.post.domain.model.Post;
+import com.app.postcommandservice.post.domain.model.valueobj.PostStatus;
 import com.app.postcommandservice.post.domain.model.valueobj.PostType;
 import com.app.postcommandservice.shared.domain.model.user.valueobj.UserId;
 import com.app.postcommandservice.shared.infrastructure.entity.OutboxEvent;
@@ -49,8 +51,10 @@ import com.app.postcommandservice.shared.infrastructure.repository.OutboxEventRe
  * {@link TransactionTemplate} instead of a self-invoked {@code @Transactional} method: collab,
  * creator-member, and post persistence (plus the collab-opened outbox row) happen atomically in
  * one transaction, while upload SAS signing — a network call — always runs strictly after that
- * transaction commits, on both a fresh creation and an idempotent replay (replays never reuse a
- * possibly-expired SAS url, mirroring task 33's single-post contract).</p>
+ * transaction commits, on both a fresh creation and an idempotent replay of a still-{@code PENDING}
+ * post (replays never reuse a possibly-expired SAS url, mirroring task 33's single-post contract).
+ * A replay whose post is no longer {@code PENDING} (e.g. already {@code ACCEPTED}) is returned
+ * without any upload urls.</p>
  */
 @Service
 public class OpenCollabAndCreatePostUseCase {
@@ -93,8 +97,13 @@ public class OpenCollabAndCreatePostUseCase {
         OpenOutcome outcome = transactionTemplate.execute(status -> openWithinTransaction(command));
         Objects.requireNonNull(outcome, "open outcome must not be null");
 
-        PostResponse signedPostResponse = createPostUseCase.signUploadUrls(outcome.post());
-        return toResponse(outcome.collab(), signedPostResponse);
+        // Only a PENDING post still awaits its media upload; a replay of an already-accepted
+        // (or otherwise finalized) post must never be handed fresh write SAS urls.
+        Post post = outcome.post();
+        PostResponse postResponse = post.getStatus() == PostStatus.PENDING
+                ? createPostUseCase.signUploadUrls(post)
+                : PostApplicationMapper.toResponse(post);
+        return toResponse(outcome.collab(), postResponse);
     }
 
     /**

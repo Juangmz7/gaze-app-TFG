@@ -309,6 +309,45 @@ class OpenCollabAndCreatePostUseCaseTest {
     }
 
     @Test
+    void shouldReturnAcceptedReplayPostWithoutIssuingUploadUrls() {
+        var collabId = UUID.randomUUID();
+        var postId = UUID.randomUUID();
+        var existingPost = persistedCollabPost(postId, collabId, PostStatus.ACCEPTED);
+        var existingCollab = new Collab(
+                collabId,
+                new CollabTitle("Existing"),
+                new UserId(USER_ID),
+                ColabStatus.OPEN,
+                Instant.now()
+        );
+
+        when(collabRequestIdempotencyRepository.findEntityIdByCorrelationId(CORRELATION_ID)).thenReturn(Optional.of(postId));
+        when(postRepository.findById(postId)).thenReturn(Optional.of(existingPost));
+        when(collabRepository.findById(collabId)).thenReturn(Optional.of(existingCollab));
+
+        OpenCollabAndCreatePostResponse response = openCollabAndCreatePostUseCase.open(new OpenCollabAndCreatePostCommand(
+                CORRELATION_ID,
+                USER_ID,
+                "ignored",
+                "ignored",
+                Set.of(),
+                defaultMedia()
+        ));
+
+        assertThat(response.collabId()).isEqualTo(collabId);
+        assertThat(response.post().postId()).isEqualTo(postId);
+        assertThat(response.post().status()).isEqualTo(PostStatus.ACCEPTED);
+        assertThat(response.post().uploadExpiresAt()).isNull();
+        assertThat(response.post().media()).allSatisfy(media -> {
+            assertThat(media.uploadUrl()).isNull();
+            assertThat(media.thumbnailUploadUrl()).isNull();
+        });
+        verify(createPostUseCase, never()).signUploadUrls(any(Post.class));
+        verify(createPostUseCase, never()).createPendingPost(any(CreatePostCommand.class));
+        verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
+    }
+
+    @Test
     void shouldRejectReplayWhenCorrelationIdBelongsToAnotherUsersCollabPost() {
         var collabId = UUID.randomUUID();
         var postId = UUID.randomUUID();
@@ -339,6 +378,10 @@ class OpenCollabAndCreatePostUseCaseTest {
     }
 
     private Post persistedCollabPost(UUID postId, UUID collabId) {
+        return persistedCollabPost(postId, collabId, PostStatus.PENDING);
+    }
+
+    private Post persistedCollabPost(UUID postId, UUID collabId, PostStatus status) {
         var now = Instant.now();
         return new Post(
                 new PostId(postId),
@@ -351,7 +394,7 @@ class OpenCollabAndCreatePostUseCaseTest {
                 ),
                 List.of(PostMedia.create(postId, "https://cdn/image.jpg", "https://cdn/image.jpg", MediaType.IMAGE, null,
                         Set.of("alice"), 1)),
-                PostStatus.PENDING,
+                status,
                 now,
                 now
         );
