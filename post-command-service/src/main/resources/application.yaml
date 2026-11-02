@@ -2,6 +2,8 @@
 posts:
   media:
     upload-window: PT48H
+    max-image-bytes: 10485760
+    max-video-bytes: 209715200
 
 # --- RabbitMQ Bindings ---
 rabbitmq:
