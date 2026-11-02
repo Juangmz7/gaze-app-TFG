@@ -7,7 +7,7 @@ import java.util.UUID;
  * Request to refresh (or reuse) the upload SAS urls of a {@code PENDING} post's media
  * (task 38). {@code clientMedia} carries, per media item, the SAS url(s) the client currently
  * holds — this is how the server can recognise a still-valid, previously issued SAS without
- * being able to reverse its persisted BCrypt hash.
+ * being able to reverse its persisted SHA-256 digest.
  */
 public record RefreshUploadUrlsCommand(
         UUID postId,
