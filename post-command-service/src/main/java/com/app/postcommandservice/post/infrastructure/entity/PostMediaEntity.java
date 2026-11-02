@@ -75,7 +75,7 @@ public class PostMediaEntity {
     private Integer mediaOrder;
 
     /**
-     * BCrypt hash of the most recently issued upload SAS url for {@link #url} (task 38). Never
+     * Hex SHA-256 digest of the most recently issued upload SAS url for {@link #url} (task 38). Never
      * the plain SAS, which is never persisted. {@code null} until a SAS has been issued via the
      * refresh-upload-urls endpoint.
      */
@@ -86,7 +86,7 @@ public class PostMediaEntity {
     private Instant uploadSasExpiresAt;
 
     /**
-     * BCrypt hash of the most recently issued upload SAS url for {@link #thumbnailUrl}, used only
+     * Hex SHA-256 digest of the most recently issued upload SAS url for {@link #thumbnailUrl}, used only
      * for {@code VIDEO} media (task 38). {@code null} for {@code IMAGE} media and for any
      * {@code VIDEO} media that has not had its thumbnail SAS refreshed yet.
      */

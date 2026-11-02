@@ -47,7 +47,7 @@ public interface PostMediaJpaRepository extends JpaRepository<PostMediaEntity, U
 
     /**
      * Persists a freshly signed upload SAS hash + expiry for {@code mediaId}'s content blob
-     * (task 38). The SAS itself is never persisted, only its BCrypt hash.
+     * (task 38). The SAS itself is never persisted, only its SHA-256 digest.
      */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""

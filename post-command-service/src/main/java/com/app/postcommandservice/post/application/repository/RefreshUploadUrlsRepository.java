@@ -15,8 +15,8 @@ import com.app.postcommandservice.post.domain.model.valueobj.PostStatus;
  * the managed {@code Post} aggregate, and the write side persists only the per-media SAS
  * hash/expiry columns rather than a full aggregate save.
  *
- * <p>Hashes are never searchable (BCrypt is salted), so every write here is a direct, keyed
- * update by {@code mediaId} — never a scan-and-match over many rows.</p>
+ * <p>Every write here is a direct, keyed update by {@code mediaId} — never a scan-and-match
+ * over many rows.</p>
  */
 public interface RefreshUploadUrlsRepository {
 
