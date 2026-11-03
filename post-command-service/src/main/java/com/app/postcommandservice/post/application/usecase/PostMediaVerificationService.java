@@ -180,6 +180,7 @@ public class PostMediaVerificationService {
     private String buildFailureReason(UUID postId, MediaVerificationResult.Failure failure) {
         String what = switch (failure.reason()) {
             case BLOB_NOT_FOUND -> "media was not found";
+            case BLOB_MODIFIED -> "media was modified during verification";
             case EMPTY_BLOB -> "media is empty";
             case FILE_TOO_LARGE -> "media exceeds the allowed size";
             case UNSUPPORTED_FORMAT -> "media format is not supported";
