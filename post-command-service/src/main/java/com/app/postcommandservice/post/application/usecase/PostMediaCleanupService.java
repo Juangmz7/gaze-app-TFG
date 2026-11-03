@@ -1,5 +1,6 @@
 package com.app.postcommandservice.post.application.usecase;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -163,7 +164,8 @@ public class PostMediaCleanupService {
                 .occurredAt(Instant.now())
                 .postId(postId)
                 .reasonCode(MediaVerificationFailureReason.UPLOAD_EXPIRED)
-                .reason("Upload of post %s expired: media was not confirmed within 48 hours".formatted(postId))
+                .reason("Upload of post %s expired: media was not confirmed within %s"
+                        .formatted(postId, describeWindow(mediaProperties.getUploadWindow())))
                 .build();
         publishThroughOutbox(failedEvent, PostMediaUploadValidationFailedEvent.class.getSimpleName());
 
@@ -207,6 +209,14 @@ public class PostMediaCleanupService {
                 .build());
 
         applicationEventPublisher.publishEvent(new OutboxEventCreatedDomainEvent(outboxId));
+    }
+
+    /** Renders whole-hour windows as "N hours"; anything finer falls back to ISO-8601 (e.g. PT90M). */
+    private static String describeWindow(Duration window) {
+        if (window.toSeconds() % 3600 == 0 && window.toNanosPart() == 0) {
+            return window.toHours() + " hours";
+        }
+        return window.toString();
     }
 
     private record ProcessOutcome(boolean expired, boolean purged, int blobsDeleted) {
