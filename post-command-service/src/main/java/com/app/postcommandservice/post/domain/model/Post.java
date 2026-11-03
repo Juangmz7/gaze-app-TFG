@@ -10,7 +10,6 @@ import java.util.UUID;
 
 import com.app.postcommandservice.post.domain.exception.InvalidPostMediaException;
 import com.app.postcommandservice.post.domain.exception.PostNotAcceptedException;
-import com.app.postcommandservice.post.domain.exception.PostNotPendingException;
 import com.app.postcommandservice.post.domain.model.valueobj.PostId;
 import com.app.postcommandservice.post.domain.model.valueobj.PostStatus;
 import com.app.postcommandservice.post.domain.model.valueobj.PostType;
@@ -102,16 +101,6 @@ public class Post {
         return new Post(id, userId, targetCollabId, linkedInfo, media, status, createdAt, updatedAt);
     }
 
-    public Post acceptMediaUpload() {
-        requirePending("accept the media upload");
-        return new Post(id, userId, collabId, postInfo, media, PostStatus.ACCEPTED, createdAt, updatedAt);
-    }
-
-    public Post failMediaUpload() {
-        requirePending("fail the media upload");
-        return new Post(id, userId, collabId, postInfo, media, PostStatus.MEDIA_UPLOAD_FAILED, createdAt, updatedAt);
-    }
-
     public PostId getId() {
         return id;
     }
@@ -154,12 +143,6 @@ public class Post {
 
     public Instant getUpdatedAt() {
         return updatedAt;
-    }
-
-    private void requirePending(String action) {
-        if (status != PostStatus.PENDING) {
-            throw new PostNotPendingException(id.value(), status, action);
-        }
     }
 
     private void validateCollabLink(PostType postType, UUID collabId) {

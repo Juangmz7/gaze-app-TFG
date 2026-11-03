@@ -10,14 +10,12 @@ import org.junit.jupiter.api.Test;
 
 import com.app.postcommandservice.post.domain.exception.InvalidPostMediaException;
 import com.app.postcommandservice.post.domain.exception.InvalidPostTagException;
-import com.app.postcommandservice.post.domain.exception.PostNotPendingException;
 import com.app.postcommandservice.post.domain.model.valueobj.MediaType;
 import com.app.postcommandservice.post.domain.model.valueobj.PostDescription;
 import com.app.postcommandservice.post.domain.model.valueobj.PostId;
 import com.app.postcommandservice.post.domain.model.valueobj.PostStatus;
 import com.app.postcommandservice.post.domain.model.valueobj.PostTags;
 import com.app.postcommandservice.post.domain.model.valueobj.PostType;
-import com.app.postcommandservice.shared.domain.exception.DomainException;
 import com.app.postcommandservice.shared.domain.model.user.valueobj.UserId;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -137,48 +135,6 @@ class PostTest {
         assertThat(post.getPostInfo().getClass().getRecordComponents())
                 .extracting(java.lang.reflect.RecordComponent::getName)
                 .doesNotContain("taggedUsers");
-    }
-
-    @Test
-    void shouldTransitionPendingToAccepted() {
-        var post = pendingPost();
-
-        var acceptedPost = post.acceptMediaUpload();
-
-        assertThat(acceptedPost).isNotSameAs(post);
-        assertThat(acceptedPost.getStatus()).isEqualTo(PostStatus.ACCEPTED);
-    }
-
-    @Test
-    void shouldTransitionPendingToMediaUploadFailed() {
-        var post = pendingPost();
-
-        var failedPost = post.failMediaUpload();
-
-        assertThat(failedPost).isNotSameAs(post);
-        assertThat(failedPost.getStatus()).isEqualTo(PostStatus.MEDIA_UPLOAD_FAILED);
-    }
-
-    @Test
-    void shouldThrowDomainExceptionWhenAcceptingMediaUploadFromNonPendingStatus() {
-        var postId = UUID.randomUUID();
-        var post = existingPost("description", Set.of("java"), List.of(imageMedia(postId, 1)));
-
-        assertThatThrownBy(post::acceptMediaUpload)
-                .isInstanceOf(DomainException.class)
-                .isInstanceOf(PostNotPendingException.class)
-                .hasMessageContaining("PENDING");
-    }
-
-    @Test
-    void shouldThrowDomainExceptionWhenFailingMediaUploadFromNonPendingStatus() {
-        var postId = UUID.randomUUID();
-        var post = existingPost("description", Set.of("java"), List.of(imageMedia(postId, 1)));
-
-        assertThatThrownBy(post::failMediaUpload)
-                .isInstanceOf(DomainException.class)
-                .isInstanceOf(PostNotPendingException.class)
-                .hasMessageContaining("PENDING");
     }
 
     @Test
@@ -319,22 +275,6 @@ class PostTest {
     private PostMedia videoMedia(UUID postId, int order) {
         return PostMedia.create(postId, "https://cdn/video-" + order + ".mp4", "https://cdn/thumb-" + order + ".jpg",
                 MediaType.VIDEO, 30, Set.of(), order);
-    }
-
-    private Post pendingPost() {
-        var postId = new PostId(UUID.randomUUID());
-        var now = Instant.now();
-        var media = List.of(imageMedia(postId.value(), 1));
-        return new Post(
-                postId,
-                new UserId(UUID.randomUUID()),
-                null,
-                new PostInfo(new PostDescription("description"), new PostTags(Set.of("java")), PostType.BASIC),
-                media,
-                PostStatus.PENDING,
-                now,
-                now
-        );
     }
 
     private Post existingPost(String description, Set<String> tags, List<PostMedia> media) {
