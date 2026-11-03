@@ -2,7 +2,9 @@ package com.app.postcommandservice.post.infrastructure.repository;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
@@ -28,15 +30,26 @@ public class PostMediaCleanupRepositoryImpl implements PostMediaCleanupRepositor
                 : postJpaRepository.findExpiredCleanupNextPage(
                         EXPIRABLE_STATUSES, expiryThreshold, cursor.createdAt(), cursor.id(), PageRequest.ofSize(batchSize));
 
+        if (page.isEmpty()) {
+            return List.of();
+        }
+
+        Map<UUID, List<MediaBlobRef>> mediaByPostId = postMediaJpaRepository
+                .findCleanupMediaViewsByPostIds(page.stream().map(PostMediaCleanupPostView::getId).toList())
+                .stream()
+                .collect(Collectors.groupingBy(
+                        PostMediaCleanupMediaView::getPostId,
+                        Collectors.mapping(
+                                mediaView -> new MediaBlobRef(
+                                        mediaView.getId(), mediaView.getMediaType(), mediaView.getUrl(), mediaView.getThumbnailUrl()),
+                                Collectors.toList())));
+
         return page.stream()
                 .map(view -> new ExpiredPost(
                         view.getId(),
                         view.getStatus(),
                         view.getCreatedAt(),
-                        postMediaJpaRepository.findConfirmMediaUploadViewsByPostId(view.getId()).stream()
-                                .map(mediaView -> new MediaBlobRef(
-                                        mediaView.getId(), mediaView.getMediaType(), mediaView.getUrl(), mediaView.getThumbnailUrl()))
-                                .toList()))
+                        List.copyOf(mediaByPostId.getOrDefault(view.getId(), List.of()))))
                 .toList();
     }
 

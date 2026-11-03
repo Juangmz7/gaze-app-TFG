@@ -1,6 +1,7 @@
 package com.app.postcommandservice.post.infrastructure.repository;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
@@ -21,6 +22,22 @@ public interface PostMediaJpaRepository extends JpaRepository<PostMediaEntity, U
             ORDER BY m.mediaOrder ASC
             """)
     List<PostMediaConfirmView> findConfirmMediaUploadViewsByPostId(@Param("postId") UUID postId);
+
+    /**
+     * Media of every post in {@code postIds} in one round trip, used by the media-cleanup job
+     * (task 39) to resolve a whole keyset page of candidate posts at once instead of issuing
+     * one query per post. Kept separate from the paginated post selection (rather than joined
+     * into it) so the page size keeps counting posts, not post×media rows, and a post's media
+     * can never be split across a page boundary.
+     */
+    @Query("""
+            SELECT m.post.id AS postId, m.id AS id, m.mediaType AS mediaType,
+                   m.url AS url, m.thumbnailUrl AS thumbnailUrl
+            FROM PostMediaEntity m
+            WHERE m.post.id IN :postIds
+            ORDER BY m.post.id ASC, m.mediaOrder ASC
+            """)
+    List<PostMediaCleanupMediaView> findCleanupMediaViewsByPostIds(@Param("postIds") Collection<UUID> postIds);
 
     /**
      * Persists the duration (milliseconds) extracted for a {@code VIDEO} media item once its
