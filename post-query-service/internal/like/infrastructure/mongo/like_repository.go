@@ -54,7 +54,8 @@ func NewRepository(db *mongo.Database) *Repository {
 // EnsureIndexes creates the unique index on (post_id, user_id), the like's
 // identity, and drops the like_id index earlier versions created: like_id no
 // longer exists, so that unique index would treat every new document as a
-// duplicate of the first one (all missing values index as null).
+// duplicate of the first one (all missing values index as null). The
+// (user_id, post_id) index serves the feed claim's lookup of a viewer's likes.
 func (r *Repository) EnsureIndexes(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
@@ -63,12 +64,15 @@ func (r *Repository) EnsureIndexes(ctx context.Context) error {
 		return fmt.Errorf("drop post_likes legacy index: %w", err)
 	}
 
-	indexModel := mongo.IndexModel{
-		Keys:    bson.D{{Key: "post_id", Value: 1}, {Key: "user_id", Value: 1}},
-		Options: options.Index().SetUnique(true),
+	indexModels := []mongo.IndexModel{
+		{
+			Keys:    bson.D{{Key: "post_id", Value: 1}, {Key: "user_id", Value: 1}},
+			Options: options.Index().SetUnique(true),
+		},
+		{Keys: bson.D{{Key: "user_id", Value: 1}, {Key: "post_id", Value: 1}}},
 	}
 
-	if _, err := r.collection.Indexes().CreateOne(ctx, indexModel); err != nil {
+	if _, err := r.collection.Indexes().CreateMany(ctx, indexModels); err != nil {
 		return fmt.Errorf("ensure post_likes indexes: %w", err)
 	}
 

@@ -56,17 +56,21 @@ func NewRepository(db *mongo.Database) *Repository {
 
 // EnsureIndexes creates the unique index on collab_id required to make
 // Insert idempotent under concurrent or retried deliveries of the same
-// creation event.
+// creation event, and the post_id index the feed claim needs to find a post's
+// collab when the post itself does not name it.
 func (r *Repository) EnsureIndexes(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
 
-	indexModel := mongo.IndexModel{
-		Keys:    bson.D{{Key: "collab_id", Value: 1}},
-		Options: options.Index().SetUnique(true),
+	indexModels := []mongo.IndexModel{
+		{
+			Keys:    bson.D{{Key: "collab_id", Value: 1}},
+			Options: options.Index().SetUnique(true),
+		},
+		{Keys: bson.D{{Key: "post_id", Value: 1}}},
 	}
 
-	if _, err := r.collection.Indexes().CreateOne(ctx, indexModel); err != nil {
+	if _, err := r.collection.Indexes().CreateMany(ctx, indexModels); err != nil {
 		return fmt.Errorf("ensure post_collabs indexes: %w", err)
 	}
 
