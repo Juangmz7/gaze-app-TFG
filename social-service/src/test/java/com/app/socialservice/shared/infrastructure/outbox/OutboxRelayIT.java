@@ -113,6 +113,29 @@ class OutboxRelayIT {
         assertThat(processed.getAttempts()).isEqualTo(2);
     }
 
+    @Test
+    void shouldIgnoreAFailureReportedByARelayWhoseClaimExpired() {
+        var outboxId = savePendingUserFollowedEvent();
+        // Relay A claimed the row (attempt 1) and stalled; relay B reclaimed it (attempt 2)
+        jdbcTemplate.update("UPDATE outbox_event SET status = 'PROCESSING', attempts = 2, locked_at = now() WHERE id = ?",
+                outboxId);
+
+        // A's late failure must not release the claim B still holds
+        assertThat(outboxEventRepository.markFailedAttempt(outboxId, 1, EventStatus.PENDING.name(), "late failure"))
+                .isZero();
+        var stillClaimed = outboxEventRepository.findById(outboxId).orElseThrow();
+        assertThat(stillClaimed.getStatus()).isEqualTo(EventStatus.PROCESSING);
+        assertThat(stillClaimed.getLockedAt()).isNotNull();
+
+        // Nor undo B's confirmed publish, whatever attempt it reports
+        outboxEventRepository.markProcessed(outboxId);
+        assertThat(outboxEventRepository.markFailedAttempt(outboxId, 1, EventStatus.PENDING.name(), "late failure"))
+                .isZero();
+        assertThat(outboxEventRepository.markFailedAttempt(outboxId, 2, EventStatus.FAILED.name(), "late failure"))
+                .isZero();
+        assertThat(outboxEventRepository.findById(outboxId).orElseThrow().getStatus()).isEqualTo(EventStatus.PROCESSED);
+    }
+
     private UUID savePendingUserFollowedEvent() {
         var event = UserFollowedEvent.builder()
                 .id(UUID.randomUUID())

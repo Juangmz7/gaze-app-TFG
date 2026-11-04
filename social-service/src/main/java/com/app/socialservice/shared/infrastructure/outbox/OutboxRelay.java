@@ -112,7 +112,12 @@ public class OutboxRelay {
                     event.getId(), event.getEventType(), event.getAttempts(), ex);
         }
 
-        outboxRepository.markFailedAttempt(event.getId(), nextStatus.name(), truncate(String.valueOf(ex.getMessage())));
+        var released = outboxRepository.markFailedAttempt(
+                event.getId(), event.getAttempts(), nextStatus.name(), truncate(String.valueOf(ex.getMessage())));
+        if (released == 0) {
+            log.warn("Outbox claim expired before its failure was recorded, left to the current owner: id={} attempt={}",
+                    event.getId(), event.getAttempts());
+        }
     }
 
     private void publishAndConfirm(OutboxEvent event) throws Exception {

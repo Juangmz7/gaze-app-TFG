@@ -16,7 +16,7 @@ const maxErrorLength = 1000
 type RelayStore interface {
 	ClaimNext(ctx context.Context, lockTimeout time.Duration) (*Event, error)
 	MarkProcessed(ctx context.Context, id uuid.UUID) error
-	MarkFailedAttempt(ctx context.Context, id uuid.UUID, status Status, lastError string) error
+	MarkFailedAttempt(ctx context.Context, id uuid.UUID, attempts int, status Status, lastError string) (bool, error)
 }
 
 // Publisher publishes one event and returns nil only once the broker has
@@ -143,8 +143,13 @@ func (r *Relay) releaseFailedAttempt(ctx context.Context, event *Event, publishE
 		lastError = lastError[:maxErrorLength]
 	}
 
-	if err := r.store.MarkFailedAttempt(ctx, event.ID, status, lastError); err != nil {
+	released, err := r.store.MarkFailedAttempt(ctx, event.ID, event.Attempts, status, lastError)
+	if err != nil {
 		return fmt.Errorf("release outbox event %s after publish error %v: %w", event.ID, publishErr, err)
+	}
+	if !released {
+		r.logger.Warn("outbox claim expired before its failure was recorded, left to the current owner",
+			"id", event.ID, "attempt", event.Attempts)
 	}
 	return nil
 }

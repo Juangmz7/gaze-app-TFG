@@ -15,6 +15,7 @@ import (
 
 type failedAttempt struct {
 	id        uuid.UUID
+	attempts  int
 	status    outbox.Status
 	lastError string
 }
@@ -42,9 +43,9 @@ func (s *fakeStore) MarkProcessed(_ context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (s *fakeStore) MarkFailedAttempt(_ context.Context, id uuid.UUID, status outbox.Status, lastError string) error {
-	s.failed = append(s.failed, failedAttempt{id: id, status: status, lastError: lastError})
-	return nil
+func (s *fakeStore) MarkFailedAttempt(_ context.Context, id uuid.UUID, attempts int, status outbox.Status, lastError string) (bool, error) {
+	s.failed = append(s.failed, failedAttempt{id: id, attempts: attempts, status: status, lastError: lastError})
+	return true, nil
 }
 
 // fakePublisher fails for the event ids listed in failFor.
@@ -104,7 +105,8 @@ func TestRelay_RelayBatch_StopsAtFirstFailureAndReleasesEventAsPending(t *testin
 	if len(store.queue) != 1 || store.queue[0].ID != next.ID {
 		t.Fatal("RelayBatch() claimed the next event after a failure, want the batch to stop")
 	}
-	want := failedAttempt{id: failing.ID, status: outbox.StatusPending, lastError: "broker nacked"}
+	// Released with the attempt of its own claim, so a stale relay cannot release a newer claim
+	want := failedAttempt{id: failing.ID, attempts: 1, status: outbox.StatusPending, lastError: "broker nacked"}
 	if len(store.failed) != 1 || store.failed[0] != want {
 		t.Fatalf("failed = %+v, want [%+v]", store.failed, want)
 	}

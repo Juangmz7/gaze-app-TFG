@@ -25,6 +25,7 @@ import com.app.postcommandservice.shared.infrastructure.repository.OutboxEventRe
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
@@ -75,7 +76,7 @@ class OutboxRelayTest {
         outboxRelay.relay();
 
         verify(outboxRepository, times(1)).claimNext(any());
-        verify(outboxRepository).markFailedAttempt(eq(event.getId()), eq(EventStatus.PENDING.name()), anyString());
+        verify(outboxRepository).markFailedAttempt(eq(event.getId()), eq(1), eq(EventStatus.PENDING.name()), anyString());
         verify(outboxRepository, never()).markProcessed(any());
     }
 
@@ -87,7 +88,7 @@ class OutboxRelayTest {
 
         outboxRelay.relay();
 
-        verify(outboxRepository).markFailedAttempt(event.getId(), EventStatus.FAILED.name(), "Broker nack: nack-reason");
+        verify(outboxRepository).markFailedAttempt(event.getId(), OutboxRelay.MAX_ATTEMPTS, EventStatus.FAILED.name(), "Broker nack: nack-reason");
     }
 
     @Test
@@ -99,7 +100,7 @@ class OutboxRelayTest {
         outboxRelay.relay();
 
         verify(outboxRepository).markProcessed(event.getId());
-        verify(outboxRepository, never()).markFailedAttempt(any(), anyString(), anyString());
+        verify(outboxRepository, never()).markFailedAttempt(any(), anyInt(), anyString(), anyString());
     }
 
     @Test
@@ -112,7 +113,7 @@ class OutboxRelayTest {
 
         outboxRelay.relay();
 
-        verify(outboxRepository).markFailedAttempt(event.getId(), EventStatus.PENDING.name(), "connection refused");
+        verify(outboxRepository).markFailedAttempt(event.getId(), 1, EventStatus.PENDING.name(), "connection refused");
     }
 
     @Test

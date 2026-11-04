@@ -173,6 +173,34 @@ async def test_relay_claims_nothing_while_the_broker_is_unreachable(session_prov
     assert row["attempts"] == 0
 
 
+def test_a_relay_whose_claim_expired_cannot_release_the_row(session_provider, db_session_factory):
+    # Arrange: relay A claimed the row (attempt 1) and stalled; relay B reclaimed it (attempt 2)
+    event = add_event(db_session_factory)
+    worker = OutboxRelayWorker(session_provider, FakeBroker())
+    execute(
+        db_session_factory,
+        "UPDATE outbox_events SET status = 'PROCESSING', attempts = 2, locked_at = now() WHERE id = :id",
+        id=event.id,
+    )
+    stale_claim = SimpleNamespace(id=event.id, attempts=1, event_type="TrendingPostSent")
+
+    # Act: A's late failure must not release the claim B still holds
+    worker._mark_failed(stale_claim, RuntimeError("late failure"))
+
+    # Assert
+    row = fetch(db_session_factory, event.id)
+    assert row["status"] == "PROCESSING"
+    assert row["locked_at"] is not None
+
+    # Act: nor undo B's confirmed publish, whatever attempt it reports
+    worker._mark_processed(event.id)
+    worker._mark_failed(stale_claim, RuntimeError("late failure"))
+    worker._mark_failed(SimpleNamespace(id=event.id, attempts=2, event_type="TrendingPostSent"), RuntimeError("late"))
+
+    # Assert
+    assert fetch(db_session_factory, event.id)["status"] == "PROCESSED"
+
+
 def test_concurrent_claims_return_each_event_exactly_once(session_provider, db_session_factory):
     # Arrange
     events = [add_event(db_session_factory) for _ in range(60)]

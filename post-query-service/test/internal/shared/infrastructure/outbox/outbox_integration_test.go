@@ -152,6 +152,49 @@ func TestStore_ClaimNext_ConcurrentRelaysClaimEachEventExactlyOnce(t *testing.T)
 	}
 }
 
+func TestStore_MarkFailedAttempt_IgnoresAReleaseFromAnExpiredClaim(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	db := startReplicaSetMongo(t, ctx).Database("outbox_fencing_test")
+	store := newStore(t, ctx, db)
+	event := addEvent(t, ctx, store, time.Now().UTC())
+
+	// Relay A claims the event and stalls; its lock expires and relay B reclaims it
+	claimA, err := store.ClaimNext(ctx, time.Minute)
+	if err != nil || claimA == nil {
+		t.Fatalf("ClaimNext() A = %v, %v; want the event", claimA, err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	claimB, err := store.ClaimNext(ctx, 10*time.Millisecond)
+	if err != nil || claimB == nil || claimB.Attempts != claimA.Attempts+1 {
+		t.Fatalf("ClaimNext() B = %+v, %v; want the event reclaimed with the next attempt", claimB, err)
+	}
+
+	// A's late failure must not release the claim B still holds
+	released, err := store.MarkFailedAttempt(ctx, event.ID, claimA.Attempts, outbox.StatusPending, "late failure")
+	if err != nil || released {
+		t.Fatalf("MarkFailedAttempt() A = %v, %v; want released=false", released, err)
+	}
+	if stored := findEvent(t, ctx, db, event.ID); stored.Status != outbox.StatusProcessing || stored.LockedAt == nil {
+		t.Fatalf("stored = %+v, want B's claim untouched", stored)
+	}
+
+	// Nor undo B's confirmed publish, whatever attempt it reports
+	if err := store.MarkProcessed(ctx, event.ID); err != nil {
+		t.Fatalf("MarkProcessed() error = %v", err)
+	}
+	for _, attempts := range []int{claimA.Attempts, claimB.Attempts} {
+		released, err := store.MarkFailedAttempt(ctx, event.ID, attempts, outbox.StatusFailed, "late failure")
+		if err != nil || released {
+			t.Fatalf("MarkFailedAttempt(attempts=%d) after processed = %v, %v; want released=false", attempts, released, err)
+		}
+	}
+	if stored := findEvent(t, ctx, db, event.ID); stored.Status != outbox.StatusProcessed {
+		t.Fatalf("status = %s, want PROCESSED", stored.Status)
+	}
+}
+
 func TestStore_EnsureIndexes_ExpiresOnlyProcessedEvents(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()

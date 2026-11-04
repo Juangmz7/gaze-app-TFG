@@ -34,10 +34,15 @@ MARK_PROCESSED_SQL = text("""
      WHERE id = :id
 """)
 
+# Only the claim identified by attempts (every claim increments it) may release
+# the row: a relay whose lock expired, so the row was reclaimed or already
+# PROCESSED by another relay, matches nothing instead of overwriting the newer
+# state. MARK_PROCESSED_SQL needs no such guard: a confirmed publish is true
+# whoever reports it.
 MARK_FAILED_SQL = text("""
     UPDATE outbox_events
        SET status = :status, last_error = :error, locked_at = NULL
-     WHERE id = :id
+     WHERE id = :id AND status = 'PROCESSING' AND attempts = :attempts
 """)
 
 DELETE_PROCESSED_SQL = text("""
@@ -177,13 +182,19 @@ class OutboxRelayWorker:
             )
 
         with self._session_provider.session() as session:
-            session.execute(
+            result = session.execute(
                 MARK_FAILED_SQL,
                 {
                     "id": row.id,
+                    "attempts": row.attempts,
                     "status": "FAILED" if exhausted else "PENDING",
                     "error": (str(exc) or type(exc).__name__)[:MAX_ERROR_LENGTH],
                 },
+            )
+        if result.rowcount == 0:
+            logger.warning(
+                "Outbox claim expired before its failure was recorded, left to the current owner: id=%s attempt=%s",
+                row.id, row.attempts,
             )
 
     def _delete_processed(self) -> int:

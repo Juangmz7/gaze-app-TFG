@@ -63,15 +63,22 @@ public interface OutboxEventRepository extends JpaRepository<OutboxEvent, UUID> 
             """, nativeQuery = true)
     int markProcessed(@Param("id") UUID id);
 
-    /** Releases a failed claim: back to PENDING, or FAILED once attempts are exhausted. */
+    /**
+     * Releases a failed claim: back to PENDING, or FAILED once attempts are exhausted.
+     * Only the current claim may release the row: every claim increments attempts, so a
+     * relay whose lease expired (the row was reclaimed, or already PROCESSED by another
+     * relay) matches nothing instead of overwriting the newer state. Returns 0 then.
+     * markProcessed needs no such guard: a confirmed publish is true whoever reports it.
+     */
     @Modifying
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     @Query(value = """
             UPDATE outbox_event
                SET status = :status, last_error = :lastError, locked_at = NULL
-             WHERE id = :id
+             WHERE id = :id AND status = 'PROCESSING' AND attempts = :attempts
             """, nativeQuery = true)
     int markFailedAttempt(@Param("id") UUID id,
+                          @Param("attempts") int attempts,
                           @Param("status") String status,
                           @Param("lastError") String lastError);
 

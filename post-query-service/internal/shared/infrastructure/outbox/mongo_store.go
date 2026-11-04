@@ -121,17 +121,28 @@ func (s *Store) MarkProcessed(ctx context.Context, id uuid.UUID) error {
 }
 
 // MarkFailedAttempt releases a failed claim with status (PENDING to retry, or
-// FAILED once attempts are exhausted) and records lastError.
-func (s *Store) MarkFailedAttempt(ctx context.Context, id uuid.UUID, status Status, lastError string) error {
+// FAILED once attempts are exhausted) and records lastError. Only the claim
+// identified by attempts (every claim increments it) may release the event: a
+// relay whose lock expired, so the event was reclaimed or already PROCESSED by
+// another relay, matches nothing and gets released=false instead of
+// overwriting the newer state. MarkProcessed needs no such guard: a confirmed
+// publish is true whoever reports it.
+func (s *Store) MarkFailedAttempt(ctx context.Context, id uuid.UUID, attempts int, status Status, lastError string) (bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
 
+	filter := bson.D{
+		{Key: "_id", Value: id},
+		{Key: "status", Value: StatusProcessing},
+		{Key: "attempts", Value: attempts},
+	}
 	update := bson.D{
 		{Key: "$set", Value: bson.D{{Key: "status", Value: status}, {Key: "last_error", Value: lastError}}},
 		{Key: "$unset", Value: bson.D{{Key: "locked_at", Value: ""}}},
 	}
-	if _, err := s.collection.UpdateByID(ctx, id, update); err != nil {
-		return fmt.Errorf("mark outbox event %s failed attempt: %w", id, err)
+	result, err := s.collection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		return false, fmt.Errorf("mark outbox event %s failed attempt: %w", id, err)
 	}
-	return nil
+	return result.MatchedCount == 1, nil
 }
