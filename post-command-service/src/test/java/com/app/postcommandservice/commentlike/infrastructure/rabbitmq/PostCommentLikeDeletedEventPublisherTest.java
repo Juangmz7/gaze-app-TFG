@@ -8,23 +8,18 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 
 import com.app.postcommandservice.commentlike.domain.model.CommentLikeSource;
 import com.app.postcommandservice.commentlike.infrastructure.events.PostCommentLikeDeletedEvent;
 import com.app.postcommandservice.shared.infrastructure.entity.OutboxEvent;
 import com.app.postcommandservice.shared.infrastructure.outbox.OutboxDestination;
-import com.app.postcommandservice.shared.infrastructure.mapper.JsonMapper;
 import com.app.postcommandservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class PostCommentLikeDeletedEventPublisherTest {
-
-
 
     @Mock
     private RabbitMQProperties rabbitMQProperties;
@@ -57,7 +52,7 @@ class PostCommentLikeDeletedEventPublisherTest {
     }
 
     @Test
-    void shouldPublishCommentLikeDeletedEventToRabbitMqUsingConfiguredRoutingKey() {
+    void shouldResolveCommentLikeDeletedEventDestinationFromConfiguredExchangeAndRoutingKey() {
         var payload = PostCommentLikeDeletedEvent.builder()
                 .id(UUID.randomUUID())
                 .correlationId(UUID.randomUUID())

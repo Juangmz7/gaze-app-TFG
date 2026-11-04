@@ -13,7 +13,6 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import com.app.postcommandservice.share.application.commands.CreatePostShareCommand;
 import com.app.postcommandservice.shared.infrastructure.entity.OutboxEvent;
 import com.app.postcommandservice.shared.infrastructure.outbox.OutboxDestination;
-import com.app.postcommandservice.shared.infrastructure.mapper.JsonMapper;
 import com.app.postcommandservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -28,7 +27,6 @@ class CreatePostShareCommandPublisherTest {
 
     @Mock
     private RabbitMQProperties rabbitMQProperties;
-
 
     @Mock
     private RabbitMQProperties.Exchanges exchanges;
@@ -76,7 +74,7 @@ class CreatePostShareCommandPublisherTest {
     }
 
     @Test
-    void shouldPublishCreatePostShareCommandFromOutboxPayload() {
+    void shouldResolveCreatePostShareCommandDestinationFromConfiguredExchangeAndRoutingKey() {
         var command = command();
         var outboxEvent = OutboxEvent.builder()
                 .id(UUID.randomUUID())

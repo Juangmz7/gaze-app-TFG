@@ -12,7 +12,6 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
 
 import com.app.postcommandservice.shared.infrastructure.entity.OutboxEvent;
 import com.app.postcommandservice.shared.infrastructure.outbox.OutboxDestination;
-import com.app.postcommandservice.shared.infrastructure.mapper.JsonMapper;
 import com.app.postcommandservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 import com.app.postcommandservice.view.application.commands.ProcessPostViewCommand;
 import com.app.postcommandservice.view.domain.model.PostViewExitReason;
@@ -30,7 +29,6 @@ class ProcessPostViewCommandPublisherTest {
 
     @Mock
     private RabbitMQProperties rabbitMQProperties;
-
 
     @Mock
     private RabbitMQProperties.Exchanges exchanges;
@@ -87,7 +85,7 @@ class ProcessPostViewCommandPublisherTest {
     }
 
     @Test
-    void shouldPublishProcessPostViewCommandFromOutboxPayload() {
+    void shouldResolveProcessPostViewCommandDestinationFromConfiguredExchangeAndRoutingKey() {
         var command = new ProcessPostViewCommand(
                 UUID.randomUUID(),
                 UUID.randomUUID(),

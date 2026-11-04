@@ -15,7 +15,6 @@ import com.app.postcommandservice.commentlike.application.commands.ValidateComme
 import com.app.postcommandservice.commentlike.domain.model.CommentLikeSource;
 import com.app.postcommandservice.shared.infrastructure.entity.OutboxEvent;
 import com.app.postcommandservice.shared.infrastructure.outbox.OutboxDestination;
-import com.app.postcommandservice.shared.infrastructure.mapper.JsonMapper;
 import com.app.postcommandservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -30,7 +29,6 @@ class ValidateCommentLikeCommandPublisherTest {
 
     @Mock
     private RabbitMQProperties rabbitMQProperties;
-
 
     @Mock
     private RabbitMQProperties.Exchanges exchanges;
@@ -88,7 +86,7 @@ class ValidateCommentLikeCommandPublisherTest {
     }
 
     @Test
-    void shouldPublishValidateCommentLikeCommandFromOutboxPayload() {
+    void shouldResolveValidateCommentLikeCommandDestinationFromConfiguredExchangeAndRoutingKey() {
         var command = new ValidateCommentLikeCommand(
                 UUID.randomUUID(),
                 UUID.randomUUID(),
@@ -147,7 +145,7 @@ class ValidateCommentLikeCommandPublisherTest {
     }
 
     @Test
-    void shouldPublishValidateCommentUnlikeCommandFromOutboxPayload() {
+    void shouldResolveValidateCommentUnlikeCommandDestinationFromConfiguredExchangeAndRoutingKey() {
         var command = new ValidateCommentUnlikeCommand(
                 UUID.randomUUID(),
                 UUID.randomUUID(),
