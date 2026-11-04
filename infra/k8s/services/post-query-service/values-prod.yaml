@@ -6,6 +6,9 @@ environment: prod
 env:
   RABBITMQ_HOST: rabbitmq.rabbitmq-prod.svc.cluster.local
   RABBITMQ_PORT: "5672"
+  # Keycloak: tokens carry the public issuer; keys are fetched in-cluster.
+  JWT_ISSUER: https://auth.gaze.localhost/realms/auth-service
+  JWKS_URL: http://keycloak-service.keycloak-prod.svc.cluster.local:8080/realms/auth-service/protocol/openid-connect/certs
 
 # Created by External Secrets from Vault. Required keys:
 #   POST_QUERY_MONGO_URI (mongodb+srv://user:pass@CHANGE_ME/post_query?...),
@@ -38,6 +41,11 @@ networkPolicy:
       podLabels:
         app.kubernetes.io/component: rabbitmq
       ports: [5672]
+    - name: keycloak (JWKS)
+      namespace: keycloak-prod
+      podLabels:
+        app.kubernetes.io/managed-by: keycloak-operator
+      ports: [8080]
   externalEgress:
     # TODO(aks): narrow to the private endpoint of the managed database.
     - name: mongodb
