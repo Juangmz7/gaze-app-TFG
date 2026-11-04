@@ -13,6 +13,7 @@ import (
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/google/uuid"
 
+	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/eventlog"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/rmqerror"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/user/application/usecase"
 )
@@ -56,10 +57,12 @@ func NewUserDeletedHandler(idempotency UserDeletedIdempotencyRepository, uc User
 func (h *UserDeletedHandler) Handle(ctx context.Context, msg *message.Message) error {
 	var event UserDeletedEvent
 	if err := json.Unmarshal(msg.Payload, &event); err != nil {
+		eventlog.WarnInvalid(ctx, h.logger, UserDeletedEventType, msg.Payload, err)
 		return rmqerror.NewPermanent(fmt.Errorf("decode user deleted event: %w", err))
 	}
 
 	if err := validateUserDeletedEvent(event); err != nil {
+		eventlog.WarnInvalid(ctx, h.logger, UserDeletedEventType, msg.Payload, err)
 		return rmqerror.NewPermanent(err)
 	}
 
@@ -68,7 +71,7 @@ func (h *UserDeletedHandler) Handle(ctx context.Context, msg *message.Message) e
 		return fmt.Errorf("check user deleted event %s processed: %w", event.ID, err)
 	}
 	if alreadyProcessed {
-		h.logger.WarnContext(ctx, "discarding duplicate user deleted event", "event_id", event.ID)
+		h.logger.WarnContext(ctx, "discarding duplicate user deleted event", "event_id", event.ID, "correlation_id", event.CorrelationID, "userId", event.UserID)
 		return nil
 	}
 
@@ -80,6 +83,8 @@ func (h *UserDeletedHandler) Handle(ctx context.Context, msg *message.Message) e
 	if err := h.idempotency.MarkProcessed(ctx, event.ID, event.CorrelationID, UserDeletedEventType); err != nil {
 		return fmt.Errorf("mark user deleted event %s processed: %w", event.ID, err)
 	}
+
+	h.logger.InfoContext(ctx, "user deleted event projected", "event_id", event.ID, "correlation_id", event.CorrelationID, "userId", event.UserID)
 
 	return nil
 }

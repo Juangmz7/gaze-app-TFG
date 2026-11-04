@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/collab/application/usecase"
+	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/eventlog"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/rmqerror"
 )
 
@@ -69,10 +70,12 @@ func NewPostCollabOpenedHandler(idempotency PostCollabOpenedIdempotencyRepositor
 func (h *PostCollabOpenedHandler) Handle(ctx context.Context, msg *message.Message) error {
 	var event PostCollabOpenedEvent
 	if err := json.Unmarshal(msg.Payload, &event); err != nil {
+		eventlog.WarnInvalid(ctx, h.logger, PostCollabOpenedEventType, msg.Payload, err)
 		return rmqerror.NewPermanent(fmt.Errorf("decode post collab opened event: %w", err))
 	}
 
 	if err := validatePostCollabOpenedEvent(event); err != nil {
+		eventlog.WarnInvalid(ctx, h.logger, PostCollabOpenedEventType, msg.Payload, err)
 		return rmqerror.NewPermanent(err)
 	}
 
@@ -81,7 +84,7 @@ func (h *PostCollabOpenedHandler) Handle(ctx context.Context, msg *message.Messa
 		return fmt.Errorf("check post collab opened event %s processed: %w", event.ID, err)
 	}
 	if alreadyProcessed {
-		h.logger.WarnContext(ctx, "discarding duplicate post collab opened event", "event_id", event.ID)
+		h.logger.WarnContext(ctx, "discarding duplicate post collab opened event", "event_id", event.ID, "correlation_id", event.CorrelationID, "userId", event.CreatedBy)
 		return nil
 	}
 
@@ -100,6 +103,8 @@ func (h *PostCollabOpenedHandler) Handle(ctx context.Context, msg *message.Messa
 	if err := h.idempotency.MarkProcessed(ctx, event.ID, event.CorrelationID, PostCollabOpenedEventType); err != nil {
 		return fmt.Errorf("mark post collab opened event %s processed: %w", event.ID, err)
 	}
+
+	h.logger.InfoContext(ctx, "post collab opened event projected", "event_id", event.ID, "correlation_id", event.CorrelationID, "userId", event.CreatedBy, "collab_id", event.CollabID, "post_id", event.PostID)
 
 	return nil
 }

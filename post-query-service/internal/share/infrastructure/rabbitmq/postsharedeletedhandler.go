@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/share/application/usecase"
+	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/eventlog"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/rmqerror"
 )
 
@@ -67,27 +68,30 @@ func NewPostShareDeletedHandler(transactor PostShareDeletedTransactor, idempoten
 func (h *PostShareDeletedHandler) Handle(ctx context.Context, msg *message.Message) error {
 	var event PostShareDeletedEvent
 	if err := json.Unmarshal(msg.Payload, &event); err != nil {
+		eventlog.WarnInvalid(ctx, h.logger, PostShareDeletedEventType, msg.Payload, err)
 		return rmqerror.NewPermanent(fmt.Errorf("decode post share deleted event: %w", err))
 	}
 
 	if err := validatePostShareDeletedEvent(event); err != nil {
+		eventlog.WarnInvalid(ctx, h.logger, PostShareDeletedEventType, msg.Payload, err)
 		return rmqerror.NewPermanent(err)
 	}
 
 	// IsProcessed, the projection (including the post stats adjustment) and
 	// MarkProcessed commit or abort together. The driver may re-run this function
 	// on a transient transaction error, and a re-run sees its own committed state.
+	duplicate := false
 	err := h.transactor.WithTransaction(ctx, func(ctx context.Context) error {
 		alreadyProcessed, err := h.idempotency.IsProcessed(ctx, event.ID)
 		if err != nil {
 			return fmt.Errorf("check post share deleted event %s processed: %w", event.ID, err)
 		}
+		duplicate = alreadyProcessed
 		if alreadyProcessed {
-			h.logger.WarnContext(ctx, "discarding duplicate post share deleted event", "event_id", event.ID)
 			return nil
 		}
 
-		input := usecase.DeleteShareInput{PostID: event.PostID, UserID: event.UserID}
+		input := usecase.DeleteShareInput{PostID: event.PostID, UserID: event.UserID, CorrelationID: event.CorrelationID}
 		if err := h.usecase.Execute(ctx, input); err != nil {
 			return fmt.Errorf("execute delete share usecase for event %s: %w", event.ID, err)
 		}
@@ -101,6 +105,13 @@ func (h *PostShareDeletedHandler) Handle(ctx context.Context, msg *message.Messa
 	if err != nil {
 		return fmt.Errorf("project post share deleted event %s: %w", event.ID, err)
 	}
+
+	// Logged once the transaction committed, because the driver may re-run it.
+	if duplicate {
+		h.logger.WarnContext(ctx, "discarding duplicate post share deleted event", "event_id", event.ID, "correlation_id", event.CorrelationID, "userId", event.UserID)
+		return nil
+	}
+	h.logger.InfoContext(ctx, "post share deleted event projected", "event_id", event.ID, "correlation_id", event.CorrelationID, "userId", event.UserID, "post_id", event.PostID)
 
 	return nil
 }

@@ -13,8 +13,9 @@ import (
 // event carries a shareId, and post-command-service uses that pair as the primary
 // key of post_shares.
 type DeleteShareInput struct {
-	PostID uuid.UUID
-	UserID uuid.UUID
+	PostID        uuid.UUID
+	UserID        uuid.UUID
+	CorrelationID uuid.UUID
 }
 
 // DeleteShareRepository removes the share read model document matching
@@ -63,6 +64,7 @@ func (u *DeleteShareUsecase) Execute(ctx context.Context, input DeleteShareInput
 		return fmt.Errorf("delete share usecase: %w", err)
 	}
 	if !removed {
+		u.logger.WarnContext(ctx, "share delete event matched no document", "correlation_id", input.CorrelationID, "userId", input.UserID, "post_id", input.PostID)
 		return nil
 	}
 
@@ -71,7 +73,7 @@ func (u *DeleteShareUsecase) Execute(ctx context.Context, input DeleteShareInput
 		return fmt.Errorf("delete share usecase: %w", err)
 	}
 	if !found {
-		u.logger.WarnContext(ctx, "share removed for a post that is no longer projected", "post_id", input.PostID, "user_id", input.UserID)
+		u.logger.WarnContext(ctx, "share removed for a post that is no longer projected", "correlation_id", input.CorrelationID, "userId", input.UserID, "post_id", input.PostID)
 	}
 
 	return nil

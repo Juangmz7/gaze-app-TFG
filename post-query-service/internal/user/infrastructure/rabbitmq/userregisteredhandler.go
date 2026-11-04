@@ -13,6 +13,7 @@ import (
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/google/uuid"
 
+	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/eventlog"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/rmqerror"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/user/application/usecase"
 )
@@ -69,10 +70,12 @@ func NewUserRegisteredHandler(idempotency UserRegisteredIdempotencyRepository, u
 func (h *UserRegisteredHandler) Handle(ctx context.Context, msg *message.Message) error {
 	var event UserRegisteredEvent
 	if err := json.Unmarshal(msg.Payload, &event); err != nil {
+		eventlog.WarnInvalid(ctx, h.logger, UserRegisteredEventType, msg.Payload, err)
 		return rmqerror.NewPermanent(fmt.Errorf("decode user registered event: %w", err))
 	}
 
 	if err := validateUserRegisteredEvent(event); err != nil {
+		eventlog.WarnInvalid(ctx, h.logger, UserRegisteredEventType, msg.Payload, err)
 		return rmqerror.NewPermanent(err)
 	}
 
@@ -81,7 +84,7 @@ func (h *UserRegisteredHandler) Handle(ctx context.Context, msg *message.Message
 		return fmt.Errorf("check user registered event %s processed: %w", event.ID, err)
 	}
 	if alreadyProcessed {
-		h.logger.WarnContext(ctx, "discarding duplicate user registered event", "event_id", event.ID)
+		h.logger.WarnContext(ctx, "discarding duplicate user registered event", "event_id", event.ID, "correlation_id", event.CorrelationID, "userId", event.UserID)
 		return nil
 	}
 
@@ -100,6 +103,8 @@ func (h *UserRegisteredHandler) Handle(ctx context.Context, msg *message.Message
 	if err := h.idempotency.MarkProcessed(ctx, event.ID, event.CorrelationID, UserRegisteredEventType); err != nil {
 		return fmt.Errorf("mark user registered event %s processed: %w", event.ID, err)
 	}
+
+	h.logger.InfoContext(ctx, "user registered event projected", "event_id", event.ID, "correlation_id", event.CorrelationID, "userId", event.UserID)
 
 	return nil
 }

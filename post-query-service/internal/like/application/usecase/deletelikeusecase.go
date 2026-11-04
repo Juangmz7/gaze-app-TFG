@@ -13,8 +13,9 @@ import (
 // event carries a likeId, and post-command-service uses that pair as the primary
 // key of post_likes.
 type DeleteLikeInput struct {
-	PostID uuid.UUID
-	UserID uuid.UUID
+	PostID        uuid.UUID
+	UserID        uuid.UUID
+	CorrelationID uuid.UUID
 }
 
 // DeleteLikeRepository removes the like read model document matching
@@ -63,6 +64,7 @@ func (u *DeleteLikeUsecase) Execute(ctx context.Context, input DeleteLikeInput) 
 		return fmt.Errorf("delete like usecase: %w", err)
 	}
 	if !removed {
+		u.logger.WarnContext(ctx, "like delete event matched no document", "correlation_id", input.CorrelationID, "userId", input.UserID, "post_id", input.PostID)
 		return nil
 	}
 
@@ -71,7 +73,7 @@ func (u *DeleteLikeUsecase) Execute(ctx context.Context, input DeleteLikeInput) 
 		return fmt.Errorf("delete like usecase: %w", err)
 	}
 	if !found {
-		u.logger.WarnContext(ctx, "like removed for a post that is no longer projected", "post_id", input.PostID, "user_id", input.UserID)
+		u.logger.WarnContext(ctx, "like removed for a post that is no longer projected", "correlation_id", input.CorrelationID, "userId", input.UserID, "post_id", input.PostID)
 	}
 
 	return nil

@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/like/application/usecase"
+	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/eventlog"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/rmqerror"
 )
 
@@ -71,23 +72,26 @@ func NewPostLikeCreatedHandler(transactor PostLikeCreatedTransactor, idempotency
 func (h *PostLikeCreatedHandler) Handle(ctx context.Context, msg *message.Message) error {
 	var event PostLikeCreatedEvent
 	if err := json.Unmarshal(msg.Payload, &event); err != nil {
+		eventlog.WarnInvalid(ctx, h.logger, PostLikeCreatedEventType, msg.Payload, err)
 		return rmqerror.NewPermanent(fmt.Errorf("decode post like created event: %w", err))
 	}
 
 	if err := validatePostLikeCreatedEvent(event); err != nil {
+		eventlog.WarnInvalid(ctx, h.logger, PostLikeCreatedEventType, msg.Payload, err)
 		return rmqerror.NewPermanent(err)
 	}
 
 	// IsProcessed, the projection (including the post stats adjustment) and
 	// MarkProcessed commit or abort together. The driver may re-run this function
 	// on a transient transaction error, and a re-run sees its own committed state.
+	duplicate := false
 	err := h.transactor.WithTransaction(ctx, func(ctx context.Context) error {
 		alreadyProcessed, err := h.idempotency.IsProcessed(ctx, event.ID)
 		if err != nil {
 			return fmt.Errorf("check post like created event %s processed: %w", event.ID, err)
 		}
+		duplicate = alreadyProcessed
 		if alreadyProcessed {
-			h.logger.WarnContext(ctx, "discarding duplicate post like created event", "event_id", event.ID)
 			return nil
 		}
 
@@ -109,6 +113,13 @@ func (h *PostLikeCreatedHandler) Handle(ctx context.Context, msg *message.Messag
 	if err != nil {
 		return fmt.Errorf("project post like created event %s: %w", event.ID, err)
 	}
+
+	// Logged once the transaction committed, because the driver may re-run it.
+	if duplicate {
+		h.logger.WarnContext(ctx, "discarding duplicate post like created event", "event_id", event.ID, "correlation_id", event.CorrelationID, "userId", event.UserID)
+		return nil
+	}
+	h.logger.InfoContext(ctx, "post like created event projected", "event_id", event.ID, "correlation_id", event.CorrelationID, "userId", event.UserID, "post_id", event.PostID)
 
 	return nil
 }

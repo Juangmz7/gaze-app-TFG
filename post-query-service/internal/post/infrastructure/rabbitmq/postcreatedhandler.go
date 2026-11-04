@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/post/application/usecase"
+	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/eventlog"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/rmqerror"
 )
 
@@ -69,10 +70,12 @@ func NewPostCreatedHandler(idempotency PostCreatedIdempotencyRepository, usecase
 func (h *PostCreatedHandler) Handle(ctx context.Context, msg *message.Message) error {
 	var event PostCreatedEvent
 	if err := json.Unmarshal(msg.Payload, &event); err != nil {
+		eventlog.WarnInvalid(ctx, h.logger, PostCreatedEventType, msg.Payload, err)
 		return rmqerror.NewPermanent(fmt.Errorf("decode post created event: %w", err))
 	}
 
 	if err := validatePostCreatedEvent(event); err != nil {
+		eventlog.WarnInvalid(ctx, h.logger, PostCreatedEventType, msg.Payload, err)
 		return rmqerror.NewPermanent(err)
 	}
 
@@ -81,7 +84,7 @@ func (h *PostCreatedHandler) Handle(ctx context.Context, msg *message.Message) e
 		return fmt.Errorf("check post created event %s processed: %w", event.ID, err)
 	}
 	if alreadyProcessed {
-		h.logger.WarnContext(ctx, "discarding duplicate post created event", "event_id", event.ID)
+		h.logger.WarnContext(ctx, "discarding duplicate post created event", "event_id", event.ID, "correlation_id", event.CorrelationID, "userId", event.UserID)
 		return nil
 	}
 
@@ -103,6 +106,8 @@ func (h *PostCreatedHandler) Handle(ctx context.Context, msg *message.Message) e
 	if err := h.idempotency.MarkProcessed(ctx, event.ID, event.CorrelationID, PostCreatedEventType); err != nil {
 		return fmt.Errorf("mark post created event %s processed: %w", event.ID, err)
 	}
+
+	h.logger.InfoContext(ctx, "post created event projected", "event_id", event.ID, "correlation_id", event.CorrelationID, "userId", event.UserID, "post_id", event.PostID)
 
 	return nil
 }

@@ -11,8 +11,10 @@ import (
 // DeleteCommentInput is the data required to remove a deleted comment's
 // read model.
 type DeleteCommentInput struct {
-	CommentID uuid.UUID
-	PostID    uuid.UUID
+	CommentID     uuid.UUID
+	PostID        uuid.UUID
+	UserID        uuid.UUID
+	CorrelationID uuid.UUID
 }
 
 // DeleteCommentRepository removes the comment read model and reports whether a
@@ -60,6 +62,7 @@ func (u *DeleteCommentUsecase) Execute(ctx context.Context, input DeleteCommentI
 		return fmt.Errorf("delete comment usecase: %w", err)
 	}
 	if !removed {
+		u.logger.WarnContext(ctx, "comment delete event matched no document", "correlation_id", input.CorrelationID, "userId", input.UserID, "post_id", input.PostID, "comment_id", input.CommentID)
 		return nil
 	}
 
@@ -68,7 +71,7 @@ func (u *DeleteCommentUsecase) Execute(ctx context.Context, input DeleteCommentI
 		return fmt.Errorf("delete comment usecase: %w", err)
 	}
 	if !found {
-		u.logger.WarnContext(ctx, "comment removed for a post that is no longer projected", "post_id", input.PostID, "comment_id", input.CommentID)
+		u.logger.WarnContext(ctx, "comment removed for a post that is no longer projected", "correlation_id", input.CorrelationID, "userId", input.UserID, "post_id", input.PostID, "comment_id", input.CommentID)
 	}
 
 	return nil
