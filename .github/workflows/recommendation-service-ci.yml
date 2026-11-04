@@ -5,10 +5,12 @@ on:
     branches: [main]
     paths:
       - "recommendation-service/**"
+      - "proto/**"
       - ".github/workflows/recommendation-service-ci.yml"
   push:
     paths:
       - "recommendation-service/**"
+      - "proto/**"
       - ".github/workflows/recommendation-service-ci.yml"
       - ".github/workflows/docker-publish.yml"
   workflow_dispatch: {}
