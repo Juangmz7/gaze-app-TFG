@@ -22,16 +22,22 @@ import (
 // bookkeeping.
 const PostCollabOpenedEventType = "PostCollabOpenedPostCreatedEvent"
 
-// PostCollabOpenedEvent is the wire shape of the post-created variant of
-// PostCollabOpenedEvent published by post-command-service.
+// PostCollabOpenedEvent is the wire shape of the Java CollabOpenedEvent record
+// published by post-command-service on rk.post.collab.opened.post-created. Field
+// names are camelCase. Only the collab's own fields are modeled: the record's post
+// fields (postType, description, postTags, media, ...) are ignored, because the
+// post read model is projected from PostCreatedEvent, which post-command-service
+// publishes for collab posts too once their media is verified.
 type PostCollabOpenedEvent struct {
-	ID            uuid.UUID `json:"id"`
-	CorrelationID uuid.UUID `json:"correlation_id"`
-	OccurredAt    time.Time `json:"occurred_at"`
-	CollabID      uuid.UUID `json:"collab_id"`
-	PostID        uuid.UUID `json:"post_id"`
-	OwnerUserID   uuid.UUID `json:"owner_user_id"`
-	CreatedAt     time.Time `json:"created_at"`
+	ID              uuid.UUID `json:"id"`
+	CorrelationID   uuid.UUID `json:"correlationId"`
+	OccurredAt      time.Time `json:"occurredAt"`
+	CollabID        uuid.UUID `json:"collabId"`
+	Title           string    `json:"title"`
+	CreatedBy       uuid.UUID `json:"createdBy"`
+	CollabStatus    string    `json:"collabStatus"`
+	CollabCreatedAt time.Time `json:"collabCreatedAt"`
+	PostID          uuid.UUID `json:"postId"`
 }
 
 // PostCollabOpenedIdempotencyRepository records and checks processed
@@ -82,8 +88,10 @@ func (h *PostCollabOpenedHandler) Handle(ctx context.Context, msg *message.Messa
 	input := usecase.RecordCollabOpenedInput{
 		CollabID:    event.CollabID,
 		PostID:      event.PostID,
-		OwnerUserID: event.OwnerUserID,
-		CreatedAt:   event.CreatedAt,
+		OwnerUserID: event.CreatedBy,
+		Title:       event.Title,
+		Status:      event.CollabStatus,
+		CreatedAt:   event.CollabCreatedAt,
 	}
 	if err := h.usecase.Execute(ctx, input); err != nil {
 		return fmt.Errorf("execute record collab opened usecase for event %s: %w", event.ID, err)
@@ -101,19 +109,19 @@ func validatePostCollabOpenedEvent(event PostCollabOpenedEvent) error {
 		return fmt.Errorf("post collab opened event: id is required")
 	}
 	if event.CorrelationID == uuid.Nil {
-		return fmt.Errorf("post collab opened event: correlation_id is required")
+		return fmt.Errorf("post collab opened event: correlationId is required")
 	}
 	if event.OccurredAt.IsZero() {
-		return fmt.Errorf("post collab opened event: occurred_at is required")
+		return fmt.Errorf("post collab opened event: occurredAt is required")
 	}
 	if event.CollabID == uuid.Nil {
-		return fmt.Errorf("post collab opened event: collab_id is required")
+		return fmt.Errorf("post collab opened event: collabId is required")
 	}
 	if event.PostID == uuid.Nil {
-		return fmt.Errorf("post collab opened event: post_id is required")
+		return fmt.Errorf("post collab opened event: postId is required")
 	}
-	if event.OwnerUserID == uuid.Nil {
-		return fmt.Errorf("post collab opened event: owner_user_id is required")
+	if event.CreatedBy == uuid.Nil {
+		return fmt.Errorf("post collab opened event: createdBy is required")
 	}
 
 	return nil

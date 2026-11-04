@@ -27,12 +27,9 @@ const operationTimeout = 5 * time.Second
 // document was modified by another writer since the version was read.
 var ErrVersionConflict = errors.New("collab version conflict")
 
-// collabDocument is the persisted shape of a collab read model entry.
-// Title, CreatedBy, ClosedBy, and Status are populated only once a
-// CollabClosedEvent is projected (see Update); the collab-opened Insert
-// path deliberately leaves them at their Go zero values, since
-// PostCollabOpenedEvent does not carry them. This is an incremental
-// fill-in by design, not an oversight.
+// collabDocument is the persisted shape of a collab read model entry. The
+// collab-opened Insert path sets Title, CreatedBy and Status from the event;
+// ClosedBy stays empty until a CollabClosedEvent is projected (see Update).
 type collabDocument struct {
 	CollabID    string    `bson:"collab_id"`
 	PostID      string    `bson:"post_id"`
@@ -91,6 +88,9 @@ func (r *Repository) Insert(ctx context.Context, input usecase.RecordCollabOpene
 		CollabID:    input.CollabID.String(),
 		PostID:      input.PostID.String(),
 		OwnerUserID: input.OwnerUserID.String(),
+		Title:       input.Title,
+		CreatedBy:   input.OwnerUserID.String(),
+		Status:      input.Status,
 		CreatedAt:   input.CreatedAt,
 		Version:     1,
 	}

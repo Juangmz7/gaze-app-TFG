@@ -23,9 +23,9 @@ const UserDeletedEventType = "UserDeletedEvent"
 // UserDeletedEvent is the wire shape of UserDeletedEvent published by social-service.
 type UserDeletedEvent struct {
 	ID            uuid.UUID `json:"id"`
-	CorrelationID uuid.UUID `json:"correlation_id"`
-	OccurredAt    time.Time `json:"occurred_at"`
-	UserID        uuid.UUID `json:"user_id"`
+	CorrelationID uuid.UUID `json:"correlationId"`
+	OccurredAt    time.Time `json:"occurredAt"`
+	UserID        uuid.UUID `json:"userId"`
 }
 
 // UserDeletedIdempotencyRepository records and checks processed events.
@@ -89,13 +89,13 @@ func validateUserDeletedEvent(event UserDeletedEvent) error {
 		return fmt.Errorf("user deleted event: id is required")
 	}
 	if event.CorrelationID == uuid.Nil {
-		return fmt.Errorf("user deleted event: correlation_id is required")
+		return fmt.Errorf("user deleted event: correlationId is required")
 	}
 	if event.OccurredAt.IsZero() {
-		return fmt.Errorf("user deleted event: occurred_at is required")
+		return fmt.Errorf("user deleted event: occurredAt is required")
 	}
 	if event.UserID == uuid.Nil {
-		return fmt.Errorf("user deleted event: user_id is required")
+		return fmt.Errorf("user deleted event: userId is required")
 	}
 
 	return nil

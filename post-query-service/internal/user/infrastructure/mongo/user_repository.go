@@ -26,11 +26,11 @@ const operationTimeout = 5 * time.Second
 // was modified by another writer since the version was read.
 var ErrVersionConflict = errors.New("user version conflict")
 
-// userDocument is the persisted shape of a user read model entry. Email,
-// BioDescription, BioSocialMedia, PictureURL, AccountStatus, and UpdatedAt
-// are populated once a UserUpdatedEvent is projected (see Update); the
-// register-user Insert path leaves them at their Go zero values, since
-// UserRegisteredEvent does not carry them.
+// userDocument is the persisted shape of a user read model entry. The
+// register-user Insert path sets Email, BioDescription and BioSocialMedia from the
+// event; PictureURL, AccountStatus and UpdatedAt stay at their Go zero values until
+// a UserUpdatedEvent is projected (see Update), since UserRegisteredEvent does not
+// carry them.
 type userDocument struct {
 	UserID         string            `bson:"user_id"`
 	Username       string            `bson:"username"`
@@ -86,10 +86,13 @@ func (r *Repository) Insert(ctx context.Context, input usecase.RegisterUserInput
 	defer cancel()
 
 	doc := userDocument{
-		UserID:    input.UserID.String(),
-		Username:  input.Username,
-		CreatedAt: input.CreatedAt,
-		Version:   1,
+		UserID:         input.UserID.String(),
+		Username:       input.Username,
+		Email:          input.Email,
+		BioDescription: input.BioDescription,
+		BioSocialMedia: input.BioSocialMedia,
+		CreatedAt:      input.CreatedAt,
+		Version:        1,
 	}
 
 	if _, err := r.collection.InsertOne(ctx, doc); err != nil {

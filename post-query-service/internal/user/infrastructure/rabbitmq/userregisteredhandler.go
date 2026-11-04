@@ -20,15 +20,25 @@ import (
 // UserRegisteredEventType identifies this event for idempotency bookkeeping.
 const UserRegisteredEventType = "UserRegisteredEvent"
 
+// UserRegisteredBioPayload is the wire shape of the Java UserBioEventPayload
+// record.
+type UserRegisteredBioPayload struct {
+	Description string            `json:"description"`
+	SocialMedia map[string]string `json:"socialMedia"`
+}
+
 // UserRegisteredEvent is the wire shape of UserRegisteredEvent published by
-// social-service.
+// social-service. Field names are camelCase, matching the real Java record. It
+// carries no createdAt, so occurredAt is projected as the user's creation time,
+// and no picture: picture_url stays empty until a UserUpdatedEvent sets it.
 type UserRegisteredEvent struct {
-	ID            uuid.UUID `json:"id"`
-	CorrelationID uuid.UUID `json:"correlation_id"`
-	OccurredAt    time.Time `json:"occurred_at"`
-	UserID        uuid.UUID `json:"user_id"`
-	Username      string    `json:"username"`
-	CreatedAt     time.Time `json:"created_at"`
+	ID            uuid.UUID                `json:"id"`
+	CorrelationID uuid.UUID                `json:"correlationId"`
+	OccurredAt    time.Time                `json:"occurredAt"`
+	UserID        uuid.UUID                `json:"userId"`
+	Username      string                   `json:"username"`
+	Email         string                   `json:"email"`
+	Bio           UserRegisteredBioPayload `json:"bio"`
 }
 
 // UserRegisteredIdempotencyRepository records and checks processed events.
@@ -76,9 +86,12 @@ func (h *UserRegisteredHandler) Handle(ctx context.Context, msg *message.Message
 	}
 
 	input := usecase.RegisterUserInput{
-		UserID:    event.UserID,
-		Username:  event.Username,
-		CreatedAt: event.CreatedAt,
+		UserID:         event.UserID,
+		Username:       event.Username,
+		Email:          event.Email,
+		BioDescription: event.Bio.Description,
+		BioSocialMedia: event.Bio.SocialMedia,
+		CreatedAt:      event.OccurredAt,
 	}
 	if err := h.usecase.Execute(ctx, input); err != nil {
 		return fmt.Errorf("execute register user usecase for event %s: %w", event.ID, err)
@@ -96,13 +109,13 @@ func validateUserRegisteredEvent(event UserRegisteredEvent) error {
 		return fmt.Errorf("user registered event: id is required")
 	}
 	if event.CorrelationID == uuid.Nil {
-		return fmt.Errorf("user registered event: correlation_id is required")
+		return fmt.Errorf("user registered event: correlationId is required")
 	}
 	if event.OccurredAt.IsZero() {
-		return fmt.Errorf("user registered event: occurred_at is required")
+		return fmt.Errorf("user registered event: occurredAt is required")
 	}
 	if event.UserID == uuid.Nil {
-		return fmt.Errorf("user registered event: user_id is required")
+		return fmt.Errorf("user registered event: userId is required")
 	}
 	if event.Username == "" {
 		return fmt.Errorf("user registered event: username is required")

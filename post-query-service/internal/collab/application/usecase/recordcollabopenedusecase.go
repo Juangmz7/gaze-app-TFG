@@ -16,6 +16,8 @@ type RecordCollabOpenedInput struct {
 	CollabID    uuid.UUID
 	PostID      uuid.UUID
 	OwnerUserID uuid.UUID
+	Title       string
+	Status      string
 	CreatedAt   time.Time
 }
 

@@ -39,6 +39,8 @@ func TestRepository_Insert_PersistsTheCollabReadModelAtVersionOne(t *testing.T) 
 		PostID:      uuid.New(),
 		OwnerUserID: uuid.New(),
 		CreatedAt:   time.Now().UTC(),
+		Title:       "Harbour series",
+		Status:      "OPEN",
 	}
 
 	if err := repository.Insert(ctx, input); err != nil {
@@ -55,8 +57,14 @@ func TestRepository_Insert_PersistsTheCollabReadModelAtVersionOne(t *testing.T) 
 	if got.Version != 1 {
 		t.Fatalf("stored document Version = %d, want 1", got.Version)
 	}
-	if got.Title != "" || got.CreatedBy != "" || got.ClosedBy != "" || got.Status != "" {
-		t.Fatalf("stored document has non-zero closed-only fields after Insert: %+v, want all empty", got)
+	if got.Title != "Harbour series" || got.Status != "OPEN" {
+		t.Fatalf("stored document Title/Status = %q/%q, want the event's values", got.Title, got.Status)
+	}
+	if got.CreatedBy != input.OwnerUserID.String() {
+		t.Fatalf("stored document CreatedBy = %q, want %q", got.CreatedBy, input.OwnerUserID.String())
+	}
+	if got.ClosedBy != "" {
+		t.Fatalf("stored document ClosedBy = %q, want empty until the collab is closed", got.ClosedBy)
 	}
 }
 
