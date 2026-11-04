@@ -35,7 +35,7 @@ Each item has:
 | `postId`, `position` | Send `position` back as `feedPosition`, with `source=HOME_FEED`, in like and view commands. |
 | `creator.userId`, `creator.username`, `creator.pictureUrl` | `pictureUrl` can be null. `username` is the only visible name. |
 | `description`, `postType`, `postTags` | `description` can be null. `postType` is `BASIC` or `COLLAB`. |
-| `collabId`, `collab.title`, `collab.status` | Null for a `BASIC` post. |
+| `collabId`, `collab.title`, `collab.status` | Null for a `BASIC` post. A post with several collabs serves the most recently opened one. |
 | `createdAt` | The post's creation date. |
 | `media[]` | Sorted by `order`: `id`, `url`, `thumbnailUrl` (nullable), `mediaType` (`IMAGE` or `VIDEO`), `order` (1-based), `durationMs` (null for an `IMAGE`), `taggedUsers`. |
 | `coverThumbnailUrl` | The first element's thumbnail, or its `url` if it is an `IMAGE` with none. Null otherwise. |
@@ -55,7 +55,7 @@ Nothing populates the stored feed in production yet: the refill and its triggers
 | `HTTP_PORT` | `8080` | HTTP port. |
 | `JWKS_URL` | required | Keycloak signing keys. They are fetched at startup, so a wrong value stops the service from starting. |
 | `JWT_ISSUER` | required | Issuer tokens must carry: the public Keycloak URL, not the internal one. |
-| `JWT_AUDIENCE` | required | Audience tokens must carry. |
+| `JWT_AUDIENCE` | required | Audience tokens must carry. `account` in every environment: Keycloak adds it because every user holds `account` client roles through the realm's default role. Removing those roles from the default role would make every feed request answer 401. |
 | `FEED_DEFAULT_PAGE_SIZE` | `15` | Page size when the request has no `limit`. |
 | `FEED_MAX_PAGE_SIZE` | `15` | Largest `limit` accepted. |
 | `FEED_MAX_READS_PER_CLAIM` | `3` | How many times a claim reads further to replace dropped items. |
