@@ -1,19 +1,22 @@
 package com.app.postcommandservice.shared.infrastructure.schema;
 
 import javax.sql.DataSource;
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.core.io.ClassPathResource;
-import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 import org.springframework.orm.jpa.JpaVendorAdapter;
+import org.springframework.orm.jpa.hibernate.SpringBeanContainer;
 import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
 import org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -21,6 +24,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
+import com.app.postcommandservice.shared.infrastructure.outbox.OutboxDestinationResolver;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 
@@ -44,6 +48,17 @@ class PostCommandProductionSchemaValidationIT {
             statement.execute("DROP SCHEMA IF EXISTS public CASCADE");
             statement.execute("CREATE SCHEMA public");
         }
+    }
+
+    @Test
+    void shouldCreateTheWholeSchemaOnAnEmptyDatabaseAndStayIdempotent() {
+        applySchemaPatch("db/schema/post-command-service-prod.sql");
+        assertThatNoException().isThrownBy(() -> bootstrapSchema("validate"));
+
+        // Re-running it (every deployment does) must be a no-op
+        applySchemaPatch("db/schema/post-command-service-prod.sql");
+        assertThatNoException().isThrownBy(() -> bootstrapSchema("validate"));
+        assertForeignKeyExists("posts", "fk_posts_collab");
     }
 
     @Test
@@ -239,9 +254,16 @@ class PostCommandProductionSchemaValidationIT {
         }
     }
 
+    /*
+     * Runs the whole script in one simple-query call, as psql would. Splitting it on ';'
+     * (ResourceDatabasePopulator) breaks the DO $$ ... $$ blocks the migrations use.
+     */
     private void applySchemaPatch(String resourcePath) {
-        ResourceDatabasePopulator populator = new ResourceDatabasePopulator(new ClassPathResource(resourcePath));
-        populator.execute(dataSource());
+        try {
+            execute(new ClassPathResource(resourcePath).getContentAsString(StandardCharsets.UTF_8));
+        } catch (java.io.IOException exception) {
+            throw new IllegalStateException("Failed to read " + resourcePath, exception);
+        }
     }
 
     private void execute(String sql) {
@@ -287,7 +309,12 @@ class PostCommandProductionSchemaValidationIT {
         entityManagerFactory.setJpaVendorAdapter(jpaVendorAdapter());
         entityManagerFactory.setJpaPropertyMap(Map.of(
                 "hibernate.hbm2ddl.auto", ddlAuto,
-                "hibernate.dialect", "org.hibernate.dialect.PostgreSQLDialect"
+                "hibernate.dialect", "org.hibernate.dialect.PostgreSQLDialect",
+                "hibernate.resource.beans.container", entityListenerBeans(),
+                // Same naming as Spring Boot in production (snake_case columns), so the
+                // validated mapping is the one prod validates
+                "hibernate.physical_naming_strategy", "org.hibernate.boot.model.naming.CamelCaseToUnderscoresNamingStrategy",
+                "hibernate.implicit_naming_strategy", "org.springframework.boot.hibernate.SpringImplicitNamingStrategy"
         ));
 
         try {
@@ -299,6 +326,17 @@ class PostCommandProductionSchemaValidationIT {
         } finally {
             entityManagerFactory.destroy();
         }
+    }
+
+    /*
+     * Without Spring, Hibernate cannot build entity listeners that take constructor
+     * arguments (OutboxDestinationResolver needs the publishers). Schema bootstrap and
+     * validation never fire them, so an instance with no publishers is enough.
+     */
+    private static SpringBeanContainer entityListenerBeans() {
+        var beanFactory = new DefaultListableBeanFactory();
+        beanFactory.registerSingleton("outboxDestinationResolver", new OutboxDestinationResolver(List.of()));
+        return new SpringBeanContainer(beanFactory);
     }
 
     private DataSource dataSource() {
