@@ -266,18 +266,23 @@ type claimFeedState struct {
 	blocked       map[string]struct{}
 }
 
+// collabFor picks the most recently opened of the collabs attached to the post and
+// the one the post names, because that is the one post-command-service holds: opening
+// a collab on a post overwrites its collabId, without any event reaching
+// posts.collab_id, so posts.collab_id can name an older collab or one that is gone.
 func (s claimFeedState) collabFor(post FeedPost) *FeedCollab {
+	collab, found := s.collabsByPost[post.PostID]
 	if post.CollabID != nil {
-		if collab, found := s.collabsByID[*post.CollabID]; found {
-			return &collab
+		named, namedFound := s.collabsByID[*post.CollabID]
+		if namedFound && (!found || named.openedAfter(collab)) {
+			collab, found = named, true
 		}
+	}
+	if !found {
 		return nil
 	}
-	if collab, found := s.collabsByPost[post.PostID]; found {
-		return &collab
-	}
 
-	return nil
+	return &collab
 }
 
 func (s claimFeedState) viewerFor(post FeedPost) FeedViewerState {
@@ -328,7 +333,9 @@ func (u *ClaimFeedUsecase) readClaimState(ctx context.Context, viewerID string, 
 	}
 	for _, collab := range collabs {
 		state.collabsByID[collab.CollabID] = collab
-		state.collabsByPost[collab.PostID] = collab
+		if current, found := state.collabsByPost[collab.PostID]; !found || collab.openedAfter(current) {
+			state.collabsByPost[collab.PostID] = collab
+		}
 	}
 
 	return state, nil

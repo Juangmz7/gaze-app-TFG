@@ -55,10 +55,21 @@ type FeedPost struct {
 
 // FeedCollab is what the feed reads from the post_collabs read model.
 type FeedCollab struct {
-	CollabID string
-	PostID   string
-	Title    *string
-	Status   *string
+	CollabID  string
+	PostID    string
+	Title     *string
+	Status    *string
+	CreatedAt time.Time
+}
+
+// openedAfter says whether c was opened after other. Equal dates fall back to the
+// collab id, so the choice never depends on the order MongoDB returned them in.
+func (c FeedCollab) openedAfter(other FeedCollab) bool {
+	if c.CreatedAt.Equal(other.CreatedAt) {
+		return c.CollabID > other.CollabID
+	}
+
+	return c.CreatedAt.After(other.CreatedAt)
 }
 
 // FeedUnit is one stored feed entry for one user: a denormalized snapshot of a post

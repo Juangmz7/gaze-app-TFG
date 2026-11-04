@@ -393,6 +393,57 @@ func TestFeedClaim_ServesTheAgreedSchemaWithCurrentState(t *testing.T) {
 	}
 }
 
+func TestFeedClaim_ServesTheCollabPostCommandServiceHolds(t *testing.T) {
+	cases := map[string]struct {
+		// stale makes posts.collab_id name the older collab, as for a post created with it.
+		stale bool
+	}{
+		"two collabs found by post id alone":  {stale: false},
+		"a stale posts.collab_id on the post": {stale: true},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			app := newFeedApp(t, ctx)
+			postIDs := app.seedPosts(t, ctx, 1)
+			postID := uuid.MustParse(postIDs[0])
+
+			opened := time.Now().UTC().Truncate(time.Millisecond)
+			older, newer := uuid.New(), uuid.New()
+			collabs := collabmongo.NewRepository(app.db)
+			// Inserted newest first, so natural order would serve the older one.
+			if err := collabs.Insert(ctx, collabusecase.RecordCollabOpenedInput{CollabID: newer, PostID: postID, OwnerUserID: app.creator, Title: "New", Status: "OPEN", CreatedAt: opened}); err != nil {
+				t.Fatalf("Insert() error = %v", err)
+			}
+			if err := collabs.Insert(ctx, collabusecase.RecordCollabOpenedInput{CollabID: older, PostID: postID, OwnerUserID: app.creator, Title: "Old", Status: "CLOSED", CreatedAt: opened.Add(-time.Hour)}); err != nil {
+				t.Fatalf("Insert() error = %v", err)
+			}
+			if tc.stale {
+				if _, err := app.db.Collection("posts").UpdateOne(ctx, bson.D{{Key: "post_id", Value: postIDs[0]}}, bson.D{{Key: "$set", Value: bson.D{{Key: "collab_id", Value: older.String()}}}}); err != nil {
+					t.Fatalf("UpdateOne() error = %v", err)
+				}
+			}
+
+			recorder := serve(app.mux, http.MethodGet, "/api/feed", "", nil)
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("status = %d: %s", recorder.Code, recorder.Body)
+			}
+			var response map[string]any
+			if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+				t.Fatalf("Unmarshal() error = %v", err)
+			}
+			card := response["items"].([]any)[0].(map[string]any)
+			collab := card["collab"].(map[string]any)
+
+			if card["collabId"] != newer.String() || collab["title"] != "New" || collab["status"] != "OPEN" || card["postType"] != "COLLAB" {
+				t.Fatalf("card collabId = %v, collab = %v, postType = %v, want the newest collab %s", card["collabId"], collab, card["postType"], newer)
+			}
+		})
+	}
+}
+
 func TestFeedClaim_DropsDeletedPostsAndBlocksInEitherDirectionAndStillFillsThePage(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()

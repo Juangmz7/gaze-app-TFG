@@ -97,10 +97,11 @@ type FeedUserDocument struct {
 
 // FeedCollabDocument is the part of a post_collabs document the feed reads.
 type FeedCollabDocument struct {
-	CollabID string `bson:"collab_id"`
-	PostID   string `bson:"post_id"`
-	Title    string `bson:"title"`
-	Status   string `bson:"status"`
+	CollabID  string    `bson:"collab_id"`
+	PostID    string    `bson:"post_id"`
+	Title     string    `bson:"title"`
+	Status    string    `bson:"status"`
+	CreatedAt time.Time `bson:"created_at"`
 }
 
 // FeedCreatorResponse is the API shape of a card's creator.
@@ -234,10 +235,11 @@ func FeedCreatorFromDocument(document FeedUserDocument) FeedCreator {
 // FeedCollabFromDocument maps a post_collabs document.
 func FeedCollabFromDocument(document FeedCollabDocument) FeedCollab {
 	return FeedCollab{
-		CollabID: document.CollabID,
-		PostID:   document.PostID,
-		Title:    nullIfEmpty(document.Title),
-		Status:   nullIfEmpty(document.Status),
+		CollabID:  document.CollabID,
+		PostID:    document.PostID,
+		Title:     nullIfEmpty(document.Title),
+		Status:    nullIfEmpty(document.Status),
+		CreatedAt: document.CreatedAt,
 	}
 }
 

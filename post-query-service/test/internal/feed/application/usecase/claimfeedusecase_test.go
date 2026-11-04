@@ -478,23 +478,28 @@ func TestClaimFeedUsecase_Execute_ANewSessionMovesPastUnitsDroppedByAnEarlierCla
 	}
 }
 
-func TestClaimFeedUsecase_Execute_MarksTheReturnedUnitsServedOnly(t *testing.T) {
+func TestClaimFeedUsecase_Execute_MarksTheUnitsItReturnedOrDroppedAsServedAndNothingElse(t *testing.T) {
 	store := newFakeFeedStore()
-	store.seed(0, 20)
+	postIDs := store.seed(0, 20)
+	// Two of the first five are dropped, so the claim reads two more to fill the page.
+	delete(store.posts, postIDs[1])
+	blockedPost := store.posts[postIDs[3]]
+	blockedPost.CreatorID = "blocked-creator"
+	store.posts[postIDs[3]] = blockedPost
+	store.creators["blocked-creator"] = usecase.FeedCreator{UserID: "blocked-creator", Username: "bo"}
+	store.blocked = []string{"blocked-creator"}
 
-	claim(t, store, usecase.ClaimFeedInput{Limit: pointer(5)})
+	output := claim(t, store, usecase.ClaimFeedInput{Limit: pointer(5)})
 
-	served := 0
-	for index, unit := range store.units {
-		if unit.served {
-			served++
-			if index >= 5 {
-				t.Fatalf("unit at index %d was marked served", index)
-			}
-		}
+	if got := cardPostIDs(output.Items); slices.Contains(got, postIDs[1]) || slices.Contains(got, postIDs[3]) || len(got) != 5 {
+		t.Fatalf("items = %v, want a full page without the dropped units", got)
 	}
-	if served != 5 {
-		t.Fatalf("served units = %d, want 5", served)
+	// Dropped units count as served, or they would use up the read budget of every
+	// later session. Units past the last one read stay unserved.
+	for index, unit := range store.units {
+		if want := index < 7; unit.served != want {
+			t.Fatalf("unit at index %d served = %v, want %v", index, unit.served, want)
+		}
 	}
 }
 

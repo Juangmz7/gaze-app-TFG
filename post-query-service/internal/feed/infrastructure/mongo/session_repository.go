@@ -88,10 +88,15 @@ func (r *SessionRepository) RecordHeartbeat(ctx context.Context, userID uuid.UUI
 }
 
 // RecordDisconnect writes the end of the session to the same document. It upserts
-// too: a disconnect can be the first thing the service hears from a user.
+// too: a disconnect can be the first thing the service hears from a user. The caller's
+// deadline (FEED_DISCONNECT_WRITE_TIMEOUT_MS) bounds the write, so operationTimeout
+// only applies when there is none.
 func (r *SessionRepository) RecordDisconnect(ctx context.Context, userID uuid.UUID, now time.Time) error {
-	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
-	defer cancel()
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, operationTimeout)
+		defer cancel()
+	}
 
 	update := bson.D{
 		{Key: "$set", Value: bson.D{

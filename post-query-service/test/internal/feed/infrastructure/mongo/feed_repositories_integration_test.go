@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/testcontainers/testcontainers-go/modules/mongodb"
 	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/event"
 	mongodriver "go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
@@ -30,6 +31,7 @@ var (
 	mongoOnce      sync.Once
 	mongoClient    *mongodriver.Client
 	mongoErr       error
+	mongoURI       string
 	mongoTerminate func()
 )
 
@@ -59,6 +61,7 @@ func testDatabase(t *testing.T) *mongodriver.Database {
 			mongoErr = err
 			return
 		}
+		mongoURI = connectionString
 		mongoClient, mongoErr = mongodriver.Connect(options.Client().ApplyURI(connectionString))
 	})
 	if mongoErr != nil {
@@ -801,5 +804,57 @@ func TestFeedUnitRepository_ClaimReadsUseAnIndexWithoutSorting(t *testing.T) {
 				t.Fatalf("winning plan = %s, want an index scan with no sort", plan)
 			}
 		})
+	}
+}
+
+func TestHydrationRepository_FindCollabsReadsWhenEachCollabWasOpened(t *testing.T) {
+	ctx := testContext(t)
+	db := testDatabase(t)
+	opened := time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC)
+	if _, err := db.Collection("post_collabs").InsertOne(ctx, bson.D{{Key: "collab_id", Value: "c1"}, {Key: "post_id", Value: "p1"}, {Key: "created_at", Value: opened}}); err != nil {
+		t.Fatalf("InsertOne() error = %v", err)
+	}
+
+	collabs, err := feedmongo.NewHydrationRepository(db).FindCollabs(ctx, nil, []string{"p1"})
+	if err != nil || len(collabs) != 1 {
+		t.Fatalf("FindCollabs() = %+v, %v", collabs, err)
+	}
+	if !collabs[0].CreatedAt.Equal(opened) {
+		t.Fatalf("CreatedAt = %v, want %v", collabs[0].CreatedAt, opened)
+	}
+}
+
+// The write's limit is the caller's deadline, so a configured
+// FEED_DISCONNECT_WRITE_TIMEOUT_MS above operationTimeout (5s) takes effect. The driver
+// sends what remains of the context's deadline to the server as maxTimeMS.
+func TestSessionRepository_RecordDisconnect_IsBoundedByTheCallersDeadline(t *testing.T) {
+	testDatabase(t)
+
+	var maxTimeMS []int64
+	monitor := &event.CommandMonitor{Started: func(_ context.Context, started *event.CommandStartedEvent) {
+		if started.CommandName == "update" {
+			value, err := started.Command.LookupErr("maxTimeMS")
+			if err == nil {
+				maxTimeMS = append(maxTimeMS, value.AsInt64())
+			}
+		}
+	}}
+	client, err := mongodriver.Connect(options.Client().ApplyURI(mongoURI).SetMonitor(monitor))
+	if err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
+	t.Cleanup(func() { _ = client.Disconnect(context.Background()) })
+	db := client.Database("feed_" + uuid.NewString()[:8])
+	t.Cleanup(func() { _ = db.Drop(context.Background()) })
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	if err := feedmongo.NewSessionRepository(db).RecordDisconnect(ctx, uuid.New(), time.Now().UTC()); err != nil {
+		t.Fatalf("RecordDisconnect() error = %v", err)
+	}
+
+	if len(maxTimeMS) != 1 || maxTimeMS[0] <= (5*time.Second).Milliseconds() {
+		t.Fatalf("maxTimeMS = %v, want one write bounded by the caller's 60s, not 5s", maxTimeMS)
 	}
 }
