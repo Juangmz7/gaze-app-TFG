@@ -17,6 +17,7 @@ import org.springframework.amqp.core.MessageProperties;
 import org.springframework.amqp.core.ReturnedMessage;
 import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.amqp.support.converter.DefaultJacksonJavaTypeMapper;
 
 import com.app.socialservice.shared.infrastructure.entity.OutboxEvent;
 import com.app.socialservice.shared.infrastructure.enums.EventStatus;
@@ -60,6 +61,8 @@ class OutboxRelayTest {
         assertThat(props.getMessageId()).isEqualTo(event.getId().toString());
         assertThat(props.getCorrelationId()).isEqualTo(event.getCorrelationId().toString());
         assertThat(props.getDeliveryMode()).isEqualTo(MessageDeliveryMode.PERSISTENT);
+        // Logical type id the consumers' class-level @RabbitHandler listeners dispatch on
+        assertThat(props.getHeaders()).containsEntry(DefaultJacksonJavaTypeMapper.DEFAULT_CLASSID_FIELD_NAME, "UserFollowedEvent");
         verify(outboxRepository).markProcessed(event.getId());
     }
 
