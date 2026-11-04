@@ -26,22 +26,45 @@ const operationTimeout = 5 * time.Second
 // document was modified by another writer since the version was read.
 var ErrVersionConflict = errors.New("post version conflict")
 
+// postMediaDocument is one stored media element. DurationMS holds the event's
+// duration field unchanged; it already is in milliseconds.
+type postMediaDocument struct {
+	ID           string   `bson:"id"`
+	URL          string   `bson:"url"`
+	ThumbnailURL *string  `bson:"thumbnail_url"`
+	MediaType    string   `bson:"media_type"`
+	DurationMS   *int64   `bson:"duration_ms"`
+	TaggedUsers  []string `bson:"tagged_users"`
+	Order        int      `bson:"order"`
+}
+
+// postStatsDocument holds the post's counters. Only the Adjust*Count methods
+// write them; see adjustStat.
+type postStatsDocument struct {
+	LikeCount    int64 `bson:"like_count"`
+	CommentCount int64 `bson:"comment_count"`
+	ShareCount   int64 `bson:"share_count"`
+}
+
 // postDocument is the persisted shape of a post read model entry.
 type postDocument struct {
-	PostID      string    `bson:"post_id"`
-	UserID      string    `bson:"user_id"`
-	CollabID    string    `bson:"collab_id"`
-	PostType    string    `bson:"post_type"`
-	Description string    `bson:"description"`
-	Tags        []string  `bson:"tags"`
-	CreatedAt   time.Time `bson:"created_at"`
-	UpdatedAt   time.Time `bson:"updated_at"`
-	Version     int64     `bson:"version"`
+	PostID      string              `bson:"post_id"`
+	UserID      string              `bson:"user_id"`
+	CollabID    string              `bson:"collab_id"`
+	PostType    string              `bson:"post_type"`
+	Description string              `bson:"description"`
+	Tags        []string            `bson:"tags"`
+	Media       []postMediaDocument `bson:"media"`
+	Stats       postStatsDocument   `bson:"stats"`
+	CreatedAt   time.Time           `bson:"created_at"`
+	UpdatedAt   time.Time           `bson:"updated_at"`
+	Version     int64               `bson:"version"`
 }
 
 // Repository implements usecase.CreatePostRepository,
 // usecase.UpdatePostRepository, usecase.LinkPostCollabRepository, and
-// usecase.DeletePostRepository against MongoDB.
+// usecase.DeletePostRepository against MongoDB. Its Adjust*Count methods also
+// implement the post-stats ports of the like, comment and share usecases.
 type Repository struct {
 	collection *mongo.Collection
 }
@@ -93,6 +116,7 @@ func (r *Repository) Insert(ctx context.Context, input usecase.CreatePostInput) 
 		PostType:    input.PostType,
 		Description: input.Description,
 		Tags:        input.Tags,
+		Media:       toPostMediaDocuments(input.Media),
 		CreatedAt:   input.CreatedAt,
 		UpdatedAt:   input.UpdatedAt,
 		Version:     1,
@@ -144,13 +168,17 @@ func (r *Repository) Update(ctx context.Context, input usecase.UpdatePostInput) 
 		{Key: "post_id", Value: input.PostID.String()},
 		{Key: "version", Value: input.ExpectedVersion},
 	}
+	fields := bson.D{
+		{Key: "post_type", Value: input.PostType},
+		{Key: "description", Value: input.Description},
+		{Key: "tags", Value: input.Tags},
+		{Key: "updated_at", Value: input.UpdatedAt},
+	}
+	if input.Media != nil {
+		fields = append(fields, bson.E{Key: "media", Value: toPostMediaDocuments(input.Media)})
+	}
 	update := bson.D{
-		{Key: "$set", Value: bson.D{
-			{Key: "post_type", Value: input.PostType},
-			{Key: "description", Value: input.Description},
-			{Key: "tags", Value: input.Tags},
-			{Key: "updated_at", Value: input.UpdatedAt},
-		}},
+		{Key: "$set", Value: fields},
 		{Key: "$inc", Value: bson.D{{Key: "version", Value: int64(1)}}},
 	}
 
@@ -212,4 +240,72 @@ func (r *Repository) Delete(ctx context.Context, postID uuid.UUID) error {
 	}
 
 	return nil
+}
+
+// AdjustLikeCount adds delta to stats.like_count. See adjustStat.
+func (r *Repository) AdjustLikeCount(ctx context.Context, postID uuid.UUID, delta int64) (bool, error) {
+	return r.adjustStat(ctx, postID, "like_count", delta)
+}
+
+// AdjustCommentCount adds delta to stats.comment_count. See adjustStat.
+func (r *Repository) AdjustCommentCount(ctx context.Context, postID uuid.UUID, delta int64) (bool, error) {
+	return r.adjustStat(ctx, postID, "comment_count", delta)
+}
+
+// AdjustShareCount adds delta to stats.share_count. See adjustStat.
+func (r *Repository) AdjustShareCount(ctx context.Context, postID uuid.UUID, delta int64) (bool, error) {
+	return r.adjustStat(ctx, postID, "share_count", delta)
+}
+
+// adjustStat atomically adds delta to one counter, flooring it at 0, and reports
+// whether the post exists. An aggregation-pipeline update expresses the floor in
+// one write and treats a missing counter as 0. It does not touch version: the
+// counters are written by no other path, and bumping version on every like would
+// make PostUpdatedEvent's optimistic-concurrency write conflict on popular posts.
+func (r *Repository) adjustStat(ctx context.Context, postID uuid.UUID, counter string, delta int64) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
+	defer cancel()
+
+	path := "stats." + counter
+	update := mongo.Pipeline{
+		{{Key: "$set", Value: bson.D{
+			{Key: path, Value: bson.D{{Key: "$max", Value: bson.A{
+				int64(0),
+				bson.D{{Key: "$add", Value: bson.A{
+					bson.D{{Key: "$ifNull", Value: bson.A{"$" + path, int64(0)}}},
+					delta,
+				}}},
+			}}}},
+		}}},
+	}
+
+	result, err := r.collection.UpdateOne(ctx, bson.D{{Key: "post_id", Value: postID.String()}}, update)
+	if err != nil {
+		return false, fmt.Errorf("adjust post %s %s: %w", postID, counter, err)
+	}
+
+	return result.MatchedCount > 0, nil
+}
+
+// toPostMediaDocuments maps media to its stored shape, always as a list (never
+// null), with an empty list for null tagged users.
+func toPostMediaDocuments(media []usecase.PostMedia) []postMediaDocument {
+	documents := make([]postMediaDocument, 0, len(media))
+	for _, element := range media {
+		taggedUsers := element.TaggedUsers
+		if taggedUsers == nil {
+			taggedUsers = []string{}
+		}
+		documents = append(documents, postMediaDocument{
+			ID:           element.ID.String(),
+			URL:          element.URL,
+			ThumbnailURL: element.ThumbnailURL,
+			MediaType:    element.MediaType,
+			DurationMS:   element.Duration,
+			TaggedUsers:  taggedUsers,
+			Order:        element.Order,
+		})
+	}
+
+	return documents
 }

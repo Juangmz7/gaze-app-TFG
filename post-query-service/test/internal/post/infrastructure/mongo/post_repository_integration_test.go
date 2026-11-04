@@ -360,3 +360,209 @@ func testDatabase(t *testing.T, ctx context.Context) *mongodriver.Database {
 
 	return client.Database("post_query_post_repository_test")
 }
+
+// storedPost decodes the media and stats fields exactly as they are named in
+// MongoDB, which other readers of the posts collection depend on.
+type storedPost struct {
+	Media []struct {
+		ID           string   `bson:"id"`
+		URL          string   `bson:"url"`
+		ThumbnailURL *string  `bson:"thumbnail_url"`
+		MediaType    string   `bson:"media_type"`
+		DurationMS   *int64   `bson:"duration_ms"`
+		TaggedUsers  []string `bson:"tagged_users"`
+		Order        int      `bson:"order"`
+	} `bson:"media"`
+	Stats struct {
+		LikeCount    int64 `bson:"like_count"`
+		CommentCount int64 `bson:"comment_count"`
+		ShareCount   int64 `bson:"share_count"`
+	} `bson:"stats"`
+	Tags    []string `bson:"tags"`
+	Version int64    `bson:"version"`
+}
+
+func findStoredPost(t *testing.T, ctx context.Context, db *mongodriver.Database, postID uuid.UUID) storedPost {
+	t.Helper()
+
+	var doc storedPost
+	if err := db.Collection("posts").FindOne(ctx, bson.D{{Key: "post_id", Value: postID.String()}}).Decode(&doc); err != nil {
+		t.Fatalf("FindOne() error = %v", err)
+	}
+
+	return doc
+}
+
+func samplePostMedia() []usecase.PostMedia {
+	thumbnail := "https://media.example.test/harbour-thumb.jpg"
+	duration := int64(15000)
+
+	return []usecase.PostMedia{
+		{ID: uuid.New(), URL: "https://media.example.test/sunset.jpg", MediaType: usecase.PostMediaTypeImage, TaggedUsers: []string{"ana_rivera"}, Order: 1},
+		{ID: uuid.New(), URL: "https://media.example.test/harbour.mp4", ThumbnailURL: &thumbnail, MediaType: usecase.PostMediaTypeVideo, Duration: &duration, Order: 2},
+	}
+}
+
+func TestRepository_Insert_StoresEveryMediaFieldTogetherAndStartsStatsAtZero(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	db := testDatabase(t, ctx)
+	repository := postmongo.NewRepository(db)
+	media := samplePostMedia()
+
+	postID := uuid.New()
+	if err := repository.Insert(ctx, usecase.CreatePostInput{PostID: postID, UserID: uuid.New(), PostType: "BASIC", Tags: []string{"travel"}, Media: media}); err != nil {
+		t.Fatalf("Insert() error = %v", err)
+	}
+
+	got := findStoredPost(t, ctx, db, postID)
+	if len(got.Media) != 2 {
+		t.Fatalf("stored media length = %d, want 2", len(got.Media))
+	}
+	image, video := got.Media[0], got.Media[1]
+	if image.ID != media[0].ID.String() || image.URL != media[0].URL || image.MediaType != "IMAGE" || image.Order != 1 {
+		t.Fatalf("stored media[0] = %+v", image)
+	}
+	if image.ThumbnailURL != nil || image.DurationMS != nil {
+		t.Fatalf("stored media[0] thumbnail/duration = %v/%v, want null", image.ThumbnailURL, image.DurationMS)
+	}
+	if len(image.TaggedUsers) != 1 || image.TaggedUsers[0] != "ana_rivera" {
+		t.Fatalf("stored media[0] tagged users = %v", image.TaggedUsers)
+	}
+	if video.ThumbnailURL == nil || *video.ThumbnailURL != *media[1].ThumbnailURL {
+		t.Fatalf("stored media[1] thumbnail = %v", video.ThumbnailURL)
+	}
+	if video.DurationMS == nil || *video.DurationMS != 15000 {
+		t.Fatalf("stored media[1] duration = %v, want 15000 unchanged", video.DurationMS)
+	}
+	if video.TaggedUsers == nil {
+		t.Fatal("stored media[1] tagged users = null, want an empty list")
+	}
+	if got.Stats.LikeCount != 0 || got.Stats.CommentCount != 0 || got.Stats.ShareCount != 0 {
+		t.Fatalf("stored stats = %+v, want all 0", got.Stats)
+	}
+}
+
+func TestRepository_Update_ReplacesMediaAndKeepsStats(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	db := testDatabase(t, ctx)
+	repository := postmongo.NewRepository(db)
+
+	postID := uuid.New()
+	if err := repository.Insert(ctx, usecase.CreatePostInput{PostID: postID, UserID: uuid.New(), PostType: "BASIC", Media: samplePostMedia()}); err != nil {
+		t.Fatalf("Insert() error = %v", err)
+	}
+	if _, err := repository.AdjustLikeCount(ctx, postID, 1); err != nil {
+		t.Fatalf("AdjustLikeCount() error = %v", err)
+	}
+
+	replacement := []usecase.PostMedia{{ID: uuid.New(), URL: "https://media.example.test/new.jpg", MediaType: usecase.PostMediaTypeImage, Order: 1}}
+	if err := repository.Update(ctx, usecase.UpdatePostInput{PostID: postID, ExpectedVersion: 1, PostType: "BASIC", Media: replacement}); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+
+	got := findStoredPost(t, ctx, db, postID)
+	if len(got.Media) != 1 || got.Media[0].URL != "https://media.example.test/new.jpg" {
+		t.Fatalf("stored media = %+v, want only the replacement", got.Media)
+	}
+	if got.Stats.LikeCount != 1 {
+		t.Fatalf("stored like_count = %d, want 1 preserved by the update", got.Stats.LikeCount)
+	}
+}
+
+func TestRepository_Update_LeavesMediaUntouchedWhenTheEventCarriedNone(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	db := testDatabase(t, ctx)
+	repository := postmongo.NewRepository(db)
+
+	postID := uuid.New()
+	if err := repository.Insert(ctx, usecase.CreatePostInput{PostID: postID, UserID: uuid.New(), PostType: "BASIC", Media: samplePostMedia()}); err != nil {
+		t.Fatalf("Insert() error = %v", err)
+	}
+	if err := repository.Update(ctx, usecase.UpdatePostInput{PostID: postID, ExpectedVersion: 1, PostType: "BASIC"}); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+
+	if got := findStoredPost(t, ctx, db, postID); len(got.Media) != 2 {
+		t.Fatalf("stored media length = %d, want 2 untouched", len(got.Media))
+	}
+}
+
+func TestRepository_AdjustCounts_ChangeOnlyTheirCounterNeverGoBelowZeroAndKeepVersion(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	db := testDatabase(t, ctx)
+	repository := postmongo.NewRepository(db)
+
+	postID := uuid.New()
+	if err := repository.Insert(ctx, usecase.CreatePostInput{PostID: postID, UserID: uuid.New(), PostType: "BASIC"}); err != nil {
+		t.Fatalf("Insert() error = %v", err)
+	}
+
+	steps := []struct {
+		name   string
+		adjust func(context.Context, uuid.UUID, int64) (bool, error)
+		delta  int64
+	}{
+		{"like +1", repository.AdjustLikeCount, 1},
+		{"like +1", repository.AdjustLikeCount, 1},
+		{"like -1", repository.AdjustLikeCount, -1},
+		{"comment +1", repository.AdjustCommentCount, 1},
+		{"share -1 at zero", repository.AdjustShareCount, -1},
+	}
+	for _, step := range steps {
+		found, err := step.adjust(ctx, postID, step.delta)
+		if err != nil || !found {
+			t.Fatalf("%s: found/error = %v/%v, want true/nil", step.name, found, err)
+		}
+	}
+
+	got := findStoredPost(t, ctx, db, postID)
+	if got.Stats.LikeCount != 1 || got.Stats.CommentCount != 1 || got.Stats.ShareCount != 0 {
+		t.Fatalf("stored stats = %+v, want like 1, comment 1, share 0", got.Stats)
+	}
+	if got.Version != 1 {
+		t.Fatalf("stored version = %d, want 1: counters must not conflict with PostUpdatedEvent", got.Version)
+	}
+}
+
+func TestRepository_AdjustLikeCount_TreatsAPostWithoutStatsAsZero(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	db := testDatabase(t, ctx)
+	repository := postmongo.NewRepository(db)
+
+	postID := uuid.New()
+	if _, err := db.Collection("posts").InsertOne(ctx, bson.D{{Key: "post_id", Value: postID.String()}, {Key: "version", Value: int64(1)}}); err != nil {
+		t.Fatalf("InsertOne() error = %v", err)
+	}
+	if _, err := repository.AdjustLikeCount(ctx, postID, 1); err != nil {
+		t.Fatalf("AdjustLikeCount() error = %v", err)
+	}
+
+	if got := findStoredPost(t, ctx, db, postID); got.Stats.LikeCount != 1 {
+		t.Fatalf("stored like_count = %d, want 1", got.Stats.LikeCount)
+	}
+}
+
+func TestRepository_AdjustLikeCount_ReportsNotFoundWhenThePostIsNotProjected(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	repository := postmongo.NewRepository(testDatabase(t, ctx))
+
+	found, err := repository.AdjustLikeCount(ctx, uuid.New(), 1)
+	if err != nil {
+		t.Fatalf("AdjustLikeCount() error = %v", err)
+	}
+	if found {
+		t.Fatal("AdjustLikeCount() found = true, want false for a post that is not projected")
+	}
+}

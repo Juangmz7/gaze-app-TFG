@@ -16,13 +16,15 @@ import (
 // ExpectedVersion is not set by the caller: PostUpdatedEvent carries no
 // version/sequence number of its own, so Execute looks up the document's
 // current version via UpdatePostRepository.GetVersion before calling
-// Update, and fills it in.
+// Update, and fills it in. A nil Media means the event carried no media field,
+// which leaves the stored media untouched; an empty list clears it.
 type UpdatePostInput struct {
 	PostID          uuid.UUID
 	ExpectedVersion int64
 	PostType        string
 	Description     string
 	Tags            []string
+	Media           []PostMedia
 	UpdatedAt       time.Time
 }
 
@@ -57,6 +59,9 @@ func NewUpdatePost(repository UpdatePostRepository) *UpdatePostUsecase {
 func (u *UpdatePostUsecase) Execute(ctx context.Context, input UpdatePostInput) error {
 	if input.PostID == uuid.Nil {
 		return fmt.Errorf("update post usecase: post id is required")
+	}
+	if err := ValidatePostMedia(input.Media); err != nil {
+		return fmt.Errorf("update post usecase: %w", err)
 	}
 
 	version, found, err := u.repository.GetVersion(ctx, input.PostID)

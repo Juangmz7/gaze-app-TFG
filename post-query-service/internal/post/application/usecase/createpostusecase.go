@@ -19,6 +19,7 @@ type CreatePostInput struct {
 	PostType    string
 	Description string
 	Tags        []string
+	Media       []PostMedia
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }
@@ -46,6 +47,9 @@ func (u *CreatePostUsecase) Execute(ctx context.Context, input CreatePostInput) 
 	}
 	if input.UserID == uuid.Nil {
 		return fmt.Errorf("create post usecase: user id is required")
+	}
+	if err := ValidatePostMedia(input.Media); err != nil {
+		return fmt.Errorf("create post usecase: %w", err)
 	}
 
 	if err := u.repository.Insert(ctx, input); err != nil {

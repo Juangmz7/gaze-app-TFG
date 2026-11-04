@@ -19,20 +19,20 @@ const PostUpdatedEventType = "PostUpdatedEvent"
 
 // PostUpdatedEvent is the wire shape of PostUpdatedEvent published by
 // post-command-service. Field names are camelCase, matching the real Java
-// PostUpdatedEvent record. Media is deliberately not modeled here, matching
-// the pre-existing gap in PostCreatedEvent's/CollabLinkedEvent's handlers.
+// PostUpdatedEvent record.
 type PostUpdatedEvent struct {
-	ID            uuid.UUID `json:"id"`
-	CorrelationID uuid.UUID `json:"correlationId"`
-	OccurredAt    time.Time `json:"occurredAt"`
-	PostID        uuid.UUID `json:"postId"`
-	UserID        uuid.UUID `json:"userId"`
-	CollabID      uuid.UUID `json:"collabId"`
-	PostType      string    `json:"postType"`
-	Description   string    `json:"description"`
-	PostTags      []string  `json:"postTags"`
-	CreatedAt     time.Time `json:"createdAt"`
-	UpdatedAt     time.Time `json:"updatedAt"`
+	ID            uuid.UUID          `json:"id"`
+	CorrelationID uuid.UUID          `json:"correlationId"`
+	OccurredAt    time.Time          `json:"occurredAt"`
+	PostID        uuid.UUID          `json:"postId"`
+	UserID        uuid.UUID          `json:"userId"`
+	CollabID      uuid.UUID          `json:"collabId"`
+	PostType      string             `json:"postType"`
+	Description   string             `json:"description"`
+	PostTags      []string           `json:"postTags"`
+	Media         []PostMediaPayload `json:"media"`
+	CreatedAt     time.Time          `json:"createdAt"`
+	UpdatedAt     time.Time          `json:"updatedAt"`
 }
 
 // PostUpdatedIdempotencyRepository records and checks processed events.
@@ -84,6 +84,7 @@ func (h *PostUpdatedHandler) Handle(ctx context.Context, msg *message.Message) e
 		PostType:    event.PostType,
 		Description: event.Description,
 		Tags:        event.PostTags,
+		Media:       toPostMedia(event.Media),
 		UpdatedAt:   event.UpdatedAt,
 	}
 	if err := h.usecase.Execute(ctx, input); err != nil {
@@ -112,6 +113,9 @@ func validatePostUpdatedEvent(event PostUpdatedEvent) error {
 	}
 	if event.UserID == uuid.Nil {
 		return fmt.Errorf("post updated event: userId is required")
+	}
+	if err := usecase.ValidatePostMedia(toPostMedia(event.Media)); err != nil {
+		return fmt.Errorf("post updated event: %w", err)
 	}
 
 	return nil
