@@ -30,6 +30,7 @@ import com.app.postcommandservice.like.application.commands.ValidatePostLikeComm
 import com.app.postcommandservice.like.domain.model.PostLikeSource;
 import com.app.postcommandservice.like.infrastructure.repository.PostLikeJpaRepository;
 import com.app.postcommandservice.post.domain.model.valueobj.PostStatus;
+import com.app.postcommandservice.post.domain.model.valueobj.PostType;
 import com.app.postcommandservice.post.infrastructure.entity.BlockReadModelEntity;
 import com.app.postcommandservice.post.infrastructure.entity.BlockReadModelId;
 import com.app.postcommandservice.post.infrastructure.entity.PostEntity;
@@ -202,6 +203,7 @@ class PostLikeFlowIT {
         var inactivePost = postJpaRepository.save(PostEntity.builder()
                 .id(UUID.randomUUID())
                 .userId(UUID.randomUUID())
+                .postType(PostType.BASIC)
                 .description("inactive")
                 .status(PostStatus.DELETED)
                 .build());
@@ -241,6 +243,7 @@ class PostLikeFlowIT {
         return postJpaRepository.save(PostEntity.builder()
                 .id(UUID.randomUUID())
                 .userId(ownerId)
+                .postType(PostType.BASIC)
                 .description("active")
                 .status(PostStatus.ACCEPTED)
                 .build());
