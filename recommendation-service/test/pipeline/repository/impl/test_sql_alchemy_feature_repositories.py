@@ -24,7 +24,7 @@ from pipeline.repository.impl.sql_alchemy_user_features_repository import (
 from post.usecase.post_interaction_updater import PostInteractionUpdater
 from shared.config.database import SQLAlchemyTransactionManager
 from shared.enum.interaction_metric import InteractionMetric
-from test._support.builders import (
+from _support.builders import (
     T0,
     T1,
     decayed_stats,

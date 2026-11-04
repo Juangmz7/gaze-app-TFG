@@ -11,7 +11,7 @@ from pipeline.config.constants import (
     POST_VIEW_WEIGHT,
 )
 from pipeline.model.interaction.affinity_score_processor import AffinityScoreProcessor
-from test._support.builders import decayed_stats
+from _support.builders import decayed_stats
 
 
 pytestmark = pytest.mark.unit

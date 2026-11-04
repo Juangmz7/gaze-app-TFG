@@ -19,7 +19,7 @@ from post.usecase.post_interaction_updater import PostInteractionUpdater
 from rabbitmq.event.post.post_events import InteractionSource
 from shared.enum.interaction_metric import InteractionMetric
 from shared.helpers import decay, l2_normalize_vector
-from test._support.builders import (
+from _support.builders import (
     T0,
     T1,
     decayed_stats,

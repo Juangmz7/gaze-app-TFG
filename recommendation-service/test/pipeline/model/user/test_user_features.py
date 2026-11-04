@@ -5,7 +5,7 @@ import pytest
 
 from pipeline.model.user.user_features import UserFeatures
 from shared.helpers import decay, l2_normalize_vector
-from test._support.builders import T0
+from _support.builders import T0
 
 
 pytestmark = pytest.mark.unit
