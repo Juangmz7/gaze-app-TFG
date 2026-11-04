@@ -1,7 +1,7 @@
-// Package rabbitmq handles the post-created variant of
-// PostCollabOpenedEvent and CollabClosedEvent from
-// topology.ExchangePostEvents (routing keys
-// rk.post.collab.opened.post-created and rk.post.collab.closed).
+// Package rabbitmq handles both variants of CollabOpenedEvent and
+// CollabClosedEvent from topology.ExchangePostEvents (routing keys
+// rk.post.collab.opened.post-created, rk.post.collab.opened.existing-post and
+// rk.post.collab.closed).
 package rabbitmq
 
 import (
@@ -23,7 +23,7 @@ import (
 const PostCollabOpenedEventType = "PostCollabOpenedPostCreatedEvent"
 
 // PostCollabOpenedEvent is the wire shape of the Java CollabOpenedEvent record
-// published by post-command-service on rk.post.collab.opened.post-created. Field
+// published by post-command-service on both rk.post.collab.opened.* keys. Field
 // names are camelCase. Only the collab's own fields are modeled: the record's post
 // fields (postType, description, postTags, media, ...) are ignored, because the
 // post read model is projected from PostCreatedEvent, which post-command-service
