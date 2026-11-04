@@ -138,7 +138,13 @@ services:
       OTEL_SERVICE_NAME: recommendation-service
       OTEL_EXPORTER_OTLP_ENDPOINT: http://grafana-lgtm:4317
       OTEL_EXPORTER_OTLP_PROTOCOL: grpc
-    # FastStream worker: consumes from RabbitMQ, exposes no HTTP port.
+      GRPC_PORT: "50051"
+      PIPELINE_WORKER_POOL_SIZE: "2"
+      FEED_CONSUMER_PREFETCH: "1"
+    # FastStream worker: consumes from RabbitMQ and answers post-query-service on
+    # recommendation-service:50051. Nothing is published on the host.
+    expose:
+      - "50051"
     networks:
       - infra_net
 
