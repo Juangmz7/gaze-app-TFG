@@ -6,6 +6,7 @@ import subprocess
 import sys
 import time
 from datetime import datetime
+from types import SimpleNamespace
 from uuid import uuid4
 
 import aio_pika
@@ -15,6 +16,7 @@ from grpc_health.v1 import health_pb2
 from sqlalchemy import text
 
 from _support.feed_service import (
+    T0,
     FEED_DLQ,
     FEED_QUEUE,
     POST_DLQ,
@@ -31,6 +33,12 @@ from _support.feed_service import (
     seed_user_with_signal,
     service_env,
 )
+from block.entity.block_entity import BlockRecord
+from follow.entity.follow_entity import FollowRecord
+from pipeline.entity.post.post_tag_features_entity import PostTagFeaturesRecord
+from pipeline.entity.user.user_creator_features_entity import UserCreatorFeaturesRecord
+from pipeline.usecase.semantic_post_retrieval_use_case import POST_LIMIT as SEMANTIC_POST_LIMIT
+from post.entity.user_post_interactions_entity import UserPostInteractionsRecord
 from recommendation.v1 import recommendation_pb2
 
 pytestmark = pytest.mark.integration
@@ -166,6 +174,66 @@ async def test_grpc_returns_at_most_30_ids(stub, db_session_factory):
 
     assert len(response.post_ids) == 30
     assert len(set(response.post_ids)) == 30
+
+
+def seed_user_with_history(db_session_factory):
+    """A user with a similar user, whose favourite creators are how collaborative
+    retrieval finds posts. The post sets are only reachable through it: their creator
+    is followed, which explorative retrieval skips; they have enough views to skip
+    cold start; and semantic retrieval fills its limit with the closer filler posts."""
+    similar_creator, blocked_creator = uuid4(), uuid4()
+    unreachable_otherwise = {"embedding_value": -0.01, "raw_views": 100, "tags": ("cats",)}
+
+    with db_session_factory() as session:
+        user_id = seed_user_with_signal(session)
+        similar_user_id = seed_user_with_signal(session)
+        session.add_all([
+            UserCreatorFeaturesRecord(user_id=similar_user_id, creator_id=similar_creator, affinity_score=1.0, last_updated_at=T0),
+            UserCreatorFeaturesRecord(user_id=similar_user_id, creator_id=blocked_creator, affinity_score=1.0, last_updated_at=T0),
+            UserCreatorFeaturesRecord(user_id=user_id, creator_id=similar_creator, affinity_score=1.0, last_updated_at=T0),
+            PostTagFeaturesRecord(user_id=user_id, tag_name="cats", affinity_score=1.0, last_updated_at=T0),
+            FollowRecord(follower_id=user_id, followed_id=similar_creator, created_at=T0),
+            BlockRecord(blocker_id=user_id, blocked_id=blocked_creator, created_at=T0),
+        ])
+
+        collaborative = [seed_post(session, creator_id=similar_creator, **unreachable_otherwise) for _ in range(5)]
+        excluded = seed_post(session, creator_id=similar_creator, **unreachable_otherwise)
+        seen = seed_post(session, creator_id=similar_creator, **unreachable_otherwise)
+        session.add(UserPostInteractionsRecord(post_id=seen, user_id=user_id, ever_seen=True))
+        blocked = seed_post(session, creator_id=blocked_creator, **unreachable_otherwise)
+        filler = [
+            seed_post(session, embedding_value=0.01, watch_time_percent=0.1) for _ in range(SEMANTIC_POST_LIMIT)
+        ]
+        session.commit()
+
+    return SimpleNamespace(
+        user_id=user_id, collaborative=collaborative, excluded=excluded, seen=seen, blocked=blocked, filler=filler,
+    )
+
+
+async def test_user_with_history_receives_the_posts_of_the_collaborative_path(stub, db_session_factory):
+    # Arrange
+    history = seed_user_with_history(db_session_factory)
+
+    # Act
+    response = await stub.GetRecommendedFeed(
+        recommendation_pb2.GetRecommendedFeedRequest(
+            user_id=str(history.user_id),
+            excluded_post_ids=[str(history.excluded)],
+            reason=recommendation_pb2.LOW_WATERMARK,
+        ),
+        timeout=60,
+    )
+
+    # Assert
+    post_ids = list(response.post_ids)
+    assert len(post_ids) == 30
+    assert len(set(post_ids)) == 30
+    assert {str(post_id) for post_id in history.collaborative} <= set(post_ids)
+    assert not {str(history.excluded), str(history.seen), str(history.blocked)} & set(post_ids)
+    # The follow, creator and tag affinities reached the ranking: no filler post has any,
+    # and all of them have a better watch time
+    assert post_ids[0] in {str(post_id) for post_id in history.collaborative}
 
 
 async def test_new_user_with_no_features_row_receives_posts_over_grpc(stub, db_session_factory):

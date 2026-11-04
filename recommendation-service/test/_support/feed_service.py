@@ -124,18 +124,21 @@ def seed_post(
     session,
     *,
     post_id: UUID | None = None,
+    creator_id: UUID | None = None,
+    tags: tuple[str, ...] = ("python",),
+    embedding_value: float = 0.1,
     watch_time_percent: float = 0.0,
     raw_views: int = 0,
     created_at: datetime = T0,
 ) -> UUID:
-    """A post by its own creator, eligible for every user."""
+    """A post, by its own creator unless one is given, eligible for every user."""
     post_id = post_id or uuid4()
     session.add(PostFeaturesRecord(
         post_id=post_id,
-        creator_id=uuid4(),
-        tags=["python"],
+        creator_id=creator_id or uuid4(),
+        tags=list(tags),
         tagged_users_ids=[],
-        semantic_embedding=[0.1] * 1024,
+        semantic_embedding=[embedding_value] * 1024,
         created_at=created_at,
     ))
     session.add(PostInteractionFeaturesRecord(
