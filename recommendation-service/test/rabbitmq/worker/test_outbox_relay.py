@@ -122,6 +122,33 @@ async def test_relay_moves_event_to_failed_once_attempts_are_exhausted(session_p
     assert row["attempts"] == 10
 
 
+async def test_relay_reports_the_duplicate_and_stops_when_marking_processed_fails(
+    session_provider, db_session_factory, caplog
+):
+    # Arrange
+    now = datetime.now(timezone.utc)
+    published = add_event(db_session_factory, created_at=now - timedelta(minutes=1))
+    next_event = add_event(db_session_factory, created_at=now)
+    broker = FakeBroker()
+    worker = OutboxRelayWorker(session_provider, broker)
+
+    def database_down(_event_id):
+        raise RuntimeError("database down")
+
+    worker._mark_processed = database_down
+
+    # Act
+    await worker.relay_batch()
+
+    # Assert: delivered, so not a failed attempt; the expired lock republishes it
+    assert [kwargs["message_id"] for _, kwargs in broker.published] == [str(published.id)]
+    row = fetch(db_session_factory, published.id)
+    assert row["status"] == "PROCESSING"
+    assert row["last_error"] is None
+    assert fetch(db_session_factory, next_event.id)["attempts"] == 0
+    assert "republished as a duplicate" in caplog.text
+
+
 async def test_relay_marks_unroutable_event_processed(session_provider, db_session_factory):
     # Arrange
     event = add_event(db_session_factory)

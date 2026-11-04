@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -22,9 +23,10 @@ type failedAttempt struct {
 
 // fakeStore hands out queued events in order and records every mark call.
 type fakeStore struct {
-	queue     []outbox.Event
-	processed []uuid.UUID
-	failed    []failedAttempt
+	queue      []outbox.Event
+	processed  []uuid.UUID
+	failed     []failedAttempt
+	processErr error
 }
 
 func (s *fakeStore) ClaimNext(context.Context, time.Duration) (*outbox.Event, error) {
@@ -39,6 +41,9 @@ func (s *fakeStore) ClaimNext(context.Context, time.Duration) (*outbox.Event, er
 }
 
 func (s *fakeStore) MarkProcessed(_ context.Context, id uuid.UUID) error {
+	if s.processErr != nil {
+		return s.processErr
+	}
 	s.processed = append(s.processed, id)
 	return nil
 }
@@ -124,6 +129,26 @@ func TestRelay_RelayBatch_MovesEventToFailedOnceAttemptsAreExhausted(t *testing.
 
 	if len(store.failed) != 1 || store.failed[0].status != outbox.StatusFailed {
 		t.Fatalf("failed = %+v, want one FAILED release", store.failed)
+	}
+}
+
+func TestRelay_RelayBatch_ReportsTheDuplicateAndStopsWhenMarkProcessedFails(t *testing.T) {
+	published, next := pendingEvent(0), pendingEvent(0)
+	dbErr := errors.New("mongo unavailable")
+	store := &fakeStore{queue: []outbox.Event{published, next}, processErr: dbErr}
+	publisher := &fakePublisher{}
+
+	err := newTestRelay(store, publisher).RelayBatch(context.Background())
+
+	if !errors.Is(err, dbErr) || !strings.Contains(err.Error(), "republished as a duplicate") {
+		t.Fatalf("RelayBatch() error = %v, want the store error explaining the upcoming duplicate", err)
+	}
+	// Already delivered: it is not a failed attempt; the expired lock republishes it
+	if len(store.failed) != 0 {
+		t.Fatalf("failed = %+v, want no release for a delivered event", store.failed)
+	}
+	if len(store.queue) != 1 || store.queue[0].ID != next.ID {
+		t.Fatal("RelayBatch() kept claiming after the store failed, want the batch to stop")
 	}
 }
 

@@ -121,7 +121,10 @@ func (r *Relay) RelayBatch(ctx context.Context) error {
 		}
 
 		if err := r.store.MarkProcessed(markCtx, event.ID); err != nil {
-			return err
+			// Delivered but still PROCESSING: it is reclaimed and sent again once the lock expires
+			return fmt.Errorf("outbox event %s (type %s, attempt %d) was published but not marked processed; "+
+				"it will be republished as a duplicate after the %s lock timeout: %w",
+				event.ID, event.EventType, event.Attempts, r.cfg.LockTimeout, err)
 		}
 	}
 	return nil

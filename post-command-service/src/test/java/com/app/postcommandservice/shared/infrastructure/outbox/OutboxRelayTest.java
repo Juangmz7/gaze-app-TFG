@@ -17,6 +17,7 @@ import org.springframework.amqp.core.MessageProperties;
 import org.springframework.amqp.core.ReturnedMessage;
 import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.amqp.support.converter.DefaultJacksonJavaTypeMapper;
 
 import com.app.postcommandservice.shared.infrastructure.entity.OutboxEvent;
@@ -29,6 +30,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -114,6 +116,20 @@ class OutboxRelayTest {
         outboxRelay.relay();
 
         verify(outboxRepository).markFailedAttempt(event.getId(), 1, EventStatus.PENDING.name(), "connection refused");
+    }
+
+    @Test
+    void shouldStopTheBatchWithoutReleasingTheEventWhenMarkingItProcessedFails() {
+        var event = claimedEvent(1);
+        when(outboxRepository.claimNext(any())).thenReturn(Optional.of(event));
+        brokerReplies(true, null, false);
+        doThrow(new DataAccessResourceFailureException("database down")).when(outboxRepository).markProcessed(event.getId());
+
+        outboxRelay.relay();
+
+        // Already delivered: it is not a failed attempt; the expired lock republishes it
+        verify(outboxRepository, times(1)).claimNext(any());
+        verify(outboxRepository, never()).markFailedAttempt(any(), anyInt(), anyString(), anyString());
     }
 
     @Test

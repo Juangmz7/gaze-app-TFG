@@ -96,7 +96,15 @@ public class OutboxRelay {
             return false;
         }
 
-        outboxRepository.markProcessed(event.getId());
+        try {
+            outboxRepository.markProcessed(event.getId());
+        } catch (RuntimeException ex) {
+            // Delivered but still PROCESSING: it is reclaimed and sent again once the lock expires
+            log.error("Outbox event was published but could not be marked PROCESSED; it will be republished "
+                            + "as a duplicate after the {}s lock timeout: id={} type={} attempt={}",
+                    LOCK_TIMEOUT.toSeconds(), event.getId(), event.getEventType(), event.getAttempts(), ex);
+            return false; // the database is failing: stop the batch
+        }
         return true;
     }
 

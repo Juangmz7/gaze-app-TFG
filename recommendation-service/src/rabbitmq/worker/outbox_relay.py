@@ -123,7 +123,16 @@ class OutboxRelayWorker:
             except Exception as exc:
                 await asyncio.to_thread(self._mark_failed, row, exc)
                 return
-            await asyncio.to_thread(self._mark_processed, row.id)
+            try:
+                await asyncio.to_thread(self._mark_processed, row.id)
+            except Exception:
+                # Delivered but still PROCESSING: it is reclaimed and sent again once the lock expires
+                logger.exception(
+                    "Outbox event was published but could not be marked PROCESSED; it will be republished "
+                    "as a duplicate after the %.0fs lock timeout: id=%s type=%s attempt=%s",
+                    self._lock_timeout.total_seconds(), row.id, row.event_type, row.attempts,
+                )
+                return  # the database is failing: stop the batch
 
     async def delete_processed(self) -> int:
         return await asyncio.to_thread(self._delete_processed)
