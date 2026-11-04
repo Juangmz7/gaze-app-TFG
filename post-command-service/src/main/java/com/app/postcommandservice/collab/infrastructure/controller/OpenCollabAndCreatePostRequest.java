@@ -11,6 +11,13 @@ import jakarta.validation.constraints.NotNull;
 
 import com.app.postcommandservice.post.infrastructure.controller.PostMediaRequest;
 
+/**
+ * Opening a collab and creating its post uses the same metadata-only media shape as the plain
+ * single-post creation endpoint (task 33/34): the client sends only {@code mediaType}/
+ * {@code order}/{@code taggedUsers} per media item, never {@code url}/{@code thumbnailUrl}/
+ * {@code duration}. The server generates blob urls and returns transient upload SAS urls, just
+ * like the plain endpoint.
+ */
 public record OpenCollabAndCreatePostRequest(
         @NotNull(message = "correlationId is required")
         UUID correlationId,

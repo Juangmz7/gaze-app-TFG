@@ -1,0 +1,8 @@
+# RabbitMQ Cluster Operator + Messaging Topology Operator (the latter's
+# admission webhook certificate comes from cert-manager). Both install into
+# rabbitmq-system and watch every namespace.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - cluster-operator
+  - messaging-topology-operator

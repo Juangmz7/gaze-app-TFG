@@ -2,11 +2,7 @@ package com.app.postcommandservice.collab.infrastructure;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -14,6 +10,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
+import com.app.postcommandservice.post.infrastructure.entity.UserBioPayload;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
@@ -147,7 +144,12 @@ class CollabControllerFlowTest {
 
     @Test
     void shouldOpenCollabPersistMemberPostAndPublishEvent() throws Exception {
-        seedUser(UUID.randomUUID(), "alice");
+        seedUser(
+                UUID.randomUUID(),
+                "alice",
+                "alice@email.com",
+                new UserBioPayload("Alice's description", Map.of("Tiktok", "Alice_09"))
+        );
 
         String queueName = "test.collab.opened." + UUID.randomUUID();
         RabbitAdmin rabbitAdmin = new RabbitAdmin(connectionFactory);
@@ -165,7 +167,7 @@ class CollabControllerFlowTest {
                 "title", "Open collab",
                 "description", "hello",
                 "postTags", Set.of("spring"),
-                "media", List.of(Map.of("url", "https://cdn/image.jpg", "mediaType", "IMAGE", "order", 1,
+                "media", List.of(Map.of("mediaType", "IMAGE", "order", 1,
                         "taggedUsers", Set.of("alice")))
         ));
 
@@ -180,6 +182,12 @@ class CollabControllerFlowTest {
                 .andExpect(jsonPath("$.collabStatus").value("OPEN"))
                 .andExpect(jsonPath("$.post.postType").value("COLLAB"))
                 .andExpect(jsonPath("$.post.collabId").exists())
+                .andExpect(jsonPath("$.post.status").value("PENDING"))
+                .andExpect(jsonPath("$.post.uploadExpiresAt").exists())
+                .andExpect(jsonPath("$.post.media[0].url").exists())
+                .andExpect(jsonPath("$.post.media[0].thumbnailUrl").exists())
+                .andExpect(jsonPath("$.post.media[0].uploadUrl").exists())
+                .andExpect(jsonPath("$.post.media[0].duration").doesNotExist())
                 .andExpect(jsonPath("$.post.media[0].taggedUsers[0]").value("alice"));
 
         assertThat(collabJpaRepository.count()).isEqualTo(1);
@@ -190,6 +198,8 @@ class CollabControllerFlowTest {
         assertThat(outboxEventRepository.count()).isEqualTo(1);
         assertThat(postJpaRepository.findAll().getFirst().getPostType().name())
                 .isEqualTo("COLLAB");
+        assertThat(postJpaRepository.findAll().getFirst().getStatus().name())
+                .isEqualTo("PENDING");
         assertThat(collabJpaRepository.findAll().getFirst().getCollabStatus().name())
                 .isEqualTo("OPEN");
         assertThat(collabMemberJpaRepository.findAll().getFirst().getRole().name())
@@ -207,6 +217,13 @@ class CollabControllerFlowTest {
 
         assertThat(eventPayload.get("title")).isEqualTo("Open collab");
         assertThat(eventPayload.get("postType")).isEqualTo("COLLAB");
+        assertThat(eventPayload).doesNotContainKey("taggedUsers");
+
+        @SuppressWarnings("unchecked")
+        var eventMedia = (List<Map<String, Object>>) eventPayload.get("media");
+        assertThat(eventMedia).hasSize(1);
+        assertThat(eventMedia.get(0).get("taggedUsers")).isEqualTo(List.of("alice"));
+        assertThat(eventMedia.get(0).get("url")).isNotNull();
 
         rabbitAdmin.deleteQueue(queueName);
     }
@@ -220,7 +237,7 @@ class CollabControllerFlowTest {
                 "title", "Open collab",
                 "description", "collab post",
                 "postTags", Set.of("collab"),
-                "media", List.of(Map.of("url", "https://cdn/image.jpg", "mediaType", "IMAGE", "order", 1))
+                "media", List.of(Map.of("mediaType", "IMAGE", "order", 1))
         ));
 
         var collabResponse = mockMvc.perform(post("/api/collabs")
@@ -237,14 +254,18 @@ class CollabControllerFlowTest {
                 "correlationId", correlationId,
                 "description", "basic post",
                 "postTags", Set.of("basic"),
-                "media", List.of(Map.of("url", "https://cdn/image.jpg", "mediaType", "IMAGE", "order", 1))
+                "media", List.of(Map.of("mediaType", "IMAGE", "order", 1))
         ));
 
+        // The collab-open flow does not record post-request idempotency (it uses its own
+        // collab-request idempotency instead, see OpenCollabAndCreatePostUseCase), so reusing
+        // the same correlationId on the plain create-post endpoint is a genuinely new creation,
+        // not an idempotent replay -> 201 Created, not 200 OK.
         var basicPostResponse = mockMvc.perform(post("/api/posts")
                         .with(jwtFor(CREATOR_ID))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(basicPostPayload))
-                .andExpect(status().isOk())
+                .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.postType").value("BASIC"))
                 .andExpect(jsonPath("$.collabId").doesNotExist())
                 .andReturn()
@@ -280,7 +301,7 @@ class CollabControllerFlowTest {
                 "title", "Replay collab",
                 "description", "hello",
                 "postTags", Set.of("spring"),
-                "media", List.of(Map.of("url", "https://cdn/image.jpg", "mediaType", "IMAGE", "order", 1))
+                "media", List.of(Map.of("mediaType", "IMAGE", "order", 1))
         ));
 
         var firstResponse = mockMvc.perform(post("/api/collabs")
@@ -328,8 +349,28 @@ class CollabControllerFlowTest {
         assertThat(secondPost.get("collabId")).isEqualTo(firstPost.get("collabId"));
         assertThat(secondPost.get("postType")).isEqualTo(firstPost.get("postType"));
         assertThat(secondPost.get("description")).isEqualTo(firstPost.get("description"));
-        assertThat(secondPost.get("media")).isEqualTo(firstPost.get("media"));
+        assertThat(secondPost.get("status")).isEqualTo(firstPost.get("status"));
         assertThat(secondPost.get("postTags")).isEqualTo(firstPost.get("postTags"));
+
+        // Media stable fields (url/thumbnailUrl/mediaType/order/taggedUsers/id) must be
+        // identical on replay — blob urls are generated once and never regenerated — but
+        // uploadUrl/thumbnailUploadUrl are fresh SAS urls re-signed on every call (task 33/34
+        // contract: a replay never reuses a possibly-expired SAS url), so they are excluded
+        // from this equality check.
+        @SuppressWarnings("unchecked")
+        var firstMediaList = (List<Map<String, Object>>) firstPost.get("media");
+        @SuppressWarnings("unchecked")
+        var secondMediaList = (List<Map<String, Object>>) secondPost.get("media");
+        assertThat(secondMediaList).hasSameSizeAs(firstMediaList);
+        for (int i = 0; i < firstMediaList.size(); i++) {
+            var firstMedia = new java.util.HashMap<>(firstMediaList.get(i));
+            var secondMedia = new java.util.HashMap<>(secondMediaList.get(i));
+            firstMedia.remove("uploadUrl");
+            firstMedia.remove("thumbnailUploadUrl");
+            secondMedia.remove("uploadUrl");
+            secondMedia.remove("thumbnailUploadUrl");
+            assertThat(secondMedia).isEqualTo(firstMedia);
+        }
         assertTimestampEquivalent(secondPost.get("createdAt"), firstPost.get("createdAt"));
         assertTimestampEquivalent(secondPost.get("updatedAt"), firstPost.get("updatedAt"));
 
@@ -1344,11 +1385,17 @@ class CollabControllerFlowTest {
         new RabbitAdmin(connectionFactory).deleteQueue(queueName);
     }
 
-    private void seedUser(UUID userId, String username) {
+    private void seedUser(UUID userId, String username, String email, UserBioPayload bio) {
         var now = Instant.now();
-
         userReadModelJpaRepository.save(
-                new UserReadModelEntity(userId, username, now, now)
+                new UserReadModelEntity(
+                        userId,
+                        username,
+                        email,
+                        bio,
+                        now,
+                        now
+                )
         );
     }
 

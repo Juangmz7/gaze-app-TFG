@@ -1,0 +1,10 @@
+apiVersion: v2
+name: gateway
+description: >-
+  Per-environment Envoy Gateway entry point: Gateway (TLS by cert-manager),
+  dedicated Envoy proxies in this namespace, HTTP->HTTPS redirect, per-IP
+  global rate limiting, circuit breaking, passive health checks and
+  NetworkPolicies.
+type: application
+version: 0.1.0
+appVersion: "v1.9.3"

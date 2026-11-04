@@ -1,0 +1,60 @@
+name: docker publish (reusable)
+
+# Builds one image and pushes it to Docker Hub as :latest and :<commit sha>.
+# Called by each service's CI workflow (<service>-ci.yml) after its tests pass
+# on main, and by keycloak-image.yml.
+# The Kubernetes manifests (infra/k8s) track :latest; Argo CD Image Updater
+# pins the new digest on every push. Requires the DOCKERHUB_USERNAME and
+# DOCKERHUB_TOKEN repository secrets (token: Docker Hub access token with
+# Read & Write scope).
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        description: Docker Hub repository
+        required: true
+        type: string
+      context:
+        description: Build context, relative to the repository root
+        required: true
+        type: string
+      dockerfile:
+        description: Dockerfile path, relative to the repository root
+        required: true
+        type: string
+    secrets:
+      DOCKERHUB_USERNAME:
+        required: true
+      DOCKERHUB_TOKEN:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ inputs.context }}
+          file: ${{ inputs.dockerfile }}
+          push: true
+          tags: |
+            docker.io/${{ inputs.image }}:latest
+            docker.io/${{ inputs.image }}:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=${{ inputs.image }}
+          cache-to: type=gha,mode=max,scope=${{ inputs.image }}

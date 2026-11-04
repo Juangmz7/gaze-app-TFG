@@ -1,0 +1,45 @@
+# RabbitMQ for the prod environment (namespace rabbitmq-prod).
+
+environment: prod
+replicas: 3
+
+persistence:
+  storage: 20Gi
+
+resources:
+  requests:
+    cpu: "1"
+    memory: 2Gi
+  limits:
+    memory: 2Gi
+
+# TODO(vault): the default user and per-service user passwords come from
+# Vault (External Secrets) before prod is enabled; these are placeholders.
+defaultUser:
+  username: admin
+  password: CHANGE_ME
+
+users:
+  - name: social-service
+    password: CHANGE_ME
+    permissions: { configure: ".*", write: ".*", read: ".*" }
+  - name: post-command-service
+    password: CHANGE_ME
+    permissions: { configure: ".*", write: ".*", read: ".*" }
+  - name: post-query-service
+    password: CHANGE_ME
+    permissions: { configure: ".*", write: ".*", read: ".*" }
+  - name: recommendation-service
+    password: CHANGE_ME
+    permissions: { configure: ".*", write: ".*", read: ".*" }
+  - name: keycloak
+    password: CHANGE_ME
+    permissions: { configure: "^$", write: "^x\\.auth\\.events$", read: "^$" }
+
+networkPolicy:
+  clientNamespaces:
+    - social-service-prod
+    - post-command-service-prod
+    - post-query-service-prod
+    - recommendation-service-prod
+    - keycloak-prod

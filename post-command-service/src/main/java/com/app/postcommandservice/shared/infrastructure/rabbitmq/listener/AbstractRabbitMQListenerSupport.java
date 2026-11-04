@@ -46,6 +46,12 @@ public abstract class AbstractRabbitMQListenerSupport {
         if (event.userId() == null) {
             throw new IllegalArgumentException("event.userId must not be null");
         }
+        if (event.username() == null) {
+            throw new IllegalArgumentException("event.username must not be null");
+        }
+        if (event.email() == null) {
+            throw new IllegalArgumentException("event.email must not be null");
+        }
         if (!StringUtils.hasText(event.username())) {
             throw new IllegalArgumentException("event.username must not be blank");
         }

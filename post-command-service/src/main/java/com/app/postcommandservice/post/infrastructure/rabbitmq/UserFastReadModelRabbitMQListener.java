@@ -2,6 +2,7 @@ package com.app.postcommandservice.post.infrastructure.rabbitmq;
 
 import java.time.Instant;
 
+import com.app.postcommandservice.post.infrastructure.entity.UserBioPayload;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitHandler;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
@@ -53,6 +54,8 @@ public class UserFastReadModelRabbitMQListener extends AbstractRabbitMQListenerS
         userReadModelJpaRepository.save(new UserReadModelEntity(
                 event.userId(),
                 event.username(),
+                event.email(),
+                event.bio() != null ? new UserBioPayload(event.bio().description(), event.bio().socialMedia()) : null,
                 event.occurredAt(),
                 event.occurredAt()
         ));
@@ -72,6 +75,10 @@ public class UserFastReadModelRabbitMQListener extends AbstractRabbitMQListenerS
                 .orElse(new UserReadModelEntity(
                         event.userId(),
                         event.username(),
+                        event.email(),
+                        event.bio() != null
+                                ? new UserBioPayload(event.bio().description(), event.bio().socialMedia())
+                                : null,
                         event.createdAt() == null ? event.occurredAt() : event.createdAt(),
                         event.updatedAt() == null ? event.occurredAt() : event.updatedAt()
                 ));

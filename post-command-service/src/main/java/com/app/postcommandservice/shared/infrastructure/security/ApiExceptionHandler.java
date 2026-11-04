@@ -34,8 +34,11 @@ import com.app.postcommandservice.collab.domain.exception.CollabNotOpenException
 import com.app.postcommandservice.collab.domain.exception.CollabAccessDeniedException;
 import com.app.postcommandservice.post.domain.exception.TaggedUserBlockedException;
 import com.app.postcommandservice.post.domain.exception.TaggedUserNotFoundException;
+import com.app.postcommandservice.post.domain.exception.IdempotencyKeyReuseException;
+import com.app.postcommandservice.post.domain.exception.MediaUploadWindowExpiredException;
 import com.app.postcommandservice.post.domain.exception.PostNotAcceptedException;
 import com.app.postcommandservice.post.domain.exception.PostNotFoundException;
+import com.app.postcommandservice.post.domain.exception.PostNotPendingException;
 import com.app.postcommandservice.post.domain.exception.PostOwnershipException;
 import com.app.postcommandservice.share.domain.exception.PostShareBlockedException;
 import com.app.postcommandservice.shared.domain.exception.DomainException;
@@ -212,6 +215,30 @@ public class ApiExceptionHandler {
             HttpServletRequest request) {
 
         return buildErrorResponse(HttpStatus.BAD_REQUEST, ApiErrorCode.BAD_REQUEST, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(PostNotPendingException.class)
+    public ResponseEntity<ApiErrorResponse> handlePostNotPendingException(
+            PostNotPendingException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(HttpStatus.CONFLICT, ApiErrorCode.CONFLICT, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(MediaUploadWindowExpiredException.class)
+    public ResponseEntity<ApiErrorResponse> handleMediaUploadWindowExpiredException(
+            MediaUploadWindowExpiredException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(HttpStatus.CONFLICT, ApiErrorCode.CONFLICT, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(IdempotencyKeyReuseException.class)
+    public ResponseEntity<ApiErrorResponse> handleIdempotencyKeyReuseException(
+            IdempotencyKeyReuseException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(HttpStatus.CONFLICT, ApiErrorCode.CONFLICT, exception.getMessage(), request);
     }
 
     @ExceptionHandler(DomainException.class)

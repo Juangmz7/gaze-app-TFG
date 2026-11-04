@@ -1,0 +1,11 @@
+apiVersion: v2
+name: keycloak
+description: >-
+  Per-environment Keycloak managed by the Keycloak Operator (installed in the
+  same namespace), with the auth-service realm import, the public HTTPRoute
+  on the environment Gateway and NetworkPolicies. Its PostgreSQL database is
+  external to the cluster.
+type: application
+version: 0.1.0
+# Operator and server versions must match (Keycloak Operator requirement).
+appVersion: "25.0.6"

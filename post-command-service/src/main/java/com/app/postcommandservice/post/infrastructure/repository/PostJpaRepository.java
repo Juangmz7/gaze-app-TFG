@@ -4,6 +4,7 @@ import java.util.UUID;
 import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -21,4 +22,35 @@ public interface PostJpaRepository extends JpaRepository<PostEntity, UUID> {
               AND post.status = :status
             """)
     Optional<UUID> findOwnerIdByIdAndStatus(@Param("postId") UUID postId, @Param("status") PostStatus status);
+
+    @Query("""
+            SELECT post.id AS id, post.userId AS authorId, post.status AS status, post.createdAt AS createdAt
+            FROM PostEntity post
+            WHERE post.id = :postId
+            """)
+    Optional<PostConfirmMediaUploadView> findConfirmMediaUploadViewById(@Param("postId") UUID postId);
+
+    @Query("""
+            SELECT post.status
+            FROM PostEntity post
+            WHERE post.id = :postId
+            """)
+    Optional<PostStatus> findStatusById(@Param("postId") UUID postId);
+
+    /**
+     * Conditionally transitions a post's status, used by the media-upload verification flow
+     * (task 37) so a duplicate/late message, or one that races with task 39's expiry cleanup,
+     * affects zero rows instead of overwriting a status set elsewhere.
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            UPDATE PostEntity post
+            SET post.status = :newStatus
+            WHERE post.id = :postId
+              AND post.status = :expectedStatus
+            """)
+    int updateStatusIfCurrent(
+            @Param("postId") UUID postId,
+            @Param("expectedStatus") PostStatus expectedStatus,
+            @Param("newStatus") PostStatus newStatus);
 }

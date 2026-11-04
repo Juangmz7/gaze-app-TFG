@@ -1,0 +1,37 @@
+# recommendation-service: prod environment.
+# Hosts marked CHANGE_ME are provisioned with the AKS migration.
+
+environment: prod
+
+env:
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://gaze-collector.observability.svc.cluster.local:4317
+  OTEL_RESOURCE_ATTRIBUTES: deployment.environment.name=prod
+  OTEL_TRACES_SAMPLER: parentbased_traceidratio
+  OTEL_TRACES_SAMPLER_ARG: "0.1"
+
+# Created by External Secrets from Vault. Required keys:
+#   DATABASE_URL (postgresql+psycopg://user:pass@CHANGE_ME.postgres.database.azure.com:5432/recommendation_db?sslmode=require),
+#   RABBITMQ_URL, RABBITMQ_AMQP_URI (amqp://user:pass@rabbitmq.rabbitmq-prod.svc.cluster.local:5672/)
+existingSecret: recommendation-service
+
+autoscaling:
+  minReplicas: 1
+  maxReplicas: 6
+
+networkPolicy:
+  egress:
+    - name: rabbitmq
+      namespace: rabbitmq-prod
+      podLabels:
+        app.kubernetes.io/component: rabbitmq
+      ports: [5672]
+    - name: otel-collector
+      namespace: observability
+      podLabels:
+        app.kubernetes.io/component: opentelemetry-collector
+      ports: [4317, 4318]
+  externalEgress:
+    # TODO(aks): narrow to the private endpoint of the managed database.
+    - name: postgres
+      cidr: 10.0.0.0/8
+      ports: [5432]

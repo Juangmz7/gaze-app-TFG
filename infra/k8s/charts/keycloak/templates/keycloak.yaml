@@ -1,0 +1,94 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: keycloak-db
+  labels:
+    {{- include "keycloak.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  username: {{ .Values.database.username | quote }}
+  password: {{ .Values.database.password | quote }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: keycloak-rabbitmq
+  labels:
+    {{- include "keycloak.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  username: {{ .Values.rabbitmq.username | quote }}
+  password: {{ .Values.rabbitmq.password | quote }}
+---
+apiVersion: k8s.keycloak.org/v2alpha1
+kind: Keycloak
+metadata:
+  name: keycloak
+  labels:
+    {{- include "keycloak.labels" . | nindent 4 }}
+  annotations:
+    # The operator CRDs come from the platform layer.
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  instances: {{ .Values.instances }}
+  image: {{ printf "%s:%s" .Values.image.repository .Values.image.tag }}
+  # The custom image is pre-built (kc.sh build in its Dockerfile).
+  startOptimized: true
+  db:
+    vendor: postgres
+    host: {{ .Values.database.host }}
+    port: {{ .Values.database.port }}
+    database: {{ .Values.database.name }}
+    usernameSecret:
+      name: keycloak-db
+      key: username
+    passwordSecret:
+      name: keycloak-db
+      key: password
+  # TLS terminates at the Gateway; traffic to the pod is plain HTTP inside
+  # the namespace-isolated network.
+  http:
+    httpEnabled: true
+    httpPort: 8080
+  hostname:
+    hostname: https://{{ .Values.hostname }}
+    # Services reach Keycloak through the in-cluster Service (JWKS).
+    backchannelDynamic: true
+  proxy:
+    headers: xforwarded
+  # Exposed through the Gateway API HTTPRoute instead.
+  ingress:
+    enabled: false
+  resources:
+    {{- toYaml .Values.resources | nindent 4 }}
+  additionalOptions:
+    - name: log-console-output
+      value: json
+  unsupported:
+    podTemplate:
+      spec:
+        containers:
+          - name: keycloak
+            env:
+              - name: KK_TO_RMQ_URL
+                value: {{ .Values.rabbitmq.host | quote }}
+              - name: KK_TO_RMQ_PORT
+                value: {{ .Values.rabbitmq.port | quote }}
+              - name: KK_TO_RMQ_VHOST
+                value: {{ .Values.rabbitmq.vhost | quote }}
+              - name: KK_TO_RMQ_EXCHANGE
+                value: {{ .Values.rabbitmq.exchange | quote }}
+              - name: KK_TO_RMQ_USERNAME
+                valueFrom:
+                  secretKeyRef:
+                    name: keycloak-rabbitmq
+                    key: username
+              - name: KK_TO_RMQ_PASSWORD
+                valueFrom:
+                  secretKeyRef:
+                    name: keycloak-rabbitmq
+                    key: password
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop: ["ALL"]

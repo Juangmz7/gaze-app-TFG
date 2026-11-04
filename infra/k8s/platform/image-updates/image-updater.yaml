@@ -1,0 +1,56 @@
+# Argo CD Image Updater: every Application below tracks the mutable :latest
+# tag on Docker Hub. On each push (CI publishes :latest + :<sha>) the new
+# digest is written as the Helm parameter image.tag=latest@sha256:<digest>,
+# which rolls the Deployment. The ApplicationSets ignore spec.source.helm.parameters
+# so they don't revert it.
+apiVersion: argocd-image-updater.argoproj.io/v1alpha1
+kind: ImageUpdater
+metadata:
+  name: gaze
+  namespace: argocd
+spec:
+  commonUpdateSettings:
+    updateStrategy: digest
+  writeBackConfig:
+    method: argocd
+  applicationRefs:
+    - namePattern: "social-service-*"
+      images:
+        - alias: social-service
+          imageName: docker.io/juangmz7/social-service:latest
+          manifestTargets:
+            helm:
+              name: image.repository
+              tag: image.tag
+    - namePattern: "post-command-service-*"
+      images:
+        - alias: post-command-service
+          imageName: docker.io/juangmz7/post-command-service:latest
+          manifestTargets:
+            helm:
+              name: image.repository
+              tag: image.tag
+    - namePattern: "post-query-service-*"
+      images:
+        - alias: post-query-service
+          imageName: docker.io/juangmz7/post-query-service:latest
+          manifestTargets:
+            helm:
+              name: image.repository
+              tag: image.tag
+    - namePattern: "recommendation-service-*"
+      images:
+        - alias: recommendation-service
+          imageName: docker.io/juangmz7/recommendation-service:latest
+          manifestTargets:
+            helm:
+              name: image.repository
+              tag: image.tag
+    - namePattern: "keycloak-*"
+      images:
+        - alias: keycloak
+          imageName: docker.io/juangmz7/keycloak:latest
+          manifestTargets:
+            helm:
+              name: image.repository
+              tag: image.tag

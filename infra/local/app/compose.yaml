@@ -1,0 +1,138 @@
+# Local development / testing only.
+# Containerized microservices. Requires the infra stack (../compose.yaml) to be
+# up: it creates the `infra_net` network joined here as `external`.
+#
+# Run from infra/local so the shared .env is used for interpolation:
+#   docker compose --env-file .env -f app/compose.yaml up -d --build
+#
+# `depends_on` does not work across compose files; `restart: unless-stopped`
+# makes each app retry until RabbitMQ and its database are ready.
+#
+# Hosts below are the INTERNAL names on infra_net (container port, not the
+# host-published *_PORT values). Credentials containing URL-reserved
+# characters (@ / :) must be URL-encoded inside the *_URI / *_URL variables.
+
+# Separate project so Compose does not report the infra containers as orphans.
+name: apps
+
+x-keycloak-jwt: &keycloak-jwt
+  # Tokens requested from the host carry iss=http://localhost:<KC_PORT>/...,
+  # so the issuer is validated against that URL while the signing keys are
+  # fetched from Keycloak over the internal network.
+  SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: http://localhost:${KC_PORT:-8080}/realms/auth-service
+  SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak:8080/realms/auth-service/protocol/openid-connect/certs
+
+x-spring-rabbitmq: &spring-rabbitmq
+  SPRING_RABBITMQ_HOST: rabbitmq
+  SPRING_RABBITMQ_PORT: 5672
+  SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER}
+  SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+
+x-spring-redis: &spring-redis
+  SPRING_DATA_REDIS_HOST: redis
+  SPRING_DATA_REDIS_PORT: 6379
+
+x-spring-otlp: &spring-otlp
+  # Spring Boot 4 OpenTelemetry starter: OTLP over HTTP (4318). The dev
+  # profile already samples at 1.0; only the endpoints need overriding.
+  MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://grafana-lgtm:4318/v1/traces
+  MANAGEMENT_OPENTELEMETRY_LOGGING_EXPORT_OTLP_ENDPOINT: http://grafana-lgtm:4318/v1/logs
+  MANAGEMENT_OTLP_METRICS_EXPORT_URL: http://grafana-lgtm:4318/v1/metrics
+
+services:
+  social-service:
+    build:
+      context: ../../../social-service
+      dockerfile: Dockerfile
+      args:
+        JAVA_VERSION: ${JAVA_VERSION:-25}
+    container_name: social_service
+    restart: unless-stopped
+    environment:
+      # dev profile (ddl-auto=update); its localhost endpoints are overridden below.
+      SPRING_PROFILES_ACTIVE: dev
+      SPRING_APPLICATION_NAME: social-service
+      SPRING_DATASOURCE_URL: jdbc:postgresql://social-postgres:5432/${SOCIAL_POSTGRES_DB:-social_db}
+      SPRING_DATASOURCE_USERNAME: ${SOCIAL_POSTGRES_USER:-social_user}
+      SPRING_DATASOURCE_PASSWORD: ${SOCIAL_POSTGRES_PASSWORD}
+      SPRING_NEO4J_URI: bolt://social-neo4j:7687
+      SPRING_NEO4J_AUTHENTICATION_USERNAME: ${SOCIAL_NEO4J_USER:-neo4j}
+      SPRING_NEO4J_AUTHENTICATION_PASSWORD: ${SOCIAL_NEO4J_PASSWORD}
+      <<: [*spring-rabbitmq, *spring-redis, *keycloak-jwt, *spring-otlp]
+    ports:
+      # application-dev.yaml sets server.port=8081
+      - "127.0.0.1:${SOCIAL_SERVICE_PORT:-8081}:8081"
+    networks:
+      - infra_net
+
+  post-command-service:
+    build:
+      context: ../../../post-command-service
+      dockerfile: Dockerfile
+      args:
+        JAVA_VERSION: ${JAVA_VERSION:-25}
+    container_name: post_command_service
+    restart: unless-stopped
+    environment:
+      # dev profile (ddl-auto=update); its localhost endpoints are overridden below.
+      SPRING_PROFILES_ACTIVE: dev
+      SPRING_APPLICATION_NAME: post-command-service
+      SPRING_DATASOURCE_URL: jdbc:postgresql://post-command-postgres:5432/${POST_COMMAND_POSTGRES_DB:-post_command_service_db}
+      SPRING_DATASOURCE_USERNAME: ${POST_COMMAND_POSTGRES_USER:-post_command_user}
+      SPRING_DATASOURCE_PASSWORD: ${POST_COMMAND_POSTGRES_PASSWORD}
+      # Azurite well-known devstoreaccount1 key comes from application-dev.yaml.
+      # Note: SAS URLs handed to clients will point at `azurite:10000`, which
+      # only resolves inside infra_net.
+      AZURE_STORAGE_ACCOUNT_URL: http://azurite:10000/devstoreaccount1
+      <<: [*spring-rabbitmq, *spring-redis, *keycloak-jwt, *spring-otlp]
+    ports:
+      # dev profile does not set server.port, so Spring's default 8080 applies
+      - "127.0.0.1:${POST_COMMAND_SERVICE_PORT:-8082}:8080"
+    networks:
+      - infra_net
+
+  post-query-service:
+    build:
+      # Repo root: the Go build needs go.work and common-packages/go-utils.
+      context: ../../..
+      dockerfile: post-query-service/Dockerfile
+      args:
+        GO_VERSION: ${GO_VERSION:-1.26.5}
+    container_name: post_query_service
+    restart: unless-stopped
+    environment:
+      HTTP_PORT: 8080
+      # Replica set rs0 without auth (see ../compose.yaml)
+      POST_QUERY_MONGO_URI: mongodb://post_query_mongo:27017/post_query?replicaSet=rs0
+      POST_QUERY_MONGO_DATABASE: ${POST_QUERY_MONGO_DATABASE:-post_query}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: ${RABBITMQ_USER}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+    ports:
+      - "127.0.0.1:${POST_QUERY_SERVICE_PORT:-8083}:8080"
+    networks:
+      - infra_net
+
+  recommendation-service:
+    build:
+      context: ../../../recommendation-service
+      dockerfile: Dockerfile
+    container_name: recommendation_service
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg://${RECOMMENDATION_POSTGRES_USER:-recommendation_user}:${RECOMMENDATION_POSTGRES_PASSWORD}@recommendation-postgres:5432/${RECOMMENDATION_POSTGRES_DB:-recommendation_db}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+      MODEL_DEVICE: cpu
+      # Python auto-instrumentation (opentelemetry-instrument), OTLP over gRPC
+      OTEL_SERVICE_NAME: recommendation-service
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://grafana-lgtm:4317
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+    # FastStream worker: consumes from RabbitMQ, exposes no HTTP port.
+    networks:
+      - infra_net
+
+networks:
+  infra_net:
+    external: true
+    name: infra_net

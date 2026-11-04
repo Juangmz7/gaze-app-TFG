@@ -1,11 +1,9 @@
 package com.app.postcommandservice.post.infrastructure.repository;
 
 import java.time.Instant;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
 
+import com.app.postcommandservice.post.infrastructure.entity.UserBioPayload;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -44,8 +42,22 @@ class TaggedUserValidationRepositoryImplTest {
         var requestedUsernames = new LinkedHashSet<>(Set.of("alice", "bob", "missing"));
 
         when(userReadModelJpaRepository.findByUsernameIn(requestedUsernames)).thenReturn(List.of(
-                new UserReadModelEntity(aliceId, "alice", now, now),
-                new UserReadModelEntity(bobId, "bob", now, now)
+                new UserReadModelEntity(
+                        aliceId,
+                        "alice",
+                        "alice@email.com",
+                        new UserBioPayload("alice's description", Map.of("Tiktok", "Alice_1")),
+                        now,
+                        now
+                ),
+                new UserReadModelEntity(
+                        bobId,
+                        "bob",
+                        "bob@email.com",
+                        new UserBioPayload("bob's description", Map.of("Tiktok", "bob_11")),
+                        now,
+                        now
+                )
         ));
         when(blockReadModelJpaRepository.findBlockedUserIdsBetween(creatorId, Set.of(aliceId, bobId, charlieId)))
                 .thenReturn(List.of(aliceId, bobId));

@@ -1,0 +1,52 @@
+# Default user credentials in the operator's external secret format, so they
+# can come from Vault later instead of being generated.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Values.clusterName }}-default-user-credentials
+  labels:
+    {{- include "rabbitmq.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  default_user.conf: |
+    default_user = {{ .Values.defaultUser.username }}
+    default_pass = {{ .Values.defaultUser.password }}
+  username: {{ .Values.defaultUser.username | quote }}
+  password: {{ .Values.defaultUser.password | quote }}
+  host: {{ printf "%s.%s.svc" .Values.clusterName .Release.Namespace | quote }}
+  port: "5672"
+  provider: rabbitmq
+  type: rabbitmq
+---
+apiVersion: rabbitmq.com/v1beta1
+kind: RabbitmqCluster
+metadata:
+  name: {{ .Values.clusterName }}
+  labels:
+    {{- include "rabbitmq.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  image: {{ .Values.image }}
+  secretBackend:
+    externalSecret:
+      name: {{ .Values.clusterName }}-default-user-credentials
+  persistence:
+    storage: {{ .Values.persistence.storage }}
+    {{- with .Values.persistence.storageClassName }}
+    storageClassName: {{ . }}
+    {{- end }}
+  resources:
+    {{- toYaml .Values.resources | nindent 4 }}
+  rabbitmq:
+    additionalConfig: |
+      {{- .Values.additionalConfig | nindent 6 }}
+  {{- if gt (int .Values.replicas) 1 }}
+  # One broker per node.
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - topologyKey: kubernetes.io/hostname
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ .Values.clusterName }}
+  {{- end }}

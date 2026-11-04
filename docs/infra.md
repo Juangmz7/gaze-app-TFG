@@ -1,7 +1,7 @@
 # Infrastructure (Docker Compose) Documentation
 
 ## What it does
-The `infra` directory contains the foundational Docker Compose stack required to run the backing services for the microservice architecture. It defines and orchestrates the database, identity provider, and message broker.
+The `infra/local` directory contains the foundational Docker Compose stack (local development only; the containerized microservices live in `infra/local/app/compose.yaml`) required to run the backing services for the microservice architecture. It defines and orchestrates the database, identity provider, and message broker.
 
 ## Packages used
 - **PostgreSQL (`postgres:16-alpine`):** A lightweight, relational database serving as the persistence layer for Keycloak.

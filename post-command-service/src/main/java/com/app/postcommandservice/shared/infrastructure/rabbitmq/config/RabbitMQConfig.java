@@ -59,6 +59,7 @@ public class RabbitMQConfig {
         var userEventsExchangeName = props.getExchange().getUser().getEvents();
 
         var postQueueName = props.getQueue().getPost();
+        var postMediaQueueName = props.getQueue().getPostMedia();
         var userFastQueueName = props.getQueue().getUser().getFast();
         var userSlowQueueName = props.getQueue().getUser().getSlow();
 
@@ -69,6 +70,7 @@ public class RabbitMQConfig {
         var postUnlikeValidateRk = props.getRk().getPost().getUnlike().getValidate();
         var commentLikeValidateRk = props.getRk().getPost().getComment().getLike().getValidate();
         var commentLikeDeletedRk = props.getRk().getPost().getComment().getLike().getDeleted();
+        var postMediaUploadedRk = props.getRk().getPost().getMedia().getUploaded();
 
         var userBlockCreatedRk = props.getRk().getUser().getBlock().getCreated();
         var userFollowCreatedRk = props.getRk().getUser().getFollow().getCreated();
@@ -86,9 +88,13 @@ public class RabbitMQConfig {
         var userEventsDlx = new DirectExchange(deadLetterExchangeName(userEventsExchangeName));
 
         var postEventsExchange = new TopicExchange(postEventsExchangeName);
+        var postEventsDlx = new DirectExchange(deadLetterExchangeName(postEventsExchangeName));
 
         Queue postQueue = buildQueue(postQueueName, postCommandsExchangeName);
         Queue postDlq = buildDlq(postQueueName);
+
+        Queue postMediaQueue = buildQueue(postMediaQueueName, postEventsExchangeName);
+        Queue postMediaDlq = buildDlq(postMediaQueueName);
 
         Queue userFastQueue = buildQueue(userFastQueueName, userEventsExchangeName);
         Queue userFastDlq = buildDlq(userFastQueueName);
@@ -102,9 +108,12 @@ public class RabbitMQConfig {
                 userEventsExchange,
                 userEventsDlx,
                 postEventsExchange,
+                postEventsDlx,
 
                 postQueue,
                 postDlq,
+                postMediaQueue,
+                postMediaDlq,
                 userFastQueue,
                 userFastDlq,
                 userSlowQueue,
@@ -145,6 +154,12 @@ public class RabbitMQConfig {
                         .bind(postQueue)
                         .to(postCommandsExchange)
                         .with(commentLikeDeletedRk),
+
+                // --- post.media queue: listens to this service's own post-events exchange ---
+                BindingBuilder
+                        .bind(postMediaQueue)
+                        .to(postEventsExchange)
+                        .with(postMediaUploadedRk),
 
                 // --- user.fast queue: 4 routing keys, same queue ---
                 BindingBuilder
@@ -188,6 +203,11 @@ public class RabbitMQConfig {
                         .bind(postDlq)
                         .to(postCommandsDlx)
                         .with(deadLetterRoutingKey(postQueueName)),
+
+                BindingBuilder
+                        .bind(postMediaDlq)
+                        .to(postEventsDlx)
+                        .with(deadLetterRoutingKey(postMediaQueueName)),
 
                 BindingBuilder
                         .bind(userFastDlq)

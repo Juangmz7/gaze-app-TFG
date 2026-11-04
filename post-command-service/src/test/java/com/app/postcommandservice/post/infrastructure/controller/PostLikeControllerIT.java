@@ -18,11 +18,13 @@ import com.app.postcommandservice.commentlike.domain.model.CommentLikeSource;
 import com.app.postcommandservice.like.application.usecase.DispatchValidatePostLikeCommandUseCase;
 import com.app.postcommandservice.like.application.usecase.DispatchValidatePostUnlikeCommandUseCase;
 import com.app.postcommandservice.like.domain.model.PostLikeSource;
+import com.app.postcommandservice.post.application.usecase.ConfirmMediaUploadUseCase;
 import com.app.postcommandservice.post.application.usecase.CreatePostUseCase;
 import com.app.postcommandservice.post.application.usecase.DeletePostUseCase;
 import com.app.postcommandservice.post.application.usecase.UpdatePostUseCase;
 import com.app.postcommandservice.share.application.usecase.DispatchCreatePostShareCommandUseCase;
 import com.app.postcommandservice.share.application.usecase.DeletePostShareUseCase;
+import com.app.postcommandservice.post.application.commands.ConfirmMediaUploadCommand;
 import com.app.postcommandservice.shared.infrastructure.security.SecurityUtils;
 import com.app.postcommandservice.view.application.usecase.DispatchProcessPostViewCommandUseCase;
 import com.app.postcommandservice.view.domain.model.PostViewExitReason;
@@ -37,6 +39,9 @@ class PostLikeControllerIT {
 
     @Mock
     private CreatePostUseCase createPostUseCase;
+
+    @Mock
+    private ConfirmMediaUploadUseCase confirmMediaUploadUseCase;
 
     @Mock
     private UpdatePostUseCase updatePostUseCase;
@@ -76,6 +81,18 @@ class PostLikeControllerIT {
 
     @InjectMocks
     private PostController postController;
+
+    @Test
+    void shouldConfirmMediaUploadAndReturnAccepted() {
+        var postId = UUID.randomUUID();
+        var userId = UUID.randomUUID();
+        when(securityUtils.getUserId()).thenReturn(userId);
+
+        var response = postController.confirmMediaUpload(postId);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+        verify(confirmMediaUploadUseCase).confirm(new ConfirmMediaUploadCommand(postId, userId));
+    }
 
     @Test
     void shouldDispatchValidatePostLikeCommandAndReturnAccepted() {

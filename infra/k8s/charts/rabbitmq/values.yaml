@@ -1,0 +1,58 @@
+# Overridden per environment in infra/k8s/environments/<env>/rabbitmq.yaml.
+
+environment: dev
+
+# RabbitmqCluster name; also the client Service: <name>.<namespace>.svc
+clusterName: rabbitmq
+
+image: rabbitmq:4.3.7-management
+
+# 1 for dev; 3 (odd, quorum queues) for prod.
+replicas: 1
+
+persistence:
+  storage: 5Gi
+  # Empty: cluster default StorageClass (k3s local-path, AKS managed-csi).
+  storageClassName: ""
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    memory: 1Gi
+
+# Extra rabbitmq.conf lines.
+additionalConfig: |
+  # Reject publishes once a node is under memory pressure, before the OOM killer.
+  vm_memory_high_watermark.relative = 0.8
+
+# Admin user of the cluster (management UI, operators). Rendered into the
+# external default-user Secret. Local development value only.
+defaultUser:
+  username: admin
+  password: super_secret_rabbitmq_password_123
+
+# One user per client so each one is auditable and revocable on its own.
+# Local development passwords only; Vault provides them in real environments.
+users: []
+#  - name: social-service
+#    password: changeme
+#    tags: []
+#    permissions: { configure: ".*", write: ".*", read: ".*" }
+
+# Exchanges that no service owns (published by Keycloak), replacing the
+# local rabbitmq-init container.
+exchanges:
+  - name: x.auth.events
+    type: topic
+
+networkPolicy:
+  # Namespaces allowed to open AMQP connections (5672).
+  clientNamespaces: []
+  # KEDA reads queue depths over AMQP.
+  kedaNamespace: keda
+  # Cluster + Messaging Topology operators (management API, 15672).
+  operatorNamespace: rabbitmq-system
+  # Prometheus metrics (15692).
+  observabilityNamespace: observability

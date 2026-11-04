@@ -1,6 +1,7 @@
 package com.app.postcommandservice.post.infrastructure.rabbitmq;
 
 import java.time.Instant;
+import java.util.Map;
 import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -9,6 +10,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import com.app.postcommandservice.post.infrastructure.events.UserBioEventPayload;
 import com.app.postcommandservice.post.infrastructure.events.UserBlockedEvent;
 import com.app.postcommandservice.post.infrastructure.events.UserRegisteredEvent;
 import com.app.postcommandservice.post.infrastructure.events.UserFollowedEvent;
@@ -64,7 +66,9 @@ class UserFastReadModelRabbitMQListenerTest {
                 correlationId,
                 occurredAt,
                 UUID.randomUUID(),
-                "alice"
+                "alice",
+                "alice@email.com",
+                new UserBioEventPayload("Alice's description", Map.of("Tiktok", "Alice_09"))
         );
         var blockedEvent = new UserBlockedEvent(
                 UUID.randomUUID(),

@@ -1,0 +1,88 @@
+# post-command-service: prod environment.
+# Spring "prod" profile (application-prod.yaml): every endpoint comes from
+# env vars. Hosts marked CHANGE_ME are provisioned with the AKS migration.
+
+environment: prod
+
+env:
+  SPRING_PROFILES_ACTIVE: prod
+  POSTGRES_HOST: CHANGE_ME.postgres.database.azure.com
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: post_command_service_db
+  RABBITMQ_HOST: rabbitmq.rabbitmq-prod.svc.cluster.local
+  RABBITMQ_PORT: "5672"
+  # application-prod.yaml has no Redis block: Spring Boot reads these directly.
+  SPRING_DATA_REDIS_HOST: redis.redis-prod.svc.cluster.local
+  SPRING_DATA_REDIS_PORT: "6379"
+  AZURE_STORAGE_ACCOUNT_URL: https://CHANGE_ME.blob.core.windows.net
+  AZURE_STORAGE_CONTAINER: post-media
+  AZURE_STORAGE_UPLOAD_SAS_TTL: PT15M
+  KEYCLOAK_ISSUER_URI: https://auth.gaze.localhost/realms/auth-service
+  SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak-service.keycloak-prod.svc.cluster.local:8080/realms/auth-service/protocol/openid-connect/certs
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://gaze-collector.observability.svc.cluster.local:4318
+  OTEL_SAMPLING_PROBABILITY: "0.1"
+  OTEL_RESOURCE_ATTRIBUTES: deployment.environment.name=prod
+
+# Created by External Secrets from Vault. Required keys:
+#   POSTGRES_USER, POSTGRES_PASSWORD, RABBITMQ_USER, RABBITMQ_PASSWORD,
+#   SPRING_DATA_REDIS_PASSWORD,
+#   RABBITMQ_AMQP_URI (amqp://user:pass@rabbitmq.rabbitmq-prod.svc.cluster.local:5672/, for KEDA)
+existingSecret: post-command-service
+
+# DefaultAzureCredential through AKS Workload Identity (no storage keys).
+serviceAccount:
+  annotations:
+    azure.workload.identity/client-id: CHANGE_ME
+podLabels:
+  azure.workload.identity/use: "true"
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 768Mi
+  limits:
+    memory: 1536Mi
+
+httpRoute:
+  parentRef:
+    namespace: gateway-prod
+  hostnames:
+    - api.gaze.localhost
+
+autoscaling:
+  minReplicas: 2
+  maxReplicas: 10
+
+networkPolicy:
+  gatewayNamespace: gateway-prod
+  egress:
+    - name: rabbitmq
+      namespace: rabbitmq-prod
+      podLabels:
+        app.kubernetes.io/component: rabbitmq
+      ports: [5672]
+    - name: redis
+      namespace: redis-prod
+      podLabels:
+        app.kubernetes.io/name: redis
+      ports: [6379]
+    - name: keycloak (JWKS)
+      namespace: keycloak-prod
+      podLabels:
+        app.kubernetes.io/managed-by: keycloak-operator
+      ports: [8080]
+    - name: otel-collector
+      namespace: observability
+      podLabels:
+        app.kubernetes.io/component: opentelemetry-collector
+      ports: [4317, 4318]
+  externalEgress:
+    # TODO(aks): narrow to the private endpoint of the managed database.
+    - name: postgres
+      cidr: 10.0.0.0/8
+      ports: [5432]
+    # Azure Blob Storage + Entra ID token endpoint (public, HTTPS only).
+    - name: azure (blob, entra id)
+      cidr: 0.0.0.0/0
+      except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16]
+      ports: [443]

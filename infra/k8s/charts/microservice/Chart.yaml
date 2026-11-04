@@ -1,0 +1,11 @@
+apiVersion: v2
+name: microservice
+description: >-
+  Generic chart for every Gaze microservice: Deployment, Service, HTTPRoute,
+  KEDA autoscaling on RabbitMQ queues, NetworkPolicies and an optional
+  pre-sync migration Job. Each service is configured only through values
+  (infra/k8s/services/<service>/values*.yaml).
+type: application
+version: 0.1.0
+appVersion: "latest"
+kubeVersion: ">=1.29.0-0"

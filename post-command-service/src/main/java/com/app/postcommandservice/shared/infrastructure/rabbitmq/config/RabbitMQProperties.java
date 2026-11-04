@@ -17,6 +17,7 @@ public class RabbitMQProperties {
     @Data
     public static class Queues {
         private String post;              // q.post-command-service.post
+        private String postMedia;         // q.post-command-service.post.media
         private UserQueues user = new UserQueues();
 
         @Data
@@ -63,12 +64,25 @@ public class RabbitMQProperties {
             private String banned;
             private String viewed;
 
+            private MediaRk media = new MediaRk();
             private ViewRk view = new ViewRk();
             private LikeRk like = new LikeRk();
             private UnlikeRk unlike = new UnlikeRk();
             private ShareRk share = new ShareRk();
             private CommentRk comment = new CommentRk();
             private CollabRk collab = new CollabRk();
+
+            @Data
+            public static class MediaRk {
+                private String uploaded;               // outgoing: rk.post.media.uploaded
+                private ValidationRk validation = new ValidationRk();
+
+                @Data
+                public static class ValidationRk {
+                    private String succeeded;           // outgoing: rk.post.media.validation.succeeded
+                    private String failed;               // outgoing: rk.post.media.validation.failed
+                }
+            }
 
             @Data
             public static class ViewRk {

@@ -1,0 +1,30 @@
+# Overridden per environment in infra/k8s/environments/<env>/redis.yaml.
+# Single node: Redis is used as a cache. For HA on AKS, prefer a managed
+# Azure Cache for Redis or Sentinel.
+
+environment: dev
+
+image: redis:7.4.11-alpine
+
+# Local development value only; Vault provides it in real environments.
+password: super_secret_redis_password_123
+# Use a pre-existing Secret (key: password) instead of rendering one.
+existingSecret: ""
+
+maxmemory: 256mb
+maxmemoryPolicy: allkeys-lru
+
+persistence:
+  size: 2Gi
+  storageClassName: ""
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 300Mi
+  limits:
+    memory: 384Mi
+
+networkPolicy:
+  # Namespaces allowed to connect on 6379.
+  clientNamespaces: []

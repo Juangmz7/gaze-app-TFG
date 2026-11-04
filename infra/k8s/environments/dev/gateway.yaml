@@ -1,0 +1,20 @@
+# Gateway for the dev environment (namespace gateway-dev).
+
+environment: dev
+
+hostnames:
+  api: api.dev.gaze.localhost
+  auth: auth.dev.gaze.localhost
+
+tls:
+  # Self-signed CA (platform/cert-manager). Trust gaze-local-ca in your
+  # browser/OS or use curl -k.
+  clusterIssuer: gaze-local-ca
+
+proxy:
+  replicas: 1
+
+trafficPolicy:
+  rateLimit:
+    requests: 1200
+    unit: Minute

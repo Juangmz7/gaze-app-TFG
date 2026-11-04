@@ -53,11 +53,16 @@ CREATE TABLE IF NOT EXISTS post_tags (
     CONSTRAINT fk_post_tags_post FOREIGN KEY (post_id) REFERENCES posts (id) ON DELETE CASCADE
 );
 
+-- Scoped by (user_id, correlation_id): one user cannot reuse or discover another
+-- user's post by colliding on a client-chosen correlation id. request_hash detects
+-- the same key reused with a different payload.
 CREATE TABLE IF NOT EXISTS post_request_idempotency (
+    user_id UUID NOT NULL,
     correlation_id UUID NOT NULL,
     post_id UUID NOT NULL,
+    request_hash VARCHAR(64),
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
-    CONSTRAINT pk_post_request_idempotency PRIMARY KEY (correlation_id),
+    CONSTRAINT pk_post_request_idempotency PRIMARY KEY (user_id, correlation_id),
     CONSTRAINT uk_post_request_idempotency_post_id UNIQUE (post_id)
 );
 

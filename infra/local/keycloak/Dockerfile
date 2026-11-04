@@ -6,6 +6,11 @@ ARG KK_TO_RMQ_VERSION=3.0.5
 ADD --chmod=644 https://github.com/aznamier/keycloak-event-listener-rabbitmq/releases/download/${KK_TO_RMQ_VERSION}/keycloak-to-rabbit-${KK_TO_RMQ_VERSION}.jar /opt/keycloak/providers/keycloak-to-rabbit.jar
 
 ENV KC_DB=postgres
+# Build-time options: the Keycloak Operator (infra/k8s) starts this image with
+# --optimized and probes /health/* on the management port, so they must be
+# baked in here.
+ENV KC_HEALTH_ENABLED=true
+ENV KC_METRICS_ENABLED=true
 
 # This bakes the plugin into the server and optimizes boot times
 RUN /opt/keycloak/bin/kc.sh build

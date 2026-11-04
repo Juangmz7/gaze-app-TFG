@@ -1,0 +1,23 @@
+# Redis for the prod environment (namespace redis-prod).
+
+environment: prod
+
+# Created by External Secrets from Vault (key: password).
+existingSecret: redis-auth-external
+
+maxmemory: 768mb
+
+persistence:
+  size: 10Gi
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 896Mi
+  limits:
+    memory: 1Gi
+
+networkPolicy:
+  clientNamespaces:
+    - social-service-prod
+    - post-command-service-prod

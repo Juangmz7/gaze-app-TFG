@@ -1,0 +1,8 @@
+# Applies to post-query-service/Dockerfile, whose build context is the repo
+# root. Only send what the Go build needs.
+*
+!go.work
+!go.work.sum
+!common-packages/go-utils/
+!post-query-service/
+**/.env

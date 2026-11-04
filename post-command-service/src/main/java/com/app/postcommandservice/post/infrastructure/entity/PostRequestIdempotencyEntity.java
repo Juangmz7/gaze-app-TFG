@@ -4,8 +4,8 @@ import java.time.Instant;
 import java.util.UUID;
 
 import jakarta.persistence.Column;
+import jakarta.persistence.EmbeddedId;
 import jakarta.persistence.Entity;
-import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
@@ -27,12 +27,14 @@ import lombok.Setter;
 )
 public class PostRequestIdempotencyEntity {
 
-    @Id
-    @Column(name = "correlation_id", nullable = false, updatable = false)
-    private UUID correlationId;
+    @EmbeddedId
+    private PostRequestIdempotencyId id;
 
     @Column(name = "post_id", nullable = false, updatable = false, unique = true)
     private UUID postId;
+
+    @Column(name = "request_hash", length = 64, updatable = false)
+    private String requestHash;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
