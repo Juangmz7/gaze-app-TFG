@@ -1,3 +1,4 @@
+import asyncio
 import threading
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -10,6 +11,7 @@ from sqlalchemy import text
 from rabbitmq.event.feed.feed_events import TrendingPostSentEvent
 from rabbitmq.worker.outbox_relay import OutboxRelayWorker
 from shared.config.database import SQLAlchemySessionProvider, SQLAlchemyTransactionManager
+from shared.outbox.committed_outbox_events import add_committed_listener, remove_committed_listener
 from shared.outbox.outbox_publisher import OutboxPublisher
 from shared.repository.impl.sql_alchemy_outbox_event_repository import SqlAlchemyOutboxEventRepository
 
@@ -298,3 +300,155 @@ def test_outbox_insert_is_rolled_back_with_its_transaction(db_session_factory):
     # Assert
     with db_session_factory() as session:
         assert session.execute(text("SELECT count(*) FROM outbox_events")).scalar_one() == 0
+
+
+def test_nested_transaction_notifies_the_event_only_after_the_outer_commit(db_session_factory):
+    # Arrange: the listener checks from its own session that the row is already committed
+    event = TrendingPostSentEvent(correlationId=uuid4(), posts=[])
+    notified = []
+
+    def listener(event_id):
+        with db_session_factory() as session:
+            count = session.execute(
+                text("SELECT count(*) FROM outbox_events WHERE id = :id"), {"id": event_id}
+            ).scalar_one()
+        notified.append((event_id, count))
+
+    manager = SQLAlchemyTransactionManager(db_session_factory)
+    add_committed_listener(listener)
+    try:
+        # Act
+        with manager.transaction():
+            with manager.transaction():
+                outbox_publisher(db_session_factory).add(
+                    event, event_type="TrendingPostSent", exchange="x.feed.events",
+                    routing_key="rk.post.trending.sent",
+                )
+            notified_before_outer_commit = list(notified)
+    finally:
+        remove_committed_listener(listener)
+
+    # Assert
+    assert notified_before_outer_commit == []
+    assert notified == [(event.id, 1)]
+
+
+def test_rolled_back_transaction_does_not_notify_the_event(db_session_factory):
+    # Arrange
+    notified = []
+    add_committed_listener(notified.append)
+    try:
+        # Act
+        with pytest.raises(RuntimeError):
+            with SQLAlchemyTransactionManager(db_session_factory).transaction():
+                outbox_publisher(db_session_factory).add(
+                    TrendingPostSentEvent(correlationId=uuid4(), posts=[]), event_type="TrendingPostSent",
+                    exchange="x.feed.events", routing_key="rk.post.trending.sent",
+                )
+                raise RuntimeError("failure before commit")
+    finally:
+        remove_committed_listener(notified.append)
+
+    # Assert
+    assert notified == []
+
+
+async def test_relay_immediately_publishes_only_that_event_and_marks_it_processed(
+    outbox_event_repository, db_session_factory
+):
+    # Arrange
+    now = datetime.now(timezone.utc)
+    older = add_event(db_session_factory, created_at=now - timedelta(minutes=1))
+    committed = add_event(db_session_factory, created_at=now)
+    broker = FakeBroker()
+
+    # Act
+    await OutboxRelayWorker(outbox_event_repository, broker).relay_immediately(committed.id)
+
+    # Assert
+    assert [kwargs["message_id"] for _, kwargs in broker.published] == [str(committed.id)]
+    row = fetch(db_session_factory, committed.id)
+    assert row["status"] == "PROCESSED"
+    assert row["attempts"] == 1
+    older_row = fetch(db_session_factory, older.id)
+    assert older_row["status"] == "PENDING"
+    assert older_row["attempts"] == 0
+
+
+async def test_relay_immediately_does_nothing_when_a_batch_already_claimed_the_event(
+    outbox_event_repository, db_session_factory
+):
+    # Arrange
+    event = add_event(db_session_factory)
+    execute(
+        db_session_factory,
+        "UPDATE outbox_events SET status = 'PROCESSING', attempts = 1, locked_at = now() WHERE id = :id",
+        id=event.id,
+    )
+    broker = FakeBroker()
+
+    # Act
+    await OutboxRelayWorker(outbox_event_repository, broker).relay_immediately(event.id)
+
+    # Assert
+    assert broker.published == []
+    assert fetch(db_session_factory, event.id)["attempts"] == 1
+
+
+async def test_relay_immediately_releases_a_failed_publish_as_pending_for_the_batch(
+    outbox_event_repository, db_session_factory
+):
+    # Arrange
+    event = add_event(db_session_factory)
+    broker = FakeBroker({str(event.id): ConnectionError("broker down")})
+
+    # Act
+    await OutboxRelayWorker(outbox_event_repository, broker).relay_immediately(event.id)
+
+    # Assert
+    row = fetch(db_session_factory, event.id)
+    assert row["status"] == "PENDING"
+    assert row["attempts"] == 1
+    assert row["last_error"] == "broker down"
+
+
+async def test_relay_immediately_claims_nothing_while_the_broker_is_unreachable(
+    outbox_event_repository, db_session_factory
+):
+    # Arrange
+    event = add_event(db_session_factory)
+
+    # Act
+    await OutboxRelayWorker(outbox_event_repository, FakeBroker(available=False)).relay_immediately(event.id)
+
+    # Assert
+    row = fetch(db_session_factory, event.id)
+    assert row["status"] == "PENDING"
+    assert row["attempts"] == 0
+
+
+async def test_running_relay_publishes_events_committed_in_another_thread_until_stopped(
+    outbox_event_repository, db_session_factory
+):
+    # Arrange: the batch only runs once at start, so later sends come from the immediate path
+    broker = FakeBroker()
+    worker = OutboxRelayWorker(outbox_event_repository, broker, interval_s=3600)
+    worker.start()
+    await asyncio.sleep(0.2)
+
+    # Act
+    event = await asyncio.to_thread(add_event, db_session_factory)
+
+    # Assert
+    async with asyncio.timeout(5):
+        while fetch(db_session_factory, event.id)["status"] != "PROCESSED":
+            await asyncio.sleep(0.01)
+    assert [kwargs["message_id"] for _, kwargs in broker.published] == [str(event.id)]
+
+    # Act: a stopped relay no longer listens
+    await worker.stop()
+    after_stop = await asyncio.to_thread(add_event, db_session_factory)
+    await asyncio.sleep(0.1)
+
+    # Assert
+    assert fetch(db_session_factory, after_stop.id)["status"] == "PENDING"

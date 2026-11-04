@@ -1,3 +1,4 @@
+import asyncio
 from uuid import uuid4
 
 import aio_pika
@@ -115,4 +116,28 @@ async def test_relay_keeps_event_pending_for_unknown_exchange_and_publishes_the_
     assert status_of(db_session_factory, missing.id) == "PROCESSED"
     message = await queue.get(timeout=10, fail=True)
     assert message.message_id == str(missing.id)
+    await connection.close()
+
+
+async def test_running_relay_delivers_an_event_right_after_its_commit(
+    rabbitmq_url, outbox_event_repository, db_session_factory
+):
+    # Arrange: the batch only runs once at start, so the delivery comes from the immediate path
+    connection, queue = await bind_verification_queue(rabbitmq_url)
+
+    async with RabbitBroker(rabbitmq_url) as broker:
+        worker = OutboxRelayWorker(outbox_event_repository, broker, interval_s=3600)
+        worker.start()
+        await asyncio.sleep(0.2)
+
+        # Act
+        event = await asyncio.to_thread(add_event, db_session_factory)
+
+        # Assert: PROCESSED means the broker confirmed it, so the queue already holds it
+        async with asyncio.timeout(10):
+            while status_of(db_session_factory, event.id) != "PROCESSED":
+                await asyncio.sleep(0.01)
+        message = await queue.get(timeout=10, fail=True)
+        assert message.message_id == str(event.id)
+        await worker.stop()
     await connection.close()
