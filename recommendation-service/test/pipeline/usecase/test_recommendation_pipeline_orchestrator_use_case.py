@@ -1,8 +1,15 @@
+import math
+
 import pytest
+from types import SimpleNamespace
 from unittest.mock import Mock, call
 from uuid import uuid4
 
-from pipeline.usecase.recommendation_pipeline_orchestrator_use_case import RecommendationPipelineOrchestratorUseCase, TARGET_RECOMMENDED_POSTS
+from pipeline.usecase.recommendation_pipeline_orchestrator_use_case import (
+    COLD_START_MULTIPLIER,
+    TARGET_RECOMMENDED_POSTS,
+    RecommendationPipelineOrchestratorUseCase,
+)
 from pipeline.model.interaction.candidate import Candidate
 from pipeline.enum.post_retrieve_source import PostRetrieveSource
 
@@ -29,6 +36,10 @@ def orchestrator_and_mocks():
     
     return orchestrator, mock_collab, mock_semantic, mock_explorative, mock_enricher, mock_ranker, mock_reranker
 
+
+def ranked_post():
+    return SimpleNamespace(post_id=uuid4())
+
 def test_recommendation_pipeline_orchestrator_calls_all_services(orchestrator_and_mocks):
     orchestrator, mock_collab, mock_semantic, mock_explorative, mock_enricher, mock_ranker, mock_reranker = orchestrator_and_mocks
     user_id = uuid4()
@@ -43,7 +54,8 @@ def test_recommendation_pipeline_orchestrator_calls_all_services(orchestrator_an
     mock_explorative.retrieve_posts.return_value = c3
     
     mock_enricher.enrich.return_value = ["e1", "e2", "e3"]
-    mock_ranker.get_top_k_posts.return_value = ["top1", "top2"]
+    top1, top2 = ranked_post(), ranked_post()
+    mock_ranker.get_top_k_posts.return_value = [top1, top2]
     mock_reranker.rerank.return_value = ["reranked1", "reranked2"]
     
     result = orchestrator.recommend(user_id)
@@ -58,7 +70,7 @@ def test_recommendation_pipeline_orchestrator_calls_all_services(orchestrator_an
     assert len(called_candidates) == 35
     
     mock_ranker.get_top_k_posts.assert_called_once_with(["e1", "e2", "e3"], TARGET_RECOMMENDED_POSTS)
-    mock_reranker.rerank.assert_called_once_with(user_id, ["top1", "top2"])
+    mock_reranker.rerank.assert_called_once_with(user_id, [top1, top2])
     
     assert result == ["reranked1", "reranked2"]
 
@@ -82,7 +94,7 @@ def test_recommendation_pipeline_retries_and_deduplicates(orchestrator_and_mocks
     mock_explorative.retrieve_posts.side_effect = [c3_1, c3_2]
     
     mock_enricher.enrich.return_value = ["e1"]
-    mock_ranker.get_top_k_posts.return_value = ["top1"]
+    mock_ranker.get_top_k_posts.return_value = [ranked_post()]
     mock_reranker.rerank.return_value = ["top1"]
     
     result = orchestrator.recommend(user_id)
@@ -141,3 +153,37 @@ def test_recommendation_pipeline_empty_ranking(orchestrator_and_mocks):
     
     assert result == []
     mock_reranker.rerank.assert_not_called()
+
+
+def test_recommendation_pipeline_excludes_ranked_posts_from_cold_start():
+    mock_collab, mock_semantic, mock_explorative = Mock(), Mock(), Mock()
+    mock_enricher, mock_ranker, mock_reranker, mock_cold_start = Mock(), Mock(), Mock(), Mock()
+    orchestrator = RecommendationPipelineOrchestratorUseCase(
+        collaborative_retrieval_usecase=mock_collab,
+        semantic_retrieval_usecase=mock_semantic,
+        explorative_retrieval_usecase=mock_explorative,
+        candidate_enricher_service=mock_enricher,
+        post_weighted_ranker_service=mock_ranker,
+        post_reranker_service=mock_reranker,
+        cold_start_usecase=mock_cold_start,
+    )
+    user_id = uuid4()
+
+    mock_collab.retrieve_posts.return_value = [
+        Candidate(uuid4(), PostRetrieveSource.COLLABORATIVE, 1.0) for _ in range(TARGET_RECOMMENDED_POSTS)
+    ]
+    mock_semantic.retrieve_posts.return_value = []
+    mock_explorative.retrieve_posts.return_value = []
+    mock_enricher.enrich.return_value = ["e1"]
+    top1, top2 = ranked_post(), ranked_post()
+    mock_ranker.get_top_k_posts.return_value = [top1, top2]
+    cold = ranked_post()
+    mock_cold_start.retrieve_and_prepare_cold_start_posts.return_value = [cold]
+    mock_reranker.rerank.return_value = [top1.post_id, top2.post_id, cold.post_id]
+
+    orchestrator.recommend(user_id)
+
+    mock_cold_start.retrieve_and_prepare_cold_start_posts.assert_called_once_with(
+        user_id, max(1, math.ceil(TARGET_RECOMMENDED_POSTS * COLD_START_MULTIPLIER)), {top1.post_id, top2.post_id}
+    )
+    mock_reranker.rerank.assert_called_once_with(user_id, [top1, top2, cold])

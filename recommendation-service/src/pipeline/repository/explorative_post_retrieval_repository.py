@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from collections.abc import Collection
 from uuid import UUID
 
 
@@ -34,5 +35,8 @@ class ExplorativePostRetrievalRepository(ABC):
         self,
         user_id: UUID,
         limit: int,
+        excluded_post_ids: Collection[UUID],
     ) -> list[tuple[UUID, float]]:
+        """Recent, low-view posts the user has not seen yet, skipping
+        excluded_post_ids (the posts already chosen by the ranker)."""
         pass

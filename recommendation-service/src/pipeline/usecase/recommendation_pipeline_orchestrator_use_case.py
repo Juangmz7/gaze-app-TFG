@@ -64,7 +64,11 @@ class RecommendationPipelineOrchestratorUseCase:
         cold_start_limit = max(1, math.ceil(TARGET_RECOMMENDED_POSTS * COLD_START_MULTIPLIER))
         logger.debug(f"Fetching {cold_start_limit} cold start posts for user {user_id}.")
         
-        cold_start_normalized_posts = self.cold_start_usecase.retrieve_and_prepare_cold_start_posts(user_id, cold_start_limit)
+        # Cold start only adds posts the ranker has not already picked
+        ranked_post_ids = {p.post_id for p in top_k_normalized_posts}
+        cold_start_normalized_posts = self.cold_start_usecase.retrieve_and_prepare_cold_start_posts(
+            user_id, cold_start_limit, ranked_post_ids
+        )
         
         # Combine the lists
         combined_posts = top_k_normalized_posts + cold_start_normalized_posts
