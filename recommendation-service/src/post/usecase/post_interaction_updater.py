@@ -1,7 +1,6 @@
 from datetime import datetime
 import logging
-from contextlib import nullcontext
-from typing import Any, Sequence
+from typing import Sequence
 from uuid import UUID
 
 from pipeline.exceptions.exceptions import (
@@ -18,6 +17,7 @@ from pipeline.repository.user_creator_features_repository import UserCreatorFeat
 from pipeline.repository.user_features_repository import UserFeaturesRepository
 from rabbitmq.event.post.post_events import InteractionSource
 from shared.helpers import get_view_source_weight
+from shared.transaction.transaction_manager import TransactionManager, transaction_scope
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ class PostInteractionUpdater:
             user_features_repository: UserFeaturesRepository,
             post_features_repository: PostFeaturesRepository,
             post_interaction_features_repository: PostInteractionFeaturesRepository,
-            transaction_manager: Any | None = None,
+            transaction_manager: TransactionManager | None = None,
     ):
         self.user_creator_features_repository = user_creator_features_repository
         self.post_tag_features_repository = post_tag_features_repository
@@ -52,12 +52,7 @@ class PostInteractionUpdater:
         if not updates:
             raise ValueError("At least one interaction metric update is required")
 
-        transaction = (
-            self.transaction_manager.transaction()
-            if self.transaction_manager is not None
-            else nullcontext()
-        )
-        with transaction:
+        with transaction_scope(self.transaction_manager):
             post_features = self.post_features_repository.get_post_features(post_id)
             if post_features is None:
                 raise PostFeaturesNotFoundException(post_id)

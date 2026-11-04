@@ -1,6 +1,4 @@
 import logging
-from contextlib import nullcontext
-from typing import Any
 from uuid import UUID
 
 from pipeline.config.constants import FAST_SKIP_WEIGHT, POST_VIEW_WEIGHT
@@ -21,6 +19,7 @@ from post.command.post_commands import RegisterPostViewCommand
 from rabbitmq.event.post.post_events import PostViewExitReason
 from shared.enum.interaction_metric import InteractionMetric
 from shared.helpers import get_view_source_weight
+from shared.transaction.transaction_manager import TransactionManager, transaction_scope
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +32,7 @@ class RegisterPostViewUsecase:
             post_features_repository: PostFeaturesRepository,
             user_features_repository: UserFeaturesRepository,
             post_interaction_features_repository: PostInteractionFeaturesRepository,
-            transaction_manager: Any | None = None,
+            transaction_manager: TransactionManager | None = None,
     ):
         self.user_creator_features_repository = user_creator_features_repository
         self.post_tag_features_repository = post_tag_features_repository
@@ -49,7 +48,7 @@ class RegisterPostViewUsecase:
             command.time_watched_ms, is_fast_skip
         )
 
-        with self._transaction():
+        with transaction_scope(self.transaction_manager):
             post_features, post_interaction = self._get_post_entities(command.post_id)
             user_creator, post_tags = self._get_user_entities(
                 command.user_id, post_features, command.occurred_at
@@ -105,13 +104,6 @@ class RegisterPostViewUsecase:
             return updates, FAST_SKIP_WEIGHT
             
         return updates, POST_VIEW_WEIGHT
-
-    def _transaction(self):
-        return (
-            self.transaction_manager.transaction()
-            if self.transaction_manager is not None
-            else nullcontext()
-        )
 
     def _get_post_entities(self, post_id: UUID):
         post_features = self.post_features_repository.get_post_features(post_id)

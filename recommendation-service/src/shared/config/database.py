@@ -6,6 +6,8 @@ from contextvars import ContextVar
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from shared.transaction.transaction_manager import TransactionManager
+
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
@@ -51,7 +53,10 @@ class SQLAlchemySessionProvider:
                 raise
 
 
-class SQLAlchemyTransactionManager:
+class SQLAlchemyTransactionManager(TransactionManager):
+    """Opens one SQLAlchemy session and transaction and publishes it through the
+    current-session context, so every SQLAlchemySessionProvider-based repository
+    called inside joins it. The session never leaves this class."""
 
     def __init__(
         self,
@@ -60,11 +65,11 @@ class SQLAlchemyTransactionManager:
         self.session_factory = session_factory
 
     @contextmanager
-    def transaction(self) -> Iterator[Session]:
+    def transaction(self) -> Iterator[None]:
         current_session = _current_session.get()
 
         if current_session is not None:
-            yield current_session
+            yield
             return
 
         with self.session_factory() as session:
@@ -72,6 +77,6 @@ class SQLAlchemyTransactionManager:
 
             try:
                 with session.begin():
-                    yield session
+                    yield
             finally:
                 _current_session.reset(token)

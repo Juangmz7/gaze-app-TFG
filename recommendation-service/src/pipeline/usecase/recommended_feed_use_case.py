@@ -6,7 +6,7 @@ from pipeline.usecase.recommendation_pipeline_orchestrator_use_case import (
 )
 from rabbitmq.config.constants import FEED_EXCHANGE, FEED_RECOMMENDED_SENT_RK
 from rabbitmq.event.feed.feed_events import RecommendedPostSentEvent
-from shared.config.database import SQLAlchemyTransactionManager
+from shared.transaction.transaction_manager import TransactionManager
 from shared.outbox.outbox_publisher import OutboxPublisher
 
 logger = logging.getLogger(__name__)
@@ -20,7 +20,7 @@ class RecommendedFeedUseCase:
         self,
         orchestrator: RecommendationPipelineOrchestratorUseCase,
         outbox_publisher: OutboxPublisher,
-        transaction_manager: SQLAlchemyTransactionManager,
+        transaction_manager: TransactionManager,
     ):
         self.orchestrator = orchestrator
         self.outbox_publisher = outbox_publisher

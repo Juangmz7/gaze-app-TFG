@@ -2,7 +2,7 @@ from uuid import UUID, uuid4
 
 from rabbitmq.config.constants import FEED_EXCHANGE, FEED_TRENDING_SENT_RK
 from rabbitmq.event.feed.feed_events import TrendingPostSentEvent
-from shared.config.database import SQLAlchemyTransactionManager
+from shared.transaction.transaction_manager import TransactionManager
 from shared.outbox.outbox_publisher import OutboxPublisher
 
 
@@ -10,7 +10,7 @@ class TrendingFeedUseCase:
     def __init__(
         self,
         outbox_publisher: OutboxPublisher,
-        transaction_manager: SQLAlchemyTransactionManager,
+        transaction_manager: TransactionManager,
     ):
         self.outbox_publisher = outbox_publisher
         self.transaction_manager = transaction_manager

@@ -1,5 +1,4 @@
 import logging
-from contextlib import nullcontext
 from typing import Any, Mapping
 
 from faststream.rabbit import RabbitMessage
@@ -10,6 +9,7 @@ from shared.repository.processed_events_repository import ProcessedEventsReposit
 from rabbitmq.config.constants import (
     PostRoutingKey,
 )
+from shared.transaction.transaction_manager import TransactionManager, transaction_scope
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ class PostEventListener:
             self,
             processed_events_repository: ProcessedEventsRepository,
             handlers: Mapping[PostRoutingKey, tuple[type[EventMessage], Any]],
-            transaction_manager: Any | None = None,
+            transaction_manager: TransactionManager | None = None,
     ):
         self.processed_events_repository = processed_events_repository
         self.handlers = handlers
@@ -41,12 +41,7 @@ class PostEventListener:
                 f"Unsupported post routing key: {raw_routing_key}"
             ) from exc
 
-        transaction = (
-            self.transaction_manager.transaction()
-            if self.transaction_manager is not None
-            else nullcontext()
-        )
-        with transaction:
+        with transaction_scope(self.transaction_manager):
             if self.processed_events_repository.isAlreadyProcessed(
                 correlation_id=event.correlationId,
                 event_id=event.id,

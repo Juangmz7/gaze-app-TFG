@@ -1,5 +1,4 @@
 import logging
-from contextlib import nullcontext
 from typing import Any, Mapping
 
 from faststream.rabbit import RabbitMessage
@@ -10,6 +9,7 @@ from rabbitmq.config.constants import (
 from rabbitmq.exception.exceptions import RejectAndDontRequeueError
 from rabbitmq.model.event_message import EventMessage
 from shared.repository.processed_events_repository import ProcessedEventsRepository
+from shared.transaction.transaction_manager import TransactionManager, transaction_scope
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ class UserEventListener:
         self,
         processed_events_repository: ProcessedEventsRepository,
         handlers: Mapping[UserRoutingKey, tuple[type[EventMessage], Any]],
-        transaction_manager: Any | None = None,
+        transaction_manager: TransactionManager | None = None,
     ):
         self.processed_events_repository = processed_events_repository
         self.handlers = handlers
@@ -40,12 +40,7 @@ class UserEventListener:
                 f"Unsupported user routing key: {raw_routing_key}"
             ) from exc
 
-        transaction = (
-            self.transaction_manager.transaction()
-            if self.transaction_manager is not None
-            else nullcontext()
-        )
-        with transaction:
+        with transaction_scope(self.transaction_manager):
             if self.processed_events_repository.isAlreadyProcessed(
                 correlation_id=event.correlationId,
                 event_id=event.id,
