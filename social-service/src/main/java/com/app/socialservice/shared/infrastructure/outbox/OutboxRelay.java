@@ -9,8 +9,7 @@ import java.util.concurrent.TimeUnit;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.AmqpException;
-import org.springframework.amqp.core.Message;
-import org.springframework.amqp.core.MessageDeliveryMode;
+import org.springframework.amqp.core.MessageBuilder;
 import org.springframework.amqp.core.MessageProperties;
 import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
@@ -117,17 +116,17 @@ public class OutboxRelay {
     }
 
     private void publishAndConfirm(OutboxEvent event) throws Exception {
-        var props = new MessageProperties();
-        props.setContentType(MessageProperties.CONTENT_TYPE_JSON);
-        props.setContentEncoding(StandardCharsets.UTF_8.name());
-        props.setMessageId(event.getId().toString());
-        props.setCorrelationId(event.getCorrelationId().toString());
-        props.setDeliveryMode(MessageDeliveryMode.PERSISTENT);
-        // Logical type id (simple class name): lets class-level @RabbitHandler listeners
-        // pick the handler through the converter's id -> class mapping.
-        props.setType(event.getEventType());
-        props.setHeader(DefaultJacksonJavaTypeMapper.DEFAULT_CLASSID_FIELD_NAME, event.getEventType());
-        var message = new Message(event.getPayload().getBytes(StandardCharsets.UTF_8), props);
+        // The payload is already JSON, so it is sent as raw bytes (convertAndSend would
+        // re-serialize the String). Delivery mode defaults to PERSISTENT.
+        var message = MessageBuilder
+                .withBody(event.getPayload().getBytes(StandardCharsets.UTF_8))
+                .setContentType(MessageProperties.CONTENT_TYPE_JSON)
+                .setMessageId(event.getId().toString())
+                .setCorrelationId(event.getCorrelationId().toString())
+                // Logical type id (simple class name): lets class-level @RabbitHandler listeners
+                // pick the handler through the converter's id -> class mapping.
+                .setHeader(DefaultJacksonJavaTypeMapper.DEFAULT_CLASSID_FIELD_NAME, event.getEventType())
+                .build();
 
         var correlation = new CorrelationData(event.getId().toString());
         rabbitTemplate.send(event.getExchange(), event.getRoutingKey(), message, correlation);
