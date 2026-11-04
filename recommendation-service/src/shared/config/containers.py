@@ -1,4 +1,6 @@
 from block.service.block_service import BlockService
+from grpc_server.recommendation_grpc_server import RecommendationGrpcServer
+from grpc_server.recommendation_servicer import RecommendationServicer
 from block.usecase.create_block_usecase import CreateBlockUsecase
 from block.usecase.delete_block_usecase import DeleteBlockUsecase
 from follow.service.follow_service import FollowService
@@ -20,7 +22,29 @@ from pipeline.repository.impl.sql_alchemy_user_creator_features_repository impor
 from pipeline.repository.impl.sql_alchemy_user_features_repository import (
     SqlAlchemyUserFeaturesRepository,
 )
+from pipeline.repository.impl.sql_alchemy_colaborative_post_retrieval_repository import (
+    SqlAlchemyCollaborativePostRetrievalRepository,
+)
+from pipeline.repository.impl.sql_alchemy_explorative_post_retrieval_repository import (
+    SqlAlchemyExplorativePostRetrievalRepository,
+)
+from pipeline.repository.impl.sql_alchemy_semantic_post_retrieval_repository import (
+    SqlAlchemySemanticPostRetrievalRepository,
+)
+from pipeline.service.deterministic_candidate_normalizer import DeterministicCandidateNormalizer
+from pipeline.service.post_candidate_enricher_service import PostCandidateEnricherService
+from pipeline.service.post_reranker_service import PostRerankerService
+from pipeline.service.post_weighted_ranker_service import PostWeightedRankerService
 from pipeline.service.semantic_embedding_model_service import SemanticEmbeddingModelEncoder
+from pipeline.usecase.cold_start_post_retrieval_use_case import ColdStartPostRetrievalUseCase
+from pipeline.usecase.collaborative_post_retrieval_use_case import CollaborativePostRetrievalUseCase
+from pipeline.usecase.explorative_post_retrieval_use_case import ExplorativePostRetrievalUsecase
+from pipeline.usecase.recommendation_pipeline_orchestrator_use_case import (
+    RecommendationPipelineOrchestratorUseCase,
+)
+from pipeline.usecase.recommended_feed_use_case import RecommendedFeedUseCase
+from pipeline.usecase.semantic_post_retrieval_use_case import SemanticPostRetrievalUseCase
+from pipeline.worker.pipeline_worker_pool import PipelineWorkerPool
 from post.repository.impl.sql_alchemy_collab_repository import SqlAlchemyCollabRepository
 from post.repository.impl.sql_alchemy_comment_post_repository import (
     SqlAlchemyCommentPostRepository,
@@ -81,7 +105,6 @@ from rabbitmq.event.post.post_events import (
     PostCommentLikeDeletedEvent,
     PostCreatedEvent,
     PostDeletedEvent,
-    PostFeedExhaustedEvent,
     PostLikeCreatedEvent,
     PostLikeDeletedEvent,
     PostShareCreatedEvent,
@@ -137,6 +160,7 @@ from rabbitmq.handler.user.follow_deleted_event_handler import FollowDeletedEven
 from rabbitmq.handler.user.user_deleted_event_handler import UserDeletedEventHandler
 from rabbitmq.handler.user.user_registered_event_handler import UserRegisteredEventHandler
 from rabbitmq.handler.user.user_updated_event_handler import UserUpdatedEventHandler
+from rabbitmq.listener.feed_event_listener import FeedEventListener
 from rabbitmq.listener.post_event_listener import PostEventListener
 from rabbitmq.listener.user_event_listener import UserEventListener
 from user.usecase.delete_user_usecase import DeleteUserUsecase
@@ -224,7 +248,49 @@ class Container:
             self.post_interaction_features_repository,
         )
         self.ban_post_usecase = BanPostUsecase()
-        self.exhaust_post_feed_usecase = ExhaustPostFeedUsecase()
+
+        self.candidate_normalizer = DeterministicCandidateNormalizer()
+        self.collaborative_post_retrieval_repository = SqlAlchemyCollaborativePostRetrievalRepository(
+            self.session_provider
+        )
+        self.semantic_post_retrieval_repository = SqlAlchemySemanticPostRetrievalRepository(self.session_provider)
+        self.explorative_post_retrieval_repository = SqlAlchemyExplorativePostRetrievalRepository(
+            self.session_provider
+        )
+        self.post_candidate_enricher_service = PostCandidateEnricherService(
+            self.post_features_repository,
+            self.post_interaction_features_repository,
+            self.user_creator_features_repository,
+            self.post_tag_features_repository,
+            self.follow_repository,
+        )
+        self.recommendation_pipeline_orchestrator_usecase = RecommendationPipelineOrchestratorUseCase(
+            collaborative_retrieval_usecase=CollaborativePostRetrievalUseCase(
+                self.collaborative_post_retrieval_repository
+            ),
+            semantic_retrieval_usecase=SemanticPostRetrievalUseCase(self.semantic_post_retrieval_repository),
+            explorative_retrieval_usecase=ExplorativePostRetrievalUsecase(
+                self.explorative_post_retrieval_repository
+            ),
+            candidate_enricher_service=self.post_candidate_enricher_service,
+            post_weighted_ranker_service=PostWeightedRankerService(self.candidate_normalizer),
+            post_reranker_service=PostRerankerService(),
+            cold_start_usecase=ColdStartPostRetrievalUseCase(
+                self.explorative_post_retrieval_repository,
+                self.post_candidate_enricher_service,
+                self.candidate_normalizer,
+            ),
+        )
+        self.recommended_feed_usecase = RecommendedFeedUseCase(
+            self.recommendation_pipeline_orchestrator_usecase,
+            self.outbox_publisher,
+            self.transaction_manager,
+        )
+        self.pipeline_worker_pool = PipelineWorkerPool()
+        self.exhaust_post_feed_usecase = ExhaustPostFeedUsecase(
+            self.recommended_feed_usecase,
+            self.processed_events_repository,
+        )
         self.register_post_view_usecase = RegisterPostViewUsecase(
             self.user_creator_features_repository,
             self.post_tag_features_repository,
@@ -361,7 +427,8 @@ class Container:
         self.post_updated_event_handler = PostUpdatedEventHandler(self.update_post_usecase)
         self.post_created_event_handler = PostCreatedEventHandler(self.create_post_usecase)
         self.post_feed_exhausted_event_handler = PostFeedExhaustedEventHandler(
-            self.exhaust_post_feed_usecase
+            self.exhaust_post_feed_usecase,
+            self.pipeline_worker_pool,
         )
 
         self.user_event_handlers = {
@@ -471,10 +538,6 @@ class Container:
                 PostCreatedEvent,
                 self.post_created_event_handler,
             ),
-            PostRoutingKey.FEED_EXHAUSTED: (
-                PostFeedExhaustedEvent,
-                self.post_feed_exhausted_event_handler,
-            ),
         }
 
         self.user_event_listener = UserEventListener(
@@ -487,6 +550,13 @@ class Container:
             self.post_event_handlers,
             self.transaction_manager,
         )
+        self.feed_event_listener = FeedEventListener(self.post_feed_exhausted_event_handler)
+
+        self.recommendation_servicer = RecommendationServicer(
+            self.recommended_feed_usecase,
+            self.pipeline_worker_pool,
+        )
+        self.recommendation_grpc_server = RecommendationGrpcServer(self.recommendation_servicer)
 
 
 container = Container()
