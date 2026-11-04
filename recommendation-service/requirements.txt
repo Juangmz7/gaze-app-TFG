@@ -14,8 +14,9 @@ uvicorn>=0.30,<1.0
 # Retries of RabbitRetryMiddleware
 tenacity>=8.2,<10
 # GetRecommendedFeed server. grpcio-tools generates src/recommendation/v1 from
-# proto/recommendation/v1/recommendation.proto; the stubs are committed.
-grpcio>=1.85,<2
-grpcio-health-checking>=1.85,<2
-grpcio-tools>=1.85,<2
-protobuf>=7.35,<8
+# proto/recommendation/v1/recommendation.proto; the stubs are committed. They need
+# at least grpcio 1.85.1 and protobuf 7.35.1 at import.
+grpcio>=1.85.1,<2
+grpcio-health-checking>=1.85.1,<2
+grpcio-tools>=1.85.1,<2
+protobuf>=7.35.1,<8
