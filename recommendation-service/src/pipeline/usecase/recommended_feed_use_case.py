@@ -32,10 +32,12 @@ class RecommendedFeedUseCase:
     def recommend(
         self,
         user_id: UUID,
-        correlation_id: UUID,
+        correlation_id: UUID | str,
         excluded_post_ids: Collection[UUID] = (),
     ) -> list[UUID]:
-        """Runs the pipeline and returns the ordered ids. Writes nothing."""
+        """Runs the pipeline and returns the ordered ids. Writes nothing. Here the
+        correlation id only feeds logs, so gRPC can pass any usable value. execute()
+        needs a UUID, because it is the lease token of post-query-service."""
         started_at = time.perf_counter()
         recommended_posts = self.orchestrator.recommend(user_id, excluded_post_ids)
         duration_ms = (time.perf_counter() - started_at) * 1000

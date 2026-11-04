@@ -17,6 +17,8 @@ logger = logging.getLogger(__name__)
 
 # Defined in proto/recommendation/v1/recommendation.proto
 CORRELATION_ID_METADATA_KEY = "x-correlation-id"
+# Same bound as isUsableCorrelationID in post-query-service, the caller of this RPC
+MAX_CORRELATION_ID_LENGTH = 128
 # A rejected id is caller data of any length: keep it from flooding the logs
 MAX_LOGGED_ID_LENGTH = 64
 
@@ -77,7 +79,7 @@ class RecommendationServicer(recommendation_pb2_grpc.RecommendationServiceServic
     async def _run_pipeline(
         self,
         user_id: UUID,
-        correlation_id: UUID,
+        correlation_id: str,
         excluded_post_ids: set[UUID],
     ) -> tuple[grpc.StatusCode | None, str, list[UUID]]:
         try:
@@ -105,13 +107,19 @@ def _text_metadata(context: grpc.aio.ServicerContext) -> dict[str, str]:
     return {key: value for key, value in (context.invocation_metadata() or ()) if isinstance(value, str)}
 
 
-def _correlation_id(metadata: dict[str, str]) -> UUID:
-    """Only used for logs on this transport: a bad value must not fail the call."""
-    raw_correlation_id = metadata.get(CORRELATION_ID_METADATA_KEY)
-    try:
-        return UUID(raw_correlation_id)
-    except (TypeError, ValueError):
-        return uuid4()
+def _correlation_id(metadata: dict[str, str]) -> str:
+    """Only used for logs on this transport, so it need not be a UUID: post-query-service
+    keeps any usable client value, and both services must log the same one. A missing
+    or unusable value must not fail the call."""
+    raw_correlation_id = metadata.get(CORRELATION_ID_METADATA_KEY, "")
+    return raw_correlation_id if _is_usable_correlation_id(raw_correlation_id) else str(uuid4())
+
+
+def _is_usable_correlation_id(value: str) -> bool:
+    """Non-empty, bounded and printable ASCII without spaces, because it ends up in logs."""
+    if not value or len(value) > MAX_CORRELATION_ID_LENGTH:
+        return False
+    return all(" " < character < "\x7f" for character in value)
 
 
 def _reason_name(reason: int) -> str:
@@ -122,10 +130,10 @@ def _reason_name(reason: int) -> str:
 
 
 @contextmanager
-def _request_context(metadata: dict[str, str], correlation_id: UUID) -> Iterator[None]:
+def _request_context(metadata: dict[str, str], correlation_id: str) -> Iterator[None]:
     """Correlation id and trace context of the caller, visible in the logs and in
     the pipeline worker, which runs with a copy of this context."""
-    correlation_token = correlation_id_ctx.set(str(correlation_id))
+    correlation_token = correlation_id_ctx.set(correlation_id)
     trace_token = otel_context.attach(propagate.extract(metadata))
     try:
         yield

@@ -57,7 +57,7 @@ async def start(servicer, **options):
 
 async def test_should_read_correlation_id_and_trace_context_from_real_metadata_without_a_deadline(pool):
     # Arrange
-    correlation_id = uuid4()
+    correlation_id = "client-id-not-a-uuid"
     trace_id = "0af7651916cd43dd8448eb211c80319c"
     seen = SimpleNamespace()
     post_id = uuid4()
@@ -77,7 +77,7 @@ async def test_should_read_correlation_id_and_trace_context_from_real_metadata_w
     response = await stub.GetRecommendedFeed(
         recommendation_pb2.GetRecommendedFeedRequest(user_id=str(uuid4()), reason=recommendation_pb2.FEED_EMPTY),
         metadata=(
-            ("x-correlation-id", str(correlation_id)),
+            ("x-correlation-id", correlation_id),
             ("traceparent", f"00-{trace_id}-b7ad6b7169203331-01"),
         ),
     )
@@ -85,7 +85,7 @@ async def test_should_read_correlation_id_and_trace_context_from_real_metadata_w
     # Assert
     assert list(response.post_ids) == [str(post_id)]
     assert seen.correlation_id == correlation_id
-    assert seen.log_correlation_id == str(correlation_id)
+    assert seen.log_correlation_id == correlation_id
     assert seen.trace_id == trace_id
     assert seen.thread.startswith("pipeline-worker")
     await channel.close()

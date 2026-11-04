@@ -2,7 +2,7 @@ import asyncio
 import threading
 from types import SimpleNamespace
 from unittest.mock import Mock
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import grpc
 import pytest
@@ -185,16 +185,59 @@ async def test_should_propagate_correlation_id_and_trace_context_from_metadata_t
     # Assert
     assert seen.thread != threading.get_ident()
     assert seen.log_correlation_id == str(correlation_id)
-    assert seen.passed_correlation_id == correlation_id
+    assert seen.passed_correlation_id == str(correlation_id)
     assert seen.trace_id == trace_id
     assert correlation_id_ctx.get() is None
 
 
-@pytest.mark.parametrize("metadata", [(), (("x-correlation-id", "not-a-uuid"),)])
-async def test_should_not_fail_without_a_valid_correlation_id(pool, metadata):
+@pytest.mark.parametrize(
+    "correlation_id",
+    [
+        "not-a-uuid",
+        "client-id_01:abc/~!",
+        "019F0000-0000-7000-8000-000000000001",
+        "x" * 128,
+    ],
+)
+async def test_should_keep_any_usable_correlation_id_as_post_query_service_does(pool, correlation_id):
+    # Arrange
+    seen = SimpleNamespace()
+
+    def recommend(user_id, passed_correlation_id, excluded):
+        seen.passed_correlation_id = passed_correlation_id
+        seen.log_correlation_id = correlation_id_ctx.get()
+        return []
+
+    usecase = Mock()
+    usecase.recommend.side_effect = recommend
+
+    # Act
+    await RecommendationServicer(usecase, pool).GetRecommendedFeed(
+        request(), FakeContext(metadata=(("x-correlation-id", correlation_id),))
+    )
+
+    # Assert
+    assert seen.passed_correlation_id == correlation_id
+    assert seen.log_correlation_id == correlation_id
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        (),
+        (("x-correlation-id", ""),),
+        (("x-correlation-id", "x" * 129),),
+        (("x-correlation-id", "with space"),),
+        (("x-correlation-id", "line\nbreak"),),
+        (("x-correlation-id", "del\x7f"),),
+        (("x-correlation-id", "correlación"),),
+    ],
+)
+async def test_should_generate_a_correlation_id_when_it_is_missing_or_unusable(pool, metadata):
     usecase = Mock()
     usecase.recommend.return_value = []
 
     await RecommendationServicer(usecase, pool).GetRecommendedFeed(request(), FakeContext(metadata=metadata))
 
-    assert usecase.recommend.call_args.args[1] is not None
+    generated = usecase.recommend.call_args.args[1]
+    assert str(UUID(generated)) == generated

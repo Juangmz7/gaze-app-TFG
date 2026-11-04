@@ -2,7 +2,10 @@
 // (server). The RPC only reads, so a retried call is safe.
 //
 // Metadata: the correlation id travels as `x-correlation-id` and the trace
-// context as W3C `traceparent` / `tracestate`.
+// context as W3C `traceparent` / `tracestate`. The server keeps any correlation
+// id of 1 to 128 printable ASCII characters without spaces, not only UUIDs, and
+// generates one when it is missing or unusable. It only feeds logs, so it never
+// fails the call.
 //
 // Status codes are part of the contract, because the client retries only
 // UNAVAILABLE, DEADLINE_EXCEEDED and RESOURCE_EXHAUSTED:
