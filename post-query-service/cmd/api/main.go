@@ -48,7 +48,8 @@ func run() error {
 	slog.Info("connected to mongodb", "database", cfg.Mongo.Database)
 
 	// Transactional outbox relay: publishes events stored by use cases (in the
-	// same Mongo transaction as their state change) with publisher confirms.
+	// same Mongo transaction as their state change) with publisher confirms,
+	// right after their commit, with the periodic batch as the safety net.
 	outboxStore := outbox.NewStore(mongoDatabase)
 	if err := outboxStore.EnsureIndexes(ctx); err != nil {
 		return err
@@ -59,13 +60,15 @@ func run() error {
 			slog.Error("outbox publisher close failed", "error", closeErr)
 		}
 	}()
-	outboxDone := outbox.NewRelay(outboxStore, outboxPublisher, outbox.DefaultRelayConfig(), slog.Default()).Start(ctx)
+	outboxRelay := outbox.NewRelay(outboxStore, outboxPublisher, outbox.DefaultRelayConfig(), slog.Default())
+	outboxStore.SendImmediatelyWith(outboxRelay)
+	outboxDone := outboxRelay.Start(ctx)
 
 	// RunWithRetry rebuilds the router/subscribers/publisher from scratch on
 	// every AMQP connection loss, with linear backoff, instead of letting a
 	// single bootstrap.Bootstrap failure silently stop event consumption for
 	// good while the HTTP server keeps reporting healthy.
-	rabbitmqDone := bootstrap.RunWithRetry(ctx, cfg.RabbitMQ.AMQPURI(), mongoDatabase, slog.Default())
+	rabbitmqDone := bootstrap.RunWithRetry(ctx, cfg.RabbitMQ.AMQPURI(), mongoDatabase, outboxStore, slog.Default())
 
 	slog.Info("consuming rabbitmq events")
 

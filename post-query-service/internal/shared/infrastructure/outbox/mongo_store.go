@@ -10,6 +10,8 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
+
+	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/database"
 )
 
 // collectionName is the MongoDB collection storing outbox events.
@@ -22,9 +24,16 @@ const processedRetention = 7 * 24 * time.Hour
 // operationTimeout bounds every relay-side Mongo call.
 const operationTimeout = 5 * time.Second
 
+// ImmediateSender publishes one just-committed event without waiting for the
+// next relay batch (implemented by Relay).
+type ImmediateSender interface {
+	RelayImmediately(ctx context.Context, id uuid.UUID)
+}
+
 // Store persists outbox events in MongoDB.
 type Store struct {
 	collection *mongo.Collection
+	immediate  ImmediateSender
 }
 
 // NewStore creates a Store backed by db's outbox_events collection. Call
@@ -58,12 +67,27 @@ func (s *Store) EnsureIndexes(ctx context.Context) error {
 	return nil
 }
 
+// SendImmediatelyWith makes Add hand every event to sender as soon as its
+// transaction commits (the low-latency path); the relay batch still covers
+// any event the sender could not publish. Call it once at startup, before the
+// store is used.
+func (s *Store) SendImmediatelyWith(sender ImmediateSender) {
+	s.immediate = sender
+}
+
 // Add inserts event. Pass the context of the Mongo transaction that changes
 // state (see database.WithTransaction) so both writes commit or abort
-// together; outside a transaction they are two independent writes.
+// together; outside a transaction they are two independent writes. With an
+// ImmediateSender set, the event is published right after that commit.
 func (s *Store) Add(ctx context.Context, event Event) error {
 	if _, err := s.collection.InsertOne(ctx, event); err != nil {
 		return fmt.Errorf("add outbox event %s: %w", event.EventType, err)
+	}
+
+	if s.immediate != nil {
+		database.AfterCommit(ctx, func(ctx context.Context) {
+			s.immediate.RelayImmediately(ctx, event.ID)
+		})
 	}
 	return nil
 }
@@ -74,9 +98,6 @@ func (s *Store) Add(ctx context.Context, event Event) error {
 // relays never claim the same event. It returns nil when nothing is
 // claimable.
 func (s *Store) ClaimNext(ctx context.Context, lockTimeout time.Duration) (*Event, error) {
-	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
-	defer cancel()
-
 	now := time.Now().UTC()
 	filter := bson.D{{Key: "$or", Value: bson.A{
 		bson.D{{Key: "status", Value: StatusPending}},
@@ -85,16 +106,30 @@ func (s *Store) ClaimNext(ctx context.Context, lockTimeout time.Duration) (*Even
 			{Key: "locked_at", Value: bson.D{{Key: "$lt", Value: now.Add(-lockTimeout)}}},
 		},
 	}}}
+	return s.claim(ctx, now, filter, options.FindOneAndUpdate().SetSort(bson.D{{Key: "created_at", Value: 1}}))
+}
+
+// ClaimIfPending claims event id only if it is still PENDING (the immediate
+// send after commit). It returns nil when the event is gone or a relay batch
+// already claimed it.
+func (s *Store) ClaimIfPending(ctx context.Context, id uuid.UUID) (*Event, error) {
+	filter := bson.D{{Key: "_id", Value: id}, {Key: "status", Value: StatusPending}}
+	return s.claim(ctx, time.Now().UTC(), filter, options.FindOneAndUpdate())
+}
+
+// claim moves the first event matching filter to PROCESSING, locked at now,
+// and returns it (nil when nothing matches).
+func (s *Store) claim(ctx context.Context, now time.Time, filter bson.D, opts *options.FindOneAndUpdateOptionsBuilder) (*Event, error) {
+	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
+	defer cancel()
+
 	update := bson.D{
 		{Key: "$set", Value: bson.D{{Key: "status", Value: StatusProcessing}, {Key: "locked_at", Value: now}}},
 		{Key: "$inc", Value: bson.D{{Key: "attempts", Value: 1}}},
 	}
-	opts := options.FindOneAndUpdate().
-		SetSort(bson.D{{Key: "created_at", Value: 1}}).
-		SetReturnDocument(options.After)
 
 	var event Event
-	err := s.collection.FindOneAndUpdate(ctx, filter, update, opts).Decode(&event)
+	err := s.collection.FindOneAndUpdate(ctx, filter, update, opts.SetReturnDocument(options.After)).Decode(&event)
 	if errors.Is(err, mongo.ErrNoDocuments) {
 		return nil, nil
 	}

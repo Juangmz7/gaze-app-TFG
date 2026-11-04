@@ -195,6 +195,95 @@ func TestStore_MarkFailedAttempt_IgnoresAReleaseFromAnExpiredClaim(t *testing.T)
 	}
 }
 
+func TestStore_ClaimIfPending_ClaimsOnlyThatEventWhileItIsPending(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	db := startReplicaSetMongo(t, ctx).Database("outbox_claim_if_pending_test")
+	store := newStore(t, ctx, db)
+	now := time.Now().UTC()
+	older := addEvent(t, ctx, store, now.Add(-time.Minute))
+	target := addEvent(t, ctx, store, now)
+
+	claimed, err := store.ClaimIfPending(ctx, target.ID)
+	if err != nil || claimed == nil || claimed.ID != target.ID {
+		t.Fatalf("ClaimIfPending() = %v, %v; want %v (not the older event)", claimed, err, target.ID)
+	}
+	if claimed.Status != outbox.StatusProcessing || claimed.Attempts != 1 || claimed.LockedAt == nil {
+		t.Fatalf("claimed = %+v, want PROCESSING with attempts=1 and a lock", claimed)
+	}
+
+	again, err := store.ClaimIfPending(ctx, target.ID)
+	if err != nil || again != nil {
+		t.Fatalf("second ClaimIfPending() = %v, %v; want nothing (already claimed)", again, err)
+	}
+	if stored := findEvent(t, ctx, db, older.ID); stored.Status != outbox.StatusPending || stored.Attempts != 0 {
+		t.Fatalf("older = %+v, want it untouched", stored)
+	}
+}
+
+// recordingSender records the events handed to it and whether each one was
+// already committed (visible outside the transaction) at that moment.
+type recordingSender struct {
+	db        *mongodriver.Database
+	ids       []uuid.UUID
+	committed []bool
+}
+
+func (s *recordingSender) RelayImmediately(ctx context.Context, id uuid.UUID) {
+	count, _ := s.db.Collection("outbox_events").CountDocuments(ctx, bson.D{{Key: "_id", Value: id}})
+	s.ids = append(s.ids, id)
+	s.committed = append(s.committed, count == 1)
+}
+
+func TestStore_Add_HandsTheEventToTheImmediateSenderOnlyAfterCommit(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	client := startReplicaSetMongo(t, ctx)
+	db := client.Database("outbox_after_commit_test")
+	store := newStore(t, ctx, db)
+	sender := &recordingSender{db: db}
+	store.SendImmediatelyWith(sender)
+
+	add := func(fail bool) (uuid.UUID, error) {
+		event, _ := outbox.NewPendingEvent(uuid.New(), uuid.New(), "TestEvent", testExchange, testRoutingKey, "payload")
+		return event.ID, database.WithTransaction(ctx, client, func(ctx context.Context) error {
+			if err := store.Add(ctx, event); err != nil {
+				return err
+			}
+			if len(sender.ids) != 0 {
+				t.Error("immediate sender called before the commit")
+			}
+			if fail {
+				return errors.New("forced failure before commit")
+			}
+			return nil
+		})
+	}
+
+	if _, err := add(true); err == nil {
+		t.Fatal("WithTransaction() error = nil, want the forced failure")
+	}
+	if len(sender.ids) != 0 {
+		t.Fatalf("sender got %v for an aborted transaction, want nothing", sender.ids)
+	}
+
+	committedID, err := add(false)
+	if err != nil {
+		t.Fatalf("WithTransaction() error = %v", err)
+	}
+	if len(sender.ids) != 1 || sender.ids[0] != committedID || !sender.committed[0] {
+		t.Fatalf("sender got ids=%v committed=%v, want [%v] already committed", sender.ids, sender.committed, committedID)
+	}
+
+	// Outside a transaction the insert is already durable: handed over right away
+	outside := addEvent(t, ctx, store, time.Now().UTC())
+	if len(sender.ids) != 2 || sender.ids[1] != outside.ID || !sender.committed[1] {
+		t.Fatalf("sender got ids=%v, want %v handed over right after Add", sender.ids, outside.ID)
+	}
+}
+
 func TestStore_EnsureIndexes_ExpiresOnlyProcessedEvents(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
@@ -302,6 +391,41 @@ func TestRelay_PublishesWithBrokerConfirmAndMarksProcessed(t *testing.T) {
 		assertDelivery(t, delivery, event)
 	case <-time.After(20 * time.Second):
 		t.Fatal("timed out waiting for the relayed event")
+	}
+}
+
+func TestRelay_PublishesRightAfterTheCommitWithoutWaitingForABatch(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	client := startReplicaSetMongo(t, ctx)
+	db := client.Database("outbox_immediate_test")
+	amqpURI := startRabbitMQ(t, ctx)
+	store := newStore(t, ctx, db)
+	deliveries := bindVerificationQueue(t, ctx, amqpURI, testExchange, testRoutingKey)
+
+	publisher := outbox.NewAMQPPublisher(amqpURI, quietLogger())
+	t.Cleanup(func() { publisher.Close() })
+	// No Start/RelayBatch: only the immediate path can publish
+	store.SendImmediatelyWith(outbox.NewRelay(store, publisher, outbox.DefaultRelayConfig(), quietLogger()))
+
+	event, _ := outbox.NewPendingEvent(uuid.New(), uuid.New(), "TestEvent", testExchange, testRoutingKey,
+		map[string]string{"hello": "world"})
+	if err := database.WithTransaction(ctx, client, func(ctx context.Context) error {
+		return store.Add(ctx, event)
+	}); err != nil {
+		t.Fatalf("WithTransaction() error = %v", err)
+	}
+
+	// Published synchronously before WithTransaction returned
+	if stored := findEvent(t, ctx, db, event.ID); stored.Status != outbox.StatusProcessed || stored.Attempts != 1 {
+		t.Fatalf("stored = %+v, want PROCESSED after one attempt", stored)
+	}
+	select {
+	case delivery := <-deliveries:
+		assertDelivery(t, delivery, event)
+	case <-time.After(20 * time.Second):
+		t.Fatal("timed out waiting for the immediately relayed event")
 	}
 }
 

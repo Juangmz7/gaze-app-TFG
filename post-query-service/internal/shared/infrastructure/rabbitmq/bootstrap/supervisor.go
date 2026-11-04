@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
+
+	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/publisher"
 )
 
 // Run runs the Watermill router until ctx is cancelled, Close is called, or
@@ -69,9 +71,9 @@ func supervisorBackoff(attempt int) time.Duration {
 // stops when ctx is cancelled; the returned channel is closed once the loop
 // has exited and the last attempt's resources are fully closed, so callers
 // can block on it during shutdown to avoid racing cleanup.
-func RunWithRetry(ctx context.Context, amqpURI string, db *mongo.Database, logger *slog.Logger) <-chan struct{} {
+func RunWithRetry(ctx context.Context, amqpURI string, db *mongo.Database, outboxWriter publisher.OutboxWriter, logger *slog.Logger) <-chan struct{} {
 	bootstrapFn := func(ctx context.Context) (RunnerCloser, error) {
-		return Bootstrap(ctx, amqpURI, db, logger)
+		return Bootstrap(ctx, amqpURI, db, outboxWriter, logger)
 	}
 	return Supervise(ctx, bootstrapFn, logger)
 }
