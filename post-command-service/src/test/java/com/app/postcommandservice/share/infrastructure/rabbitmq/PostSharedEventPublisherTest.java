@@ -8,25 +8,18 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 
 import com.app.postcommandservice.share.infrastructure.events.PostSharedEvent;
 import com.app.postcommandservice.shared.infrastructure.entity.OutboxEvent;
+import com.app.postcommandservice.shared.infrastructure.outbox.OutboxDestination;
 import com.app.postcommandservice.shared.infrastructure.enums.EventStatus;
-import com.app.postcommandservice.shared.infrastructure.mapper.JsonMapper;
 import com.app.postcommandservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 
-import static org.mockito.Mockito.verify;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class PostSharedEventPublisherTest {
-
-    @Mock
-    private RabbitTemplate rabbitTemplate;
-
-    @Mock
-    private JsonMapper jsonMapper;
 
     @Mock
     private RabbitMQProperties rabbitMQProperties;
@@ -50,7 +43,7 @@ class PostSharedEventPublisherTest {
     private PostSharedEventPublisher publisher;
 
     @Test
-    void shouldPublishPostSharedEventToRabbitMqUsingConfiguredRoutingKey() {
+    void shouldResolvePostSharedEventDestinationFromConfiguredExchangeAndRoutingKey() {
         var payload = PostSharedEvent.builder()
                 .id(UUID.randomUUID())
                 .correlationId(UUID.randomUUID())
@@ -67,8 +60,6 @@ class PostSharedEventPublisherTest {
                 .status(EventStatus.PENDING)
                 .createdAt(payload.occurredAt())
                 .build();
-
-        when(jsonMapper.fromJson("{json}", PostSharedEvent.class)).thenReturn(payload);
         when(rabbitMQProperties.getExchange()).thenReturn(exchanges);
         when(exchanges.getPost()).thenReturn(postExchange);
         when(postExchange.getEvents()).thenReturn("x.post.events");
@@ -77,8 +68,7 @@ class PostSharedEventPublisherTest {
         when(postRk.getShare()).thenReturn(shareRk);
         when(shareRk.getCreated()).thenReturn("rk.post.share.created");
 
-        publisher.publish(outboxEvent);
-
-        verify(rabbitTemplate).convertAndSend("x.post.events", "rk.post.share.created", payload);
+        assertThat(publisher.destination(outboxEvent))
+                .isEqualTo(new OutboxDestination("x.post.events", "rk.post.share.created"));
     }
 }

@@ -1,5 +1,8 @@
 """add ever seen columns
 
+No-op: user_post_interactions.ever_seen is created by a7f3e8c2d1b4.
+Kept so the revision chain stays intact.
+
 Revision ID: f9d8e7c6b5a4
 Revises: e5c9e2f0a3b7
 Create Date: 2026-09-15 12:00:00.000000
@@ -7,8 +10,6 @@ Create Date: 2026-09-15 12:00:00.000000
 """
 from typing import Sequence, Union
 
-from alembic import op
-import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
@@ -19,8 +20,9 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column('user_post_interactions', sa.Column('ever_seen', sa.Boolean(), server_default='false', nullable=False))
+    # Folded into a7f3e8c2d1b4 (user_post_interactions): created there in its final shape.
+    pass
 
 
 def downgrade() -> None:
-    op.drop_column('user_post_interactions', 'ever_seen')
+    pass

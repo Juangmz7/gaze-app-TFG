@@ -1,12 +1,11 @@
 package com.app.postcommandservice.post.infrastructure.rabbitmq;
 
 import lombok.RequiredArgsConstructor;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Component;
 
 import com.app.postcommandservice.post.infrastructure.events.PostMediaUploadValidationFailedEvent;
 import com.app.postcommandservice.shared.infrastructure.entity.OutboxEvent;
-import com.app.postcommandservice.shared.infrastructure.mapper.JsonMapper;
+import com.app.postcommandservice.shared.infrastructure.outbox.OutboxDestination;
 import com.app.postcommandservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 import com.app.postcommandservice.shared.infrastructure.rabbitmq.publisher.EventPublisher;
 
@@ -14,9 +13,7 @@ import com.app.postcommandservice.shared.infrastructure.rabbitmq.publisher.Event
 @RequiredArgsConstructor
 public class PostMediaUploadValidationFailedEventPublisher implements EventPublisher {
 
-    private final RabbitTemplate rabbitTemplate;
     private final RabbitMQProperties rabbitMQProperties;
-    private final JsonMapper jsonMapper;
 
     @Override
     public boolean supports(String eventType) {
@@ -24,12 +21,10 @@ public class PostMediaUploadValidationFailedEventPublisher implements EventPubli
     }
 
     @Override
-    public void publish(OutboxEvent outboxEvent) {
-        var event = jsonMapper.fromJson(outboxEvent.getPayload(), PostMediaUploadValidationFailedEvent.class);
-        rabbitTemplate.convertAndSend(
+    public OutboxDestination destination(OutboxEvent outboxEvent) {
+        return new OutboxDestination(
                 rabbitMQProperties.getExchange().getPost().getEvents(),
-                rabbitMQProperties.getRk().getPost().getMedia().getValidation().getFailed(),
-                event
+                rabbitMQProperties.getRk().getPost().getMedia().getValidation().getFailed()
         );
     }
 }

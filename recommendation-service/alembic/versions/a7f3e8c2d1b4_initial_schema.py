@@ -6,6 +6,10 @@ Creates the full PostgreSQL schema for the recommendation service, including:
   - all primary keys, unique constraints
   - indexes declared inside SQLAlchemy entities
   - HNSW vector index on post_features.semantic_embedding (vector_ip_ops)
+  - transactional outbox (outbox_events) with its partial index
+
+There is no production data yet, so tables are created in their final shape
+here (and in e5c9e2f0a3b7) instead of being altered by later revisions.
 
 Revision ID: a7f3e8c2d1b4
 Revises: -
@@ -18,6 +22,7 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 from pgvector.sqlalchemy import Vector
+from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision: str = "a7f3e8c2d1b4"
@@ -99,6 +104,7 @@ def upgrade() -> None:
         "user_post_interactions",
         sa.Column("post_id", sa.Uuid(as_uuid=True), nullable=False),
         sa.Column("user_id", sa.Uuid(as_uuid=True), nullable=False),
+        sa.Column("ever_seen", sa.Boolean(), server_default="false", nullable=False),
         sa.Column("ever_liked", sa.Boolean(), nullable=False),
         sa.Column("ever_unliked", sa.Boolean(), nullable=False),
         sa.Column("ever_unshared", sa.Boolean(), nullable=False),
@@ -225,6 +231,27 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("user_id", "creator_id", name="pk_user_creator_features"),
     )
 
+    # outbox_events
+    # Source: shared/entity/outbox_event_entity.py - OutboxEventRecord
+    # exchange/routing_key are stored at insert time so the relay is generic.
+    # status: PENDING -> PROCESSING -> PROCESSED, or FAILED after max attempts.
+    op.create_table(
+        "outbox_events",
+        sa.Column("id", sa.Uuid(as_uuid=True), nullable=False),
+        sa.Column("correlation_id", sa.Uuid(as_uuid=True), nullable=False),
+        sa.Column("event_type", sa.String(255), nullable=False),
+        sa.Column("exchange", sa.String(255), nullable=False),
+        sa.Column("routing_key", sa.String(255), nullable=False),
+        sa.Column("payload", postgresql.JSONB(), nullable=False),
+        sa.Column("status", sa.String(32), server_default="PENDING", nullable=False),
+        sa.Column("attempts", sa.Integer(), server_default="0", nullable=False),
+        sa.Column("last_error", sa.Text(), nullable=True),
+        sa.Column("locked_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column("processed_at", sa.DateTime(timezone=True), nullable=True),
+        sa.PrimaryKeyConstraint("id", name="pk_outbox_events"),
+    )
+
     # ------------------------------------------------------------------
     # 3. Indexes declared inside SQLAlchemy entities (kept in entities)
     # ------------------------------------------------------------------
@@ -235,6 +262,14 @@ def upgrade() -> None:
         "post_features",
         ["collab_id"],
         unique=False,
+    )
+
+    # Partial index: the outbox relay only ever scans unfinished rows
+    op.create_index(
+        "ix_outbox_events_unfinished",
+        "outbox_events",
+        ["created_at"],
+        postgresql_where=sa.text("status IN ('PENDING', 'PROCESSING')"),
     )
 
     # ------------------------------------------------------------------
@@ -277,9 +312,11 @@ def downgrade() -> None:
     op.execute("DROP INDEX IF EXISTS ix_post_features_semantic_embedding_hnsw;")
 
     # 3. Entity-declared indexes
+    op.drop_index("ix_outbox_events_unfinished", table_name="outbox_events")
     op.drop_index("ix_post_features_collab_id", table_name="post_features")
 
     # 2. Tables
+    op.drop_table("outbox_events")
     op.drop_table("user_creator_features")
     op.drop_table("user_features")
     op.drop_table("post_tag_features")

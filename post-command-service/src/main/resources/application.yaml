@@ -1,3 +1,19 @@
+# --- RabbitMQ publisher confirms (required by the outbox relay) ---
+spring:
+  rabbitmq:
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    # Bounds each connection attempt (default 60 s): keeps relay cycles and the
+    # immediate send on the HTTP thread short, well under the outbox lock timeout.
+    connection-timeout: 5s
+
+# --- Outbox relay ---
+outbox:
+  relay:
+    fixed-delay-ms: 5000
+  cleanup:
+    cron: "0 0 3 * * *"
+
 # --- Post media business rules (shared across tasks 32/35/38/39) ---
 posts:
   media:

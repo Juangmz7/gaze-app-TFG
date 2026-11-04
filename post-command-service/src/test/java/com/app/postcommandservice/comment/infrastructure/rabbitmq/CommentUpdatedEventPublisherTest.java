@@ -8,26 +8,18 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 
 import com.app.postcommandservice.comment.infrastructure.events.CommentUpdatedEvent;
 import com.app.postcommandservice.shared.infrastructure.entity.OutboxEvent;
+import com.app.postcommandservice.shared.infrastructure.outbox.OutboxDestination;
 import com.app.postcommandservice.shared.infrastructure.enums.EventStatus;
-import com.app.postcommandservice.shared.infrastructure.mapper.JsonMapper;
 import com.app.postcommandservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class CommentUpdatedEventPublisherTest {
-
-    @Mock
-    private RabbitTemplate rabbitTemplate;
-
-    @Mock
-    private JsonMapper jsonMapper;
 
     @Mock
     private RabbitMQProperties rabbitMQProperties;
@@ -57,7 +49,7 @@ class CommentUpdatedEventPublisherTest {
     }
 
     @Test
-    void shouldPublishCommentUpdatedEventToRabbitMqUsingConfiguredRoutingKey() {
+    void shouldResolveCommentUpdatedEventDestinationFromConfiguredExchangeAndRoutingKey() {
         var now = Instant.now();
         var payload = CommentUpdatedEvent.builder()
                 .commentId(UUID.randomUUID())
@@ -76,8 +68,6 @@ class CommentUpdatedEventPublisherTest {
                 .status(EventStatus.PENDING)
                 .createdAt(now)
                 .build();
-
-        when(jsonMapper.fromJson("{json}", CommentUpdatedEvent.class)).thenReturn(payload);
         when(rabbitMQProperties.getExchange()).thenReturn(exchanges);
         when(exchanges.getPost()).thenReturn(postExchange);
         when(postExchange.getEvents()).thenReturn("x.post.events");
@@ -86,8 +76,7 @@ class CommentUpdatedEventPublisherTest {
         when(postRk.getComment()).thenReturn(commentRk);
         when(commentRk.getUpdated()).thenReturn("rk.post.comment.updated");
 
-        publisher.publish(outboxEvent);
-
-        verify(rabbitTemplate).convertAndSend("x.post.events", "rk.post.comment.updated", payload);
+        assertThat(publisher.destination(outboxEvent))
+                .isEqualTo(new OutboxDestination("x.post.events", "rk.post.comment.updated"));
     }
 }

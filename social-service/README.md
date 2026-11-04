@@ -31,6 +31,7 @@ All endpoints use the authenticated JWT user id from `SecurityUtils`.
 - `DELETE /api/social/follow`
 - `POST /api/social/block`
 - `DELETE /api/social/block`
+- `GET /api/social/block/users`
 
 ## Messaging
 Queue and routing-key names are configured in `src/main/resources/application.yaml`.

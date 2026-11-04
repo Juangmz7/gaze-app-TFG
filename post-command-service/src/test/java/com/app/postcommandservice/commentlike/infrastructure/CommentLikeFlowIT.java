@@ -35,6 +35,7 @@ import com.app.postcommandservice.commentlike.infrastructure.entity.PostCommentL
 import com.app.postcommandservice.commentlike.infrastructure.entity.PostCommentLikeId;
 import com.app.postcommandservice.commentlike.infrastructure.repository.CommentLikeJpaRepository;
 import com.app.postcommandservice.post.domain.model.valueobj.PostStatus;
+import com.app.postcommandservice.post.domain.model.valueobj.PostType;
 import com.app.postcommandservice.post.infrastructure.entity.BlockReadModelEntity;
 import com.app.postcommandservice.post.infrastructure.entity.BlockReadModelId;
 import com.app.postcommandservice.post.infrastructure.entity.PostEntity;
@@ -301,6 +302,7 @@ class CommentLikeFlowIT {
         return postJpaRepository.save(PostEntity.builder()
                 .id(UUID.randomUUID())
                 .userId(ownerId)
+                .postType(PostType.BASIC)
                 .description("active")
                 .status(PostStatus.ACCEPTED)
                 .build());

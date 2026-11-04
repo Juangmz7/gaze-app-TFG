@@ -11,7 +11,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 
 import com.app.postcommandservice.shared.infrastructure.entity.OutboxEvent;
-import com.app.postcommandservice.shared.infrastructure.mapper.JsonMapper;
+import com.app.postcommandservice.shared.infrastructure.outbox.OutboxDestination;
 import com.app.postcommandservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 import com.app.postcommandservice.view.application.commands.ProcessPostViewCommand;
 import com.app.postcommandservice.view.domain.model.PostViewExitReason;
@@ -29,9 +29,6 @@ class ProcessPostViewCommandPublisherTest {
 
     @Mock
     private RabbitMQProperties rabbitMQProperties;
-
-    @Mock
-    private JsonMapper jsonMapper;
 
     @Mock
     private RabbitMQProperties.Exchanges exchanges;
@@ -88,7 +85,7 @@ class ProcessPostViewCommandPublisherTest {
     }
 
     @Test
-    void shouldPublishProcessPostViewCommandFromOutboxPayload() {
+    void shouldResolveProcessPostViewCommandDestinationFromConfiguredExchangeAndRoutingKey() {
         var command = new ProcessPostViewCommand(
                 UUID.randomUUID(),
                 UUID.randomUUID(),
@@ -117,10 +114,8 @@ class ProcessPostViewCommandPublisherTest {
         when(routingKeys.getPost()).thenReturn(postRk);
         when(postRk.getView()).thenReturn(viewRk);
         when(viewRk.getProcess()).thenReturn("rk.post.view.process");
-        when(jsonMapper.fromJson(outboxEvent.getPayload(), ProcessPostViewCommand.class)).thenReturn(command);
 
-        publisher.publish(outboxEvent);
-
-        verify(rabbitTemplate).convertAndSend("x.post.commands", "rk.post.view.process", command);
+        assertThat(publisher.destination(outboxEvent))
+                .isEqualTo(new OutboxDestination("x.post.commands", "rk.post.view.process"));
     }
 }

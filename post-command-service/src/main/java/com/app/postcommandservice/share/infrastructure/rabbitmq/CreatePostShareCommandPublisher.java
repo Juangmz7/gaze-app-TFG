@@ -7,8 +7,8 @@ import org.springframework.stereotype.Component;
 import com.app.postcommandservice.share.application.commands.CreatePostShareCommand;
 import com.app.postcommandservice.share.application.repository.PostShareCommandPublisher;
 import com.app.postcommandservice.shared.infrastructure.entity.OutboxEvent;
-import com.app.postcommandservice.shared.infrastructure.mapper.JsonMapper;
 import com.app.postcommandservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
+import com.app.postcommandservice.shared.infrastructure.outbox.OutboxDestination;
 import com.app.postcommandservice.shared.infrastructure.rabbitmq.publisher.EventPublisher;
 
 @Component
@@ -17,7 +17,6 @@ public class CreatePostShareCommandPublisher implements PostShareCommandPublishe
 
     private final RabbitTemplate rabbitTemplate;
     private final RabbitMQProperties rabbitMQProperties;
-    private final JsonMapper jsonMapper;
 
     @Override
     public void publish(CreatePostShareCommand command) {
@@ -34,7 +33,10 @@ public class CreatePostShareCommandPublisher implements PostShareCommandPublishe
     }
 
     @Override
-    public void publish(OutboxEvent outboxEvent) {
-        publish(jsonMapper.fromJson(outboxEvent.getPayload(), CreatePostShareCommand.class));
+    public OutboxDestination destination(OutboxEvent outboxEvent) {
+        return new OutboxDestination(
+                rabbitMQProperties.getExchange().getPost().getCommands(),
+                rabbitMQProperties.getRk().getPost().getShare().getCreate().getValidate()
+        );
     }
 }

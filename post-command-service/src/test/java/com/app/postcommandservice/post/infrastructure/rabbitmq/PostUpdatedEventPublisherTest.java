@@ -9,26 +9,19 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 
 import com.app.postcommandservice.post.infrastructure.events.PostUpdatedEvent;
 import com.app.postcommandservice.post.domain.model.valueobj.PostType;
 import com.app.postcommandservice.shared.infrastructure.entity.OutboxEvent;
+import com.app.postcommandservice.shared.infrastructure.outbox.OutboxDestination;
 import com.app.postcommandservice.shared.infrastructure.enums.EventStatus;
-import com.app.postcommandservice.shared.infrastructure.mapper.JsonMapper;
 import com.app.postcommandservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 
-import static org.mockito.Mockito.verify;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class PostUpdatedEventPublisherTest {
-
-    @Mock
-    private RabbitTemplate rabbitTemplate;
-
-    @Mock
-    private JsonMapper jsonMapper;
 
     @Mock
     private RabbitMQProperties rabbitMQProperties;
@@ -49,7 +42,7 @@ class PostUpdatedEventPublisherTest {
     private PostUpdatedEventPublisher publisher;
 
     @Test
-    void shouldPublishUpdatedDomainEventToRabbitMqUsingTheConfiguredRoutingKey() {
+    void shouldResolvePostUpdatedEventDestinationFromConfiguredExchangeAndRoutingKey() {
         var payload = PostUpdatedEvent.builder()
                 .id(UUID.randomUUID())
                 .correlationId(UUID.randomUUID())
@@ -71,8 +64,6 @@ class PostUpdatedEventPublisherTest {
                 .status(EventStatus.PENDING)
                 .createdAt(payload.occurredAt())
                 .build();
-
-        when(jsonMapper.fromJson("{json}", PostUpdatedEvent.class)).thenReturn(payload);
         when(rabbitMQProperties.getExchange()).thenReturn(exchanges);
         when(exchanges.getPost()).thenReturn(postExchange);
         when(postExchange.getEvents()).thenReturn("x.post.events");
@@ -80,8 +71,7 @@ class PostUpdatedEventPublisherTest {
         when(routingKeys.getPost()).thenReturn(postRk);
         when(postRk.getUpdated()).thenReturn("rk.post.updated");
 
-        publisher.publish(outboxEvent);
-
-        verify(rabbitTemplate).convertAndSend("x.post.events", "rk.post.updated", payload);
+        assertThat(publisher.destination(outboxEvent))
+                .isEqualTo(new OutboxDestination("x.post.events", "rk.post.updated"));
     }
 }

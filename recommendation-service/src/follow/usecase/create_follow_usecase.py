@@ -1,11 +1,10 @@
-from contextlib import nullcontext
 import logging
-from typing import Any
 
 from follow.command.follow_commands import CreateFollowCommand
 from follow.service.follow_service import FollowService
 from pipeline.config.constants import FOLLOW_WEIGHT
 from pipeline.repository.user_features_repository import UserFeaturesRepository
+from shared.transaction.transaction_manager import TransactionManager, transaction_scope
 
 logger = logging.getLogger(__name__)
 
@@ -15,19 +14,14 @@ class CreateFollowUsecase:
             self,
             follow_service: FollowService,
             user_features_repository: UserFeaturesRepository,
-            transaction_manager: Any | None = None,
+            transaction_manager: TransactionManager | None = None,
     ):
         self.follow_service = follow_service
         self.user_features_repository = user_features_repository
         self.transaction_manager = transaction_manager
 
     def execute(self, command: CreateFollowCommand) -> None:
-        transaction = (
-            self.transaction_manager.transaction()
-            if self.transaction_manager is not None
-            else nullcontext()
-        )
-        with transaction:
+        with transaction_scope(self.transaction_manager):
             self.follow_service.create_follow(
                 follower_user_id=command.follower_user_id,
                 followed_user_id=command.followed_user_id,

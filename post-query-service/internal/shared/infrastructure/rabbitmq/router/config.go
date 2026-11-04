@@ -45,12 +45,3 @@ func NewSubscriberConfig(amqpURI string, spec topology.Spec) wmamqp.Config {
 
 	return cfg
 }
-
-// NewPublisherConfig builds the amqp.Config used to publish to a durable
-// topic exchange without declaring a queue (the publisher only needs the
-// exchange and a fixed routing key, both already known by the caller).
-func NewPublisherConfig(amqpURI, exchange string) wmamqp.Config {
-	cfg := wmamqp.NewDurableTopicConfig(amqpURI, exchange, "")
-	cfg.TopologyBuilder = &topology.Builder{Spec: topology.Spec{Exchange: exchange, ExchangeType: "topic"}}
-	return cfg
-}

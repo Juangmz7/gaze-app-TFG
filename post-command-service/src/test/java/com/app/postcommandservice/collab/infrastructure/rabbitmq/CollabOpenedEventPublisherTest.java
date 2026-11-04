@@ -9,7 +9,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 
 import com.app.postcommandservice.collab.domain.model.valueobj.ColabStatus;
 import com.app.postcommandservice.collab.domain.model.valueobj.CollabMemberRole;
@@ -17,18 +16,16 @@ import com.app.postcommandservice.collab.domain.model.valueobj.CollabMemberStatu
 import com.app.postcommandservice.collab.infrastructure.events.CollabOpenedEvent;
 import com.app.postcommandservice.post.domain.model.valueobj.PostType;
 import com.app.postcommandservice.shared.infrastructure.entity.OutboxEvent;
+import com.app.postcommandservice.shared.infrastructure.outbox.OutboxDestination;
 import com.app.postcommandservice.shared.infrastructure.enums.EventStatus;
 import com.app.postcommandservice.shared.infrastructure.mapper.JsonMapper;
 import com.app.postcommandservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 
-import static org.mockito.Mockito.verify;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class CollabOpenedEventPublisherTest {
-
-    @Mock
-    private RabbitTemplate rabbitTemplate;
 
     @Mock
     private JsonMapper jsonMapper;
@@ -55,7 +52,7 @@ class CollabOpenedEventPublisherTest {
     private CollabOpenedEventPublisher publisher;
 
     @Test
-    void shouldPublishCollabOpenedEventToRabbitMqUsingConfiguredRoutingKey() {
+    void shouldResolveCollabOpenedEventDestinationFromConfiguredExchangeAndRoutingKey() {
         var payload = CollabOpenedEvent.builder()
                 .id(UUID.randomUUID())
                 .correlationId(UUID.randomUUID())
@@ -98,8 +95,7 @@ class CollabOpenedEventPublisherTest {
         openedRk.setExistingPost("rk.post.collab.opened.existing-post");
         when(collabRk.getOpened()).thenReturn(openedRk);
 
-        publisher.publish(outboxEvent);
-
-        verify(rabbitTemplate).convertAndSend("x.post.events", "rk.post.collab.opened.existing-post", payload);
+        assertThat(publisher.destination(outboxEvent))
+                .isEqualTo(new OutboxDestination("x.post.events", "rk.post.collab.opened.existing-post"));
     }
 }

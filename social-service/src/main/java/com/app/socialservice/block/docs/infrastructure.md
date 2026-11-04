@@ -19,3 +19,4 @@ Implements persistence, messaging, event mapping, graph projection, and the HTTP
 - `BlockEventMapper`
 - `POST /api/social/block`
 - `DELETE /api/social/block`
+- `GET /api/social/block/users`

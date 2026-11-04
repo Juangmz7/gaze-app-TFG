@@ -11,7 +11,9 @@ const (
 	ExchangeUserEvents = "x.user.events"
 	// ExchangePostEvents carries post domain events published by post-command-service.
 	ExchangePostEvents = "x.post.events"
-	// ExchangeFeedEvents carries feed-related events published by post-query-service.
+	// ExchangeFeedEvents carries feed events between post-query-service
+	// (UserFeedExhaustedEvent) and recommendation-service (recommended and
+	// trending feeds).
 	ExchangeFeedEvents = "x.feed.events"
 )
 
@@ -85,7 +87,7 @@ const (
 
 // Routing keys bound to QueueFeed.
 const (
-	RKPostRecommendedSent = "rk.post.recommended.sent"
+	RKPostRecommendedSent = "rk.post.feed.recommended.sent"
 	RKPostTrendingSent    = "rk.post.trending.sent"
 )
 
@@ -207,7 +209,7 @@ func PostSpec() Spec {
 // FeedSpec is the topology for QueueFeed.
 func FeedSpec() Spec {
 	return Spec{
-		Exchange:     ExchangePostEvents,
+		Exchange:     ExchangeFeedEvents,
 		ExchangeType: "topic",
 		Queue:        QueueFeed,
 		RoutingKeys:  FeedRoutingKeys,

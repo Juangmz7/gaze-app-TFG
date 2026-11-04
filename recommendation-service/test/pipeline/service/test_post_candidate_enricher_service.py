@@ -11,7 +11,7 @@ from pipeline.model.post.post_interaction_features import PostInteractionFeature
 from pipeline.model.post.post_tag_features import PostTagFeatures
 from pipeline.model.user.user_creator_features import UserCreatorFeatures
 from pipeline.service.post_candidate_enricher_service import PostCandidateEnricherService
-from test._support.builders import decayed_stats, raw_stats
+from _support.builders import decayed_stats, raw_stats
 
 
 pytestmark = pytest.mark.unit

@@ -35,6 +35,7 @@ import (
 	shareusecase "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/share/application/usecase"
 	sharemongo "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/share/infrastructure/mongo"
 	sharerabbitmq "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/share/infrastructure/rabbitmq"
+	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/outbox"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/dispatch"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/idempotency"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/publisher"
@@ -51,7 +52,8 @@ type Result struct {
 	// Router is the Watermill router. Call Run(ctx) to start consuming and
 	// Close() on shutdown.
 	Router *message.Router
-	// FeedExhaustedPublisher publishes UserFeedExhaustedEvent to x.feed.events.
+	// FeedExhaustedPublisher stores UserFeedExhaustedEvent in the outbox; the
+	// outbox relay (started by main) delivers it to x.feed.events.
 	FeedExhaustedPublisher *publisher.Publisher
 	// closers are closed, in order, when the caller is done with Result.
 	closers []func() error
@@ -107,11 +109,7 @@ func Bootstrap(ctx context.Context, amqpURI string, db *mongo.Database, logger *
 		return Result{}, err
 	}
 
-	pub, err := newFeedExhaustedPublisher(amqpURI, wmLogger, &result)
-	if err != nil {
-		return Result{}, err
-	}
-	result.FeedExhaustedPublisher = pub
+	result.FeedExhaustedPublisher = publisher.NewPublisher(outbox.NewStore(db))
 
 	ok = true
 	return result, nil
@@ -263,7 +261,7 @@ func addFeedConsumer(wmRouter *message.Router, amqpURI string, db *mongo.Databas
 
 	// Every routing key listed in topology.FeedRoutingKeys is bound to this
 	// queue at the AMQP level (see topology.Builder). Neither
-	// "rk.post.recommended.sent" nor "rk.post.trending.sent" has a concrete
+	// "rk.post.feed.recommended.sent" nor "rk.post.trending.sent" has a concrete
 	// use case yet; both are valid, bound deliveries that dispatch.Dispatcher
 	// logs and acknowledges until their own use case is implemented.
 	handlers := map[string]dispatch.EventHandlerFunc{}
@@ -283,16 +281,4 @@ func newSubscriber(amqpURI string, spec topology.Spec, wmLogger watermill.Logger
 	}
 
 	return subscriber, nil
-}
-
-func newFeedExhaustedPublisher(amqpURI string, wmLogger watermill.LoggerAdapter, result *Result) (*publisher.Publisher, error) {
-	cfg := router.NewPublisherConfig(amqpURI, topology.ExchangeFeedEvents)
-
-	amqpPublisher, err := wmamqp.NewPublisher(cfg, wmLogger)
-	if err != nil {
-		return nil, fmt.Errorf("bootstrap rabbitmq: create feed events publisher: %w", err)
-	}
-	result.closers = append(result.closers, amqpPublisher.Close)
-
-	return publisher.NewPublisher(amqpPublisher), nil
 }

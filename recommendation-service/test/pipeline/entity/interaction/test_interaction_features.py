@@ -5,7 +5,7 @@ import pytest
 from pipeline.model.interaction.interaction_metric_update import InteractionMetricUpdate
 from shared.enum.interaction_metric import InteractionMetric
 from shared.helpers import decay
-from test._support.builders import T0, decayed_stats, make_user_creator_features, raw_stats
+from _support.builders import T0, decayed_stats, make_user_creator_features, raw_stats
 
 
 pytestmark = pytest.mark.unit

@@ -9,26 +9,19 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 
 import com.app.postcommandservice.like.domain.model.PostLikeSource;
 import com.app.postcommandservice.like.infrastructure.events.PostLikeDeletedEvent;
 import com.app.postcommandservice.shared.infrastructure.entity.OutboxEvent;
+import com.app.postcommandservice.shared.infrastructure.outbox.OutboxDestination;
 import com.app.postcommandservice.shared.infrastructure.enums.EventStatus;
-import com.app.postcommandservice.shared.infrastructure.mapper.JsonMapper;
 import com.app.postcommandservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 
-import static org.mockito.Mockito.verify;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class PostLikeDeletedEventPublisherTest {
-
-    @Mock
-    private RabbitTemplate rabbitTemplate;
-
-    @Mock
-    private JsonMapper jsonMapper;
 
     @Mock
     private RabbitMQProperties rabbitMQProperties;
@@ -52,7 +45,7 @@ class PostLikeDeletedEventPublisherTest {
     private PostLikeDeletedEventPublisher publisher;
 
     @Test
-    void shouldPublishPostLikeDeletedEventToRabbitMqUsingConfiguredRoutingKey() {
+    void shouldResolvePostLikeDeletedEventDestinationFromConfiguredExchangeAndRoutingKey() {
         var payload = PostLikeDeletedEvent.builder()
                 .id(UUID.randomUUID())
                 .correlationId(UUID.randomUUID())
@@ -70,8 +63,6 @@ class PostLikeDeletedEventPublisherTest {
                 .status(EventStatus.PENDING)
                 .createdAt(payload.occurredAt())
                 .build();
-
-        when(jsonMapper.fromJson("{json}", PostLikeDeletedEvent.class)).thenReturn(payload);
         when(rabbitMQProperties.getExchange()).thenReturn(exchanges);
         when(exchanges.getPost()).thenReturn(postExchange);
         when(postExchange.getEvents()).thenReturn("x.post.events");
@@ -80,8 +71,7 @@ class PostLikeDeletedEventPublisherTest {
         when(postRk.getLike()).thenReturn(likeRk);
         when(likeRk.getDeleted()).thenReturn("rk.post.like.deleted");
 
-        publisher.publish(outboxEvent);
-
-        verify(rabbitTemplate).convertAndSend("x.post.events", "rk.post.like.deleted", payload);
+        assertThat(publisher.destination(outboxEvent))
+                .isEqualTo(new OutboxDestination("x.post.events", "rk.post.like.deleted"));
     }
 }

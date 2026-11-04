@@ -1,5 +1,6 @@
 package com.app.postcommandservice.post.infrastructure;
 
+import java.util.Arrays;
 import java.util.Map;
 import java.util.UUID;
 
@@ -12,6 +13,8 @@ import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitAdmin;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.amqp.rabbit.listener.AbstractMessageListenerContainer;
+import org.springframework.amqp.rabbit.listener.RabbitListenerEndpointRegistry;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
@@ -58,10 +61,15 @@ class ConfirmMediaUploadFlowIT {
     @Autowired
     private RabbitMQProperties rabbitMQProperties;
 
+    @Autowired
+    private RabbitListenerEndpointRegistry listenerRegistry;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @BeforeEach
     void purgeMediaQueue() {
+        // PostMediaUploadedListener consumes this queue; pause it so the test can read the event itself
+        mediaQueueListeners(AbstractMessageListenerContainer::stop);
         new RabbitAdmin(connectionFactory).purgeQueue(rabbitMQProperties.getQueue().getPostMedia(), true);
     }
 
@@ -69,6 +77,17 @@ class ConfirmMediaUploadFlowIT {
     void tearDown() {
         postJpaRepository.deleteAll();
         new RabbitAdmin(connectionFactory).purgeQueue(rabbitMQProperties.getQueue().getPostMedia(), true);
+        // The Spring context is shared with other test classes: leave the listener running
+        mediaQueueListeners(AbstractMessageListenerContainer::start);
+    }
+
+    private void mediaQueueListeners(java.util.function.Consumer<AbstractMessageListenerContainer> action) {
+        var queue = rabbitMQProperties.getQueue().getPostMedia();
+        listenerRegistry.getListenerContainers().stream()
+                .filter(AbstractMessageListenerContainer.class::isInstance)
+                .map(AbstractMessageListenerContainer.class::cast)
+                .filter(container -> Arrays.asList(container.getQueueNames()).contains(queue))
+                .forEach(action);
     }
 
     @Test

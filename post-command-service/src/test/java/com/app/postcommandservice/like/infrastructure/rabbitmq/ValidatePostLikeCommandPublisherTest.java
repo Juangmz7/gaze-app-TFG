@@ -14,7 +14,7 @@ import com.app.postcommandservice.like.application.commands.ValidatePostLikeComm
 import com.app.postcommandservice.like.application.commands.ValidatePostUnlikeCommand;
 import com.app.postcommandservice.like.domain.model.PostLikeSource;
 import com.app.postcommandservice.shared.infrastructure.entity.OutboxEvent;
-import com.app.postcommandservice.shared.infrastructure.mapper.JsonMapper;
+import com.app.postcommandservice.shared.infrastructure.outbox.OutboxDestination;
 import com.app.postcommandservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -29,9 +29,6 @@ class ValidatePostLikeCommandPublisherTest {
 
     @Mock
     private RabbitMQProperties rabbitMQProperties;
-
-    @Mock
-    private JsonMapper jsonMapper;
 
     @Mock
     private RabbitMQProperties.Exchanges exchanges;
@@ -112,7 +109,7 @@ class ValidatePostLikeCommandPublisherTest {
     }
 
     @Test
-    void shouldPublishValidatePostLikeCommandFromOutboxPayload() {
+    void shouldResolveValidatePostLikeCommandDestinationFromConfiguredExchangeAndRoutingKey() {
         var command = new ValidatePostLikeCommand(
                 UUID.randomUUID(),
                 UUID.randomUUID(),
@@ -136,15 +133,13 @@ class ValidatePostLikeCommandPublisherTest {
         when(routingKeys.getPost()).thenReturn(postRk);
         when(postRk.getLike()).thenReturn(likeRk);
         when(likeRk.getValidate()).thenReturn("rk.post.like.validate");
-        when(jsonMapper.fromJson(outboxEvent.getPayload(), ValidatePostLikeCommand.class)).thenReturn(command);
 
-        publisher.publish(outboxEvent);
-
-        verify(rabbitTemplate).convertAndSend("x.post.commands", "rk.post.like.validate", command);
+        assertThat(publisher.destination(outboxEvent))
+                .isEqualTo(new OutboxDestination("x.post.commands", "rk.post.like.validate"));
     }
 
     @Test
-    void shouldPublishValidatePostUnlikeCommandFromOutboxPayload() {
+    void shouldResolveValidatePostUnlikeCommandDestinationFromConfiguredExchangeAndRoutingKey() {
         var command = new ValidatePostUnlikeCommand(
                 UUID.randomUUID(),
                 UUID.randomUUID(),
@@ -168,10 +163,8 @@ class ValidatePostLikeCommandPublisherTest {
         when(routingKeys.getPost()).thenReturn(postRk);
         when(postRk.getUnlike()).thenReturn(unlikeRk);
         when(unlikeRk.getValidate()).thenReturn("rk.post.unlike.validate");
-        when(jsonMapper.fromJson(outboxEvent.getPayload(), ValidatePostUnlikeCommand.class)).thenReturn(command);
 
-        publisher.publish(outboxEvent);
-
-        verify(rabbitTemplate).convertAndSend("x.post.commands", "rk.post.unlike.validate", command);
+        assertThat(publisher.destination(outboxEvent))
+                .isEqualTo(new OutboxDestination("x.post.commands", "rk.post.unlike.validate"));
     }
 }

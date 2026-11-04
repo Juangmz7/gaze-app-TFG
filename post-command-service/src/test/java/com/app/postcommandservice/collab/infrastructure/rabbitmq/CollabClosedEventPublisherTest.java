@@ -8,26 +8,19 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
 
 import com.app.postcommandservice.collab.domain.model.valueobj.ColabStatus;
 import com.app.postcommandservice.collab.infrastructure.events.CollabClosedEvent;
 import com.app.postcommandservice.shared.infrastructure.entity.OutboxEvent;
+import com.app.postcommandservice.shared.infrastructure.outbox.OutboxDestination;
 import com.app.postcommandservice.shared.infrastructure.enums.EventStatus;
-import com.app.postcommandservice.shared.infrastructure.mapper.JsonMapper;
 import com.app.postcommandservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 
-import static org.mockito.Mockito.verify;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class CollabClosedEventPublisherTest {
-
-    @Mock
-    private RabbitTemplate rabbitTemplate;
-
-    @Mock
-    private JsonMapper jsonMapper;
 
     @Mock
     private RabbitMQProperties rabbitMQProperties;
@@ -51,7 +44,7 @@ class CollabClosedEventPublisherTest {
     private CollabClosedEventPublisher publisher;
 
     @Test
-    void shouldPublishCollabClosedEventToRabbitMqUsingConfiguredRoutingKey() {
+    void shouldResolveCollabClosedEventDestinationFromConfiguredExchangeAndRoutingKey() {
         var payload = CollabClosedEvent.builder()
                 .id(UUID.randomUUID())
                 .correlationId(UUID.randomUUID())
@@ -71,8 +64,6 @@ class CollabClosedEventPublisherTest {
                 .status(EventStatus.PENDING)
                 .createdAt(payload.occurredAt())
                 .build();
-
-        when(jsonMapper.fromJson("{json}", CollabClosedEvent.class)).thenReturn(payload);
         when(rabbitMQProperties.getExchange()).thenReturn(exchanges);
         when(exchanges.getPost()).thenReturn(postExchange);
         when(postExchange.getEvents()).thenReturn("x.post.events");
@@ -81,8 +72,7 @@ class CollabClosedEventPublisherTest {
         when(postRk.getCollab()).thenReturn(collabRk);
         when(collabRk.getClosed()).thenReturn("rk.post.collab.closed");
 
-        publisher.publish(outboxEvent);
-
-        verify(rabbitTemplate).convertAndSend("x.post.events", "rk.post.collab.closed", payload);
+        assertThat(publisher.destination(outboxEvent))
+                .isEqualTo(new OutboxDestination("x.post.events", "rk.post.collab.closed"));
     }
 }

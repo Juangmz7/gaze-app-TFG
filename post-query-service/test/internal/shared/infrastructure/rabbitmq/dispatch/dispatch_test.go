@@ -73,7 +73,7 @@ func TestDispatcher_Handle_AcksAndSkipsWhenNoHandlerIsRegisteredForTheRoutingKey
 	dispatcher := dispatch.New(topology.QueuePost, handlers, testLogger())
 
 	msg := message.NewMessage("1", []byte(`{}`))
-	msg.Metadata.Set(topology.RoutingKeyHeader, "rk.post.recommended.sent")
+	msg.Metadata.Set(topology.RoutingKeyHeader, topology.RKPostRecommendedSent)
 
 	if err := dispatcher.Handle(msg); err != nil {
 		t.Fatalf("Handle() error = %v, want nil for an unregistered routing key", err)

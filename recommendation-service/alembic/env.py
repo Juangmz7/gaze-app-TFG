@@ -16,6 +16,7 @@ from shared.entity.base import Base  # noqa: E402
 # Alembic autogeneration inspects Base.metadata to detect schema changes.
 # ---------------------------------------------------------------------------
 from shared.entity.processed_event_entity import ProcessedEventRecord  # noqa: F401, E402
+from shared.entity.outbox_event_entity import OutboxEventRecord  # noqa: F401, E402
 from block.entity.block_entity import BlockRecord  # noqa: F401, E402
 from follow.entity.follow_entity import FollowRecord  # noqa: F401, E402
 from post.entity.collab_entity import CollabRecord  # noqa: F401, E402
@@ -42,7 +43,9 @@ from pipeline.entity.user.user_creator_features_entity import (  # noqa: F401, E
 config = context.config
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # Keep the application's loggers: migrations also run in-process (the test
+    # fixtures do), and fileConfig() disables every logger created before it
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # The metadata object that autogenerate compares against the live DB schema
 target_metadata = Base.metadata
