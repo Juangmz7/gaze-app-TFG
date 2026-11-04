@@ -22,21 +22,30 @@ import (
 const PostLikeCreatedEventType = "PostLikeCreatedEvent"
 
 // PostLikeCreatedEvent is the wire shape of PostLikeCreatedEvent published
-// by post-command-service.
+// by post-command-service. Field names are camelCase, matching the real Java
+// record. It carries no likeId: post_likes in post-command-service has
+// (post_id, user_id) as its primary key, so that pair is the like's identity.
 type PostLikeCreatedEvent struct {
 	ID            uuid.UUID `json:"id"`
-	CorrelationID uuid.UUID `json:"correlation_id"`
-	OccurredAt    time.Time `json:"occurred_at"`
-	LikeID        uuid.UUID `json:"like_id"`
-	PostID        uuid.UUID `json:"post_id"`
-	UserID        uuid.UUID `json:"user_id"`
-	CreatedAt     time.Time `json:"created_at"`
+	CorrelationID uuid.UUID `json:"correlationId"`
+	OccurredAt    time.Time `json:"occurredAt"`
+	PostID        uuid.UUID `json:"postId"`
+	UserID        uuid.UUID `json:"userId"`
+	Source        string    `json:"source"`
+	FeedPosition  int       `json:"feedPosition"`
+	CreatedAt     time.Time `json:"createdAt"`
 }
 
 // PostLikeCreatedIdempotencyRepository records and checks processed events.
 type PostLikeCreatedIdempotencyRepository interface {
 	IsProcessed(ctx context.Context, eventID uuid.UUID) (bool, error)
 	MarkProcessed(ctx context.Context, eventID, correlationID uuid.UUID, eventType string) error
+}
+
+// PostLikeCreatedTransactor runs its function inside one MongoDB transaction.
+// Implemented by shared/infrastructure/database.Transactor.
+type PostLikeCreatedTransactor interface {
+	WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error
 }
 
 // PostLikeCreatedUsecase executes the like projection.
@@ -47,14 +56,15 @@ type PostLikeCreatedUsecase interface {
 // PostLikeCreatedHandler decodes PostLikeCreatedEvent deliveries, enforces
 // idempotency, and delegates to PostLikeCreatedUsecase.
 type PostLikeCreatedHandler struct {
+	transactor  PostLikeCreatedTransactor
 	idempotency PostLikeCreatedIdempotencyRepository
 	usecase     PostLikeCreatedUsecase
 	logger      *slog.Logger
 }
 
 // NewPostLikeCreatedHandler creates a PostLikeCreatedHandler.
-func NewPostLikeCreatedHandler(idempotency PostLikeCreatedIdempotencyRepository, usecase PostLikeCreatedUsecase, logger *slog.Logger) *PostLikeCreatedHandler {
-	return &PostLikeCreatedHandler{idempotency: idempotency, usecase: usecase, logger: logger}
+func NewPostLikeCreatedHandler(transactor PostLikeCreatedTransactor, idempotency PostLikeCreatedIdempotencyRepository, usecase PostLikeCreatedUsecase, logger *slog.Logger) *PostLikeCreatedHandler {
+	return &PostLikeCreatedHandler{transactor: transactor, idempotency: idempotency, usecase: usecase, logger: logger}
 }
 
 // Handle implements dispatch.EventHandlerFunc.
@@ -68,27 +78,36 @@ func (h *PostLikeCreatedHandler) Handle(ctx context.Context, msg *message.Messag
 		return rmqerror.NewPermanent(err)
 	}
 
-	alreadyProcessed, err := h.idempotency.IsProcessed(ctx, event.ID)
-	if err != nil {
-		return fmt.Errorf("check post like created event %s processed: %w", event.ID, err)
-	}
-	if alreadyProcessed {
-		h.logger.WarnContext(ctx, "discarding duplicate post like created event", "event_id", event.ID)
+	// IsProcessed, the projection (including the post stats adjustment) and
+	// MarkProcessed commit or abort together. The driver may re-run this function
+	// on a transient transaction error, and a re-run sees its own committed state.
+	err := h.transactor.WithTransaction(ctx, func(ctx context.Context) error {
+		alreadyProcessed, err := h.idempotency.IsProcessed(ctx, event.ID)
+		if err != nil {
+			return fmt.Errorf("check post like created event %s processed: %w", event.ID, err)
+		}
+		if alreadyProcessed {
+			h.logger.WarnContext(ctx, "discarding duplicate post like created event", "event_id", event.ID)
+			return nil
+		}
+
+		input := usecase.RecordLikeInput{
+			PostID:    event.PostID,
+			UserID:    event.UserID,
+			CreatedAt: event.CreatedAt,
+		}
+		if err := h.usecase.Execute(ctx, input); err != nil {
+			return fmt.Errorf("execute record like usecase for event %s: %w", event.ID, err)
+		}
+
+		if err := h.idempotency.MarkProcessed(ctx, event.ID, event.CorrelationID, PostLikeCreatedEventType); err != nil {
+			return fmt.Errorf("mark post like created event %s processed: %w", event.ID, err)
+		}
+
 		return nil
-	}
-
-	input := usecase.RecordLikeInput{
-		LikeID:    event.LikeID,
-		PostID:    event.PostID,
-		UserID:    event.UserID,
-		CreatedAt: event.CreatedAt,
-	}
-	if err := h.usecase.Execute(ctx, input); err != nil {
-		return fmt.Errorf("execute record like usecase for event %s: %w", event.ID, err)
-	}
-
-	if err := h.idempotency.MarkProcessed(ctx, event.ID, event.CorrelationID, PostLikeCreatedEventType); err != nil {
-		return fmt.Errorf("mark post like created event %s processed: %w", event.ID, err)
+	})
+	if err != nil {
+		return fmt.Errorf("project post like created event %s: %w", event.ID, err)
 	}
 
 	return nil
@@ -99,19 +118,16 @@ func validatePostLikeCreatedEvent(event PostLikeCreatedEvent) error {
 		return fmt.Errorf("post like created event: id is required")
 	}
 	if event.CorrelationID == uuid.Nil {
-		return fmt.Errorf("post like created event: correlation_id is required")
+		return fmt.Errorf("post like created event: correlationId is required")
 	}
 	if event.OccurredAt.IsZero() {
-		return fmt.Errorf("post like created event: occurred_at is required")
-	}
-	if event.LikeID == uuid.Nil {
-		return fmt.Errorf("post like created event: like_id is required")
+		return fmt.Errorf("post like created event: occurredAt is required")
 	}
 	if event.PostID == uuid.Nil {
-		return fmt.Errorf("post like created event: post_id is required")
+		return fmt.Errorf("post like created event: postId is required")
 	}
 	if event.UserID == uuid.Nil {
-		return fmt.Errorf("post like created event: user_id is required")
+		return fmt.Errorf("post like created event: userId is required")
 	}
 
 	return nil

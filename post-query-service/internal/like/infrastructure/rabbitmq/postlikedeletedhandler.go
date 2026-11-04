@@ -39,6 +39,12 @@ type PostLikeDeletedIdempotencyRepository interface {
 	MarkProcessed(ctx context.Context, eventID, correlationID uuid.UUID, eventType string) error
 }
 
+// PostLikeDeletedTransactor runs its function inside one MongoDB transaction.
+// Implemented by shared/infrastructure/database.Transactor.
+type PostLikeDeletedTransactor interface {
+	WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error
+}
+
 // PostLikeDeletedUsecase executes the like deletion projection.
 type PostLikeDeletedUsecase interface {
 	Execute(ctx context.Context, input usecase.DeleteLikeInput) error
@@ -47,14 +53,15 @@ type PostLikeDeletedUsecase interface {
 // PostLikeDeletedHandler decodes PostLikeDeletedEvent deliveries, enforces
 // idempotency, and delegates to PostLikeDeletedUsecase.
 type PostLikeDeletedHandler struct {
+	transactor  PostLikeDeletedTransactor
 	idempotency PostLikeDeletedIdempotencyRepository
 	usecase     PostLikeDeletedUsecase
 	logger      *slog.Logger
 }
 
 // NewPostLikeDeletedHandler creates a PostLikeDeletedHandler.
-func NewPostLikeDeletedHandler(idempotency PostLikeDeletedIdempotencyRepository, uc PostLikeDeletedUsecase, logger *slog.Logger) *PostLikeDeletedHandler {
-	return &PostLikeDeletedHandler{idempotency: idempotency, usecase: uc, logger: logger}
+func NewPostLikeDeletedHandler(transactor PostLikeDeletedTransactor, idempotency PostLikeDeletedIdempotencyRepository, uc PostLikeDeletedUsecase, logger *slog.Logger) *PostLikeDeletedHandler {
+	return &PostLikeDeletedHandler{transactor: transactor, idempotency: idempotency, usecase: uc, logger: logger}
 }
 
 // Handle implements dispatch.EventHandlerFunc.
@@ -68,22 +75,32 @@ func (h *PostLikeDeletedHandler) Handle(ctx context.Context, msg *message.Messag
 		return rmqerror.NewPermanent(err)
 	}
 
-	alreadyProcessed, err := h.idempotency.IsProcessed(ctx, event.ID)
-	if err != nil {
-		return fmt.Errorf("check post like deleted event %s processed: %w", event.ID, err)
-	}
-	if alreadyProcessed {
-		h.logger.WarnContext(ctx, "discarding duplicate post like deleted event", "event_id", event.ID)
+	// IsProcessed, the projection (including the post stats adjustment) and
+	// MarkProcessed commit or abort together. The driver may re-run this function
+	// on a transient transaction error, and a re-run sees its own committed state.
+	err := h.transactor.WithTransaction(ctx, func(ctx context.Context) error {
+		alreadyProcessed, err := h.idempotency.IsProcessed(ctx, event.ID)
+		if err != nil {
+			return fmt.Errorf("check post like deleted event %s processed: %w", event.ID, err)
+		}
+		if alreadyProcessed {
+			h.logger.WarnContext(ctx, "discarding duplicate post like deleted event", "event_id", event.ID)
+			return nil
+		}
+
+		input := usecase.DeleteLikeInput{PostID: event.PostID, UserID: event.UserID}
+		if err := h.usecase.Execute(ctx, input); err != nil {
+			return fmt.Errorf("execute delete like usecase for event %s: %w", event.ID, err)
+		}
+
+		if err := h.idempotency.MarkProcessed(ctx, event.ID, event.CorrelationID, PostLikeDeletedEventType); err != nil {
+			return fmt.Errorf("mark post like deleted event %s processed: %w", event.ID, err)
+		}
+
 		return nil
-	}
-
-	input := usecase.DeleteLikeInput{PostID: event.PostID, UserID: event.UserID}
-	if err := h.usecase.Execute(ctx, input); err != nil {
-		return fmt.Errorf("execute delete like usecase for event %s: %w", event.ID, err)
-	}
-
-	if err := h.idempotency.MarkProcessed(ctx, event.ID, event.CorrelationID, PostLikeDeletedEventType); err != nil {
-		return fmt.Errorf("mark post like deleted event %s processed: %w", event.ID, err)
+	})
+	if err != nil {
+		return fmt.Errorf("project post like deleted event %s: %w", event.ID, err)
 	}
 
 	return nil

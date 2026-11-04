@@ -21,32 +21,27 @@ const collectionName = "post_shares"
 // operationTimeout bounds every Mongo call made by Repository.
 const operationTimeout = 5 * time.Second
 
-// ErrVersionConflict is returned by Update when the stored document's
-// version does not match UpdateInput.ExpectedVersion, meaning the document
-// was modified by another writer since the version was read.
-var ErrVersionConflict = errors.New("share version conflict")
+// legacyShareIDIndex is the name of the unique index on the removed share_id field.
+const legacyShareIDIndex = "share_id_1"
 
-// shareDocument is the persisted shape of a share read model entry.
+// MongoDB server error codes dropIndexes returns when there is nothing to drop.
+const (
+	mongoNamespaceNotFoundCode = 26
+	mongoIndexNotFoundCode     = 27
+)
+
+// shareDocument is the persisted shape of a share read model entry. Its identity
+// is (post_id, user_id), the same primary key post_shares has in
+// post-command-service; the events carry no shareId.
 type shareDocument struct {
-	ShareID   string    `bson:"share_id"`
 	PostID    string    `bson:"post_id"`
 	UserID    string    `bson:"user_id"`
 	CreatedAt time.Time `bson:"created_at"`
 	Version   int64     `bson:"version"`
 }
 
-// UpdateInput is the data required to apply an optimistic-concurrency
-// update to an existing share read model document. No use case calls Update
-// yet; it exists so the repository/mongo layer exposes a version-based
-// update capability uniformly across every read-model repository.
-type UpdateInput struct {
-	ShareID         uuid.UUID
-	ExpectedVersion int64
-	PostID          uuid.UUID
-	UserID          uuid.UUID
-}
-
-// Repository implements usecase.Repository against MongoDB.
+// Repository implements usecase.RecordShareRepository and
+// usecase.DeleteShareRepository against MongoDB.
 type Repository struct {
 	collection *mongo.Collection
 }
@@ -56,15 +51,20 @@ func NewRepository(db *mongo.Database) *Repository {
 	return &Repository{collection: db.Collection(collectionName)}
 }
 
-// EnsureIndexes creates the unique index on share_id required to make
-// Insert idempotent under concurrent or retried deliveries of the same
-// creation event.
+// EnsureIndexes creates the unique index on (post_id, user_id), the share's
+// identity, and drops the share_id index earlier versions created: share_id no
+// longer exists, so that unique index would treat every new document as a
+// duplicate of the first one (all missing values index as null).
 func (r *Repository) EnsureIndexes(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
 
+	if err := r.collection.Indexes().DropOne(ctx, legacyShareIDIndex); err != nil && !isMissingIndexError(err) {
+		return fmt.Errorf("drop post_shares legacy index: %w", err)
+	}
+
 	indexModel := mongo.IndexModel{
-		Keys:    bson.D{{Key: "share_id", Value: 1}},
+		Keys:    bson.D{{Key: "post_id", Value: 1}, {Key: "user_id", Value: 1}},
 		Options: options.Index().SetUnique(true),
 	}
 
@@ -75,73 +75,55 @@ func (r *Repository) EnsureIndexes(ctx context.Context) error {
 	return nil
 }
 
-// Insert writes input as a new share read model document at version 1. A
-// duplicate delivery of the same share-creation event is already filtered
-// out upstream by the idempotency repository before the use case runs, but
-// a crash between MarkProcessed and this write makes a retry of the same
-// creation event theoretically possible; when that retry hits the unique
-// index on share_id, Insert treats the duplicate-key error as an
-// already-applied insert and returns nil.
-func (r *Repository) Insert(ctx context.Context, input usecase.RecordShareInput) error {
+// isMissingIndexError reports whether a dropIndexes failure only means there was
+// nothing to drop: no such index, or no such collection yet.
+func isMissingIndexError(err error) bool {
+	var commandErr mongo.CommandError
+	if !errors.As(err, &commandErr) {
+		return false
+	}
+	return commandErr.Code == mongoIndexNotFoundCode || commandErr.Code == mongoNamespaceNotFoundCode
+}
+
+// Insert writes input as a new share read model document at version 1 and reports
+// whether it really created one. It runs inside the handler's transaction, where
+// a duplicate-key error aborts the whole transaction, so an existing document is
+// looked up first and reported as (false, nil). A duplicate-key error can then
+// only come from a concurrent writer: it is returned as a retryable error, and
+// the redelivery finds the document.
+func (r *Repository) Insert(ctx context.Context, input usecase.RecordShareInput) (bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
 
+	filter := bson.D{
+		{Key: "post_id", Value: input.PostID.String()},
+		{Key: "user_id", Value: input.UserID.String()},
+	}
+	err := r.collection.FindOne(ctx, filter, options.FindOne().SetProjection(bson.D{{Key: "_id", Value: 1}})).Err()
+	if err == nil {
+		return false, nil
+	}
+	if !errors.Is(err, mongo.ErrNoDocuments) {
+		return false, fmt.Errorf("find share for post %s user %s: %w", input.PostID, input.UserID, err)
+	}
+
 	doc := shareDocument{
-		ShareID:   input.ShareID.String(),
 		PostID:    input.PostID.String(),
 		UserID:    input.UserID.String(),
 		CreatedAt: input.CreatedAt,
 		Version:   1,
 	}
-
 	if _, err := r.collection.InsertOne(ctx, doc); err != nil {
-		if mongo.IsDuplicateKeyError(err) {
-			return nil
-		}
-		return fmt.Errorf("insert share %s: %w", input.ShareID, err)
+		return false, fmt.Errorf("insert share for post %s user %s: %w", input.PostID, input.UserID, err)
 	}
 
-	return nil
+	return true, nil
 }
 
-// Update applies an optimistic-concurrency update to the share read model
-// document identified by input.ShareID. It only succeeds when the stored
-// document's version equals input.ExpectedVersion; on success the changed
-// fields are set and the version is incremented by one. If no document
-// matched (either the share does not exist or its version has already
-// moved on), Update returns ErrVersionConflict.
-func (r *Repository) Update(ctx context.Context, input UpdateInput) error {
-	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
-	defer cancel()
-
-	filter := bson.D{
-		{Key: "share_id", Value: input.ShareID.String()},
-		{Key: "version", Value: input.ExpectedVersion},
-	}
-	update := bson.D{
-		{Key: "$set", Value: bson.D{
-			{Key: "post_id", Value: input.PostID.String()},
-			{Key: "user_id", Value: input.UserID.String()},
-		}},
-		{Key: "$inc", Value: bson.D{{Key: "version", Value: int64(1)}}},
-	}
-
-	result, err := r.collection.UpdateOne(ctx, filter, update)
-	if err != nil {
-		return fmt.Errorf("update share %s: %w", input.ShareID, err)
-	}
-	if result.ModifiedCount == 0 {
-		return fmt.Errorf("update share %s: %w", input.ShareID, ErrVersionConflict)
-	}
-
-	return nil
-}
-
-// DeleteByPostAndUser idempotently removes the share read model document
-// matching postID and userID. See usecase.DeleteShareInput's doc comment
-// for why PostShareDeletedEvent is projected by this filter instead of by
-// share_id. Deleting when no document matches is not an error.
-func (r *Repository) DeleteByPostAndUser(ctx context.Context, postID, userID uuid.UUID) error {
+// DeleteByPostAndUser idempotently removes the share read model document matching
+// postID and userID and reports whether a document was really removed. Deleting
+// when no document matches is not an error.
+func (r *Repository) DeleteByPostAndUser(ctx context.Context, postID, userID uuid.UUID) (bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
 
@@ -149,9 +131,10 @@ func (r *Repository) DeleteByPostAndUser(ctx context.Context, postID, userID uui
 		{Key: "post_id", Value: postID.String()},
 		{Key: "user_id", Value: userID.String()},
 	}
-	if _, err := r.collection.DeleteOne(ctx, filter); err != nil {
-		return fmt.Errorf("delete share for post %s user %s: %w", postID, userID, err)
+	result, err := r.collection.DeleteOne(ctx, filter)
+	if err != nil {
+		return false, fmt.Errorf("delete share for post %s user %s: %w", postID, userID, err)
 	}
 
-	return nil
+	return result.DeletedCount > 0, nil
 }

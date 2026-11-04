@@ -2,7 +2,6 @@ package mongo_test
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
@@ -16,8 +15,9 @@ import (
 	sharemongo "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/share/infrastructure/mongo"
 )
 
+const sharesCollection = "post_shares"
+
 type shareDocument struct {
-	ShareID string `bson:"share_id"`
 	PostID  string `bson:"post_id"`
 	UserID  string `bson:"user_id"`
 	Version int64  `bson:"version"`
@@ -30,35 +30,27 @@ func TestRepository_Insert_PersistsTheShareReadModelAtVersionOne(t *testing.T) {
 	db := testDatabase(t, ctx)
 	repository := sharemongo.NewRepository(db)
 
-	input := usecase.RecordShareInput{
-		ShareID:   uuid.New(),
-		PostID:    uuid.New(),
-		UserID:    uuid.New(),
-		CreatedAt: time.Now().UTC(),
-	}
+	input := usecase.RecordShareInput{PostID: uuid.New(), UserID: uuid.New(), CreatedAt: time.Now().UTC()}
 
-	if err := repository.Insert(ctx, input); err != nil {
+	inserted, err := repository.Insert(ctx, input)
+	if err != nil {
 		t.Fatalf("Insert() error = %v", err)
 	}
-
-	got := findShare(t, ctx, db, input.ShareID)
-	if got.PostID != input.PostID.String() {
-		t.Fatalf("stored document PostID = %q, want %q", got.PostID, input.PostID.String())
+	if !inserted {
+		t.Fatal("Insert() inserted = false, want true for a new document")
 	}
-	if got.UserID != input.UserID.String() {
-		t.Fatalf("stored document UserID = %q, want %q", got.UserID, input.UserID.String())
+
+	var got shareDocument
+	filter := bson.D{{Key: "post_id", Value: input.PostID.String()}, {Key: "user_id", Value: input.UserID.String()}}
+	if err := db.Collection(sharesCollection).FindOne(ctx, filter).Decode(&got); err != nil {
+		t.Fatalf("FindOne() error = %v", err)
 	}
 	if got.Version != 1 {
 		t.Fatalf("stored document Version = %d, want 1", got.Version)
 	}
 }
 
-// TestRepository_Insert_IsIdempotentOnARetriedInsertOfTheSameShareID proves
-// the crash-and-retry race named by Insert's doc comment: a unique index on
-// share_id makes a second Insert of the same business id a no-op (duplicate
-// key treated as already-applied) rather than a second document or an
-// error, so EnsureIndexes must run first.
-func TestRepository_Insert_IsIdempotentOnARetriedInsertOfTheSameShareID(t *testing.T) {
+func TestRepository_Insert_ReportsFalseAndWritesNothingWhenThePairAlreadyExists(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
@@ -68,93 +60,81 @@ func TestRepository_Insert_IsIdempotentOnARetriedInsertOfTheSameShareID(t *testi
 		t.Fatalf("EnsureIndexes() error = %v", err)
 	}
 
-	shareID := uuid.New()
-	input := usecase.RecordShareInput{ShareID: shareID, PostID: uuid.New(), UserID: uuid.New(), CreatedAt: time.Now().UTC()}
-	if err := repository.Insert(ctx, input); err != nil {
+	input := usecase.RecordShareInput{PostID: uuid.New(), UserID: uuid.New(), CreatedAt: time.Now().UTC()}
+	if _, err := repository.Insert(ctx, input); err != nil {
 		t.Fatalf("Insert() error = %v", err)
 	}
-	if err := repository.Insert(ctx, input); err != nil {
-		t.Fatalf("Insert() error = %v, want nil on a retried insert of the same share id", err)
+
+	inserted, err := repository.Insert(ctx, input)
+	if err != nil {
+		t.Fatalf("Insert() error = %v, want nil on a repeated (post, user) pair", err)
+	}
+	if inserted {
+		t.Fatal("Insert() inserted = true, want false on a repeated (post, user) pair")
 	}
 
-	count, err := db.Collection("post_shares").CountDocuments(ctx, bson.D{{Key: "share_id", Value: shareID.String()}})
+	count, err := db.Collection(sharesCollection).CountDocuments(ctx, bson.D{{Key: "post_id", Value: input.PostID.String()}})
 	if err != nil {
 		t.Fatalf("CountDocuments() error = %v", err)
 	}
 	if count != 1 {
-		t.Fatalf("CountDocuments() = %d, want exactly 1 document for share_id %s", count, shareID)
+		t.Fatalf("CountDocuments() = %d, want exactly 1", count)
 	}
 }
 
-func TestRepository_Update_SucceedsAndIncrementsVersionWhenExpectedVersionMatches(t *testing.T) {
+func TestRepository_Insert_AllowsSeveralUsersOnOnePostAfterEnsureIndexes(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	db := testDatabase(t, ctx)
 	repository := sharemongo.NewRepository(db)
-
-	shareID := uuid.New()
-	if err := repository.Insert(ctx, usecase.RecordShareInput{ShareID: shareID, PostID: uuid.New(), UserID: uuid.New(), CreatedAt: time.Now().UTC()}); err != nil {
-		t.Fatalf("Insert() error = %v", err)
+	if err := repository.EnsureIndexes(ctx); err != nil {
+		t.Fatalf("EnsureIndexes() error = %v", err)
 	}
 
-	newPostID := uuid.New()
-	newUserID := uuid.New()
-	update := sharemongo.UpdateInput{ShareID: shareID, ExpectedVersion: 1, PostID: newPostID, UserID: newUserID}
-	if err := repository.Update(ctx, update); err != nil {
-		t.Fatalf("Update() error = %v", err)
-	}
-
-	got := findShare(t, ctx, db, shareID)
-	if got.PostID != newPostID.String() {
-		t.Fatalf("stored document PostID = %q, want %q", got.PostID, newPostID.String())
-	}
-	if got.Version != 2 {
-		t.Fatalf("stored document Version = %d, want 2", got.Version)
+	postID := uuid.New()
+	for range 3 {
+		inserted, err := repository.Insert(ctx, usecase.RecordShareInput{PostID: postID, UserID: uuid.New(), CreatedAt: time.Now().UTC()})
+		if err != nil {
+			t.Fatalf("Insert() error = %v", err)
+		}
+		if !inserted {
+			t.Fatal("Insert() inserted = false, want true for a different user")
+		}
 	}
 }
 
-func TestRepository_Update_ReturnsVersionConflictAndDoesNotModifyWhenExpectedVersionIsStale(t *testing.T) {
+// Earlier versions created a unique index on the removed share_id field. Left in
+// place it would index every new document as null and reject all but the first.
+func TestRepository_EnsureIndexes_DropsTheLegacyIDIndexAndIsRepeatable(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	db := testDatabase(t, ctx)
+	collection := db.Collection(sharesCollection)
+	if _, err := collection.Indexes().CreateOne(ctx, mongodriver.IndexModel{
+		Keys:    bson.D{{Key: "share_id", Value: 1}},
+		Options: options.Index().SetUnique(true),
+	}); err != nil {
+		t.Fatalf("CreateOne() error = %v", err)
+	}
+
 	repository := sharemongo.NewRepository(db)
-
-	shareID := uuid.New()
-	originalPostID := uuid.New()
-	if err := repository.Insert(ctx, usecase.RecordShareInput{ShareID: shareID, PostID: originalPostID, UserID: uuid.New(), CreatedAt: time.Now().UTC()}); err != nil {
-		t.Fatalf("Insert() error = %v", err)
+	for range 2 {
+		if err := repository.EnsureIndexes(ctx); err != nil {
+			t.Fatalf("EnsureIndexes() error = %v", err)
+		}
 	}
 
-	update := sharemongo.UpdateInput{ShareID: shareID, ExpectedVersion: 99, PostID: uuid.New(), UserID: uuid.New()}
-	err := repository.Update(ctx, update)
-	if !errors.Is(err, sharemongo.ErrVersionConflict) {
-		t.Fatalf("Update() error = %v, want it to wrap ErrVersionConflict", err)
-	}
-
-	got := findShare(t, ctx, db, shareID)
-	if got.PostID != originalPostID.String() {
-		t.Fatalf("stored document PostID = %q, want unchanged %q", got.PostID, originalPostID.String())
-	}
-	if got.Version != 1 {
-		t.Fatalf("stored document Version = %d, want unchanged 1", got.Version)
+	postID := uuid.New()
+	for range 2 {
+		if inserted, err := repository.Insert(ctx, usecase.RecordShareInput{PostID: postID, UserID: uuid.New(), CreatedAt: time.Now().UTC()}); err != nil || !inserted {
+			t.Fatalf("Insert() inserted/error = %v/%v, want true/nil once the legacy index is gone", inserted, err)
+		}
 	}
 }
 
-func findShare(t *testing.T, ctx context.Context, db *mongodriver.Database, shareID uuid.UUID) shareDocument {
-	t.Helper()
-
-	var doc shareDocument
-	err := db.Collection("post_shares").FindOne(ctx, bson.D{{Key: "share_id", Value: shareID.String()}}).Decode(&doc)
-	if err != nil {
-		t.Fatalf("FindOne() error = %v", err)
-	}
-
-	return doc
-}
-
-func TestRepository_DeleteByPostAndUser_RemovesTheMatchingShareReadModelDocument(t *testing.T) {
+func TestRepository_DeleteByPostAndUser_RemovesTheDocumentAndReportsIt(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
@@ -163,15 +143,19 @@ func TestRepository_DeleteByPostAndUser_RemovesTheMatchingShareReadModelDocument
 
 	postID := uuid.New()
 	userID := uuid.New()
-	if err := repository.Insert(ctx, usecase.RecordShareInput{ShareID: uuid.New(), PostID: postID, UserID: userID, CreatedAt: time.Now().UTC()}); err != nil {
+	if _, err := repository.Insert(ctx, usecase.RecordShareInput{PostID: postID, UserID: userID, CreatedAt: time.Now().UTC()}); err != nil {
 		t.Fatalf("Insert() error = %v", err)
 	}
 
-	if err := repository.DeleteByPostAndUser(ctx, postID, userID); err != nil {
+	removed, err := repository.DeleteByPostAndUser(ctx, postID, userID)
+	if err != nil {
 		t.Fatalf("DeleteByPostAndUser() error = %v", err)
 	}
+	if !removed {
+		t.Fatal("DeleteByPostAndUser() removed = false, want true")
+	}
 
-	count, err := db.Collection("post_shares").CountDocuments(ctx, bson.D{{Key: "post_id", Value: postID.String()}, {Key: "user_id", Value: userID.String()}})
+	count, err := db.Collection(sharesCollection).CountDocuments(ctx, bson.D{{Key: "post_id", Value: postID.String()}, {Key: "user_id", Value: userID.String()}})
 	if err != nil {
 		t.Fatalf("CountDocuments() error = %v", err)
 	}
@@ -180,15 +164,18 @@ func TestRepository_DeleteByPostAndUser_RemovesTheMatchingShareReadModelDocument
 	}
 }
 
-func TestRepository_DeleteByPostAndUser_IsANoOpWhenNoShareMatches(t *testing.T) {
+func TestRepository_DeleteByPostAndUser_ReportsFalseWhenNothingMatches(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	db := testDatabase(t, ctx)
-	repository := sharemongo.NewRepository(db)
+	repository := sharemongo.NewRepository(testDatabase(t, ctx))
 
-	if err := repository.DeleteByPostAndUser(ctx, uuid.New(), uuid.New()); err != nil {
+	removed, err := repository.DeleteByPostAndUser(ctx, uuid.New(), uuid.New())
+	if err != nil {
 		t.Fatalf("DeleteByPostAndUser() error = %v, want nil for an absent document", err)
+	}
+	if removed {
+		t.Fatal("DeleteByPostAndUser() removed = true, want false for an absent document")
 	}
 }
 
