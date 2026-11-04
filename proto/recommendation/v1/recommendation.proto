@@ -1,0 +1,46 @@
+// Contract between post-query-service (client) and recommendation-service
+// (server). The RPC only reads, so a retried call is safe.
+//
+// Metadata: the correlation id travels as `x-correlation-id` and the trace
+// context as W3C `traceparent` / `tracestate`.
+//
+// Status codes are part of the contract, because the client retries only
+// UNAVAILABLE, DEADLINE_EXCEEDED and RESOURCE_EXHAUSTED:
+//   INVALID_ARGUMENT    a user or excluded post id is not a UUID
+//   DEADLINE_EXCEEDED   the deadline passed before the pipeline started
+//   RESOURCE_EXHAUSTED  every pipeline worker is busy
+//   INTERNAL            unexpected pipeline failure
+// No candidates is OK with empty post_ids, never NOT_FOUND.
+syntax = "proto3";
+
+package recommendation.v1;
+
+option go_package = "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/feed/infrastructure/grpc/recommendationv1;recommendationv1";
+
+service RecommendationService {
+  rpc GetRecommendedFeed(GetRecommendedFeedRequest) returns (GetRecommendedFeedResponse);
+}
+
+enum FeedRequestReason {
+  // proto3 needs a zero value: an unset reason must not read as DISCONNECT.
+  FEED_REQUEST_REASON_UNSPECIFIED = 0;
+  DISCONNECT = 1;
+  STALE_HEARTBEAT = 2;
+  USER_REGISTERED = 3;
+  LOW_WATERMARK = 4;
+  FEED_EMPTY = 5;
+}
+
+message GetRecommendedFeedRequest {
+  // UUID of the user the feed is built for.
+  string user_id = 1;
+  // UUIDs the response must not contain (posts already waiting in the feed or
+  // recently served). They do not count towards the target size.
+  repeated string excluded_post_ids = 2;
+  FeedRequestReason reason = 3;
+}
+
+message GetRecommendedFeedResponse {
+  // Post UUIDs, best first. At most 30, fewer is valid, empty means no candidates.
+  repeated string post_ids = 1;
+}
