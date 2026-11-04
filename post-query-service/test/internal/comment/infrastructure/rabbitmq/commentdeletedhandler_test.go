@@ -36,6 +36,14 @@ func (f *fakeCommentDeletedIdempotencyRepository) MarkProcessed(ctx context.Cont
 	return nil
 }
 
+// passthroughCommentDeletedTransactor runs fn directly: these unit tests exercise the
+// handler's decisions, and transaction behavior is covered against real MongoDB.
+type passthroughCommentDeletedTransactor struct{}
+
+func (passthroughCommentDeletedTransactor) WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
+	return fn(ctx)
+}
+
 type fakeCommentDeletedUsecase struct {
 	calls   int
 	gotIn   usecase.DeleteCommentInput
@@ -74,7 +82,7 @@ func literalCommentDeletedEvent(t *testing.T, overrides map[string]any) []byte {
 func TestCommentDeletedHandler_Handle_DecodesCamelCaseJSONAndCallsUsecase(t *testing.T) {
 	idempotency := newFakeCommentDeletedIdempotencyRepository()
 	uc := &fakeCommentDeletedUsecase{}
-	handler := rabbitmq.NewCommentDeletedHandler(idempotency, uc, testCommentDeletedLogger())
+	handler := rabbitmq.NewCommentDeletedHandler(passthroughCommentDeletedTransactor{}, idempotency, uc, testCommentDeletedLogger())
 
 	commentID := uuid.New()
 	payload := literalCommentDeletedEvent(t, map[string]any{"commentId": commentID.String()})
@@ -96,7 +104,7 @@ func TestCommentDeletedHandler_Handle_SkipsUsecaseAndAcksWhenEventIsADuplicate(t
 	idempotency := newFakeCommentDeletedIdempotencyRepository()
 	idempotency.processed[eventID] = true
 	uc := &fakeCommentDeletedUsecase{}
-	handler := rabbitmq.NewCommentDeletedHandler(idempotency, uc, testCommentDeletedLogger())
+	handler := rabbitmq.NewCommentDeletedHandler(passthroughCommentDeletedTransactor{}, idempotency, uc, testCommentDeletedLogger())
 
 	payload := literalCommentDeletedEvent(t, map[string]any{"id": eventID.String()})
 
@@ -114,7 +122,7 @@ func TestCommentDeletedHandler_Handle_SkipsUsecaseAndAcksWhenEventIsADuplicate(t
 func TestCommentDeletedHandler_Handle_ReturnsAPermanentErrorForAMalformedPayload(t *testing.T) {
 	idempotency := newFakeCommentDeletedIdempotencyRepository()
 	uc := &fakeCommentDeletedUsecase{}
-	handler := rabbitmq.NewCommentDeletedHandler(idempotency, uc, testCommentDeletedLogger())
+	handler := rabbitmq.NewCommentDeletedHandler(passthroughCommentDeletedTransactor{}, idempotency, uc, testCommentDeletedLogger())
 
 	err := handler.Handle(context.Background(), message.NewMessage("1", []byte(`not json`)))
 	if err == nil {
@@ -131,7 +139,7 @@ func TestCommentDeletedHandler_Handle_ReturnsAPermanentErrorForAMalformedPayload
 func TestCommentDeletedHandler_Handle_ReturnsAPermanentErrorWhenRequiredFieldsAreMissing(t *testing.T) {
 	idempotency := newFakeCommentDeletedIdempotencyRepository()
 	uc := &fakeCommentDeletedUsecase{}
-	handler := rabbitmq.NewCommentDeletedHandler(idempotency, uc, testCommentDeletedLogger())
+	handler := rabbitmq.NewCommentDeletedHandler(passthroughCommentDeletedTransactor{}, idempotency, uc, testCommentDeletedLogger())
 
 	payload := literalCommentDeletedEvent(t, map[string]any{"userId": uuid.Nil.String()})
 
@@ -147,7 +155,7 @@ func TestCommentDeletedHandler_Handle_ReturnsAPermanentErrorWhenRequiredFieldsAr
 func TestCommentDeletedHandler_Handle_ReturnsATransientErrorWhenTheUsecaseFails(t *testing.T) {
 	idempotency := newFakeCommentDeletedIdempotencyRepository()
 	uc := &fakeCommentDeletedUsecase{execErr: errors.New("mongo delete failed")}
-	handler := rabbitmq.NewCommentDeletedHandler(idempotency, uc, testCommentDeletedLogger())
+	handler := rabbitmq.NewCommentDeletedHandler(passthroughCommentDeletedTransactor{}, idempotency, uc, testCommentDeletedLogger())
 
 	payload := literalCommentDeletedEvent(t, nil)
 

@@ -13,6 +13,7 @@ import (
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/google/uuid"
 
+	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/eventlog"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/rmqerror"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/user/application/usecase"
 )
@@ -23,9 +24,9 @@ const UserDeletedEventType = "UserDeletedEvent"
 // UserDeletedEvent is the wire shape of UserDeletedEvent published by social-service.
 type UserDeletedEvent struct {
 	ID            uuid.UUID `json:"id"`
-	CorrelationID uuid.UUID `json:"correlation_id"`
-	OccurredAt    time.Time `json:"occurred_at"`
-	UserID        uuid.UUID `json:"user_id"`
+	CorrelationID uuid.UUID `json:"correlationId"`
+	OccurredAt    time.Time `json:"occurredAt"`
+	UserID        uuid.UUID `json:"userId"`
 }
 
 // UserDeletedIdempotencyRepository records and checks processed events.
@@ -56,10 +57,12 @@ func NewUserDeletedHandler(idempotency UserDeletedIdempotencyRepository, uc User
 func (h *UserDeletedHandler) Handle(ctx context.Context, msg *message.Message) error {
 	var event UserDeletedEvent
 	if err := json.Unmarshal(msg.Payload, &event); err != nil {
+		eventlog.WarnInvalid(ctx, h.logger, UserDeletedEventType, msg.Payload, err)
 		return rmqerror.NewPermanent(fmt.Errorf("decode user deleted event: %w", err))
 	}
 
 	if err := validateUserDeletedEvent(event); err != nil {
+		eventlog.WarnInvalid(ctx, h.logger, UserDeletedEventType, msg.Payload, err)
 		return rmqerror.NewPermanent(err)
 	}
 
@@ -68,7 +71,7 @@ func (h *UserDeletedHandler) Handle(ctx context.Context, msg *message.Message) e
 		return fmt.Errorf("check user deleted event %s processed: %w", event.ID, err)
 	}
 	if alreadyProcessed {
-		h.logger.WarnContext(ctx, "discarding duplicate user deleted event", "event_id", event.ID)
+		h.logger.WarnContext(ctx, "discarding duplicate user deleted event", "event_id", event.ID, "correlation_id", event.CorrelationID, "userId", event.UserID)
 		return nil
 	}
 
@@ -81,6 +84,8 @@ func (h *UserDeletedHandler) Handle(ctx context.Context, msg *message.Message) e
 		return fmt.Errorf("mark user deleted event %s processed: %w", event.ID, err)
 	}
 
+	h.logger.InfoContext(ctx, "user deleted event projected", "event_id", event.ID, "correlation_id", event.CorrelationID, "userId", event.UserID)
+
 	return nil
 }
 
@@ -89,13 +94,13 @@ func validateUserDeletedEvent(event UserDeletedEvent) error {
 		return fmt.Errorf("user deleted event: id is required")
 	}
 	if event.CorrelationID == uuid.Nil {
-		return fmt.Errorf("user deleted event: correlation_id is required")
+		return fmt.Errorf("user deleted event: correlationId is required")
 	}
 	if event.OccurredAt.IsZero() {
-		return fmt.Errorf("user deleted event: occurred_at is required")
+		return fmt.Errorf("user deleted event: occurredAt is required")
 	}
 	if event.UserID == uuid.Nil {
-		return fmt.Errorf("user deleted event: user_id is required")
+		return fmt.Errorf("user deleted event: userId is required")
 	}
 
 	return nil

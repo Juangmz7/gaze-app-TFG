@@ -8,12 +8,17 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/Juangmz7/TFG/common-packages/go-utils/auth"
 	"github.com/Juangmz7/TFG/common-packages/go-utils/server"
+	feedusecase "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/feed/application/usecase"
+	feedmongo "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/feed/infrastructure/mongo"
+	feedpresentation "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/feed/presentation"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/config"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/database"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/health"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/outbox"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/bootstrap"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
 func main() {
@@ -47,6 +52,18 @@ func run() error {
 
 	slog.Info("connected to mongodb", "database", cfg.Mongo.Database)
 
+	// Fetches the signing keys now, so a wrong JWKS_URL fails the start, not the first
+	// request.
+	keyCache, err := auth.NewCacheKey(ctx, cfg.Auth.JWKSUrl)
+	if err != nil {
+		return err
+	}
+
+	feedRoutes, err := newFeedRoutes(ctx, mongoDatabase, cfg.Feed)
+	if err != nil {
+		return err
+	}
+
 	// Transactional outbox relay: publishes events stored by use cases (in the
 	// same Mongo transaction as their state change) with publisher confirms,
 	// right after their commit, with the periodic batch as the safety net.
@@ -72,10 +89,9 @@ func run() error {
 
 	slog.Info("consuming rabbitmq events")
 
-	// mongoDatabase is also the injection point for future HTTP read
-	// repositories (e.g. post/infrastructure, comment/infrastructure).
 	mux := http.NewServeMux()
 	health.Register(mux, mongoClient)
+	feedpresentation.RegisterRoutes(mux, auth.Authenticate(keyCache, cfg.Auth.Issuer, cfg.Auth.Audience), feedRoutes)
 
 	if err := server.StartServer(ctx, serverCfg.Port, mux); err != nil {
 		return err
@@ -88,4 +104,30 @@ func run() error {
 	<-outboxDone
 
 	return nil
+}
+
+// newFeedRoutes ensures the feed's indexes and wires its usecases and handlers.
+func newFeedRoutes(ctx context.Context, db *mongo.Database, cfg config.FeedConfig) (feedpresentation.Routes, error) {
+	sessions := feedmongo.NewSessionRepository(db)
+	if err := sessions.EnsureIndexes(ctx); err != nil {
+		return feedpresentation.Routes{}, err
+	}
+	units := feedmongo.NewFeedUnitRepository(db)
+	if err := units.EnsureIndexes(ctx, cfg.Retention); err != nil {
+		return feedpresentation.Routes{}, err
+	}
+	hydration := feedmongo.NewHydrationRepository(db)
+
+	logger := slog.Default()
+	claimConfig := feedusecase.ClaimFeedConfig{
+		DefaultPageSize: cfg.DefaultPageSize,
+		MaxPageSize:     cfg.MaxPageSize,
+		MaxReads:        cfg.MaxReadsPerClaim,
+	}
+
+	return feedpresentation.Routes{
+		Heartbeat:  feedpresentation.NewHeartbeatHandler(feedusecase.NewRegisterHeartbeat(sessions, logger), logger),
+		Disconnect: feedpresentation.NewDisconnectHandler(feedusecase.NewRegisterUserDisconnected(sessions, cfg.DisconnectWriteTimeout, logger), logger),
+		ClaimFeed:  feedpresentation.NewClaimFeedHandler(feedusecase.NewClaimFeed(units, hydration, claimConfig, logger), logger),
+	}, nil
 }

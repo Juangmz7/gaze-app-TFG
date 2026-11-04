@@ -2,7 +2,6 @@ package rabbitmq_test
 
 import (
 	"context"
-	"encoding/json"
 	"sync"
 	"testing"
 	"time"
@@ -128,11 +127,7 @@ func TestPostConsumer_DuplicateEventDoesNotApplySideEffectTwice(t *testing.T) {
 		t.Fatal("timed out waiting for the router to start running")
 	}
 
-	event := validPostCreatedEvent()
-	payload, err := json.Marshal(event)
-	if err != nil {
-		t.Fatalf("json.Marshal() error = %v", err)
-	}
+	payload := literalPostCreatedEvent(t)
 
 	// Publish the first delivery and wait for it to be fully processed and
 	// acked (queue depth back to zero) before publishing the duplicate. This

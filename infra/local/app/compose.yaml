@@ -109,6 +109,16 @@ services:
       RABBITMQ_PORT: 5672
       RABBITMQ_USER: ${RABBITMQ_USER}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      # Tokens requested from the host carry iss=http://localhost:<KC_PORT>/...,
+      # while the signing keys are fetched from Keycloak over the internal network.
+      JWKS_URL: http://keycloak:8080/realms/auth-service/protocol/openid-connect/certs
+      JWT_ISSUER: http://localhost:${KC_PORT:-8080}/realms/auth-service
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-account}
+      FEED_DEFAULT_PAGE_SIZE: ${FEED_DEFAULT_PAGE_SIZE:-15}
+      FEED_MAX_PAGE_SIZE: ${FEED_MAX_PAGE_SIZE:-15}
+      FEED_MAX_READS_PER_CLAIM: ${FEED_MAX_READS_PER_CLAIM:-3}
+      FEED_RETENTION_HOURS: ${FEED_RETENTION_HOURS:-168}
+      FEED_DISCONNECT_WRITE_TIMEOUT_MS: ${FEED_DISCONNECT_WRITE_TIMEOUT_MS:-5000}
     ports:
       - "127.0.0.1:${POST_QUERY_SERVICE_PORT:-8083}:8080"
     networks:

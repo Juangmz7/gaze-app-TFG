@@ -28,6 +28,7 @@ type commentDocument struct {
 	PostID    string    `bson:"post_id"`
 	UserID    string    `bson:"user_id"`
 	Content   string    `bson:"content"`
+	ReplyTo   string    `bson:"reply_to"`
 	CreatedAt time.Time `bson:"created_at"`
 	UpdatedAt time.Time `bson:"updated_at"`
 	Version   int64     `bson:"version"`
@@ -65,35 +66,49 @@ func (r *Repository) EnsureIndexes(ctx context.Context) error {
 	return nil
 }
 
-// Insert writes input as a new comment read model document at version 1. A
-// duplicate delivery of the same comment-creation event is already filtered
-// out upstream by the idempotency repository before the use case runs, but
-// a crash between MarkProcessed and this write makes a retry of the same
-// creation event theoretically possible; when that retry hits the unique
-// index on comment_id, Insert treats the duplicate-key error as an
-// already-applied insert and returns nil.
-func (r *Repository) Insert(ctx context.Context, input usecase.RecordCommentInput) error {
+// Insert writes input as a new comment read model document at version 1 and
+// reports whether it really created one. It runs inside the handler's transaction,
+// where a duplicate-key error aborts the whole transaction, so an existing document
+// is looked up first and reported as (false, nil). A duplicate-key error can then
+// only come from a concurrent writer: it is returned as a retryable error, and the
+// redelivery finds the document.
+func (r *Repository) Insert(ctx context.Context, input usecase.RecordCommentInput) (bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
+
+	filter := bson.D{{Key: "comment_id", Value: input.CommentID.String()}}
+	err := r.collection.FindOne(ctx, filter, options.FindOne().SetProjection(bson.D{{Key: "_id", Value: 1}})).Err()
+	if err == nil {
+		return false, nil
+	}
+	if !errors.Is(err, mongo.ErrNoDocuments) {
+		return false, fmt.Errorf("find comment %s: %w", input.CommentID, err)
+	}
+
+	replyTo := ""
+	if input.ReplyTo != uuid.Nil {
+		replyTo = input.ReplyTo.String()
+	}
+	updatedAt := input.UpdatedAt
+	if updatedAt.IsZero() {
+		updatedAt = input.CreatedAt
+	}
 
 	doc := commentDocument{
 		CommentID: input.CommentID.String(),
 		PostID:    input.PostID.String(),
 		UserID:    input.UserID.String(),
 		Content:   input.Content,
+		ReplyTo:   replyTo,
 		CreatedAt: input.CreatedAt,
-		UpdatedAt: input.CreatedAt,
+		UpdatedAt: updatedAt,
 		Version:   1,
 	}
-
 	if _, err := r.collection.InsertOne(ctx, doc); err != nil {
-		if mongo.IsDuplicateKeyError(err) {
-			return nil
-		}
-		return fmt.Errorf("insert comment %s: %w", input.CommentID, err)
+		return false, fmt.Errorf("insert comment %s: %w", input.CommentID, err)
 	}
 
-	return nil
+	return true, nil
 }
 
 // GetVersion returns the current version of the comment read model
@@ -180,16 +195,18 @@ func (r *Repository) Update(ctx context.Context, input usecase.UpdateCommentInpu
 	return nil
 }
 
-// Delete idempotently removes commentID's comment read model document.
-// Deleting an already-absent document is not an error.
-func (r *Repository) Delete(ctx context.Context, commentID uuid.UUID) error {
+// Delete idempotently removes commentID's comment read model document and reports
+// whether a document was really removed. Deleting an already-absent document is
+// not an error.
+func (r *Repository) Delete(ctx context.Context, commentID uuid.UUID) (bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
 
 	filter := bson.D{{Key: "comment_id", Value: commentID.String()}}
-	if _, err := r.collection.DeleteOne(ctx, filter); err != nil {
-		return fmt.Errorf("delete comment %s: %w", commentID, err)
+	result, err := r.collection.DeleteOne(ctx, filter)
+	if err != nil {
+		return false, fmt.Errorf("delete comment %s: %w", commentID, err)
 	}
 
-	return nil
+	return result.DeletedCount > 0, nil
 }

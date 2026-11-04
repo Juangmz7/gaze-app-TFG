@@ -3,6 +3,8 @@ package usecase_test
 import (
 	"context"
 	"errors"
+	"io"
+	"log/slog"
 	"testing"
 
 	"github.com/google/uuid"
@@ -11,63 +13,124 @@ import (
 )
 
 type fakeDeleteShareRepository struct {
-	deleteCalls int
-	gotPostID   uuid.UUID
-	gotUserID   uuid.UUID
-	err         error
+	removed   bool
+	err       error
+	calls     int
+	gotPostID uuid.UUID
+	gotUserID uuid.UUID
 }
 
-func (f *fakeDeleteShareRepository) DeleteByPostAndUser(ctx context.Context, postID, userID uuid.UUID) error {
-	f.deleteCalls++
+func (f *fakeDeleteShareRepository) DeleteByPostAndUser(ctx context.Context, postID, userID uuid.UUID) (bool, error) {
+	f.calls++
 	f.gotPostID = postID
 	f.gotUserID = userID
-	return f.err
+	return f.removed, f.err
 }
 
-func TestDeleteShareUsecase_Execute_DeletesTheShareReadModelByPostAndUser(t *testing.T) {
-	repository := &fakeDeleteShareRepository{}
-	uc := usecase.NewDeleteShare(repository)
+type fakeDeleteSharePostStats struct {
+	notFound bool
+	err      error
+	deltas   []int64
+	postIDs  []uuid.UUID
+}
 
-	postID := uuid.New()
-	userID := uuid.New()
+func (f *fakeDeleteSharePostStats) AdjustShareCount(ctx context.Context, postID uuid.UUID, delta int64) (bool, error) {
+	f.deltas = append(f.deltas, delta)
+	f.postIDs = append(f.postIDs, postID)
+	return !f.notFound, f.err
+}
 
-	if err := uc.Execute(context.Background(), usecase.DeleteShareInput{PostID: postID, UserID: userID}); err != nil {
+func validDeleteShareInput() usecase.DeleteShareInput {
+	return usecase.DeleteShareInput{PostID: uuid.New(), UserID: uuid.New()}
+}
+
+func testDeleteShareLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
+func TestDeleteShareUsecase_Execute_DecrementsTheCounterWhenADocumentWasReallyRemoved(t *testing.T) {
+	repository := &fakeDeleteShareRepository{removed: true}
+	stats := &fakeDeleteSharePostStats{}
+	uc := usecase.NewDeleteShare(repository, stats, testDeleteShareLogger())
+	input := validDeleteShareInput()
+
+	if err := uc.Execute(context.Background(), input); err != nil {
 		t.Fatalf("Execute() error = %v, want nil", err)
 	}
 
-	if repository.deleteCalls != 1 {
-		t.Fatalf("DeleteByPostAndUser() calls = %d, want 1", repository.deleteCalls)
+	if repository.gotPostID != input.PostID || repository.gotUserID != input.UserID {
+		t.Fatalf("DeleteByPostAndUser() postID/userID = %v/%v, want %v/%v", repository.gotPostID, repository.gotUserID, input.PostID, input.UserID)
 	}
-	if repository.gotPostID != postID {
-		t.Fatalf("DeleteByPostAndUser() postID = %v, want %v", repository.gotPostID, postID)
+	if len(stats.deltas) != 1 || stats.deltas[0] != -1 {
+		t.Fatalf("AdjustShareCount() deltas = %v, want [-1]", stats.deltas)
 	}
-	if repository.gotUserID != userID {
-		t.Fatalf("DeleteByPostAndUser() userID = %v, want %v", repository.gotUserID, userID)
-	}
-}
-
-func TestDeleteShareUsecase_Execute_ReturnsErrorWhenPostIDIsMissing(t *testing.T) {
-	uc := usecase.NewDeleteShare(&fakeDeleteShareRepository{})
-
-	if err := uc.Execute(context.Background(), usecase.DeleteShareInput{UserID: uuid.New()}); err == nil {
-		t.Fatal("Execute() error = nil, want an error when post id is missing")
+	if stats.postIDs[0] != input.PostID {
+		t.Fatalf("AdjustShareCount() postID = %v, want %v", stats.postIDs[0], input.PostID)
 	}
 }
 
-func TestDeleteShareUsecase_Execute_ReturnsErrorWhenUserIDIsMissing(t *testing.T) {
-	uc := usecase.NewDeleteShare(&fakeDeleteShareRepository{})
+func TestDeleteShareUsecase_Execute_LeavesTheCounterAloneWhenNothingWasRemoved(t *testing.T) {
+	stats := &fakeDeleteSharePostStats{}
+	uc := usecase.NewDeleteShare(&fakeDeleteShareRepository{removed: false}, stats, testDeleteShareLogger())
 
-	if err := uc.Execute(context.Background(), usecase.DeleteShareInput{PostID: uuid.New()}); err == nil {
-		t.Fatal("Execute() error = nil, want an error when user id is missing")
+	if err := uc.Execute(context.Background(), validDeleteShareInput()); err != nil {
+		t.Fatalf("Execute() error = %v, want nil", err)
+	}
+
+	if len(stats.deltas) != 0 {
+		t.Fatalf("AdjustShareCount() deltas = %v, want none when nothing was removed", stats.deltas)
 	}
 }
 
-func TestDeleteShareUsecase_Execute_PropagatesTheRepositoryError(t *testing.T) {
-	wantErr := errors.New("mongo delete failed")
-	uc := usecase.NewDeleteShare(&fakeDeleteShareRepository{err: wantErr})
+// A document can only exist once its post was projected, so a missing post here
+// means the post was deleted. A retry could never succeed, so this acks.
+func TestDeleteShareUsecase_Execute_AcksWhenThePostWasDeletedInTheMeantime(t *testing.T) {
+	uc := usecase.NewDeleteShare(&fakeDeleteShareRepository{removed: true}, &fakeDeleteSharePostStats{notFound: true}, testDeleteShareLogger())
 
-	err := uc.Execute(context.Background(), usecase.DeleteShareInput{PostID: uuid.New(), UserID: uuid.New()})
-	if !errors.Is(err, wantErr) {
-		t.Fatalf("Execute() error = %v, want it to wrap %v", err, wantErr)
+	if err := uc.Execute(context.Background(), validDeleteShareInput()); err != nil {
+		t.Fatalf("Execute() error = %v, want nil", err)
+	}
+}
+
+func TestDeleteShareUsecase_Execute_PropagatesDependencyErrors(t *testing.T) {
+	wantErr := errors.New("mongo write failed")
+
+	t.Run("repository", func(t *testing.T) {
+		uc := usecase.NewDeleteShare(&fakeDeleteShareRepository{err: wantErr}, &fakeDeleteSharePostStats{}, testDeleteShareLogger())
+		if err := uc.Execute(context.Background(), validDeleteShareInput()); !errors.Is(err, wantErr) {
+			t.Fatalf("Execute() error = %v, want it to wrap %v", err, wantErr)
+		}
+	})
+	t.Run("post stats", func(t *testing.T) {
+		uc := usecase.NewDeleteShare(&fakeDeleteShareRepository{removed: true}, &fakeDeleteSharePostStats{err: wantErr}, testDeleteShareLogger())
+		if err := uc.Execute(context.Background(), validDeleteShareInput()); !errors.Is(err, wantErr) {
+			t.Fatalf("Execute() error = %v, want it to wrap %v", err, wantErr)
+		}
+	})
+}
+
+func TestDeleteShareUsecase_Execute_ReturnsAnErrorWhenARequiredIDIsMissing(t *testing.T) {
+	tests := []struct {
+		name  string
+		clear func(*usecase.DeleteShareInput)
+	}{
+		{name: "post id", clear: func(input *usecase.DeleteShareInput) { input.PostID = uuid.Nil }},
+		{name: "user id", clear: func(input *usecase.DeleteShareInput) { input.UserID = uuid.Nil }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repository := &fakeDeleteShareRepository{removed: true}
+			uc := usecase.NewDeleteShare(repository, &fakeDeleteSharePostStats{}, testDeleteShareLogger())
+			input := validDeleteShareInput()
+			tt.clear(&input)
+
+			if err := uc.Execute(context.Background(), input); err == nil {
+				t.Fatal("Execute() error = nil, want an error")
+			}
+			if repository.calls != 0 {
+				t.Fatal("the repository was called for an invalid input")
+			}
+		})
 	}
 }

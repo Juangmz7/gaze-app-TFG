@@ -87,8 +87,6 @@ func Authenticate(cache *KeyCache, issuer, audience string) func(http.Handler) h
 	}
 }
 
-// TODO: Helper function to retrieve token claims from context in handlers
-
 func parseAndValidateToken(rawToken string, keySet jwk.Set, issuer, audience string) (jwt.Token, error) {
 	return jwt.Parse(
 				[]byte(rawToken),

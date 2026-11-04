@@ -23,6 +23,7 @@ import (
 	commentusecase "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/comment/application/usecase"
 	commentmongo "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/comment/infrastructure/mongo"
 	commentrabbitmq "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/comment/infrastructure/rabbitmq"
+	feedmongo "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/feed/infrastructure/mongo"
 	followusecase "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/follow/application/usecase"
 	followmongo "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/follow/infrastructure/mongo"
 	followrabbitmq "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/follow/infrastructure/rabbitmq"
@@ -35,6 +36,7 @@ import (
 	shareusecase "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/share/application/usecase"
 	sharemongo "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/share/infrastructure/mongo"
 	sharerabbitmq "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/share/infrastructure/rabbitmq"
+	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/database"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/dispatch"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/idempotency"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/publisher"
@@ -164,7 +166,7 @@ func addUserSlowConsumer(wmRouter *message.Router, amqpURI string, db *mongo.Dat
 	}
 	result.closers = append(result.closers, subscriber.Close)
 
-	deleteUserHandler := userrabbitmq.NewUserDeletedHandler(idempotencyRepo, userusecase.NewDeleteUser(usermongo.NewRepository(db)), logger)
+	deleteUserHandler := userrabbitmq.NewUserDeletedHandler(idempotencyRepo, userusecase.NewDeleteUser(usermongo.NewRepository(db), feedmongo.NewSessionRepository(db), feedmongo.NewFeedUnitRepository(db)), logger)
 	deleteBlockHandler := blockrabbitmq.NewUserBlockDeletedHandler(idempotencyRepo, blockusecase.NewDeleteBlock(blockmongo.NewRepository(db)), logger)
 	deleteFollowHandler := followrabbitmq.NewUserFollowDeletedHandler(idempotencyRepo, followusecase.NewDeleteFollow(followmongo.NewRepository(db)), logger)
 
@@ -206,17 +208,21 @@ func addPostConsumer(ctx context.Context, wmRouter *message.Router, amqpURI stri
 		}
 	}
 
+	// The stats-adjusting handlers commit their projection, the post counter and
+	// the idempotency record in one transaction.
+	transactor := database.NewTransactor(db.Client())
+
 	postCreatedHandler := postrabbitmq.NewPostCreatedHandler(idempotencyRepo, postusecase.NewCreatePost(postRepository), logger)
 	postCollabLinkedHandler := postrabbitmq.NewPostCollabLinkedHandler(idempotencyRepo, postusecase.NewLinkPostCollab(postRepository), logger)
 	postUpdatedHandler := postrabbitmq.NewPostUpdatedHandler(idempotencyRepo, postusecase.NewUpdatePost(postRepository), logger)
-	postDeletedHandler := postrabbitmq.NewPostDeletedHandler(idempotencyRepo, postusecase.NewDeletePost(postRepository), logger)
-	likeCreatedHandler := likerabbitmq.NewPostLikeCreatedHandler(idempotencyRepo, likeusecase.NewRecordLike(likeRepository), logger)
-	likeDeletedHandler := likerabbitmq.NewPostLikeDeletedHandler(idempotencyRepo, likeusecase.NewDeleteLike(likeRepository), logger)
-	commentCreatedHandler := commentrabbitmq.NewPostCommentCreatedHandler(idempotencyRepo, commentusecase.NewRecordComment(commentRepository), logger)
+	postDeletedHandler := postrabbitmq.NewPostDeletedHandler(idempotencyRepo, postusecase.NewDeletePost(postRepository, feedmongo.NewFeedUnitRepository(db)), logger)
+	likeCreatedHandler := likerabbitmq.NewPostLikeCreatedHandler(transactor, idempotencyRepo, likeusecase.NewRecordLike(likeRepository, postRepository), logger)
+	likeDeletedHandler := likerabbitmq.NewPostLikeDeletedHandler(transactor, idempotencyRepo, likeusecase.NewDeleteLike(likeRepository, postRepository, logger), logger)
+	commentCreatedHandler := commentrabbitmq.NewPostCommentCreatedHandler(transactor, idempotencyRepo, commentusecase.NewRecordComment(commentRepository, postRepository), logger)
 	commentUpdatedHandler := commentrabbitmq.NewCommentUpdatedHandler(commentusecase.NewUpdateComment(commentRepository, logger), logger)
-	commentDeletedHandler := commentrabbitmq.NewCommentDeletedHandler(idempotencyRepo, commentusecase.NewDeleteComment(commentRepository), logger)
-	shareCreatedHandler := sharerabbitmq.NewPostShareCreatedHandler(idempotencyRepo, shareusecase.NewRecordShare(shareRepository), logger)
-	shareDeletedHandler := sharerabbitmq.NewPostShareDeletedHandler(idempotencyRepo, shareusecase.NewDeleteShare(shareRepository), logger)
+	commentDeletedHandler := commentrabbitmq.NewCommentDeletedHandler(transactor, idempotencyRepo, commentusecase.NewDeleteComment(commentRepository, postRepository, logger), logger)
+	shareCreatedHandler := sharerabbitmq.NewPostShareCreatedHandler(transactor, idempotencyRepo, shareusecase.NewRecordShare(shareRepository, postRepository), logger)
+	shareDeletedHandler := sharerabbitmq.NewPostShareDeletedHandler(transactor, idempotencyRepo, shareusecase.NewDeleteShare(shareRepository, postRepository, logger), logger)
 	collabOpenedHandler := collabrabbitmq.NewPostCollabOpenedHandler(idempotencyRepo, collabusecase.NewRecordCollabOpened(collabRepository), logger)
 	collabClosedHandler := collabrabbitmq.NewPostCollabClosedHandler(idempotencyRepo, collabusecase.NewCloseCollab(collabRepository), logger)
 	collabDeletedHandler := collabrabbitmq.NewCollabDeletedHandler(idempotencyRepo, collabusecase.NewDeleteCollab(collabRepository), logger)
@@ -239,9 +245,12 @@ func addPostConsumer(ctx context.Context, wmRouter *message.Router, amqpURI stri
 		topology.RKPostShareCreated:            shareCreatedHandler.Handle,
 		topology.RKPostShareDeleted:            shareDeletedHandler.Handle,
 		topology.RKPostCollabOpenedPostCreated: collabOpenedHandler.Handle,
-		topology.RKPostCollabClosed:            collabClosedHandler.Handle,
-		topology.RKPostCollabDeleted:           collabDeletedHandler.Handle,
-		topology.RKPostCollabLinked:            postCollabLinkedHandler.Handle,
+		// Same CollabOpenedEvent record: post-command-service only picks the routing
+		// key from its withPostCreated field.
+		topology.RKPostCollabOpenedExistingPost: collabOpenedHandler.Handle,
+		topology.RKPostCollabClosed:             collabClosedHandler.Handle,
+		topology.RKPostCollabDeleted:            collabDeletedHandler.Handle,
+		topology.RKPostCollabLinked:             postCollabLinkedHandler.Handle,
 	}
 	dispatcher := dispatch.New(spec.Queue, handlers, logger)
 
