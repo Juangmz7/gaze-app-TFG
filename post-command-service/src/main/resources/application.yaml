@@ -3,6 +3,9 @@ spring:
   rabbitmq:
     publisher-confirm-type: correlated
     publisher-returns: true
+    # Bounds each connection attempt (default 60 s): keeps relay cycles and the
+    # immediate send on the HTTP thread short, well under the outbox lock timeout.
+    connection-timeout: 5s
 
 # --- Outbox relay ---
 outbox:

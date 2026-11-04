@@ -46,10 +46,21 @@ type RabbitMQConfig struct {
 	Password string
 }
 
+// amqpConnectionTimeoutMs bounds each dial (TCP connect and AMQP handshake);
+// amqp091-go defaults to 30 s. Read from the URI by every amqp.Dial, so it
+// applies to the outbox publisher and to the Watermill subscribers alike.
+const amqpConnectionTimeoutMs = "5000"
+
 // AMQPURI builds the amqp:// connection URI from the configured host, port,
 // and credentials.
 func (c RabbitMQConfig) AMQPURI() string {
-	u := url.URL{Scheme: "amqp", User: url.UserPassword(c.User, c.Password), Host: c.Host + ":" + c.Port, Path: "/"}
+	u := url.URL{
+		Scheme:   "amqp",
+		User:     url.UserPassword(c.User, c.Password),
+		Host:     c.Host + ":" + c.Port,
+		Path:     "/",
+		RawQuery: url.Values{"connection_timeout": {amqpConnectionTimeoutMs}}.Encode(),
+	}
 	return u.String()
 }
 

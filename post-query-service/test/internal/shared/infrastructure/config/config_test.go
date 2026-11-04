@@ -114,7 +114,7 @@ func TestRabbitMQConfig_AMQPURI_BuildsConnectionStringFromFields(t *testing.T) {
 		Password: "post_query_password",
 	}
 
-	want := "amqp://post_query_user:post_query_password@rabbitmq:5672/"
+	want := "amqp://post_query_user:post_query_password@rabbitmq:5672/?connection_timeout=5000"
 	if got := cfg.AMQPURI(); got != want {
 		t.Fatalf("AMQPURI() = %q, want %q", got, want)
 	}
