@@ -32,9 +32,8 @@ class RecommendedFeedUseCase:
 
         # 2. One short transaction for the outbox insert (and any final state
         #    write the pipeline adds later), so they commit atomically
-        with self.transaction_manager.transaction() as session:
+        with self.transaction_manager.transaction():
             self.outbox_publisher.add(
-                session,
                 RecommendedPostSentEvent(
                     correlationId=correlation_id,
                     userId=user_id,

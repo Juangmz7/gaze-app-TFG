@@ -1,26 +1,27 @@
-from sqlalchemy.orm import Session
-
 from rabbitmq.event.feed.feed_events import DomainEvent
-from shared.entity.outbox_event_entity import OutboxEventRecord
+from shared.model.outbox_event import OutboxEvent
+from shared.repository.outbox_event_repository import OutboxEventRepository
 
 
 class OutboxPublisher:
-    """Single write point of the transactional outbox. It adds the event to the
-    caller's session, so the insert joins the transaction that writes the
-    related state (use transaction_manager.transaction()); OutboxRelayWorker
-    publishes it afterwards."""
+    """Single write point of the transactional outbox. Call add() inside the
+    transaction_manager.transaction() that writes the related state, so the
+    event commits or rolls back with it; OutboxRelayWorker publishes it
+    afterwards."""
+
+    def __init__(self, outbox_event_repository: OutboxEventRepository):
+        self.outbox_event_repository = outbox_event_repository
 
     def add(
         self,
-        session: Session,
         event: DomainEvent,
         *,
         event_type: str,
         exchange: str,
         routing_key: str,
     ) -> None:
-        session.add(
-            OutboxEventRecord(
+        self.outbox_event_repository.add(
+            OutboxEvent(
                 id=event.id,
                 correlation_id=event.correlationId,
                 event_type=event_type,

@@ -10,6 +10,7 @@ from rabbitmq.config.declarables import (
 )
 from rabbitmq.worker.outbox_relay import OutboxRelayWorker
 from shared.config.database import SQLAlchemySessionProvider
+from shared.repository.impl.sql_alchemy_outbox_event_repository import SqlAlchemyOutboxEventRepository
 
 RABBITMQ_URL = os.getenv(
     "RABBITMQ_URL",
@@ -31,7 +32,7 @@ broker = RabbitBroker(
 
 app = FastStream(broker)
 
-relay_worker = OutboxRelayWorker(SQLAlchemySessionProvider(), broker)
+relay_worker = OutboxRelayWorker(SqlAlchemyOutboxEventRepository(SQLAlchemySessionProvider()), broker)
 
 
 @app.after_startup

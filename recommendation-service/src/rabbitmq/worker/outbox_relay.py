@@ -3,64 +3,28 @@ import logging
 import time
 from contextlib import suppress
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from uuid import UUID
 
 from aiormq.abc import DeliveredMessage
 from faststream.rabbit import RabbitBroker
-from sqlalchemy import text
 
-from shared.config.database import SQLAlchemySessionProvider
+from shared.enum.outbox_event_status import OutboxEventStatus
+from shared.model.outbox_event import OutboxEvent
+from shared.repository.outbox_event_repository import OutboxEventRepository
 
 logger = logging.getLogger(__name__)
-
-# Atomic claim: only one relay instance gets each row (SKIP LOCKED), and rows
-# whose relay died mid-publish are reclaimed once their lock expires.
-CLAIM_SQL = text("""
-    UPDATE outbox_events
-       SET status = 'PROCESSING', locked_at = now(), attempts = attempts + 1
-     WHERE id = (
-           SELECT id FROM outbox_events
-            WHERE status = 'PENDING'
-               OR (status = 'PROCESSING' AND locked_at < :locked_before)
-            ORDER BY created_at
-            LIMIT 1
-            FOR UPDATE SKIP LOCKED)
-    RETURNING id, correlation_id, event_type, exchange, routing_key, payload, attempts
-""")
-
-MARK_PROCESSED_SQL = text("""
-    UPDATE outbox_events
-       SET status = 'PROCESSED', processed_at = now(), locked_at = NULL, last_error = NULL
-     WHERE id = :id
-""")
-
-# Only the claim identified by attempts (every claim increments it) may release
-# the row: a relay whose lock expired, so the row was reclaimed or already
-# PROCESSED by another relay, matches nothing instead of overwriting the newer
-# state. MARK_PROCESSED_SQL needs no such guard: a confirmed publish is true
-# whoever reports it.
-MARK_FAILED_SQL = text("""
-    UPDATE outbox_events
-       SET status = :status, last_error = :error, locked_at = NULL
-     WHERE id = :id AND status = 'PROCESSING' AND attempts = :attempts
-""")
-
-DELETE_PROCESSED_SQL = text("""
-    DELETE FROM outbox_events
-     WHERE status = 'PROCESSED' AND processed_at < :processed_before
-""")
 
 MAX_ERROR_LENGTH = 1000
 
 
 class OutboxRelayWorker:
-    """Publishes outbox_events rows with publisher confirms (at-least-once):
-    claim one row, publish, wait for the broker ack, then mark it PROCESSED.
+    """Publishes outbox events with publisher confirms (at-least-once):
+    claim one event, publish, wait for the broker ack, then mark it PROCESSED.
     Consumers must deduplicate by message id (= event id)."""
 
     def __init__(
         self,
-        session_provider: SQLAlchemySessionProvider,
+        outbox_event_repository: OutboxEventRepository,
         broker: RabbitBroker,
         *,
         interval_s: float = 5.0,
@@ -71,7 +35,7 @@ class OutboxRelayWorker:
         processed_retention: timedelta = timedelta(days=7),
         cleanup_interval_s: float = 3600.0,
     ):
-        self._session_provider = session_provider
+        self._repository = outbox_event_repository
         self._broker = broker
         self._interval_s = interval_s
         self._batch_size = batch_size
@@ -115,37 +79,37 @@ class OutboxRelayWorker:
             return
 
         for _ in range(self._batch_size):
-            row = await asyncio.to_thread(self._claim_next)
-            if row is None:
+            event = await asyncio.to_thread(self._claim_next)
+            if event is None:
                 return
             try:
-                await self._publish(row)
+                await self._publish(event)
             except Exception as exc:
-                await asyncio.to_thread(self._mark_failed, row, exc)
+                await asyncio.to_thread(self._mark_failed, event, exc)
                 return
             try:
-                await asyncio.to_thread(self._mark_processed, row.id)
+                await asyncio.to_thread(self._mark_processed, event.id)
             except Exception:
                 # Delivered but still PROCESSING: it is reclaimed and sent again once the lock expires
                 logger.exception(
                     "Outbox event was published but could not be marked PROCESSED; it will be republished "
                     "as a duplicate after the %.0fs lock timeout: id=%s type=%s attempt=%s",
-                    self._lock_timeout.total_seconds(), row.id, row.event_type, row.attempts,
+                    self._lock_timeout.total_seconds(), event.id, event.event_type, event.attempts,
                 )
                 return  # the database is failing: stop the batch
 
     async def delete_processed(self) -> int:
         return await asyncio.to_thread(self._delete_processed)
 
-    async def _publish(self, row: Any) -> None:
+    async def _publish(self, event: OutboxEvent) -> None:
         # Raises DeliveryError on a broker nack and TimeoutError without a confirm
         result = await self._broker.publish(
-            row.payload,
-            exchange=row.exchange,
-            routing_key=row.routing_key,
-            message_id=str(row.id),
-            correlation_id=str(row.correlation_id),
-            message_type=row.event_type,
+            event.payload,
+            exchange=event.exchange,
+            routing_key=event.routing_key,
+            message_id=str(event.id),
+            correlation_id=str(event.correlation_id),
+            message_type=event.event_type,
             persist=True,
             mandatory=True,
             timeout=self._confirm_timeout_s,
@@ -154,7 +118,7 @@ class OutboxRelayWorker:
         if isinstance(result, DeliveredMessage):
             logger.warning(
                 "Outbox event was unroutable and is marked as processed: id=%s type=%s exchange=%s routing_key=%s",
-                row.id, row.event_type, row.exchange, row.routing_key,
+                event.id, event.event_type, event.exchange, event.routing_key,
             )
 
     async def _cleanup_if_due(self) -> None:
@@ -166,47 +130,38 @@ class OutboxRelayWorker:
         if deleted:
             logger.info("Deleted %s processed outbox events", deleted)
 
-    # --- DB access: sync SQLAlchemy, always run in a worker thread so the event loop is never blocked ---
+    # --- Repository calls are blocking: always run them in a worker thread so the event loop is never blocked ---
 
-    def _claim_next(self) -> Any:
-        locked_before = datetime.now(timezone.utc) - self._lock_timeout
-        with self._session_provider.session() as session:
-            return session.execute(CLAIM_SQL, {"locked_before": locked_before}).first()
+    def _claim_next(self) -> OutboxEvent | None:
+        return self._repository.claim_next(datetime.now(timezone.utc) - self._lock_timeout)
 
-    def _mark_processed(self, event_id) -> None:
-        with self._session_provider.session() as session:
-            session.execute(MARK_PROCESSED_SQL, {"id": event_id})
+    def _mark_processed(self, event_id: UUID) -> None:
+        self._repository.mark_processed(event_id)
 
-    def _mark_failed(self, row: Any, exc: Exception) -> None:
-        exhausted = row.attempts >= self._max_attempts
+    def _mark_failed(self, event: OutboxEvent, exc: Exception) -> None:
+        exhausted = event.attempts >= self._max_attempts
         if exhausted:
             logger.error(
                 "Outbox event moved to FAILED after %s attempts: id=%s type=%s",
-                row.attempts, row.id, row.event_type, exc_info=exc,
+                event.attempts, event.id, event.event_type, exc_info=exc,
             )
         else:
             logger.warning(
                 "Outbox publish failed: id=%s type=%s attempt=%s",
-                row.id, row.event_type, row.attempts, exc_info=exc,
+                event.id, event.event_type, event.attempts, exc_info=exc,
             )
 
-        with self._session_provider.session() as session:
-            result = session.execute(
-                MARK_FAILED_SQL,
-                {
-                    "id": row.id,
-                    "attempts": row.attempts,
-                    "status": "FAILED" if exhausted else "PENDING",
-                    "error": (str(exc) or type(exc).__name__)[:MAX_ERROR_LENGTH],
-                },
-            )
-        if result.rowcount == 0:
+        released = self._repository.mark_failed_attempt(
+            event.id,
+            event.attempts,
+            OutboxEventStatus.FAILED if exhausted else OutboxEventStatus.PENDING,
+            (str(exc) or type(exc).__name__)[:MAX_ERROR_LENGTH],
+        )
+        if not released:
             logger.warning(
                 "Outbox claim expired before its failure was recorded, left to the current owner: id=%s attempt=%s",
-                row.id, row.attempts,
+                event.id, event.attempts,
             )
 
     def _delete_processed(self) -> int:
-        processed_before = datetime.now(timezone.utc) - self._processed_retention
-        with self._session_provider.session() as session:
-            return session.execute(DELETE_PROCESSED_SQL, {"processed_before": processed_before}).rowcount
+        return self._repository.delete_processed_before(datetime.now(timezone.utc) - self._processed_retention)

@@ -18,9 +18,8 @@ class TrendingFeedUseCase:
     def publish_trending_post_sent(self, posts: list[UUID], correlation_id: UUID | None = None) -> None:
         """Saves a TrendingPostSent event to the outbox. TODO: no caller yet."""
         event = TrendingPostSentEvent(correlationId=correlation_id or uuid4(), posts=posts)
-        with self.transaction_manager.transaction() as session:
+        with self.transaction_manager.transaction():
             self.outbox_publisher.add(
-                session,
                 event,
                 event_type="TrendingPostSent",
                 exchange=FEED_EXCHANGE,

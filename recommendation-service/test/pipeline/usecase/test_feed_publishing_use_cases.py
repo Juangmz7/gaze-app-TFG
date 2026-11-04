@@ -6,8 +6,9 @@ from sqlalchemy import text
 
 from pipeline.usecase.recommended_feed_use_case import RecommendedFeedUseCase
 from pipeline.usecase.trending_feed_use_case import TrendingFeedUseCase
-from shared.config.database import SQLAlchemyTransactionManager
+from shared.config.database import SQLAlchemySessionProvider, SQLAlchemyTransactionManager
 from shared.outbox.outbox_publisher import OutboxPublisher
+from shared.repository.impl.sql_alchemy_outbox_event_repository import SqlAlchemyOutboxEventRepository
 
 
 pytestmark = pytest.mark.integration
@@ -24,6 +25,10 @@ class StubOrchestrator:
         return self.posts
 
 
+def outbox_publisher(db_session_factory) -> OutboxPublisher:
+    return OutboxPublisher(SqlAlchemyOutboxEventRepository(SQLAlchemySessionProvider(db_session_factory)))
+
+
 def outbox_rows(db_session_factory):
     with db_session_factory() as session:
         return session.execute(text("SELECT * FROM outbox_events")).mappings().all()
@@ -34,7 +39,7 @@ def test_recommended_feed_queues_recommended_post_sent_with_the_propagated_corre
     user_id, correlation_id = uuid4(), uuid4()
     posts = [uuid4(), uuid4(), uuid4()]
     use_case = RecommendedFeedUseCase(
-        StubOrchestrator(posts=posts), OutboxPublisher(), SQLAlchemyTransactionManager(db_session_factory)
+        StubOrchestrator(posts=posts), outbox_publisher(db_session_factory), SQLAlchemyTransactionManager(db_session_factory)
     )
 
     # Act
@@ -59,7 +64,7 @@ def test_recommended_feed_queues_nothing_when_the_pipeline_fails(db_session_fact
     # Arrange
     use_case = RecommendedFeedUseCase(
         StubOrchestrator(error=RuntimeError("model unavailable")),
-        OutboxPublisher(),
+        outbox_publisher(db_session_factory),
         SQLAlchemyTransactionManager(db_session_factory),
     )
 
@@ -74,7 +79,7 @@ def test_recommended_feed_queues_nothing_when_the_pipeline_fails(db_session_fact
 def test_trending_feed_queues_trending_post_sent(db_session_factory):
     # Arrange
     posts = [uuid4()]
-    use_case = TrendingFeedUseCase(OutboxPublisher(), SQLAlchemyTransactionManager(db_session_factory))
+    use_case = TrendingFeedUseCase(outbox_publisher(db_session_factory), SQLAlchemyTransactionManager(db_session_factory))
 
     # Act
     use_case.publish_trending_post_sent(posts)

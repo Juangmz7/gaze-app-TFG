@@ -9,6 +9,7 @@ from sqlalchemy import create_engine, text
 from testcontainers.postgres import PostgresContainer
 from sqlalchemy.orm import sessionmaker
 from shared.config.database import SQLAlchemySessionProvider
+from shared.repository.impl.sql_alchemy_outbox_event_repository import SqlAlchemyOutboxEventRepository
 
 import os
 import socket
@@ -120,3 +121,8 @@ def session_provider(db_session_factory):
 
 
     return SQLAlchemySessionProvider(db_session_factory)
+
+
+@pytest.fixture()
+def outbox_event_repository(session_provider):
+    return SqlAlchemyOutboxEventRepository(session_provider)

@@ -6,8 +6,9 @@ from faststream.rabbit import RabbitBroker
 
 from rabbitmq.event.feed.feed_events import RecommendedPostSentEvent
 from rabbitmq.worker.outbox_relay import OutboxRelayWorker
-from shared.config.database import SQLAlchemyTransactionManager
+from shared.config.database import SQLAlchemySessionProvider, SQLAlchemyTransactionManager
 from shared.outbox.outbox_publisher import OutboxPublisher
+from shared.repository.impl.sql_alchemy_outbox_event_repository import SqlAlchemyOutboxEventRepository
 from sqlalchemy import text
 
 
@@ -26,11 +27,15 @@ async def bind_verification_queue(rabbitmq_url):
     return connection, queue
 
 
+def outbox_publisher(db_session_factory) -> OutboxPublisher:
+    return OutboxPublisher(SqlAlchemyOutboxEventRepository(SQLAlchemySessionProvider(db_session_factory)))
+
+
 def add_event(db_session_factory, exchange=EXCHANGE, routing_key=ROUTING_KEY):
     event = RecommendedPostSentEvent(correlationId=uuid4(), userId=uuid4(), posts=[uuid4(), uuid4()])
-    with SQLAlchemyTransactionManager(db_session_factory).transaction() as session:
-        OutboxPublisher().add(
-            session, event, event_type="RecommendedPostSent", exchange=exchange, routing_key=routing_key
+    with SQLAlchemyTransactionManager(db_session_factory).transaction():
+        outbox_publisher(db_session_factory).add(
+            event, event_type="RecommendedPostSent", exchange=exchange, routing_key=routing_key
         )
     return event
 
@@ -43,7 +48,7 @@ def status_of(db_session_factory, event_id):
 
 
 async def test_relay_publishes_persistent_json_with_broker_confirm(
-    rabbitmq_url, session_provider, db_session_factory
+    rabbitmq_url, outbox_event_repository, db_session_factory
 ):
     # Arrange
     connection, queue = await bind_verification_queue(rabbitmq_url)
@@ -51,7 +56,7 @@ async def test_relay_publishes_persistent_json_with_broker_confirm(
 
     # Act
     async with RabbitBroker(rabbitmq_url) as broker:
-        await OutboxRelayWorker(session_provider, broker).relay_batch()
+        await OutboxRelayWorker(outbox_event_repository, broker).relay_batch()
 
     # Assert
     message = await queue.get(timeout=10, fail=True)
@@ -68,7 +73,7 @@ async def test_relay_publishes_persistent_json_with_broker_confirm(
 
 
 async def test_relay_marks_unroutable_message_processed_because_the_broker_acked_it(
-    rabbitmq_url, session_provider, db_session_factory
+    rabbitmq_url, outbox_event_repository, db_session_factory
 ):
     # Arrange: exchange exists, nothing is bound to this routing key
     connection, _ = await bind_verification_queue(rabbitmq_url)
@@ -76,7 +81,7 @@ async def test_relay_marks_unroutable_message_processed_because_the_broker_acked
 
     # Act
     async with RabbitBroker(rabbitmq_url) as broker:
-        await OutboxRelayWorker(session_provider, broker).relay_batch()
+        await OutboxRelayWorker(outbox_event_repository, broker).relay_batch()
 
     # Assert
     assert status_of(db_session_factory, event.id) == "PROCESSED"
@@ -84,14 +89,14 @@ async def test_relay_marks_unroutable_message_processed_because_the_broker_acked
 
 
 async def test_relay_keeps_event_pending_for_unknown_exchange_and_publishes_the_next_cycle(
-    rabbitmq_url, session_provider, db_session_factory
+    rabbitmq_url, outbox_event_repository, db_session_factory
 ):
     # Arrange
     connection, queue = await bind_verification_queue(rabbitmq_url)
     missing = add_event(db_session_factory, exchange="x.does-not-exist")
 
     async with RabbitBroker(rabbitmq_url) as broker:
-        worker = OutboxRelayWorker(session_provider, broker)
+        worker = OutboxRelayWorker(outbox_event_repository, broker)
 
         # Act: first cycle fails on the missing exchange
         await worker.relay_batch()

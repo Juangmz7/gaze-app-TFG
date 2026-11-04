@@ -9,8 +9,9 @@ from sqlalchemy import text
 
 from rabbitmq.event.feed.feed_events import TrendingPostSentEvent
 from rabbitmq.worker.outbox_relay import OutboxRelayWorker
-from shared.config.database import SQLAlchemyTransactionManager
+from shared.config.database import SQLAlchemySessionProvider, SQLAlchemyTransactionManager
 from shared.outbox.outbox_publisher import OutboxPublisher
+from shared.repository.impl.sql_alchemy_outbox_event_repository import SqlAlchemyOutboxEventRepository
 
 
 pytestmark = pytest.mark.integration
@@ -38,11 +39,15 @@ class FakeBroker:
         return SimpleNamespace(name="Basic.Ack")
 
 
+def outbox_publisher(db_session_factory) -> OutboxPublisher:
+    return OutboxPublisher(SqlAlchemyOutboxEventRepository(SQLAlchemySessionProvider(db_session_factory)))
+
+
 def add_event(db_session_factory, created_at=None):
     event = TrendingPostSentEvent(correlationId=uuid4(), posts=[uuid4()])
-    with SQLAlchemyTransactionManager(db_session_factory).transaction() as session:
-        OutboxPublisher().add(
-            session, event, event_type="TrendingPostSent", exchange="x.feed.events", routing_key="rk.post.trending.sent"
+    with SQLAlchemyTransactionManager(db_session_factory).transaction():
+        outbox_publisher(db_session_factory).add(
+            event, event_type="TrendingPostSent", exchange="x.feed.events", routing_key="rk.post.trending.sent"
         )
     if created_at is not None:
         execute(db_session_factory, "UPDATE outbox_events SET created_at = :created_at WHERE id = :id",
@@ -61,7 +66,7 @@ def fetch(db_session_factory, event_id):
         return session.execute(text("SELECT * FROM outbox_events WHERE id = :id"), {"id": event_id}).mappings().one()
 
 
-async def test_relay_publishes_oldest_first_and_marks_processed_after_ack(session_provider, db_session_factory):
+async def test_relay_publishes_oldest_first_and_marks_processed_after_ack(outbox_event_repository, db_session_factory):
     # Arrange
     now = datetime.now(timezone.utc)
     newer = add_event(db_session_factory, created_at=now)
@@ -69,7 +74,7 @@ async def test_relay_publishes_oldest_first_and_marks_processed_after_ack(sessio
     broker = FakeBroker()
 
     # Act
-    await OutboxRelayWorker(session_provider, broker).relay_batch()
+    await OutboxRelayWorker(outbox_event_repository, broker).relay_batch()
 
     # Assert
     assert [kwargs["message_id"] for _, kwargs in broker.published] == [str(older.id), str(newer.id)]
@@ -86,7 +91,7 @@ async def test_relay_publishes_oldest_first_and_marks_processed_after_ack(sessio
 
 
 async def test_relay_stops_the_batch_at_the_first_failure_and_releases_it_as_pending(
-    session_provider, db_session_factory
+    outbox_event_repository, db_session_factory
 ):
     # Arrange
     now = datetime.now(timezone.utc)
@@ -95,7 +100,7 @@ async def test_relay_stops_the_batch_at_the_first_failure_and_releases_it_as_pen
     broker = FakeBroker({str(failing.id): ConnectionError("broker down")})
 
     # Act
-    await OutboxRelayWorker(session_provider, broker).relay_batch()
+    await OutboxRelayWorker(outbox_event_repository, broker).relay_batch()
 
     # Assert
     assert broker.published == []
@@ -107,14 +112,14 @@ async def test_relay_stops_the_batch_at_the_first_failure_and_releases_it_as_pen
     assert fetch(db_session_factory, next_event.id)["attempts"] == 0
 
 
-async def test_relay_moves_event_to_failed_once_attempts_are_exhausted(session_provider, db_session_factory):
+async def test_relay_moves_event_to_failed_once_attempts_are_exhausted(outbox_event_repository, db_session_factory):
     # Arrange
     event = add_event(db_session_factory)
     execute(db_session_factory, "UPDATE outbox_events SET attempts = 9 WHERE id = :id", id=event.id)
     broker = FakeBroker({str(event.id): RuntimeError("nack")})
 
     # Act
-    await OutboxRelayWorker(session_provider, broker, max_attempts=10).relay_batch()
+    await OutboxRelayWorker(outbox_event_repository, broker, max_attempts=10).relay_batch()
 
     # Assert
     row = fetch(db_session_factory, event.id)
@@ -123,14 +128,14 @@ async def test_relay_moves_event_to_failed_once_attempts_are_exhausted(session_p
 
 
 async def test_relay_reports_the_duplicate_and_stops_when_marking_processed_fails(
-    session_provider, db_session_factory, caplog
+    outbox_event_repository, db_session_factory, caplog
 ):
     # Arrange
     now = datetime.now(timezone.utc)
     published = add_event(db_session_factory, created_at=now - timedelta(minutes=1))
     next_event = add_event(db_session_factory, created_at=now)
     broker = FakeBroker()
-    worker = OutboxRelayWorker(session_provider, broker)
+    worker = OutboxRelayWorker(outbox_event_repository, broker)
 
     def database_down(_event_id):
         raise RuntimeError("database down")
@@ -149,19 +154,19 @@ async def test_relay_reports_the_duplicate_and_stops_when_marking_processed_fail
     assert "republished as a duplicate" in caplog.text
 
 
-async def test_relay_marks_unroutable_event_processed(session_provider, db_session_factory):
+async def test_relay_marks_unroutable_event_processed(outbox_event_repository, db_session_factory):
     # Arrange
     event = add_event(db_session_factory)
     broker = FakeBroker({str(event.id): "returned"})
 
     # Act
-    await OutboxRelayWorker(session_provider, broker).relay_batch()
+    await OutboxRelayWorker(outbox_event_repository, broker).relay_batch()
 
     # Assert
     assert fetch(db_session_factory, event.id)["status"] == "PROCESSED"
 
 
-async def test_relay_reclaims_only_events_whose_lock_expired(session_provider, db_session_factory):
+async def test_relay_reclaims_only_events_whose_lock_expired(outbox_event_repository, db_session_factory):
     # Arrange
     stale = add_event(db_session_factory)
     fresh = add_event(db_session_factory)
@@ -179,7 +184,7 @@ async def test_relay_reclaims_only_events_whose_lock_expired(session_provider, d
     broker = FakeBroker()
 
     # Act
-    await OutboxRelayWorker(session_provider, broker, lock_timeout_s=60).relay_batch()
+    await OutboxRelayWorker(outbox_event_repository, broker, lock_timeout_s=60).relay_batch()
 
     # Assert
     assert [kwargs["message_id"] for _, kwargs in broker.published] == [str(stale.id)]
@@ -187,12 +192,12 @@ async def test_relay_reclaims_only_events_whose_lock_expired(session_provider, d
     assert fetch(db_session_factory, fresh.id)["status"] == "PROCESSING"
 
 
-async def test_relay_claims_nothing_while_the_broker_is_unreachable(session_provider, db_session_factory):
+async def test_relay_claims_nothing_while_the_broker_is_unreachable(outbox_event_repository, db_session_factory):
     # Arrange
     event = add_event(db_session_factory)
 
     # Act
-    await OutboxRelayWorker(session_provider, FakeBroker(available=False)).relay_batch()
+    await OutboxRelayWorker(outbox_event_repository, FakeBroker(available=False)).relay_batch()
 
     # Assert
     row = fetch(db_session_factory, event.id)
@@ -200,10 +205,10 @@ async def test_relay_claims_nothing_while_the_broker_is_unreachable(session_prov
     assert row["attempts"] == 0
 
 
-def test_a_relay_whose_claim_expired_cannot_release_the_row(session_provider, db_session_factory):
+def test_a_relay_whose_claim_expired_cannot_release_the_row(outbox_event_repository, db_session_factory):
     # Arrange: relay A claimed the row (attempt 1) and stalled; relay B reclaimed it (attempt 2)
     event = add_event(db_session_factory)
-    worker = OutboxRelayWorker(session_provider, FakeBroker())
+    worker = OutboxRelayWorker(outbox_event_repository, FakeBroker())
     execute(
         db_session_factory,
         "UPDATE outbox_events SET status = 'PROCESSING', attempts = 2, locked_at = now() WHERE id = :id",
@@ -228,10 +233,10 @@ def test_a_relay_whose_claim_expired_cannot_release_the_row(session_provider, db
     assert fetch(db_session_factory, event.id)["status"] == "PROCESSED"
 
 
-def test_concurrent_claims_return_each_event_exactly_once(session_provider, db_session_factory):
+def test_concurrent_claims_return_each_event_exactly_once(outbox_event_repository, db_session_factory):
     # Arrange
     events = [add_event(db_session_factory) for _ in range(60)]
-    worker = OutboxRelayWorker(session_provider, FakeBroker())
+    worker = OutboxRelayWorker(outbox_event_repository, FakeBroker())
     claimed = []
     lock = threading.Lock()
 
@@ -251,7 +256,7 @@ def test_concurrent_claims_return_each_event_exactly_once(session_provider, db_s
     assert sorted(claimed) == sorted(event.id for event in events)
 
 
-async def test_delete_processed_removes_only_old_processed_events(session_provider, db_session_factory):
+async def test_delete_processed_removes_only_old_processed_events(outbox_event_repository, db_session_factory):
     # Arrange
     old_processed = add_event(db_session_factory)
     recent_processed = add_event(db_session_factory)
@@ -268,7 +273,7 @@ async def test_delete_processed_removes_only_old_processed_events(session_provid
     )
 
     # Act
-    deleted = await OutboxRelayWorker(session_provider, FakeBroker()).delete_processed()
+    deleted = await OutboxRelayWorker(outbox_event_repository, FakeBroker()).delete_processed()
 
     # Assert
     assert deleted == 1
@@ -283,9 +288,9 @@ def test_outbox_insert_is_rolled_back_with_its_transaction(db_session_factory):
 
     # Act
     with pytest.raises(RuntimeError):
-        with SQLAlchemyTransactionManager(db_session_factory).transaction() as session:
-            OutboxPublisher().add(
-                session, event, event_type="TrendingPostSent", exchange="x.feed.events",
+        with SQLAlchemyTransactionManager(db_session_factory).transaction():
+            outbox_publisher(db_session_factory).add(
+                event, event_type="TrendingPostSent", exchange="x.feed.events",
                 routing_key="rk.post.trending.sent",
             )
             raise RuntimeError("failure after the state change, before commit")
