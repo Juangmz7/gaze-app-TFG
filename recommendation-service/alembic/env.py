@@ -43,7 +43,9 @@ from pipeline.entity.user.user_creator_features_entity import (  # noqa: F401, E
 config = context.config
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # Keep the application's loggers: migrations also run in-process (the test
+    # fixtures do), and fileConfig() disables every logger created before it
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # The metadata object that autogenerate compares against the live DB schema
 target_metadata = Base.metadata
