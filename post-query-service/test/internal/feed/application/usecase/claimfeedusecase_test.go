@@ -237,8 +237,8 @@ func TestClaimFeedUsecase_Execute_StartsFromTheLowestUnservedPositionWithoutACur
 	if got := cardPostIDs(second.Items); !slices.Equal(got, postIDs[15:]) {
 		t.Fatalf("second session = %v, want only unserved items", got)
 	}
-	if second.HasMore {
-		t.Fatal("hasMore = true, want false: nothing remains")
+	if !second.HasMore {
+		t.Fatal("hasMore = false, want true: the page is not empty and the next claim can refill")
 	}
 }
 
@@ -251,11 +251,11 @@ func TestClaimFeedUsecase_Execute_ReturnsExactlyTheRemainingTenWithoutPadding(t 
 	if got := cardPostIDs(output.Items); !slices.Equal(got, postIDs[10:]) {
 		t.Fatalf("items = %v, want exactly the 10 after the cursor", got)
 	}
-	if output.HasMore {
-		t.Fatal("hasMore = true, want false")
+	if !output.HasMore {
+		t.Fatal("hasMore = false, want true: the next claim can refill")
 	}
 	if store.calls["HasAfterPosition"] != 0 {
-		t.Fatal("a short read already proves nothing remains")
+		t.Fatal("a page that is not empty answers hasMore without asking")
 	}
 }
 
@@ -519,7 +519,7 @@ func TestClaimFeedUsecase_Execute_AnEmptyFeedIsAValidEmptyPage(t *testing.T) {
 func TestClaimFeedUsecase_Execute_PropagatesTheContextAndEveryFailure(t *testing.T) {
 	wantErr := errors.New("mongo failed")
 	queries := []string{
-		"FindPosition", "FindAfterPosition", "HasAfterPosition", "MarkServed", "FindPosts", "FindCreators",
+		"FindPosition", "FindAfterPosition", "MarkServed", "FindPosts", "FindCreators",
 		"FindCollabs", "FindLikedPostIDs", "FindSharedPostIDs", "FindFollowedUserIDs", "FindBlockRelatedUserIDs",
 	}
 
@@ -555,5 +555,277 @@ func TestClaimFeedUsecase_Execute_PropagatesTheContextAndEveryFailure(t *testing
 				t.Fatalf("Execute() error = %v, want it to wrap %v", err, wantErr)
 			}
 		})
+	}
+}
+
+func TestClaimFeedUsecase_Execute_ReturnsAFailureOfTheEmptyPageCheck(t *testing.T) {
+	store := newFakeFeedStore()
+	postIDs := store.seed(0, 4)
+	for _, postID := range postIDs {
+		delete(store.posts, postID)
+	}
+	store.failOn, store.failErr = "HasAfterPosition", errors.New("mongo failed")
+	uc := usecase.NewClaimFeed(store, store, usecase.ClaimFeedConfig{DefaultPageSize: 2, MaxPageSize: 2, MaxReads: 2}, discardLogger())
+
+	if _, err := uc.Execute(context.Background(), usecase.ClaimFeedInput{UserID: uuid.New()}); !errors.Is(err, store.failErr) {
+		t.Fatalf("Execute() error = %v, want it to wrap %v", err, store.failErr)
+	}
+}
+
+type fakeClaimLowWatermark struct {
+	inputs []usecase.RequestLowWatermarkPrefetchInput
+	served []bool
+	store  *fakeFeedStore
+}
+
+func (f *fakeClaimLowWatermark) Notify(_ context.Context, input usecase.RequestLowWatermarkPrefetchInput) {
+	f.inputs = append(f.inputs, input)
+	for _, unit := range f.store.units {
+		f.served = append(f.served, unit.served)
+	}
+}
+
+func TestClaimFeedUsecase_Execute_NotifiesTheLowWatermarkAfterMarkingTheUnitsServed(t *testing.T) {
+	store := newFakeFeedStore()
+	store.seed(0, 2)
+	lowWatermark := &fakeClaimLowWatermark{store: store}
+	uc := usecase.NewClaimFeed(store, store, defaultClaimConfig, discardLogger()).WithLowWatermark(lowWatermark)
+	userID := uuid.New()
+
+	if _, err := uc.Execute(context.Background(), usecase.ClaimFeedInput{UserID: userID, CorrelationID: "corr-1"}); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	want := usecase.RequestLowWatermarkPrefetchInput{UserID: userID, CorrelationID: "corr-1"}
+	if len(lowWatermark.inputs) != 1 || lowWatermark.inputs[0] != want {
+		t.Fatalf("notified = %+v, want [%+v]", lowWatermark.inputs, want)
+	}
+	for _, served := range lowWatermark.served {
+		if !served {
+			t.Fatal("notified before the claim marked its units served, so the check would count them")
+		}
+	}
+}
+
+func TestClaimFeedUsecase_Execute_DoesNotNotifyTheLowWatermarkWhenTheClaimFails(t *testing.T) {
+	store := newFakeFeedStore()
+	store.seed(0, 1)
+	store.failOn = "MarkServed"
+	store.failErr = errors.New("mongo failed")
+	lowWatermark := &fakeClaimLowWatermark{store: store}
+	uc := usecase.NewClaimFeed(store, store, defaultClaimConfig, discardLogger()).WithLowWatermark(lowWatermark)
+
+	if _, err := uc.Execute(context.Background(), usecase.ClaimFeedInput{UserID: uuid.New()}); err == nil {
+		t.Fatal("Execute() error = nil, want the failure")
+	}
+	if len(lowWatermark.inputs) != 0 {
+		t.Fatalf("notified = %+v, want nothing", lowWatermark.inputs)
+	}
+}
+
+// fakeClaimRefiller adds units to the store, as a real refill would.
+type fakeClaimRefiller struct {
+	store  *fakeFeedStore
+	add    int
+	status usecase.RefillFeedStatus
+	err    error
+	inputs []usecase.RefillFeedInput
+	added  []string
+}
+
+func (f *fakeClaimRefiller) Execute(_ context.Context, input usecase.RefillFeedInput) (usecase.RefillFeedStatus, error) {
+	f.inputs = append(f.inputs, input)
+	if f.err != nil {
+		return "", f.err
+	}
+	var next int64
+	if count := len(f.store.units); count > 0 {
+		next = f.store.units[count-1].ref.Position + 1
+	}
+	f.added = f.store.seed(next, f.add)
+	if f.status == "" {
+		return usecase.RefillFeedStatusUnitsAvailable, nil
+	}
+	return f.status, nil
+}
+
+func TestClaimFeedUsecase_Execute_RefillsWhenNothingRemainsAndServesTheNewUnitsInTheSameResponse(t *testing.T) {
+	store := newFakeFeedStore()
+	postIDs := store.seed(0, 5)
+	refiller := &fakeClaimRefiller{store: store, add: 30}
+	uc := usecase.NewClaimFeed(store, store, defaultClaimConfig, discardLogger()).WithRefill(refiller)
+
+	output, err := uc.Execute(context.Background(), usecase.ClaimFeedInput{UserID: uuid.New(), LastSeenID: parseCursor(t, postIDs[4]), CorrelationID: "corr-1"})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if got := cardPostIDs(output.Items); !slices.Equal(got, refiller.added[:15]) {
+		t.Fatalf("items = %v, want the first page of the new units", got)
+	}
+	if !output.HasMore {
+		t.Fatal("hasMore = false, want true")
+	}
+	input := refiller.inputs[0]
+	if input.AfterPosition == nil || *input.AfterPosition != 4 || input.UnservedOnly || input.CorrelationID != "corr-1" {
+		t.Fatalf("refill input = %+v, want it to read from the cursor", input)
+	}
+	for index, unit := range store.units {
+		if want := index >= 5 && index < 20; index >= 5 && unit.served != want {
+			t.Fatalf("unit at index %d served = %v, want %v", index, unit.served, want)
+		}
+	}
+}
+
+func TestClaimFeedUsecase_Execute_DoesNotRefillWhileAPageCanBeServed(t *testing.T) {
+	store := newFakeFeedStore()
+	store.seed(0, 3)
+	refiller := &fakeClaimRefiller{store: store, add: 30}
+	uc := usecase.NewClaimFeed(store, store, defaultClaimConfig, discardLogger()).WithRefill(refiller)
+
+	output, err := uc.Execute(context.Background(), usecase.ClaimFeedInput{UserID: uuid.New()})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if len(refiller.inputs) != 0 || len(output.Items) != 3 || !output.HasMore {
+		t.Fatalf("refills = %d, items = %d, hasMore = %v", len(refiller.inputs), len(output.Items), output.HasMore)
+	}
+}
+
+func TestClaimFeedUsecase_Execute_RefillsAfterMarkingUnitsThatWereAllDropped(t *testing.T) {
+	store := newFakeFeedStore()
+	postIDs := store.seed(0, 3)
+	for _, postID := range postIDs {
+		delete(store.posts, postID)
+	}
+	refiller := &fakeClaimRefiller{store: store, add: 2}
+	uc := usecase.NewClaimFeed(store, store, defaultClaimConfig, discardLogger()).WithRefill(refiller)
+
+	output, err := uc.Execute(context.Background(), usecase.ClaimFeedInput{UserID: uuid.New()})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if got := cardPostIDs(output.Items); !slices.Equal(got, refiller.added) {
+		t.Fatalf("items = %v, want the new units", got)
+	}
+	if !store.units[0].served || !store.units[2].served {
+		t.Fatal("the dropped units must count as served, so the refill excludes them")
+	}
+	if input := refiller.inputs[0]; input.AfterPosition == nil || *input.AfterPosition != 2 || !input.UnservedOnly {
+		t.Fatalf("refill input = %+v, want it to continue past the dropped units", input)
+	}
+}
+
+func TestClaimFeedUsecase_Execute_AnEmptyPageWithStoredUnitsLeftDoesNotRefill(t *testing.T) {
+	store := newFakeFeedStore()
+	postIDs := store.seed(0, 30)
+	for _, postID := range postIDs[:10] {
+		delete(store.posts, postID)
+	}
+	refiller := &fakeClaimRefiller{store: store, add: 2}
+	config := usecase.ClaimFeedConfig{DefaultPageSize: 5, MaxPageSize: 5, MaxReads: 2}
+	uc := usecase.NewClaimFeed(store, store, config, discardLogger()).WithRefill(refiller)
+
+	output, err := uc.Execute(context.Background(), usecase.ClaimFeedInput{UserID: uuid.New()})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if len(output.Items) != 0 || !output.HasMore || len(refiller.inputs) != 0 {
+		t.Fatalf("items = %d, hasMore = %v, refills = %d", len(output.Items), output.HasMore, len(refiller.inputs))
+	}
+}
+
+func TestClaimFeedUsecase_Execute_NoPostsIsAnEmptyPageWithoutMoreAndNoPrefetch(t *testing.T) {
+	store := newFakeFeedStore()
+	refiller := &fakeClaimRefiller{store: store, status: usecase.RefillFeedStatusNoPosts}
+	lowWatermark := &fakeClaimLowWatermark{store: store}
+	uc := usecase.NewClaimFeed(store, store, defaultClaimConfig, discardLogger()).WithLowWatermark(lowWatermark).WithRefill(refiller)
+
+	output, err := uc.Execute(context.Background(), usecase.ClaimFeedInput{UserID: uuid.New()})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if len(output.Items) != 0 || output.HasMore || output.LastSeenID != nil {
+		t.Fatalf("output = %+v, want an empty page with hasMore=false", output)
+	}
+	if len(lowWatermark.inputs) != 0 {
+		t.Fatal("a successful empty result must not cause a prefetch per claim")
+	}
+}
+
+func TestClaimFeedUsecase_Execute_AnEmptyPageAfterARefillStillHasMore(t *testing.T) {
+	store := newFakeFeedStore()
+	refiller := &fakeClaimRefiller{store: store, add: 2}
+	// The new units are dropped at hydration: their creator is gone.
+	delete(store.creators, "creator-1")
+	uc := usecase.NewClaimFeed(store, store, defaultClaimConfig, discardLogger()).WithRefill(refiller)
+
+	output, err := uc.Execute(context.Background(), usecase.ClaimFeedInput{UserID: uuid.New()})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if len(output.Items) != 0 || !output.HasMore {
+		t.Fatalf("output = %+v, want hasMore=true: recommendation-service did return posts", output)
+	}
+}
+
+func TestClaimFeedUsecase_Execute_ReturnsARefillFailureWithoutNotifying(t *testing.T) {
+	store := newFakeFeedStore()
+	wantErr := &usecase.FeedTemporarilyUnavailableError{RetryAfter: time.Second, Cause: errors.New("outage")}
+	refiller := &fakeClaimRefiller{store: store, err: wantErr}
+	lowWatermark := &fakeClaimLowWatermark{store: store}
+	uc := usecase.NewClaimFeed(store, store, defaultClaimConfig, discardLogger()).WithLowWatermark(lowWatermark).WithRefill(refiller)
+
+	_, err := uc.Execute(context.Background(), usecase.ClaimFeedInput{UserID: uuid.New()})
+
+	if !errors.Is(err, usecase.ErrFeedTemporarilyUnavailable) {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if len(lowWatermark.inputs) != 0 {
+		t.Fatal("notified after a failed claim")
+	}
+}
+
+// orderRecorder sees both ports, to pin who goes first: the asynchronous path must not
+// take the lease the refill needs.
+type orderRecorder struct {
+	events []string
+}
+
+type recordingRefiller struct {
+	fakeClaimRefiller
+	order *orderRecorder
+}
+
+func (r *recordingRefiller) Execute(ctx context.Context, input usecase.RefillFeedInput) (usecase.RefillFeedStatus, error) {
+	r.order.events = append(r.order.events, "refill")
+	return r.fakeClaimRefiller.Execute(ctx, input)
+}
+
+type recordingLowWatermark struct {
+	order *orderRecorder
+}
+
+func (r *recordingLowWatermark) Notify(context.Context, usecase.RequestLowWatermarkPrefetchInput) {
+	r.order.events = append(r.order.events, "low watermark")
+}
+
+func TestClaimFeedUsecase_Execute_RefillsBeforeNotifyingTheLowWatermark(t *testing.T) {
+	store := newFakeFeedStore()
+	order := &orderRecorder{}
+	refiller := &recordingRefiller{fakeClaimRefiller: fakeClaimRefiller{store: store, add: 2}, order: order}
+	uc := usecase.NewClaimFeed(store, store, defaultClaimConfig, discardLogger()).WithLowWatermark(&recordingLowWatermark{order: order}).WithRefill(refiller)
+
+	if _, err := uc.Execute(context.Background(), usecase.ClaimFeedInput{UserID: uuid.New()}); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if !slices.Equal(order.events, []string{"refill", "low watermark"}) {
+		t.Fatalf("order = %v", order.events)
 	}
 }

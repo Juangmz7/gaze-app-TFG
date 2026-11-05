@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -35,8 +36,9 @@ func NewClaimFeedHandler(uc ClaimFeedUsecase, logger *slog.Logger) *ClaimFeedHan
 	return &ClaimFeedHandler{usecase: uc, logger: logger}
 }
 
-// ServeHTTP answers 200 with a page, which can be short or empty, and 400 for a
-// malformed cursor or a limit that is not a positive integer up to the maximum.
+// ServeHTTP answers 200 with a page, which can be short or empty, 400 for a malformed
+// cursor or a limit that is not a positive integer up to the maximum, and 503 with
+// Retry-After when no page can be built right now.
 func (h *ClaimFeedHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	userID, ok := requireUserID(w, r, h.logger)
 	if !ok {
@@ -63,6 +65,11 @@ func (h *ClaimFeedHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.rejectLimit(w, r, userID)
 		return
 	}
+	var unavailable *usecase.FeedTemporarilyUnavailableError
+	if errors.As(err, &unavailable) {
+		respondFeedTemporarilyUnavailable(w, r, unavailable)
+		return
+	}
 	if err != nil {
 		respondWithFailure(w, r, h.logger, userID, "feed claim failed", err)
 		return
@@ -73,6 +80,13 @@ func (h *ClaimFeedHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(usecase.FeedPageToResponse(output)); err != nil {
 		h.logger.WarnContext(r.Context(), "writing the feed page failed", "correlation_id", correlationIDFrom(r.Context()), "userId", userID, "error", err)
 	}
+}
+
+// respondFeedTemporarilyUnavailable answers the degraded response. The usecase logged
+// it, with its cause. The body says nothing of the cause, which is internal.
+func respondFeedTemporarilyUnavailable(w http.ResponseWriter, r *http.Request, unavailable *usecase.FeedTemporarilyUnavailableError) {
+	w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(unavailable.RetryAfter.Seconds()))))
+	common.RespondWithError(w, r, http.StatusServiceUnavailable, "feed_temporarily_unavailable", "The feed is temporarily unavailable, try again shortly", nil)
 }
 
 func (h *ClaimFeedHandler) parseLastSeenID(w http.ResponseWriter, r *http.Request, userID uuid.UUID, query url.Values) (*uuid.UUID, bool) {

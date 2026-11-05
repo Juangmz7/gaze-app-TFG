@@ -44,6 +44,7 @@ func TestPublisher_Publish_IsRelayedToTheFeedEventsExchange(t *testing.T) {
 		CorrelationID: uuid.New(),
 		OccurredAt:    time.Now().UTC(),
 		UserID:        uuid.New(),
+		Reason:        "disconnect",
 	}
 
 	err := database.WithTransaction(ctx, client, func(ctx context.Context) error {
