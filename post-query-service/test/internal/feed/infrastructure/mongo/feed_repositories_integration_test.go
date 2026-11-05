@@ -1300,3 +1300,28 @@ func TestFeedUnitRepository_HasAfterPosition_ATimeoutOnItsOwnLimitIsNotTheCaller
 		t.Fatalf("error = %v, reported as the caller's deadline with time left", err)
 	}
 }
+
+// The caller's 3 s is under operationTimeout, so the operation carries the caller's
+// deadline and only the kind of error tells this failure from the end of the wait. A
+// client that is gone is a MongoDB failure, however close the deadline is.
+func TestFeedUnitRepository_HasAfterPosition_AFailureThatIsNotATimeoutIsNotTheCallersDeadline(t *testing.T) {
+	client, err := mongodriver.Connect(options.Client().ApplyURI("mongodb://127.0.0.1:1"))
+	if err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
+	if err := client.Disconnect(context.Background()); err != nil {
+		t.Fatalf("Disconnect() error = %v", err)
+	}
+	repository := feedmongo.NewFeedUnitRepository(client.Database("disconnected"))
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	_, err = repository.HasAfterPosition(ctx, "v", nil, true)
+
+	if !errors.Is(err, mongodriver.ErrClientDisconnected) {
+		t.Fatalf("error = %v, want the disconnected client's failure", err)
+	}
+	if errors.Is(err, usecase.ErrCallerDeadlineEndedRead) {
+		t.Fatalf("error = %v, reported as the caller's deadline", err)
+	}
+}

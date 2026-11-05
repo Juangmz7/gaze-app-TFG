@@ -461,6 +461,27 @@ func TestRefillFeedUsecase_Execute_AReadRefusedBeforeACancellationStaysACancella
 	})
 }
 
+// The read's error is neither a context error nor the sentinel: only the wait's context
+// says that the caller left.
+func TestRefillFeedUsecase_Execute_AReadFailingBecauseOfACancellationStaysACancellation(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		f := newRefillFixture()
+		f.lease.acquireErr = usecase.ErrFeedLeaseDenied
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		f.units.during = func(context.Context) error {
+			cancel()
+			return errors.New("connection closed")
+		}
+
+		_, err := f.usecase.Execute(ctx, f.input)
+
+		if !errors.Is(err, context.Canceled) || errors.Is(err, usecase.ErrFeedTemporarilyUnavailable) {
+			t.Fatalf("error = %v, want the cancellation", err)
+		}
+	})
+}
+
 func TestRefillFeedUsecase_Execute_AReadRefusedOnceDoesNotEndTheWait(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		f := newRefillFixture()
