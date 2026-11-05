@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -33,6 +34,7 @@ func TestPublisher_Publish_StoresAPendingOutboxEventForTheFeedExhaustedRoutingKe
 		CorrelationID: uuid.New(),
 		OccurredAt:    time.Now().UTC(),
 		UserID:        uuid.New(),
+		Reason:        "disconnect",
 	}
 
 	if err := pub.Publish(context.Background(), event); err != nil {
@@ -68,7 +70,7 @@ func TestPublisher_Publish_StoresAPendingOutboxEventForTheFeedExhaustedRoutingKe
 func TestPublisher_Publish_ReturnsTheOutboxError(t *testing.T) {
 	pub := publisher.NewPublisher(&fakeOutbox{err: errors.New("mongo unavailable")})
 
-	if err := pub.Publish(context.Background(), publisher.Event{ID: uuid.New(), UserID: uuid.New()}); err == nil {
+	if err := pub.Publish(context.Background(), publisher.Event{ID: uuid.New(), CorrelationID: uuid.New(), UserID: uuid.New(), Reason: "disconnect"}); err == nil {
 		t.Fatal("Publish() error = nil, want the outbox error")
 	}
 }
@@ -90,5 +92,83 @@ func TestPublisher_Publish_ReturnsErrorWhenUserIDIsMissing(t *testing.T) {
 
 	if err := pub.Publish(context.Background(), event); err == nil {
 		t.Fatal("Publish() error = nil, want an error when userId is missing")
+	}
+}
+
+// The field names and the empty list are the contract recommendation-service validates.
+func TestPublisher_Publish_WritesTheCamelCaseContractOfRecommendationService(t *testing.T) {
+	fake := &fakeOutbox{}
+	excluded := uuid.New()
+	event := publisher.Event{
+		ID:              uuid.New(),
+		CorrelationID:   uuid.New(),
+		OccurredAt:      time.Now().UTC(),
+		UserID:          uuid.New(),
+		Reason:          "low_watermark",
+		CurrentFeedSize: 7,
+		ExcludedPostIDs: []uuid.UUID{excluded},
+	}
+
+	if err := publisher.NewPublisher(fake).Publish(context.Background(), event); err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(fake.got[0].Payload), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if payload["id"] != event.ID.String() || payload["correlationId"] != event.CorrelationID.String() || payload["userId"] != event.UserID.String() {
+		t.Fatalf("payload ids = %v", payload)
+	}
+	if payload["reason"] != "low_watermark" || payload["currentFeedSize"] != float64(7) {
+		t.Fatalf("payload reason/size = %v", payload)
+	}
+	ids, ok := payload["excludedPostIds"].([]any)
+	if !ok || len(ids) != 1 || ids[0] != excluded.String() {
+		t.Fatalf("excludedPostIds = %v, want [%v]", payload["excludedPostIds"], excluded)
+	}
+	if _, found := payload["occurredAt"]; !found {
+		t.Fatalf("payload = %v, misses occurredAt", payload)
+	}
+}
+
+func TestPublisher_Publish_WritesNoExclusionsAsAnEmptyList(t *testing.T) {
+	fake := &fakeOutbox{}
+	event := publisher.Event{ID: uuid.New(), CorrelationID: uuid.New(), UserID: uuid.New(), Reason: "user_registered"}
+
+	if err := publisher.NewPublisher(fake).Publish(context.Background(), event); err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+
+	if !strings.Contains(fake.got[0].Payload, `"excludedPostIds":[]`) {
+		t.Fatalf("payload = %s, want an empty excludedPostIds list", fake.got[0].Payload)
+	}
+}
+
+func TestPublisher_Publish_RejectsAnEventThatBreaksTheContract(t *testing.T) {
+	valid := func() publisher.Event {
+		return publisher.Event{ID: uuid.New(), CorrelationID: uuid.New(), UserID: uuid.New(), Reason: "disconnect"}
+	}
+	tests := []struct {
+		name   string
+		mutate func(*publisher.Event)
+	}{
+		{"no correlation id", func(event *publisher.Event) { event.CorrelationID = uuid.Nil }},
+		{"no reason", func(event *publisher.Event) { event.Reason = "" }},
+		{"negative feed size", func(event *publisher.Event) { event.CurrentFeedSize = -1 }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := &fakeOutbox{}
+			event := valid()
+			tt.mutate(&event)
+
+			if err := publisher.NewPublisher(fake).Publish(context.Background(), event); err == nil {
+				t.Fatal("Publish() error = nil, want an error")
+			}
+			if len(fake.got) != 0 {
+				t.Fatalf("outbox received %d events, want none", len(fake.got))
+			}
+		})
 	}
 }
