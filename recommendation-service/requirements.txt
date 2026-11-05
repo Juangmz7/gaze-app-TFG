@@ -7,6 +7,16 @@ pytest>=8.0,<9.0
 pytest-asyncio>=0.24,<1.0
 pytest-cov>=5.0,<8.0
 testcontainers[postgres]>=4.13,<5.0
-faststream[rabbit]>=0.5,<1.0
+# otel: RabbitTelemetryMiddleware; cli: the `faststream run` entrypoint
+faststream[rabbit,otel,cli]>=0.5,<1.0
 # ASGI server behind `faststream run` for the /healthz probes
 uvicorn>=0.30,<1.0
+# Retries of RabbitRetryMiddleware
+tenacity>=8.2,<10
+# GetRecommendedFeed server. grpcio-tools generates src/recommendation/v1 from
+# proto/recommendation/v1/recommendation.proto; the stubs are committed. They need
+# at least grpcio 1.85.1 and protobuf 7.35.1 at import.
+grpcio>=1.85.1,<2
+grpcio-health-checking>=1.85.1,<2
+grpcio-tools>=1.85.1,<2
+protobuf>=7.35.1,<8

@@ -35,3 +35,17 @@ def test_retrieve_posts_returns_semantic_candidates():
     assert candidates[1].score == 0.85
 
     repository.get_similar_posts.assert_called_once_with(user_id, 200)
+
+
+def test_retrieve_posts_scales_the_limit_with_the_multiplier_the_orchestrator_passes():
+    # Arrange
+    repository = Mock()
+    repository.get_similar_posts.return_value = []
+    usecase = SemanticPostRetrievalUseCase(repository)
+    user_id = uuid4()
+
+    # Act
+    usecase.retrieve_posts(user_id, 1.5)
+
+    # Assert
+    repository.get_similar_posts.assert_called_once_with(user_id, 300)

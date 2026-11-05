@@ -1,9 +1,11 @@
 import logging
+from collections.abc import Collection
 from uuid import UUID
 
 from pipeline.usecase.cold_start_post_retrieval_use_case import ColdStartPostRetrievalUseCase
 import math
 from pipeline.model.interaction.candidate import Candidate
+from pipeline.model.ranking.normalized_post_ranking_features import NormalizedPostRankingFeatures
 from pipeline.usecase.collaborative_post_retrieval_use_case import CollaborativePostRetrievalUseCase
 from pipeline.usecase.semantic_post_retrieval_use_case import SemanticPostRetrievalUseCase
 from pipeline.usecase.explorative_post_retrieval_use_case import ExplorativePostRetrievalUsecase
@@ -38,73 +40,97 @@ class RecommendationPipelineOrchestratorUseCase:
         self.post_reranker_service = post_reranker_service
         self.cold_start_usecase = cold_start_usecase
 
-    def recommend(self, user_id: UUID) -> list[UUID]:
-        logger.info(f"Starting recommendation pipeline for user: {user_id}")
-        
-        candidates = self._retrieve_and_deduplicate(user_id)
-        
-        if not candidates:
-            logger.warning(f"No candidates retrieved for user {user_id}. Aborting pipeline.")
-            return []
-            
-        logger.debug(f"Proceeding to enrich {len(candidates)} candidates for user {user_id}.")
-        enriched_candidates = self.candidate_enricher_service.enrich(user_id, candidates)
-        
-        if not enriched_candidates:
-            logger.warning(f"Enricher returned empty candidates for user {user_id}. Aborting pipeline.")
-            return []
-            
-        logger.debug(f"Proceeding to rank {len(enriched_candidates)} enriched candidates for user {user_id}.")
-        top_k_normalized_posts = self.post_weighted_ranker_service.get_top_k_posts(enriched_candidates, TARGET_RECOMMENDED_POSTS)
-        
-        if not top_k_normalized_posts:
-            logger.warning(f"Ranker returned empty posts for user {user_id}. Aborting pipeline.")
-            return []
-            
+    def recommend(self, user_id: UUID, excluded_post_ids: Collection[UUID] = ()) -> list[UUID]:
+        """Post ids for the user, best first: up to TARGET_RECOMMENDED_POSTS ranked
+        posts plus the cold start ones. Never contains excluded_post_ids. Having no
+        candidates or no features is a normal result, not an error."""
+        excluded = set(excluded_post_ids)
+        logger.info(f"Starting recommendation pipeline for user: {user_id}, excluded posts: {len(excluded)}")
+
+        candidates = self._retrieve_and_deduplicate(user_id, excluded)
+        top_k_normalized_posts = self._enrich_and_rank(user_id, candidates)
+
         cold_start_limit = max(1, math.ceil(TARGET_RECOMMENDED_POSTS * COLD_START_MULTIPLIER))
         logger.debug(f"Fetching {cold_start_limit} cold start posts for user {user_id}.")
-        
-        # Cold start only adds posts the ranker has not already picked
+
+        # Cold start only adds posts neither the ranker nor the caller already has
         ranked_post_ids = {p.post_id for p in top_k_normalized_posts}
         cold_start_normalized_posts = self.cold_start_usecase.retrieve_and_prepare_cold_start_posts(
-            user_id, cold_start_limit, ranked_post_ids
+            user_id, cold_start_limit, ranked_post_ids | excluded
         )
-        
+
         # Combine the lists
         combined_posts = top_k_normalized_posts + cold_start_normalized_posts
-            
+
+        if not combined_posts:
+            logger.warning(f"No eligible posts for user {user_id}.")
+            return []
+
         logger.debug(f"Proceeding to rerank {len(combined_posts)} combined top posts for user {user_id}.")
         reranked_post_ids = self.post_reranker_service.rerank(user_id, combined_posts)
-        
+
         logger.info(f"Successfully generated {len(reranked_post_ids)} recommendations for user {user_id}.")
         return reranked_post_ids
 
-    def _retrieve_and_deduplicate(self, user_id: UUID) -> list[Candidate]:
+    def _enrich_and_rank(self, user_id: UUID, candidates: list[Candidate]) -> list[NormalizedPostRankingFeatures]:
+        if not candidates:
+            logger.warning(f"No candidates retrieved for user {user_id}.")
+            return []
+
+        logger.debug(f"Proceeding to enrich {len(candidates)} candidates for user {user_id}.")
+        enriched_candidates = self.candidate_enricher_service.enrich(user_id, candidates)
+
+        if not enriched_candidates:
+            logger.warning(f"Enricher returned empty candidates for user {user_id}.")
+            return []
+
+        logger.debug(f"Proceeding to rank {len(enriched_candidates)} enriched candidates for user {user_id}.")
+        top_k_normalized_posts = self.post_weighted_ranker_service.get_top_k_posts(
+            enriched_candidates, TARGET_RECOMMENDED_POSTS
+        )
+
+        if not top_k_normalized_posts:
+            logger.warning(f"Ranker returned empty posts for user {user_id}.")
+
+        return top_k_normalized_posts
+
+    def _retrieve_and_deduplicate(self, user_id: UUID, excluded_post_ids: set[UUID]) -> list[Candidate]:
+        # Personalised retrieval compares against the user's embedding: without
+        # signal (or without a features row) it has nothing to compare with
+        has_signal = self.collaborative_retrieval_usecase.has_semantic_signal(user_id)
         multiplier = 1.0
-        
+
         for attempt in range(1, MAX_RETRIEVAL_RETRIES + 1):
             logger.debug(f"Retrieval attempt {attempt}/{MAX_RETRIEVAL_RETRIES} for user {user_id} with multiplier {multiplier}.")
-            
-            candidates = []
-            candidates.extend(self.collaborative_retrieval_usecase.retrieve_posts(user_id, multiplier))
-            candidates.extend(self.semantic_retrieval_usecase.retrieve_posts(user_id, multiplier))
-            candidates.extend(self.explorative_retrieval_usecase.retrieve_posts(user_id, multiplier))
-            
-            seen_ids = set()
+
+            candidates = self._retrieve(user_id, multiplier, has_signal)
+
+            # Exclusions are removed before counting, so the target counts only eligible posts
+            seen_ids = set(excluded_post_ids)
             deduplicated = []
             for c in candidates:
                 if c.post_id not in seen_ids:
                     seen_ids.add(c.post_id)
                     deduplicated.append(c)
-                    
+
             logger.debug(f"Retrieved {len(candidates)} raw candidates, deduplicated to {len(deduplicated)} for user {user_id}.")
-            
+
             if len(deduplicated) >= TARGET_RECOMMENDED_POSTS:
                 logger.info(f"Target of {TARGET_RECOMMENDED_POSTS} posts reached ({len(deduplicated)} found) for user {user_id}.")
                 return deduplicated
-                
+
             logger.warning(f"Insufficient candidates ({len(deduplicated)} < {TARGET_RECOMMENDED_POSTS}) for user {user_id}. Retrying...")
             multiplier += RETRIEVAL_MULTIPLIER_STEP
-            
+
         logger.warning(f"Max retrieval retries reached for user {user_id}. Returning {len(deduplicated)} candidates.")
         return deduplicated
+
+    def _retrieve(self, user_id: UUID, multiplier: float, has_signal: bool) -> list[Candidate]:
+        if not has_signal:
+            return self.explorative_retrieval_usecase.retrieve_posts_for_new_user(user_id, multiplier)
+
+        candidates = []
+        candidates.extend(self.collaborative_retrieval_usecase.retrieve_posts(user_id, multiplier))
+        candidates.extend(self.semantic_retrieval_usecase.retrieve_posts(user_id, multiplier))
+        candidates.extend(self.explorative_retrieval_usecase.retrieve_posts(user_id, multiplier))
+        return candidates

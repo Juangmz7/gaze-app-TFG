@@ -100,6 +100,7 @@ def db_session_factory(postgres_url: str):
         "user_post_interactions",
         "user_post_comment_interactions",
         "post_features",
+        "post_interaction_features",
         "post_tag_features",
         "user_features",
         "user_creator_features",

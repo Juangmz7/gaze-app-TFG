@@ -6,6 +6,7 @@ from uuid import UUID
 from rabbitmq.event.post.post_events import (
     CollabStatus,
     InteractionSource,
+    PostFeedExhaustedReason,
     PostViewExitReason,
 )
 
@@ -242,3 +243,7 @@ class ExhaustPostFeedCommand:
     event_id: UUID
     correlation_id: UUID
     occurred_at: datetime
+    user_id: UUID
+    reason: PostFeedExhaustedReason
+    current_feed_size: int
+    excluded_post_ids: tuple[UUID, ...]

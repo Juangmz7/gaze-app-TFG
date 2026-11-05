@@ -1,6 +1,7 @@
 # recommendation-service: values shared by every environment.
 # Chart: infra/k8s/charts/microservice. Per-env overrides: values-<env>.yaml.
-# FastStream worker: consumes RabbitMQ, serves only the /healthz probes.
+# FastStream worker that consumes RabbitMQ and serves /healthz, plus the gRPC
+# server post-query-service calls when a user runs out of feed.
 
 image:
   repository: docker.io/juangmz7/recommendation-service
@@ -19,9 +20,16 @@ command:
 
 containerPort: 8000
 
-# Workers have no HTTP route; probes hit the container port directly.
+# No HTTP route; probes hit the container port directly. The Service exists for
+# gRPC. Headless: post-query-service balances per call with dns:/// + round_robin
+# on recommendation-service.recommendation-service-<env>.svc.cluster.local:50051.
 service:
-  enabled: false
+  enabled: true
+  headless: true
+
+grpc:
+  enabled: true
+  port: 50051
 
 probes:
   liveness:
@@ -52,6 +60,13 @@ env:
   # Read-only root filesystem: caches and bytecode go to the /tmp emptyDir.
   HOME: /tmp
   PYTHONDONTWRITEBYTECODE: "1"
+  # Level of this service's loggers (default INFO). Libraries stay at WARNING.
+  LOG_LEVEL: INFO
+  GRPC_PORT: "50051"
+  # Pipeline runs at once in a replica, over gRPC and RabbitMQ together. Feed
+  # requests take FEED_CONSUMER_PREFETCH of them, so gRPC keeps a worker.
+  PIPELINE_WORKER_POOL_SIZE: "2"
+  FEED_CONSUMER_PREFETCH: "1"
 
 migrations:
   enabled: true
@@ -60,11 +75,19 @@ migrations:
 autoscaling:
   enabled: true
   rabbitmq:
-    # Queues it consumes (src/rabbitmq/config/constants.py). Everything here
-    # feeds the recommendation features asynchronously and each replica is
-    # heavy (it loads the embedding model), so it tolerates a large backlog.
+    # Queues it consumes (src/rabbitmq/config/constants.py). The post and user
+    # queues feed the recommendation features asynchronously and each replica is
+    # heavy (it loads the embedding model), so they tolerate a large backlog. The
+    # feed queue has a user behind every message and takes one at a time per
+    # replica, so it scales out early.
     queues:
+      - name: q.recommendation-service.feed
+        value: "5"
       - name: q.recommendation-service.post
         value: "200"
       - name: q.recommendation-service.user
         value: "200"
+  # This service answers gRPC requests too, which no queue depth shows.
+  cpu:
+    enabled: true
+    utilization: "70"

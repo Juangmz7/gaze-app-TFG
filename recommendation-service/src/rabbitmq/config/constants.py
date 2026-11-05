@@ -9,16 +9,19 @@ FEED_EXCHANGE = "x.feed.events"
 # --- Dead Letter Exchanges ---
 USER_DLX = "x.recommendation-service.user.dlx"
 POST_DLX = "x.recommendation-service.post.dlx"
+FEED_DLX = "x.recommendation-service.feed.dlx"
 
 
 # --- Queues (incoming) ---
 USER_QUEUE = "q.recommendation-service.user"
 POST_QUEUE = "q.recommendation-service.post"
+FEED_QUEUE = "q.recommendation-service.feed"
 
 
 # --- Dead Letter Queues ---
 USER_DLQ = f"{USER_QUEUE}-dlq"
 POST_DLQ = f"{POST_QUEUE}-dlq"
+FEED_DLQ = f"{FEED_QUEUE}-dlq"
 
 
 # --- User routing keys ---
@@ -53,20 +56,25 @@ class PostRoutingKey(StrEnum):
     DELETED = "rk.post.deleted"
     UPDATED = "rk.post.updated"
     CREATED = "rk.post.created"
+
+
+# --- Feed routing keys ---
+# Published by post-query-service on x.feed.events. Their own queue: one slow
+# pipeline run must not delay the post events.
+class FeedRoutingKey(StrEnum):
     FEED_EXHAUSTED = "rk.post.feed.exhausted"
 
 
-# Feed events arrive on x.feed.events (published by post-query-service) but are
-# handled by the post queue/listener together with the post events.
-FEED_ROUTING_KEYS = [PostRoutingKey.FEED_EXHAUSTED.value]
+FEED_ROUTING_KEYS = [rk.value for rk in FeedRoutingKey]
 
 USER_ROUTING_KEYS = [rk.value for rk in UserRoutingKey]
-POST_ROUTING_KEYS = [rk.value for rk in PostRoutingKey if rk.value not in FEED_ROUTING_KEYS]
+POST_ROUTING_KEYS = [rk.value for rk in PostRoutingKey]
 
 
 # --- Dead Letter routing keys ---
 USER_DLQ_ROUTING_KEY = "rk.recommendation-service.user.dlq"
 POST_DLQ_ROUTING_KEY = "rk.recommendation-service.post.dlq"
+FEED_DLQ_ROUTING_KEY = "rk.recommendation-service.feed.dlq"
 
 
 # --- Routing keys: outgoing ---
@@ -94,11 +102,23 @@ INCOMING_QUEUES = [
     },
     {
         "exchange": FEED_EXCHANGE,
+        "queue": FEED_QUEUE,
+        "routing_keys": FEED_ROUTING_KEYS,
+        "dead_letter_exchange": FEED_DLX,
+        "dead_letter_queue": FEED_DLQ,
+        "dead_letter_routing_key": FEED_DLQ_ROUTING_KEY,
+    },
+]
+
+
+# --- Bindings to remove ---
+# Durable bindings outlive the code that declared them: a broker that already ran
+# the old topology would keep sending feed requests to the post queue as well.
+OBSOLETE_BINDINGS = [
+    {
+        "exchange": FEED_EXCHANGE,
         "queue": POST_QUEUE,
         "routing_keys": FEED_ROUTING_KEYS,
-        "dead_letter_exchange": POST_DLX,
-        "dead_letter_queue": POST_DLQ,
-        "dead_letter_routing_key": POST_DLQ_ROUTING_KEY,
     },
 ]
 

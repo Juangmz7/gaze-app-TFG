@@ -33,6 +33,14 @@ service:
   # routes can disable it (probes still hit the container port).
   enabled: true
   port: 80
+  # clusterIP: None. DNS returns every pod, so a gRPC client can balance per call;
+  # through a ClusterIP its one long-lived connection pins to one pod.
+  headless: false
+
+# Optional gRPC port, on the Deployment and on the Service.
+grpc:
+  enabled: false
+  port: 50051
 
 probes:
   liveness:
@@ -179,6 +187,13 @@ networkPolicy:
   # Namespace of the Envoy proxies allowed to reach containerPort. Only used
   # when httpRoute.enabled.
   gatewayNamespace: gateway-dev
+  # In-cluster services allowed to connect to this one.
+  ingress: []
+  #  - name: post-query-service
+  #    namespace: post-query-service-dev
+  #    podLabels:
+  #      app.kubernetes.io/name: post-query-service
+  #    ports: [50051]
   # In-cluster dependencies this service may connect to.
   egress: []
   #  - name: rabbitmq

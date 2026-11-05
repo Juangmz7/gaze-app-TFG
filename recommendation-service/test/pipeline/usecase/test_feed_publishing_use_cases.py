@@ -19,7 +19,7 @@ class StubOrchestrator:
         self.posts = posts or []
         self.error = error
 
-    def recommend(self, user_id):
+    def recommend(self, user_id, excluded_post_ids=()):
         if self.error:
             raise self.error
         return self.posts
