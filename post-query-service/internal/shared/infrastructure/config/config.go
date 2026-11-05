@@ -39,14 +39,36 @@ const (
 	defaultFeedPrefetchMaxUnserved = 60
 	defaultFeedExcludedIDsCap      = 200
 	defaultFeedPrefetchTimeout     = 5000
-	// Must exceed queue time plus pipeline time. The real pipeline duration has not
-	// been measured yet.
+	// Must exceed queue time plus pipeline time. The pipeline takes seconds (see the
+	// recommendation defaults); queue time is an estimate.
 	defaultFeedLeaseTTL               = 300000
 	defaultFeedLeaseReleaseTimeout    = 5000
 	defaultFeedLowWatermarkConcurrent = 16
 	defaultFeedSweepInterval          = 60000
 	defaultFeedSweepStaleAfter        = 180000
 	defaultFeedSweepBatchSize         = 100
+	// Just above the slowest pipeline run measured, 7.7 s, with a build that just started.
+	defaultFeedRefillLeaseWait    = 8000
+	defaultFeedRefillPollInterval = 250
+	defaultFeedRefillRetryAfter   = 5
+)
+
+// Recommendation-service gRPC defaults, used when the matching RECOMMENDATION_GRPC_*
+// variable is not set. The timeouts come from a measurement, on CPU in WSL and not in
+// production, with 20000 posts: a user with history takes p50 4.4 s, 5.1 s at most, and
+// 7.7 s at most with two runs at once. See "Synchronous refill" in the architecture doc.
+const (
+	defaultRecommendationDialTimeout = 2000
+	// Above the slowest run, because a retry on a timeout runs the pipeline again.
+	defaultRecommendationPerRetryTimeout = 10000
+	// Two runs that time out plus their backoff, and below the 30 s of the HTTPRoute.
+	defaultRecommendationOverallTimeout = 21000
+	// The total: 3 retries. In go-grpc-middleware v2 WithMax counts attempts.
+	defaultRecommendationMaxAttempts   = 4
+	defaultRecommendationBackoffBase   = 250
+	defaultRecommendationBackoffMax    = 1000
+	defaultRecommendationBackoffJitter = 20
+	maxPercent                         = 100
 )
 
 // MongoConfig holds the settings required to connect to MongoDB.
@@ -127,6 +149,34 @@ type FeedConfig struct {
 	SweepStaleAfter time.Duration
 	// SweepBatchSize is how many sessions one sweep read returns.
 	SweepBatchSize int
+	// RefillLeaseWait is how long a claim that found nothing polls the stored feed
+	// while another build holds the lease.
+	RefillLeaseWait time.Duration
+	// RefillPollInterval is the pause between those reads.
+	RefillPollInterval time.Duration
+	// RefillRetryAfter is what the degraded response tells a client to wait.
+	RefillRetryAfter time.Duration
+}
+
+// RecommendationConfig holds the settings of the gRPC client of recommendation-service.
+type RecommendationConfig struct {
+	// Address is the gRPC target: dns:/// plus the headless Service in a cluster.
+	Address string
+	// DialTimeout bounds one connection attempt.
+	DialTimeout time.Duration
+	// PerRetryTimeout bounds each attempt. It must exceed the pipeline's duration,
+	// because a retry on a timeout runs the pipeline again.
+	PerRetryTimeout time.Duration
+	// OverallTimeout bounds the whole call, every attempt and wait included.
+	OverallTimeout time.Duration
+	// MaxAttempts is the total number of attempts, the first one included.
+	MaxAttempts int
+	// BackoffBase is the wait before the first retry; it doubles with every retry.
+	BackoffBase time.Duration
+	// BackoffMax caps every wait.
+	BackoffMax time.Duration
+	// BackoffJitterPercent is how much each wait varies, up or down.
+	BackoffJitterPercent int
 }
 
 // AppConfig holds the post-query-service-specific configuration. The HTTP
@@ -149,13 +199,16 @@ type AppConfig struct {
 	Auth auth.AuthConfig
 	// Feed holds the limits of the feed endpoints and its stored units.
 	Feed FeedConfig
+	// Recommendation holds the settings of the gRPC client of recommendation-service.
+	Recommendation RecommendationConfig
 }
 
 // Load reads AppConfig from environment variables. It returns an error when
 // a required variable is missing or blank; POST_QUERY_MONGO_URI, RABBITMQ_USER,
-// RABBITMQ_PASSWORD, JWKS_URL, JWT_ISSUER and JWT_AUDIENCE are required.
-// POST_QUERY_MONGO_DATABASE, RABBITMQ_HOST, RABBITMQ_PORT and the FEED_* variables
-// fall back to sensible defaults; a FEED_* value that makes no sense is an error.
+// RABBITMQ_PASSWORD, JWKS_URL, JWT_ISSUER, JWT_AUDIENCE and RECOMMENDATION_GRPC_ADDR are
+// required. POST_QUERY_MONGO_DATABASE, RABBITMQ_HOST, RABBITMQ_PORT, the FEED_* variables
+// and the other RECOMMENDATION_GRPC_* variables fall back to sensible defaults; a value
+// among them that makes no sense is an error.
 func Load() (AppConfig, error) {
 	uri := strings.TrimSpace(os.Getenv("POST_QUERY_MONGO_URI"))
 	if uri == "" {
@@ -182,14 +235,20 @@ func Load() (AppConfig, error) {
 		return AppConfig{}, err
 	}
 
+	recommendation, err := loadRecommendationConfig(feed.LeaseTTL)
+	if err != nil {
+		return AppConfig{}, err
+	}
+
 	return AppConfig{
 		Mongo: MongoConfig{
 			URI:      uri,
 			Database: database,
 		},
-		RabbitMQ: rabbitMQ,
-		Auth:     authConfig,
-		Feed:     feed,
+		RabbitMQ:       rabbitMQ,
+		Auth:           authConfig,
+		Feed:           feed,
+		Recommendation: recommendation,
 	}, nil
 }
 
@@ -280,6 +339,8 @@ func loadFeedPrefetchConfig(feed *FeedConfig) error {
 		{"FEED_LEASE_RELEASE_TIMEOUT_MS", defaultFeedLeaseReleaseTimeout, &feed.LeaseReleaseTimeout},
 		{"FEED_SWEEP_INTERVAL_MS", defaultFeedSweepInterval, &feed.SweepInterval},
 		{"FEED_SWEEP_STALE_AFTER_MS", defaultFeedSweepStaleAfter, &feed.SweepStaleAfter},
+		{"FEED_REFILL_LEASE_WAIT_MS", defaultFeedRefillLeaseWait, &feed.RefillLeaseWait},
+		{"FEED_REFILL_POLL_INTERVAL_MS", defaultFeedRefillPollInterval, &feed.RefillPollInterval},
 	}
 	for _, setting := range durations {
 		value, err := positiveIntEnv(setting.name, setting.fallback)
@@ -301,9 +362,74 @@ func loadFeedPrefetchConfig(feed *FeedConfig) error {
 		return fmt.Errorf("load config: FEED_LEASE_TTL_MS %s must exceed FEED_PREFETCH_TIMEOUT_MS %s", feed.LeaseTTL, feed.PrefetchTimeout)
 	}
 
+	if feed.RefillPollInterval > feed.RefillLeaseWait {
+		return fmt.Errorf("load config: FEED_REFILL_POLL_INTERVAL_MS %s is above FEED_REFILL_LEASE_WAIT_MS %s", feed.RefillPollInterval, feed.RefillLeaseWait)
+	}
+	retryAfterSeconds, err := positiveIntEnv("FEED_REFILL_RETRY_AFTER_SECONDS", defaultFeedRefillRetryAfter)
+	if err != nil {
+		return err
+	}
+	feed.RefillRetryAfter = time.Duration(retryAfterSeconds) * time.Second
+
 	feed.InstanceID = instanceID()
 
 	return nil
+}
+
+// loadRecommendationConfig reads RecommendationConfig from environment variables.
+// leaseTTL is checked against the deadline: the lease must outlive the call it guards.
+func loadRecommendationConfig(leaseTTL time.Duration) (RecommendationConfig, error) {
+	address := strings.TrimSpace(os.Getenv("RECOMMENDATION_GRPC_ADDR"))
+	if address == "" {
+		return RecommendationConfig{}, fmt.Errorf("load config: required environment variable %s is missing", "RECOMMENDATION_GRPC_ADDR")
+	}
+
+	recommendation := RecommendationConfig{Address: address}
+	durations := []struct {
+		name     string
+		fallback int
+		target   *time.Duration
+	}{
+		{"RECOMMENDATION_GRPC_DIAL_TIMEOUT_MS", defaultRecommendationDialTimeout, &recommendation.DialTimeout},
+		{"RECOMMENDATION_GRPC_PER_RETRY_TIMEOUT_MS", defaultRecommendationPerRetryTimeout, &recommendation.PerRetryTimeout},
+		{"RECOMMENDATION_GRPC_OVERALL_TIMEOUT_MS", defaultRecommendationOverallTimeout, &recommendation.OverallTimeout},
+		{"RECOMMENDATION_GRPC_BACKOFF_BASE_MS", defaultRecommendationBackoffBase, &recommendation.BackoffBase},
+		{"RECOMMENDATION_GRPC_BACKOFF_MAX_MS", defaultRecommendationBackoffMax, &recommendation.BackoffMax},
+	}
+	for _, setting := range durations {
+		value, err := positiveIntEnv(setting.name, setting.fallback)
+		if err != nil {
+			return RecommendationConfig{}, err
+		}
+		*setting.target = time.Duration(value) * time.Millisecond
+	}
+
+	maxAttempts, err := positiveIntEnv("RECOMMENDATION_GRPC_MAX_ATTEMPTS", defaultRecommendationMaxAttempts)
+	if err != nil {
+		return RecommendationConfig{}, err
+	}
+	recommendation.MaxAttempts = maxAttempts
+
+	jitterPercent, err := positiveIntEnv("RECOMMENDATION_GRPC_BACKOFF_JITTER_PERCENT", defaultRecommendationBackoffJitter)
+	if err != nil {
+		return RecommendationConfig{}, err
+	}
+	if jitterPercent > maxPercent {
+		return RecommendationConfig{}, fmt.Errorf("load config: RECOMMENDATION_GRPC_BACKOFF_JITTER_PERCENT %d is above %d", jitterPercent, maxPercent)
+	}
+	recommendation.BackoffJitterPercent = jitterPercent
+
+	if recommendation.BackoffBase > recommendation.BackoffMax {
+		return RecommendationConfig{}, fmt.Errorf("load config: RECOMMENDATION_GRPC_BACKOFF_BASE_MS %s is above RECOMMENDATION_GRPC_BACKOFF_MAX_MS %s", recommendation.BackoffBase, recommendation.BackoffMax)
+	}
+	if recommendation.PerRetryTimeout > recommendation.OverallTimeout {
+		return RecommendationConfig{}, fmt.Errorf("load config: RECOMMENDATION_GRPC_PER_RETRY_TIMEOUT_MS %s is above RECOMMENDATION_GRPC_OVERALL_TIMEOUT_MS %s", recommendation.PerRetryTimeout, recommendation.OverallTimeout)
+	}
+	if leaseTTL <= recommendation.OverallTimeout {
+		return RecommendationConfig{}, fmt.Errorf("load config: FEED_LEASE_TTL_MS %s must exceed RECOMMENDATION_GRPC_OVERALL_TIMEOUT_MS %s", leaseTTL, recommendation.OverallTimeout)
+	}
+
+	return recommendation, nil
 }
 
 // instanceID names this replica. A generated id still tells replicas apart when

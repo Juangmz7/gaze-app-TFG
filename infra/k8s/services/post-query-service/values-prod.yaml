@@ -9,6 +9,8 @@ env:
   # Keycloak: tokens carry the public issuer; keys are fetched in-cluster.
   JWT_ISSUER: https://auth.gaze.localhost/realms/auth-service
   JWKS_URL: http://keycloak-service.keycloak-prod.svc.cluster.local:8080/realms/auth-service/protocol/openid-connect/certs
+  # Headless Service: one address per pod, balanced per call with round_robin.
+  RECOMMENDATION_GRPC_ADDR: dns:///recommendation-service.recommendation-service-prod.svc.cluster.local:50051
 
 # Created by External Secrets from Vault. Required keys:
 #   POST_QUERY_MONGO_URI (mongodb+srv://user:pass@CHANGE_ME/post_query?...),
@@ -46,6 +48,11 @@ networkPolicy:
       podLabels:
         app.kubernetes.io/managed-by: keycloak-operator
       ports: [8080]
+    - name: recommendation-service (gRPC)
+      namespace: recommendation-service-prod
+      podLabels:
+        app.kubernetes.io/name: recommendation-service
+      ports: [50051]
   externalEgress:
     # TODO(aks): narrow to the private endpoint of the managed database.
     - name: mongodb
