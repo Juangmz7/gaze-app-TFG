@@ -202,6 +202,52 @@ func (r *FeedUnitRepository) FindAfterPosition(ctx context.Context, userID strin
 	return refs, nil
 }
 
+// CountUnserved counts the user's units never served, stopping at limit: a caller only
+// needs to know whether the maximum is reached.
+func (r *FeedUnitRepository) CountUnserved(ctx context.Context, userID string, limit int64) (int64, error) {
+	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
+	defer cancel()
+
+	count, err := r.collection.CountDocuments(ctx, feedUnitAfterFilter(userID, nil, true), options.Count().SetLimit(limit))
+	if err != nil {
+		return 0, fmt.Errorf("count unserved feed units for user %s: %w", userID, err)
+	}
+
+	return count, nil
+}
+
+// FindRecentlyServedPostIDs returns the post ids of the user's most recently served
+// units, through the (user_id, served_at, position) index read backwards.
+func (r *FeedUnitRepository) FindRecentlyServedPostIDs(ctx context.Context, userID string, limit int) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
+	defer cancel()
+
+	filter := bson.D{{Key: "user_id", Value: userID}, {Key: "served_at", Value: bson.D{{Key: "$ne", Value: nil}}}}
+	findOptions := options.Find().
+		SetSort(bson.D{{Key: "served_at", Value: -1}, {Key: "position", Value: -1}}).
+		SetLimit(int64(limit)).
+		SetProjection(bson.D{{Key: "post_id", Value: 1}})
+
+	cursor, err := r.collection.Find(ctx, filter, findOptions)
+	if err != nil {
+		return nil, fmt.Errorf("find served feed units for user %s: %w", userID, err)
+	}
+
+	var documents []struct {
+		PostID string `bson:"post_id"`
+	}
+	if err := cursor.All(ctx, &documents); err != nil {
+		return nil, fmt.Errorf("read served feed units for user %s: %w", userID, err)
+	}
+
+	postIDs := make([]string, 0, len(documents))
+	for _, document := range documents {
+		postIDs = append(postIDs, document.PostID)
+	}
+
+	return postIDs, nil
+}
+
 // HasAfterPosition reports whether any stored unit matches the same read.
 func (r *FeedUnitRepository) HasAfterPosition(ctx context.Context, userID string, afterPosition *int64, unservedOnly bool) (bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
