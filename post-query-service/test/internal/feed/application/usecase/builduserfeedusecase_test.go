@@ -108,18 +108,24 @@ func TestBuildUserFeedUsecase_Execute_ALateResponseStoresItsUnitsWithoutReleasin
 }
 
 func TestBuildUserFeedUsecase_Execute_DropsAResponseForAUserWhoIsGone(t *testing.T) {
-	world := &fakeUserFeedWorld{userFound: false}
+	// A user who is not projected yet does hold a lease: keeping it would leave them on
+	// 503s until its TTL.
+	world := &fakeUserFeedWorld{userFound: false, released: true}
+	token := uuid.New()
 
-	output, err := newTestBuildUserFeed(world).Execute(context.Background(), usecase.BuildUserFeedInput{UserID: uuid.New(), PostIDs: []uuid.UUID{uuid.New()}, LeaseToken: uuid.New()})
+	output, err := newTestBuildUserFeed(world).Execute(context.Background(), usecase.BuildUserFeedInput{UserID: uuid.New(), PostIDs: []uuid.UUID{uuid.New()}, LeaseToken: token})
 	if err != nil {
 		t.Fatalf("Execute() error = %v, want the response dropped, not retried", err)
 	}
 
-	if !output.UserGone {
-		t.Fatalf("output = %+v", output)
+	if !output.UserGone || !output.LeaseReleased {
+		t.Fatalf("output = %+v, want the user gone and the lease released", output)
 	}
-	if slices.Contains(world.steps, "insert units") || slices.Contains(world.steps, "mark prefetched") {
-		t.Fatalf("steps = %v, want no write for a user who is gone", world.steps)
+	if want := []string{"find user", "release lease"}; !slices.Equal(world.steps, want) {
+		t.Fatalf("steps = %v, want %v: no write for a user who is gone, and the lease released", world.steps, want)
+	}
+	if world.gotToken != token {
+		t.Fatalf("released token = %v, want the response's %v", world.gotToken, token)
 	}
 }
 
