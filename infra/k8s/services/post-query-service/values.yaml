@@ -33,6 +33,17 @@ env:
   FEED_MAX_READS_PER_CLAIM: "3"
   FEED_RETENTION_HOURS: "168"
   FEED_DISCONNECT_WRITE_TIMEOUT_MS: "5000"
+  # Asynchronous prefetch. The instance id is the pod's hostname.
+  FEED_PREFETCH_MAX_UNSERVED: "60"
+  FEED_PREFETCH_EXCLUDED_IDS_CAP: "200"
+  FEED_PREFETCH_TIMEOUT_MS: "5000"
+  # Must exceed queue time plus pipeline time; the pipeline is not measured yet.
+  FEED_LEASE_TTL_MS: "300000"
+  FEED_LEASE_RELEASE_TIMEOUT_MS: "5000"
+  FEED_LOW_WATERMARK_CONCURRENCY: "16"
+  FEED_SWEEP_INTERVAL_MS: "60000"
+  FEED_SWEEP_STALE_AFTER_MS: "180000"
+  FEED_SWEEP_BATCH_SIZE: "100"
 
 httpRoute:
   enabled: true
@@ -53,7 +64,7 @@ autoscaling:
       # New and updated users, follows and blocks (what the feed filters on).
       - name: q.post-query-service.user.fast
         value: "50"
-      # Recommended / trending signals from recommendation-service.
+      # Recommended feeds (and trending signals) from recommendation-service.
       - name: q.post-query-service.feed
         value: "200"
       # Deletions, unfollows and unblocks, latency-tolerant by design.

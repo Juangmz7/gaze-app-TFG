@@ -18,6 +18,7 @@ func TestLoad_ParsesValidEnvironmentVariablesIntoConfig(t *testing.T) {
 	setEnv(t, "RABBITMQ_PASSWORD", "post_query_password")
 	setAuthEnv(t)
 	unsetFeedEnv(t)
+	setEnv(t, "FEED_INSTANCE_ID", "post-query-service-7d9f")
 
 	got, err := config.Load()
 	if err != nil {
@@ -41,11 +42,21 @@ func TestLoad_ParsesValidEnvironmentVariablesIntoConfig(t *testing.T) {
 			Audience: "account",
 		},
 		Feed: config.FeedConfig{
-			DefaultPageSize:        15,
-			MaxPageSize:            15,
-			MaxReadsPerClaim:       3,
-			Retention:              168 * time.Hour,
-			DisconnectWriteTimeout: 5 * time.Second,
+			DefaultPageSize:         15,
+			MaxPageSize:             15,
+			MaxReadsPerClaim:        3,
+			Retention:               168 * time.Hour,
+			DisconnectWriteTimeout:  5 * time.Second,
+			InstanceID:              "post-query-service-7d9f",
+			PrefetchMaxUnserved:     60,
+			ExcludedIDsCap:          200,
+			PrefetchTimeout:         5 * time.Second,
+			LeaseTTL:                5 * time.Minute,
+			LeaseReleaseTimeout:     5 * time.Second,
+			LowWatermarkConcurrency: 16,
+			SweepInterval:           time.Minute,
+			SweepStaleAfter:         3 * time.Minute,
+			SweepBatchSize:          100,
 		},
 	}
 
@@ -144,6 +155,16 @@ func TestLoad_ReadsTheFeedSettings(t *testing.T) {
 	setEnv(t, "FEED_MAX_READS_PER_CLAIM", "5")
 	setEnv(t, "FEED_RETENTION_HOURS", "24")
 	setEnv(t, "FEED_DISCONNECT_WRITE_TIMEOUT_MS", "750")
+	setEnv(t, "FEED_INSTANCE_ID", "post-query-service-7d9f")
+	setEnv(t, "FEED_PREFETCH_MAX_UNSERVED", "40")
+	setEnv(t, "FEED_PREFETCH_EXCLUDED_IDS_CAP", "90")
+	setEnv(t, "FEED_PREFETCH_TIMEOUT_MS", "800")
+	setEnv(t, "FEED_LEASE_TTL_MS", "120000")
+	setEnv(t, "FEED_LEASE_RELEASE_TIMEOUT_MS", "900")
+	setEnv(t, "FEED_LOW_WATERMARK_CONCURRENCY", "4")
+	setEnv(t, "FEED_SWEEP_INTERVAL_MS", "30000")
+	setEnv(t, "FEED_SWEEP_STALE_AFTER_MS", "60000")
+	setEnv(t, "FEED_SWEEP_BATCH_SIZE", "25")
 
 	got, err := config.Load()
 	if err != nil {
@@ -151,11 +172,21 @@ func TestLoad_ReadsTheFeedSettings(t *testing.T) {
 	}
 
 	want := config.FeedConfig{
-		DefaultPageSize:        10,
-		MaxPageSize:            30,
-		MaxReadsPerClaim:       5,
-		Retention:              24 * time.Hour,
-		DisconnectWriteTimeout: 750 * time.Millisecond,
+		DefaultPageSize:         10,
+		MaxPageSize:             30,
+		MaxReadsPerClaim:        5,
+		Retention:               24 * time.Hour,
+		DisconnectWriteTimeout:  750 * time.Millisecond,
+		InstanceID:              "post-query-service-7d9f",
+		PrefetchMaxUnserved:     40,
+		ExcludedIDsCap:          90,
+		PrefetchTimeout:         800 * time.Millisecond,
+		LeaseTTL:                2 * time.Minute,
+		LeaseReleaseTimeout:     900 * time.Millisecond,
+		LowWatermarkConcurrency: 4,
+		SweepInterval:           30 * time.Second,
+		SweepStaleAfter:         time.Minute,
+		SweepBatchSize:          25,
 	}
 	if got.Feed != want {
 		t.Fatalf("Load() Feed = %+v, want %+v", got.Feed, want)
@@ -173,6 +204,16 @@ func TestLoad_RejectsFeedSettingsThatMakeNoSense(t *testing.T) {
 		{"max reads is negative", map[string]string{"FEED_MAX_READS_PER_CLAIM": "-1"}},
 		{"retention is zero", map[string]string{"FEED_RETENTION_HOURS": "0"}},
 		{"disconnect timeout is not a number", map[string]string{"FEED_DISCONNECT_WRITE_TIMEOUT_MS": "soon"}},
+		{"max unserved is zero", map[string]string{"FEED_PREFETCH_MAX_UNSERVED": "0"}},
+		{"max unserved below a page", map[string]string{"FEED_PREFETCH_MAX_UNSERVED": "5"}},
+		{"excluded cap below max unserved", map[string]string{"FEED_PREFETCH_EXCLUDED_IDS_CAP": "20"}},
+		{"lease ttl is negative", map[string]string{"FEED_LEASE_TTL_MS": "-1"}},
+		{"lease ttl not above the prefetch timeout", map[string]string{"FEED_LEASE_TTL_MS": "5000"}},
+		{"release timeout is zero", map[string]string{"FEED_LEASE_RELEASE_TIMEOUT_MS": "0"}},
+		{"sweep interval is not a number", map[string]string{"FEED_SWEEP_INTERVAL_MS": "often"}},
+		{"stale threshold is zero", map[string]string{"FEED_SWEEP_STALE_AFTER_MS": "0"}},
+		{"sweep batch is negative", map[string]string{"FEED_SWEEP_BATCH_SIZE": "-5"}},
+		{"low watermark concurrency is zero", map[string]string{"FEED_LOW_WATERMARK_CONCURRENCY": "0"}},
 	}
 
 	for _, test := range tests {
@@ -223,7 +264,9 @@ func setAuthEnv(t *testing.T) {
 
 func unsetFeedEnv(t *testing.T) {
 	t.Helper()
-	for _, name := range []string{"FEED_DEFAULT_PAGE_SIZE", "FEED_MAX_PAGE_SIZE", "FEED_MAX_READS_PER_CLAIM", "FEED_RETENTION_HOURS", "FEED_DISCONNECT_WRITE_TIMEOUT_MS"} {
+	for _, name := range []string{"FEED_DEFAULT_PAGE_SIZE", "FEED_MAX_PAGE_SIZE", "FEED_MAX_READS_PER_CLAIM", "FEED_RETENTION_HOURS", "FEED_DISCONNECT_WRITE_TIMEOUT_MS",
+		"FEED_INSTANCE_ID", "FEED_PREFETCH_MAX_UNSERVED", "FEED_PREFETCH_EXCLUDED_IDS_CAP", "FEED_PREFETCH_TIMEOUT_MS", "FEED_LEASE_TTL_MS", "FEED_LEASE_RELEASE_TIMEOUT_MS",
+		"FEED_LOW_WATERMARK_CONCURRENCY", "FEED_SWEEP_INTERVAL_MS", "FEED_SWEEP_STALE_AFTER_MS", "FEED_SWEEP_BATCH_SIZE"} {
 		unsetEnv(t, name)
 	}
 }
@@ -252,4 +295,24 @@ func unsetEnv(t *testing.T, key string) {
 		}
 		_ = os.Unsetenv(key)
 	})
+}
+
+func TestLoad_FallsBackToTheDefaultPrefetchSettings(t *testing.T) {
+	setRequiredEnv(t)
+	unsetFeedEnv(t)
+
+	got, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+
+	if got.Feed.SweepStaleAfter != 3*time.Minute {
+		t.Fatalf("SweepStaleAfter = %s, want the 3 minutes of the feature", got.Feed.SweepStaleAfter)
+	}
+	if got.Feed.InstanceID == "" {
+		t.Fatal("InstanceID is empty, want the hostname or a generated id")
+	}
+	if got.Feed.LeaseTTL <= got.Feed.PrefetchTimeout || got.Feed.PrefetchMaxUnserved <= 0 || got.Feed.ExcludedIDsCap < got.Feed.PrefetchMaxUnserved {
+		t.Fatalf("Feed = %+v, want consistent defaults", got.Feed)
+	}
 }

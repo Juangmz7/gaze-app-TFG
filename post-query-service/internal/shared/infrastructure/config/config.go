@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/Juangmz7/TFG/common-packages/go-utils/auth"
 )
 
@@ -33,6 +35,18 @@ const (
 	defaultFeedMaxReadsPerClaim       = 3
 	defaultFeedRetentionHours         = 168
 	defaultFeedDisconnectWriteTimeout = 5000
+	// Two batches of 30 ids from recommendation-service.
+	defaultFeedPrefetchMaxUnserved = 60
+	defaultFeedExcludedIDsCap      = 200
+	defaultFeedPrefetchTimeout     = 5000
+	// Must exceed queue time plus pipeline time. The real pipeline duration has not
+	// been measured yet.
+	defaultFeedLeaseTTL               = 300000
+	defaultFeedLeaseReleaseTimeout    = 5000
+	defaultFeedLowWatermarkConcurrent = 16
+	defaultFeedSweepInterval          = 60000
+	defaultFeedSweepStaleAfter        = 180000
+	defaultFeedSweepBatchSize         = 100
 )
 
 // MongoConfig holds the settings required to connect to MongoDB.
@@ -91,6 +105,28 @@ type FeedConfig struct {
 	Retention time.Duration
 	// DisconnectWriteTimeout bounds the disconnect write, which outlives its request.
 	DisconnectWriteTimeout time.Duration
+	// InstanceID identifies this replica as the owner of a lease: FEED_INSTANCE_ID, or
+	// the hostname, which is the pod name in Kubernetes.
+	InstanceID string
+	// PrefetchMaxUnserved is the backlog at which every asynchronous trigger skips.
+	PrefetchMaxUnserved int
+	// ExcludedIDsCap caps the ids sent to recommendation-service as already known.
+	ExcludedIDsCap int
+	// PrefetchTimeout bounds the transaction of one prefetch request.
+	PrefetchTimeout time.Duration
+	// LeaseTTL is the recovery from a crashed lease holder. It must exceed queue time
+	// plus pipeline time.
+	LeaseTTL time.Duration
+	// LeaseReleaseTimeout bounds a lease release, which outlives its caller.
+	LeaseReleaseTimeout time.Duration
+	// LowWatermarkConcurrency bounds the background low watermark checks.
+	LowWatermarkConcurrency int
+	// SweepInterval is the pause between sweeps.
+	SweepInterval time.Duration
+	// SweepStaleAfter is how old a last heartbeat must be for the sweeper to act.
+	SweepStaleAfter time.Duration
+	// SweepBatchSize is how many sessions one sweep read returns.
+	SweepBatchSize int
 }
 
 // AppConfig holds the post-query-service-specific configuration. The HTTP
@@ -200,13 +236,87 @@ func loadFeedConfig() (FeedConfig, error) {
 		return FeedConfig{}, err
 	}
 
-	return FeedConfig{
+	feed := FeedConfig{
 		DefaultPageSize:        defaultPageSize,
 		MaxPageSize:            maxPageSize,
 		MaxReadsPerClaim:       maxReads,
 		Retention:              time.Duration(retentionHours) * time.Hour,
 		DisconnectWriteTimeout: time.Duration(disconnectTimeoutMs) * time.Millisecond,
-	}, nil
+	}
+	if err := loadFeedPrefetchConfig(&feed); err != nil {
+		return FeedConfig{}, err
+	}
+
+	return feed, nil
+}
+
+// loadFeedPrefetchConfig reads the settings of the asynchronous prefetch.
+func loadFeedPrefetchConfig(feed *FeedConfig) error {
+	integers := []struct {
+		name     string
+		fallback int
+		target   *int
+	}{
+		{"FEED_PREFETCH_MAX_UNSERVED", defaultFeedPrefetchMaxUnserved, &feed.PrefetchMaxUnserved},
+		{"FEED_PREFETCH_EXCLUDED_IDS_CAP", defaultFeedExcludedIDsCap, &feed.ExcludedIDsCap},
+		{"FEED_LOW_WATERMARK_CONCURRENCY", defaultFeedLowWatermarkConcurrent, &feed.LowWatermarkConcurrency},
+		{"FEED_SWEEP_BATCH_SIZE", defaultFeedSweepBatchSize, &feed.SweepBatchSize},
+	}
+	for _, setting := range integers {
+		value, err := positiveIntEnv(setting.name, setting.fallback)
+		if err != nil {
+			return err
+		}
+		*setting.target = value
+	}
+
+	durations := []struct {
+		name     string
+		fallback int
+		target   *time.Duration
+	}{
+		{"FEED_PREFETCH_TIMEOUT_MS", defaultFeedPrefetchTimeout, &feed.PrefetchTimeout},
+		{"FEED_LEASE_TTL_MS", defaultFeedLeaseTTL, &feed.LeaseTTL},
+		{"FEED_LEASE_RELEASE_TIMEOUT_MS", defaultFeedLeaseReleaseTimeout, &feed.LeaseReleaseTimeout},
+		{"FEED_SWEEP_INTERVAL_MS", defaultFeedSweepInterval, &feed.SweepInterval},
+		{"FEED_SWEEP_STALE_AFTER_MS", defaultFeedSweepStaleAfter, &feed.SweepStaleAfter},
+	}
+	for _, setting := range durations {
+		value, err := positiveIntEnv(setting.name, setting.fallback)
+		if err != nil {
+			return err
+		}
+		*setting.target = time.Duration(value) * time.Millisecond
+	}
+
+	// Below one page the low watermark could never fire; below the backlog the exclusions
+	// could not hold what is already waiting, so the pipeline would return it again.
+	if feed.PrefetchMaxUnserved < feed.DefaultPageSize {
+		return fmt.Errorf("load config: FEED_PREFETCH_MAX_UNSERVED %d is below FEED_DEFAULT_PAGE_SIZE %d", feed.PrefetchMaxUnserved, feed.DefaultPageSize)
+	}
+	if feed.ExcludedIDsCap < feed.PrefetchMaxUnserved {
+		return fmt.Errorf("load config: FEED_PREFETCH_EXCLUDED_IDS_CAP %d is below FEED_PREFETCH_MAX_UNSERVED %d", feed.ExcludedIDsCap, feed.PrefetchMaxUnserved)
+	}
+	if feed.LeaseTTL <= feed.PrefetchTimeout {
+		return fmt.Errorf("load config: FEED_LEASE_TTL_MS %s must exceed FEED_PREFETCH_TIMEOUT_MS %s", feed.LeaseTTL, feed.PrefetchTimeout)
+	}
+
+	feed.InstanceID = instanceID()
+
+	return nil
+}
+
+// instanceID names this replica. A generated id still tells replicas apart when
+// neither source is available.
+func instanceID() string {
+	if configured := strings.TrimSpace(os.Getenv("FEED_INSTANCE_ID")); configured != "" {
+		return configured
+	}
+	if hostname, err := os.Hostname(); err == nil && hostname != "" {
+		return hostname
+	}
+
+	return uuid.NewString()
 }
 
 // positiveIntEnv reads a positive integer, falling back to fallback when the variable
