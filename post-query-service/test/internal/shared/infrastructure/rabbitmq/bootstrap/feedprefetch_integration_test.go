@@ -137,7 +137,7 @@ func recommendedPostSent(eventID, correlationID, userID string, posts ...string)
 		posts = []string{}
 	}
 	list, _ := json.Marshal(posts)
-	return fmt.Sprintf(`{"id":"%s","correlationId":"%s","occurredAt":"2026-11-05T10:15:30.123456+00:00","userId":"%s","posts":%s}`, eventID, correlationID, userID, list)
+	return fmt.Sprintf(`{"id":"%s","correlationId":"%s","occurredAt":"2026-11-05T10:15:30.547912Z","userId":"%s","posts":%s}`, eventID, correlationID, userID, list)
 }
 
 func (a *javaEventsApp) publishResponse(t *testing.T, ctx context.Context, body string) {

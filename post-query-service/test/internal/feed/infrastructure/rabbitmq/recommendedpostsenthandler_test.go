@@ -56,9 +56,9 @@ func newHandler(idempotency *fakeIdempotency, uc *fakeBuildUserFeed) *feedrabbit
 }
 
 // literalPayload is what pydantic's RecommendedPostSentEvent produces, with its
-// microseconds and offset.
+// microseconds and its Z.
 func literalPayload(id, correlationID, userID string, posts string) []byte {
-	return fmt.Appendf(nil, `{"id":"%s","correlationId":"%s","occurredAt":"2026-11-05T10:15:30.123456+00:00","userId":"%s","posts":%s}`, id, correlationID, userID, posts)
+	return fmt.Appendf(nil, `{"id":"%s","correlationId":"%s","occurredAt":"2026-11-05T10:15:30.547912Z","userId":"%s","posts":%s}`, id, correlationID, userID, posts)
 }
 
 func newMessage(payload []byte) *message.Message {
