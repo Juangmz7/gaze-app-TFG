@@ -6,8 +6,6 @@ import (
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
-
-	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/publisher"
 )
 
 // Run runs the Watermill router until ctx is cancelled, Close is called, or
@@ -71,16 +69,16 @@ func supervisorBackoff(attempt int) time.Duration {
 // stops when ctx is cancelled; the returned channel is closed once the loop
 // has exited and the last attempt's resources are fully closed, so callers
 // can block on it during shutdown to avoid racing cleanup.
-func RunWithRetry(ctx context.Context, amqpURI string, db *mongo.Database, outboxWriter publisher.OutboxWriter, logger *slog.Logger) <-chan struct{} {
+func RunWithRetry(ctx context.Context, amqpURI string, db *mongo.Database, dependencies Dependencies, logger *slog.Logger) <-chan struct{} {
 	bootstrapFn := func(ctx context.Context) (RunnerCloser, error) {
-		return Bootstrap(ctx, amqpURI, db, outboxWriter, logger)
+		return Bootstrap(ctx, amqpURI, db, dependencies, logger)
 	}
 	return Supervise(ctx, bootstrapFn, logger)
 }
 
 // Supervise runs bootstrap and the resulting RunnerCloser in a loop that
 // survives AMQP connection loss. Every attempt tears down and rebuilds
-// every subscriber/publisher/router from scratch via bootstrap — reusing a
+// every subscriber and router from scratch via bootstrap — reusing a
 // RunnerCloser after Run returns is not safe, since its underlying AMQP
 // channels are already dead. Between attempts it waits with linear backoff
 // (supervisorBackoff), reset to the initial delay immediately after any

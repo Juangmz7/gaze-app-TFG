@@ -557,3 +557,54 @@ func TestClaimFeedUsecase_Execute_PropagatesTheContextAndEveryFailure(t *testing
 		})
 	}
 }
+
+type fakeClaimLowWatermark struct {
+	inputs []usecase.RequestLowWatermarkPrefetchInput
+	served []bool
+	store  *fakeFeedStore
+}
+
+func (f *fakeClaimLowWatermark) Notify(_ context.Context, input usecase.RequestLowWatermarkPrefetchInput) {
+	f.inputs = append(f.inputs, input)
+	for _, unit := range f.store.units {
+		f.served = append(f.served, unit.served)
+	}
+}
+
+func TestClaimFeedUsecase_Execute_NotifiesTheLowWatermarkAfterMarkingTheUnitsServed(t *testing.T) {
+	store := newFakeFeedStore()
+	store.seed(0, 2)
+	lowWatermark := &fakeClaimLowWatermark{store: store}
+	uc := usecase.NewClaimFeed(store, store, defaultClaimConfig, discardLogger()).WithLowWatermark(lowWatermark)
+	userID := uuid.New()
+
+	if _, err := uc.Execute(context.Background(), usecase.ClaimFeedInput{UserID: userID, CorrelationID: "corr-1"}); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	want := usecase.RequestLowWatermarkPrefetchInput{UserID: userID, CorrelationID: "corr-1"}
+	if len(lowWatermark.inputs) != 1 || lowWatermark.inputs[0] != want {
+		t.Fatalf("notified = %+v, want [%+v]", lowWatermark.inputs, want)
+	}
+	for _, served := range lowWatermark.served {
+		if !served {
+			t.Fatal("notified before the claim marked its units served, so the check would count them")
+		}
+	}
+}
+
+func TestClaimFeedUsecase_Execute_DoesNotNotifyTheLowWatermarkWhenTheClaimFails(t *testing.T) {
+	store := newFakeFeedStore()
+	store.seed(0, 1)
+	store.failOn = "MarkServed"
+	store.failErr = errors.New("mongo failed")
+	lowWatermark := &fakeClaimLowWatermark{store: store}
+	uc := usecase.NewClaimFeed(store, store, defaultClaimConfig, discardLogger()).WithLowWatermark(lowWatermark)
+
+	if _, err := uc.Execute(context.Background(), usecase.ClaimFeedInput{UserID: uuid.New()}); err == nil {
+		t.Fatal("Execute() error = nil, want the failure")
+	}
+	if len(lowWatermark.inputs) != 0 {
+		t.Fatalf("notified = %+v, want nothing", lowWatermark.inputs)
+	}
+}

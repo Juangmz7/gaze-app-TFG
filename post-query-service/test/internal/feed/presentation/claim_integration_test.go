@@ -94,6 +94,13 @@ type feedApp struct {
 	users    *usermongo.Repository
 }
 
+// noPrefetch stands in for the prefetch, which has its own tests against a broker.
+type noPrefetch struct{}
+
+func (noPrefetch) Execute(context.Context, usecase.RequestFeedPrefetchInput) (usecase.RequestFeedPrefetchOutput, error) {
+	return usecase.RequestFeedPrefetchOutput{Status: usecase.RequestFeedPrefetchPublished}, nil
+}
+
 func newFeedApp(t *testing.T, ctx context.Context) *feedApp {
 	t.Helper()
 
@@ -125,7 +132,7 @@ func newFeedApp(t *testing.T, ctx context.Context) *feedApp {
 	mux := http.NewServeMux()
 	presentation.RegisterRoutes(mux, withSubject(t, viewerID.String()), presentation.Routes{
 		Heartbeat:  presentation.NewHeartbeatHandler(usecase.NewRegisterHeartbeat(sessions, logger), logger),
-		Disconnect: presentation.NewDisconnectHandler(usecase.NewRegisterUserDisconnected(sessions, 5*time.Second, logger), logger),
+		Disconnect: presentation.NewDisconnectHandler(usecase.NewRegisterUserDisconnected(sessions, noPrefetch{}, 5*time.Second, logger), logger),
 		ClaimFeed:  presentation.NewClaimFeedHandler(usecase.NewClaimFeed(units, hydration, config, logger), logger),
 	})
 

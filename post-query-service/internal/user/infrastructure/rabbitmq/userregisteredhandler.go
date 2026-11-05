@@ -95,6 +95,7 @@ func (h *UserRegisteredHandler) Handle(ctx context.Context, msg *message.Message
 		BioDescription: event.Bio.Description,
 		BioSocialMedia: event.Bio.SocialMedia,
 		CreatedAt:      event.OccurredAt,
+		CorrelationID:  event.CorrelationID.String(),
 	}
 	if err := h.usecase.Execute(ctx, input); err != nil {
 		return fmt.Errorf("execute register user usecase for event %s: %w", event.ID, err)

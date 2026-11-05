@@ -1,5 +1,5 @@
 // Package usecase implements the use case that projects a
-// UserRegisteredEvent into the user read model.
+// UserRegisteredEvent into the user read model and asks for that user's first feed.
 package usecase
 
 import (
@@ -18,6 +18,7 @@ type RegisterUserInput struct {
 	BioDescription string
 	BioSocialMedia map[string]string
 	CreatedAt      time.Time
+	CorrelationID  string
 }
 
 // RegisterUserRepository persists the user read model. Implemented by
@@ -26,17 +27,27 @@ type RegisterUserRepository interface {
 	Insert(ctx context.Context, input RegisterUserInput) error
 }
 
+// RegisterUserFeedPrefetcher asks for the user's first feed, so their first open finds
+// it populated. A held lease is not an error. Implemented by
+// feed/application/usecase.RequestFeedPrefetchUsecase.
+type RegisterUserFeedPrefetcher interface {
+	RequestUserRegisteredPrefetch(ctx context.Context, userID uuid.UUID, correlationID string) error
+}
+
 // RegisterUserUsecase projects a UserRegisteredEvent into the user read model.
 type RegisterUserUsecase struct {
 	repository RegisterUserRepository
+	prefetcher RegisterUserFeedPrefetcher
 }
 
 // NewRegisterUser creates a RegisterUserUsecase backed by repository.
-func NewRegisterUser(repository RegisterUserRepository) *RegisterUserUsecase {
-	return &RegisterUserUsecase{repository: repository}
+func NewRegisterUser(repository RegisterUserRepository, prefetcher RegisterUserFeedPrefetcher) *RegisterUserUsecase {
+	return &RegisterUserUsecase{repository: repository, prefetcher: prefetcher}
 }
 
-// Execute inserts the user read model described by input.
+// Execute inserts the user read model described by input, then requests the prefetch.
+// A failed request is returned, because no sweeper covers a user with no presence: the
+// redelivery finds the insert already applied and repeats only the request.
 func (u *RegisterUserUsecase) Execute(ctx context.Context, input RegisterUserInput) error {
 	if input.UserID == uuid.Nil {
 		return fmt.Errorf("register user usecase: user id is required")
@@ -46,6 +57,10 @@ func (u *RegisterUserUsecase) Execute(ctx context.Context, input RegisterUserInp
 	}
 
 	if err := u.repository.Insert(ctx, input); err != nil {
+		return fmt.Errorf("register user usecase: %w", err)
+	}
+
+	if err := u.prefetcher.RequestUserRegisteredPrefetch(ctx, input.UserID, input.CorrelationID); err != nil {
 		return fmt.Errorf("register user usecase: %w", err)
 	}
 

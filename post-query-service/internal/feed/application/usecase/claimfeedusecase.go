@@ -61,17 +61,30 @@ type ClaimFeedHydrationRepository interface {
 	FindBlockRelatedUserIDs(ctx context.Context, viewerID string, userIDs []string) ([]string, error)
 }
 
+// ClaimFeedLowWatermark is told about every served claim, must not block, and decides
+// whether the feed is running low. Implemented by RequestLowWatermarkPrefetchUsecase.
+type ClaimFeedLowWatermark interface {
+	Notify(ctx context.Context, input RequestLowWatermarkPrefetchInput)
+}
+
 // ClaimFeedUsecase serves the next page of a user's stored feed.
 type ClaimFeedUsecase struct {
-	units     ClaimFeedUnitRepository
-	hydration ClaimFeedHydrationRepository
-	config    ClaimFeedConfig
-	logger    *slog.Logger
+	units        ClaimFeedUnitRepository
+	hydration    ClaimFeedHydrationRepository
+	config       ClaimFeedConfig
+	lowWatermark ClaimFeedLowWatermark
+	logger       *slog.Logger
 }
 
 // NewClaimFeed creates a ClaimFeedUsecase.
 func NewClaimFeed(units ClaimFeedUnitRepository, hydration ClaimFeedHydrationRepository, config ClaimFeedConfig, logger *slog.Logger) *ClaimFeedUsecase {
 	return &ClaimFeedUsecase{units: units, hydration: hydration, config: config, logger: logger}
+}
+
+// WithLowWatermark makes every served claim notify lowWatermark, and returns u.
+func (u *ClaimFeedUsecase) WithLowWatermark(lowWatermark ClaimFeedLowWatermark) *ClaimFeedUsecase {
+	u.lowWatermark = lowWatermark
+	return u
 }
 
 // claimFeedRead is where a claim reads from, and advances as it reads further.
@@ -163,6 +176,11 @@ func (u *ClaimFeedUsecase) Execute(ctx context.Context, input ClaimFeedInput) (C
 	}
 	u.logger.InfoContext(ctx, "feed claim served", "correlation_id", input.CorrelationID, "userId", input.UserID,
 		"items", len(cards), "dropped", drops.total(), "has_more", hasMore)
+
+	// After MarkServed, so the check counts what this claim served.
+	if u.lowWatermark != nil {
+		u.lowWatermark.Notify(ctx, RequestLowWatermarkPrefetchInput{UserID: input.UserID, CorrelationID: input.CorrelationID})
+	}
 
 	return ClaimFeedOutput{Items: cards, LastSeenID: lastSeenID(cards), HasMore: hasMore}, nil
 }
