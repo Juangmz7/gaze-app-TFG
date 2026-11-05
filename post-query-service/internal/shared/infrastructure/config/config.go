@@ -61,8 +61,10 @@ const (
 	defaultRecommendationDialTimeout = 2000
 	// Above the slowest run, because a retry on a timeout runs the pipeline again.
 	defaultRecommendationPerRetryTimeout = 10000
-	// Two runs that time out plus their backoff, and below the 30 s of the HTTPRoute.
-	defaultRecommendationOverallTimeout = 21000
+	// Two runs that time out plus the first wait, and it expires during the second wait
+	// (20.2 to 20.3 s, then 0.4 to 0.6 s), so no third run starts that could not finish.
+	// Fast failures still get every attempt. Below the 30 s of the HTTPRoute.
+	defaultRecommendationOverallTimeout = 20500
 	// The total: 3 retries. In go-grpc-middleware v2 WithMax counts attempts.
 	defaultRecommendationMaxAttempts   = 4
 	defaultRecommendationBackoffBase   = 250

@@ -66,7 +66,7 @@ func TestLoad_ParsesValidEnvironmentVariablesIntoConfig(t *testing.T) {
 			Address:              "dns:///recommendation-service:50051",
 			DialTimeout:          2 * time.Second,
 			PerRetryTimeout:      10 * time.Second,
-			OverallTimeout:       21 * time.Second,
+			OverallTimeout:       20500 * time.Millisecond,
 			MaxAttempts:          4,
 			BackoffBase:          250 * time.Millisecond,
 			BackoffMax:           time.Second,
@@ -398,6 +398,29 @@ func TestLoad_RequiresTheRecommendationAddress(t *testing.T) {
 }
 
 // retry.WithMax counts attempts in go-grpc-middleware v2: 4 is 3 retries.
+func TestLoad_TheDefaultDeadlineExpiresDuringTheSecondBackoff(t *testing.T) {
+	setRequiredEnv(t)
+
+	got, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+
+	recommendation := got.Recommendation
+	jitter := float64(recommendation.BackoffJitterPercent) / 100
+	firstWaitMax := time.Duration(float64(recommendation.BackoffBase) * (1 + jitter))
+	firstWaitMin := time.Duration(float64(recommendation.BackoffBase) * (1 - jitter))
+	secondWaitMin := time.Duration(float64(2*recommendation.BackoffBase) * (1 - jitter))
+	twoTimeouts := 2 * recommendation.PerRetryTimeout
+
+	if earliest := twoTimeouts + firstWaitMax; recommendation.OverallTimeout <= earliest {
+		t.Fatalf("OverallTimeout = %s, want it above %s so the second attempt gets all its time", recommendation.OverallTimeout, earliest)
+	}
+	if latest := twoTimeouts + firstWaitMin + secondWaitMin; recommendation.OverallTimeout >= latest {
+		t.Fatalf("OverallTimeout = %s, want it below %s so no third attempt can start", recommendation.OverallTimeout, latest)
+	}
+}
+
 func TestLoad_DefaultsToFourAttemptsWithABackoffCappedAtOneSecond(t *testing.T) {
 	setRequiredEnv(t)
 

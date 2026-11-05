@@ -313,6 +313,59 @@ func TestRecommendationClient_TheOverallDeadlineStopsTheRetries(t *testing.T) {
 	}
 }
 
+// proportionalDefaults is the default timing at a tenth of its size. The second wait
+// cannot end before 1000 + 20 + 1000 + 40 ms, past the deadline, and a slow machine only
+// pushes it further: this cannot start a third attempt by chance.
+func proportionalDefaults(address string) feedgrpc.RecommendationClientConfig {
+	return feedgrpc.RecommendationClientConfig{
+		Address:         address,
+		DialTimeout:     time.Second,
+		PerRetryTimeout: time.Second,
+		OverallTimeout:  2050 * time.Millisecond,
+		MaxAttempts:     4,
+		BackoffBase:     25 * time.Millisecond,
+		BackoffMax:      100 * time.Millisecond,
+		BackoffJitter:   0.2,
+	}
+}
+
+func TestRecommendationClient_NoThirdAttemptStartsAfterTwoTimeouts(t *testing.T) {
+	server := startServer(t, func(ctx context.Context, _ int) ([]string, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	})
+	config := proportionalDefaults(server.address)
+	client := newClient(t, config, discardLogger())
+
+	started := time.Now()
+	_, err := client.GetRecommendedFeed(context.Background(), request())
+	elapsed := time.Since(started)
+
+	if status.Code(errors.Unwrap(err)) != codes.DeadlineExceeded {
+		t.Fatalf("GetRecommendedFeed() error = %v, want DEADLINE_EXCEEDED", err)
+	}
+	if got := len(server.recorded()); got != 2 {
+		t.Fatalf("attempts = %d, want 2: the deadline expires during the second wait", got)
+	}
+	if elapsed < config.OverallTimeout {
+		t.Fatalf("took %s, want it to run until the deadline of %s", elapsed, config.OverallTimeout)
+	}
+}
+
+func TestRecommendationClient_FastFailuresStillGetEveryAttemptWithTheProportionalDefaults(t *testing.T) {
+	server := startServer(t, failWith(codes.Unavailable))
+	client := newClient(t, proportionalDefaults(server.address), discardLogger())
+
+	_, err := client.GetRecommendedFeed(context.Background(), request())
+
+	if status.Code(errors.Unwrap(err)) != codes.Unavailable {
+		t.Fatalf("GetRecommendedFeed() error = %v, want UNAVAILABLE", err)
+	}
+	if got := len(server.recorded()); got != 4 {
+		t.Fatalf("attempts = %d, want 4", got)
+	}
+}
+
 func TestRecommendationClient_CancellationReachesTheServerAndStopsTheRetries(t *testing.T) {
 	started := make(chan struct{})
 	cancelled := make(chan struct{})

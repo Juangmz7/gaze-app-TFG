@@ -80,7 +80,7 @@ The low watermark runs after all this, so it cannot take the lease the refill ne
 | User with history | 4.4 s | 5.1 s |
 | User with history, two runs at once | 6.0 s | 7.7 s |
 
-A retry on a timeout runs the pipeline again, so the limit per attempt (10 s) is above the slowest run. The overall limit (21 s) fits two runs that time out and stays below the 30 s of the HTTPRoute. A replica runs 2 pipelines at once and refuses the third with `RESOURCE_EXHAUSTED`: the retries wait less than a run takes, so that claim gets a 503 with `Retry-After`. Measure again under real load.
+A retry on a timeout runs the pipeline again, so the limit per attempt (10 s) is above the slowest run. The overall limit (20.5 s) fits two runs that time out and expires during the second wait, so a third run that could not finish never starts, while fast failures still get all 4 attempts. It stays below the 30 s of the HTTPRoute. A replica runs 2 pipelines at once and refuses the third with `RESOURCE_EXHAUSTED`: the retries wait less than a run takes, so that claim gets a 503 with `Retry-After`. Measure again under real load.
 
 **Regenerating the stubs.** They are committed in `internal/feed/infrastructure/grpc/recommendationv1`, because the Dockerfile only copies `go.work`, `go-utils` and this service. Run `scripts/generate-grpc-stubs.sh` from `post-query-service/`. `protoc` must be on the `PATH`, or set in `PROTOC`, for example `PROTOC="python -m grpc_tools.protoc"`. The plugin versions are pinned in the script, not in `go.mod`, because `protoc-gen-go-grpc` requires a newer gRPC than the workspace uses.
 
@@ -116,7 +116,7 @@ A retry on a timeout runs the pipeline again, so the limit per attempt (10 s) is
 | `RECOMMENDATION_GRPC_ADDR` | required | gRPC target: `dns:///recommendation-service.recommendation-service-<env>.svc.cluster.local:50051`, or `dns:///recommendation-service:50051` in compose. |
 | `RECOMMENDATION_GRPC_DIAL_TIMEOUT_MS` | `2000` | Time limit of one connection attempt. |
 | `RECOMMENDATION_GRPC_PER_RETRY_TIMEOUT_MS` | `10000` | Time limit of one attempt. Must exceed the pipeline's duration. |
-| `RECOMMENDATION_GRPC_OVERALL_TIMEOUT_MS` | `21000` | Time limit of the whole call. Not below the previous one. Keep it below `httpRoute.timeout`. |
+| `RECOMMENDATION_GRPC_OVERALL_TIMEOUT_MS` | `20500` | Time limit of the whole call. Not below the previous one. Expires during the second backoff after two timeouts, so no third run starts; fast failures still get every attempt. Keep it below `httpRoute.timeout`. |
 | `RECOMMENDATION_GRPC_MAX_ATTEMPTS` | `4` | Total attempts, the first included. |
 | `RECOMMENDATION_GRPC_BACKOFF_BASE_MS` | `250` | Wait before the first retry; it doubles each time. Not above the cap. |
 | `RECOMMENDATION_GRPC_BACKOFF_MAX_MS` | `1000` | Longest wait between attempts. |
