@@ -1,6 +1,8 @@
+import logging
+
 import pytest
 
-from shared.config.env import positive_int_env
+from shared.config.env import log_level_env, positive_int_env
 
 pytestmark = pytest.mark.unit
 
@@ -41,3 +43,34 @@ def test_should_raise_on_zero_and_negative_values(monkeypatch, raw_value):
 
     with pytest.raises(ValueError, match=f"{NAME} must be positive"):
         positive_int_env(NAME, 7)
+
+
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_log_level_should_return_the_default_when_blank(monkeypatch, blank):
+    monkeypatch.setenv(NAME, blank)
+
+    assert log_level_env(NAME, logging.INFO) == logging.INFO
+
+
+def test_log_level_should_return_the_default_when_unset(monkeypatch):
+    monkeypatch.delenv(NAME, raising=False)
+
+    assert log_level_env(NAME, logging.INFO) == logging.INFO
+
+
+@pytest.mark.parametrize(
+    ("raw_value", "expected"),
+    [("DEBUG", logging.DEBUG), ("warning", logging.WARNING), (" Error ", logging.ERROR)],
+)
+def test_log_level_should_accept_a_level_name_in_any_case(monkeypatch, raw_value, expected):
+    monkeypatch.setenv(NAME, raw_value)
+
+    assert log_level_env(NAME, logging.INFO) == expected
+
+
+@pytest.mark.parametrize("raw_value", ["verbose", "20", "NOTSET"])
+def test_log_level_should_reject_anything_else_naming_the_variable(monkeypatch, raw_value):
+    monkeypatch.setenv(NAME, raw_value)
+
+    with pytest.raises(ValueError, match=NAME):
+        log_level_env(NAME, logging.INFO)

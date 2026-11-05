@@ -2,6 +2,7 @@
 and database: only the embedding model is replaced."""
 import asyncio
 import json
+import re
 import subprocess
 import sys
 import time
@@ -451,3 +452,82 @@ async def test_user_events_reach_their_listener_from_the_real_subscriber(amqp, d
             ).scalar_one() == 1
 
     await wait_until(user_was_stored)
+
+
+def lines_with(service, *fragments):
+    return [line for line in service.stdout_lines() if all(fragment in line for fragment in fragments)]
+
+
+async def test_successful_grpc_call_logs_its_info_lines_once_on_stdout(service, stub, db_session_factory):
+    # No logging setup here on purpose: only the real entrypoint decides what comes out
+    correlation_id = str(uuid4())
+    seed_ranked_posts(db_session_factory, 2)
+    user_id = seed_user(db_session_factory)
+
+    await stub.GetRecommendedFeed(
+        recommendation_pb2.GetRecommendedFeedRequest(user_id=str(user_id)),
+        metadata=(("x-correlation-id", correlation_id),),
+        timeout=30,
+    )
+
+    for message in ("GetRecommendedFeed received", "Recommendation pipeline finished", "GetRecommendedFeed answered"):
+        assert len(lines_with(service, message, correlation_id, str(user_id))) == 1, message
+
+
+async def test_processed_feed_request_logs_its_info_lines_once_on_stdout(service, amqp, db_session_factory):
+    correlation_id, user_id = uuid4(), uuid4()
+    seed_ranked_posts(db_session_factory, 2)
+
+    await amqp.publish(feed_request_body(correlation_id=correlation_id, user_id=user_id))
+    await wait_until(lambda: lines_with(service, "Feed request processed", str(correlation_id)))
+
+    for message in ("Recommendation pipeline finished", "Feed request processed"):
+        assert len(lines_with(service, message, str(correlation_id), str(user_id))) == 1, message
+
+
+async def call_grpc_on_a_second_service(postgres_url, rabbitmq_url, user_id, **env):
+    """Over gRPC only: the second service competes with the module's for the queues."""
+    with run_service(postgres_url, rabbitmq_url, **env) as second_service:
+        channel, second_stub = await grpc_channel_stub(second_service)
+        try:
+            await second_stub.GetRecommendedFeed(
+                recommendation_pb2.GetRecommendedFeedRequest(user_id=str(user_id)), timeout=30
+            )
+        finally:
+            await channel.close()
+        return second_service.stdout_lines()
+
+
+async def test_libraries_stay_at_warning_when_the_service_logs_at_debug(service, postgres_url, rabbitmq_url, db_session_factory):
+    user_id = seed_user(db_session_factory)
+
+    lines = await call_grpc_on_a_second_service(postgres_url, rabbitmq_url, user_id, LOG_LEVEL="DEBUG")
+
+    below_warning = [match[1] for line in lines if (match := re.match(r"\S+ \S+ (?:DEBUG|INFO) \[([\w.]+)\]", line))]
+    application_packages = {path.name for path in (SERVICE_ROOT / "src").iterdir() if path.is_dir()}
+    assert "grpc_server.recommendation_servicer" in below_warning
+    assert {name for name in below_warning if name.split(".")[0] not in application_packages} == set()
+
+
+async def test_log_level_variable_silences_the_info_lines(service, postgres_url, rabbitmq_url, db_session_factory):
+    user_id = seed_user(db_session_factory)
+
+    lines = await call_grpc_on_a_second_service(postgres_url, rabbitmq_url, user_id, LOG_LEVEL="WARNING")
+
+    assert [line for line in lines if "GetRecommendedFeed received" in line] == []
+    # WARNING and above still come out: an empty result is one
+    assert [line for line in lines if "Recommendation pipeline returned no posts" in line and str(user_id) in line]
+
+
+def test_bad_log_level_stops_the_service_at_startup():
+    result = subprocess.run(
+        [sys.executable, str(SERVICE_ROOT / "test" / "_support" / "run_real_service.py"), "--print-subscribers"],
+        cwd=SERVICE_ROOT,
+        env=service_env(DATABASE_URL="postgresql+psycopg://unused:unused@localhost:1/unused", LOG_LEVEL="verbose"),
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+
+    assert result.returncode != 0
+    assert "LOG_LEVEL must be a logging level name" in result.stderr

@@ -7,6 +7,7 @@ import os
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -45,8 +46,13 @@ def free_port() -> int:
 
 
 def service_env(**overrides: str) -> dict[str, str]:
+    """This machine's environment without what would change the service's logging,
+    so the tests see what a deployment that only sets the chart's variables sees."""
     return {
-        **os.environ,
+        **{
+            name: value for name, value in os.environ.items()
+            if name != "LOG_LEVEL" and not name.startswith("OTEL_")
+        },
         "PYTHONPATH": os.pathsep.join([str(SERVICE_ROOT / "src"), str(SERVICE_ROOT / "test")]),
         "PYTHONDONTWRITEBYTECODE": "1",
         **overrides,
@@ -54,47 +60,71 @@ def service_env(**overrides: str) -> dict[str, str]:
 
 
 class RunningService:
-    def __init__(self, grpc_port: int, http_port: int):
+    def __init__(self, grpc_port: int, http_port: int, stdout_path: Path):
+        self.grpc_port = grpc_port
         self.grpc_target = f"127.0.0.1:{grpc_port}"
         self.http_base = f"http://127.0.0.1:{http_port}"
+        self.stdout_path = stdout_path
+
+    def stdout_lines(self) -> list[str]:
+        """What the service printed to stdout so far."""
+        return self.stdout_path.read_text().splitlines()
 
 
 @contextmanager
 def run_service(postgres_url: str, rabbitmq_url: str, **env: str) -> Iterator[RunningService]:
     """The real entrypoint in a subprocess, until gRPC and the readiness probe answer."""
     grpc_port, http_port = free_port(), free_port()
-    process = subprocess.Popen(
-        [sys.executable, str(SERVICE_ROOT / "test" / "_support" / "run_real_service.py"),
-         "--host", "127.0.0.1", "--port", str(http_port)],
-        cwd=SERVICE_ROOT,
-        env=service_env(DATABASE_URL=postgres_url, RABBITMQ_URL=rabbitmq_url, GRPC_PORT=str(grpc_port), **env),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-    )
-    service = RunningService(grpc_port, http_port)
-    try:
-        _wait_until_ready(process, service)
-        yield service
-    finally:
-        process.terminate()
+    # Files and not pipes: nobody reads a pipe while the service runs, and a full
+    # one would block the service on its next log line
+    with tempfile.TemporaryDirectory(prefix="recommendation-service-") as output_dir:
+        stdout_path, stderr_path = Path(output_dir) / "stdout.log", Path(output_dir) / "stderr.log"
+        with stdout_path.open("w") as stdout, stderr_path.open("w") as stderr:
+            process = subprocess.Popen(
+                [sys.executable, str(SERVICE_ROOT / "test" / "_support" / "run_real_service.py"),
+                 "--host", "127.0.0.1", "--port", str(http_port)],
+                cwd=SERVICE_ROOT,
+                env=service_env(DATABASE_URL=postgres_url, RABBITMQ_URL=rabbitmq_url, GRPC_PORT=str(grpc_port), **env),
+                stdout=stdout,
+                stderr=stderr,
+            )
+        service = RunningService(grpc_port, http_port, stdout_path)
         try:
-            process.communicate(timeout=45)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.communicate()
+            _wait_until_ready(process, service, stderr_path)
+            yield service
+        finally:
+            process.terminate()
+            try:
+                process.wait(timeout=45)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
 
 
-def _wait_until_ready(process: subprocess.Popen, service: RunningService) -> None:
+def _wait_until_ready(process: subprocess.Popen, service: RunningService, stderr_path: Path) -> None:
     deadline = time.monotonic() + STARTUP_TIMEOUT_S
     while time.monotonic() < deadline:
         if process.poll() is not None:
-            raise RuntimeError(f"The service exited during startup:\n{process.stdout.read()}")
-        if http_status(service, "/healthz/ready") == 204:
+            raise RuntimeError(f"The service exited during startup:\n{_output(service, stderr_path)}")
+        # Both: the probe answers as soon as the broker is up, just before gRPC starts
+        if http_status(service, "/healthz/ready") == 204 and _grpc_port_is_open(service):
             return
         time.sleep(0.5)
     process.kill()
-    raise RuntimeError(f"The service did not start in time:\n{process.communicate()[0]}")
+    process.wait()
+    raise RuntimeError(f"The service did not start in time:\n{_output(service, stderr_path)}")
+
+
+def _grpc_port_is_open(service: RunningService) -> bool:
+    try:
+        with socket.create_connection(("127.0.0.1", service.grpc_port), timeout=1):
+            return True
+    except OSError:
+        return False
+
+
+def _output(service: RunningService, stderr_path: Path) -> str:
+    return "\n".join([*service.stdout_lines(), stderr_path.read_text()])
 
 
 def http_status(service: RunningService, path: str, timeout: float = 2.0) -> int | None:

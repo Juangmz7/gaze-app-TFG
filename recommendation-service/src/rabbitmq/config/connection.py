@@ -1,16 +1,20 @@
-from faststream.asgi import AsgiFastStream, AsgiResponse, get, make_ping_asgi
+from observability.logging_config import configure_log_context, configure_logging
+
+# Before the other imports: building the Container already logs
+configure_logging()
+
+from faststream.asgi import AsgiFastStream, AsgiResponse, get, make_ping_asgi  # noqa: E402
 
 # Imported for its effect: registers the subscribers on the broker the app starts
-import rabbitmq.config.subscribers  # noqa: F401
-from observability.logging_config import configure_log_context
-from rabbitmq.config.broker import broker
-from rabbitmq.config.declarables import (
+import rabbitmq.config.subscribers  # noqa: E402, F401
+from rabbitmq.config.broker import broker  # noqa: E402
+from rabbitmq.config.declarables import (  # noqa: E402
     configure_rabbitmq_declarables,
 )
-from rabbitmq.worker.outbox_relay import OutboxRelayWorker
-from shared.config.containers import container
-from shared.config.database import SQLAlchemySessionProvider
-from shared.repository.impl.sql_alchemy_outbox_event_repository import SqlAlchemyOutboxEventRepository
+from rabbitmq.worker.outbox_relay import OutboxRelayWorker  # noqa: E402
+from shared.config.containers import container  # noqa: E402
+from shared.config.database import SQLAlchemySessionProvider  # noqa: E402
+from shared.repository.impl.sql_alchemy_outbox_event_repository import SqlAlchemyOutboxEventRepository  # noqa: E402
 
 configure_log_context()
 
