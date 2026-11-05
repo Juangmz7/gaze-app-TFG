@@ -250,19 +250,37 @@ func (r *FeedUnitRepository) FindRecentlyServedPostIDs(ctx context.Context, user
 
 // HasAfterPosition reports whether any stored unit matches the same read.
 func (r *FeedUnitRepository) HasAfterPosition(ctx context.Context, userID string, afterPosition *int64, unservedOnly bool) (bool, error) {
-	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
+	operationCtx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
 
 	findOptions := options.FindOne().SetProjection(bson.D{{Key: "_id", Value: 1}})
-	err := r.collection.FindOne(ctx, feedUnitAfterFilter(userID, afterPosition, unservedOnly), findOptions).Err()
+	err := r.collection.FindOne(operationCtx, feedUnitAfterFilter(userID, afterPosition, unservedOnly), findOptions).Err()
 	if err != nil {
 		if errors.Is(err, mongo.ErrNoDocuments) {
 			return false, nil
+		}
+		if endedByCallerDeadline(ctx, operationCtx, err) {
+			return false, fmt.Errorf("check remaining feed units for user %s: %w: %w", userID, usecase.ErrCallerDeadlineEndedRead, err)
 		}
 		return false, fmt.Errorf("check remaining feed units for user %s: %w", userID, err)
 	}
 
 	return true, nil
+}
+
+// endedByCallerDeadline says a timeout came from the caller's deadline and not from
+// operationTimeout: operation only keeps the caller's deadline when it is the earlier one.
+// The driver reports the deadline by itself while caller.Err() is still nil: a read it
+// refuses to send, the server's MaxTimeMSExpired and a socket deadline all wrap
+// context.DeadlineExceeded.
+func endedByCallerDeadline(caller, operation context.Context, err error) bool {
+	callerDeadline, bounded := caller.Deadline()
+	if !bounded || !mongo.IsTimeout(err) {
+		return false
+	}
+	operationDeadline, _ := operation.Deadline()
+
+	return operationDeadline.Equal(callerDeadline)
 }
 
 // MarkServed sets served_at on the named units that do not have it yet, so retention

@@ -14,6 +14,12 @@ import (
 // has not ended. Match it with errors.Is; FeedTemporarilyUnavailableError has the wait.
 var ErrFeedTemporarilyUnavailable = errors.New("feed is temporarily unavailable")
 
+// ErrCallerDeadlineEndedRead says a read got no answer because the deadline of the
+// caller's context came, or was too close to send the read. It is not a failure of the
+// store, and the context may not report it yet: the deadline is on the clock when the
+// driver looks at it, and the context's timer has not necessarily run.
+var ErrCallerDeadlineEndedRead = errors.New("the caller's deadline ended the read")
+
 // FeedTemporarilyUnavailableError is the degraded outcome of a refill. It is not the
 // end of the feed: a client must retry after RetryAfter.
 type FeedTemporarilyUnavailableError struct {
@@ -44,8 +50,10 @@ type RecommendationClient interface {
 	GetRecommendedFeed(ctx context.Context, request RecommendationRequest) ([]uuid.UUID, error)
 }
 
-// RefillFeedUnitRepository says whether a claim has something to read. Implemented by
-// feed/infrastructure/mongo.FeedUnitRepository.
+// RefillFeedUnitRepository says whether a claim has something to read. A read ended by
+// the deadline of ctx wraps ErrCallerDeadlineEndedRead; one that timed out on any shorter
+// limit of the repository's own does not, because the store failed to answer in time
+// that the caller still had. Implemented by feed/infrastructure/mongo.FeedUnitRepository.
 type RefillFeedUnitRepository interface {
 	HasAfterPosition(ctx context.Context, userID string, afterPosition *int64, unservedOnly bool) (bool, error)
 }
@@ -183,8 +191,9 @@ func (u *RefillFeedUsecase) waitForUnits(ctx context.Context, input RefillFeedIn
 			u.logger.InfoContext(ctx, "feed refill served by the build in flight", "correlation_id", input.CorrelationID, "userId", input.UserID)
 			return RefillFeedStatusUnitsAvailable, nil
 		}
-		// A read interrupted by the end of the wait is not a failure of the read.
-		if err != nil && waitCtx.Err() == nil {
+		// A read ended by the end of the wait is not a failure of the read, even when the
+		// wait's context does not report its end yet.
+		if err != nil && waitCtx.Err() == nil && !errors.Is(err, ErrCallerDeadlineEndedRead) {
 			return "", fmt.Errorf("refill feed usecase: %w", err)
 		}
 

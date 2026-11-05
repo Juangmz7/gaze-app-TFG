@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/google/uuid"
@@ -40,11 +42,17 @@ type fakeRefillUnits struct {
 	err       error
 	gotAfter  *int64
 	gotUnread bool
+	during    func(ctx context.Context) error
 }
 
-func (f *fakeRefillUnits) HasAfterPosition(_ context.Context, _ string, afterPosition *int64, unservedOnly bool) (bool, error) {
+func (f *fakeRefillUnits) HasAfterPosition(ctx context.Context, _ string, afterPosition *int64, unservedOnly bool) (bool, error) {
 	reads := f.reads.Add(1)
 	f.gotAfter, f.gotUnread = afterPosition, unservedOnly
+	if f.during != nil {
+		if err := f.during(ctx); err != nil {
+			return false, err
+		}
+	}
 	if f.err != nil {
 		return false, f.err
 	}
@@ -384,4 +392,107 @@ func TestRefillFeedUsecase_Execute_TheWaitReturnsAReadFailure(t *testing.T) {
 	if !errors.Is(err, f.units.err) || errors.Is(err, usecase.ErrFeedTemporarilyUnavailable) {
 		t.Fatalf("error = %v, want the read failure", err)
 	}
+}
+
+// errReadEndedByDeadline is what the repository returns for a read that the driver
+// refused because the deadline was too close.
+var errReadEndedByDeadline = fmt.Errorf("check remaining feed units: %w: %w", usecase.ErrCallerDeadlineEndedRead, context.DeadlineExceeded)
+
+// refuseReadWhileTheWaitIsLive fails the read as the driver does at the end of the wait,
+// and fails the test if the wait's context already reports its end, which would pass
+// through the path every other test covers.
+func refuseReadWhileTheWaitIsLive(t *testing.T) func(ctx context.Context) error {
+	t.Helper()
+	return func(ctx context.Context) error {
+		if err := ctx.Err(); err != nil {
+			t.Errorf("wait context = %v, want it live during the read", err)
+		}
+		return errReadEndedByDeadline
+	}
+}
+
+// The waits below run on synctest's clock: the wait cannot end before the read, however
+// loaded the machine is.
+func TestRefillFeedUsecase_Execute_AReadRefusedAtTheEndOfTheWaitIsDegraded(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		f := newRefillFixture()
+		f.lease.acquireErr = usecase.ErrFeedLeaseDenied
+		first := true
+		live := refuseReadWhileTheWaitIsLive(t)
+		f.units.during = func(ctx context.Context) error {
+			if first {
+				first = false
+				return live(ctx)
+			}
+			return errReadEndedByDeadline
+		}
+
+		started := time.Now()
+		_, err := f.usecase.Execute(context.Background(), f.input)
+
+		assertDegraded(t, err)
+		if elapsed := time.Since(started); elapsed != 100*time.Millisecond {
+			t.Fatalf("waited %s, want the wait to end on its own deadline", elapsed)
+		}
+		if len(f.client.requests) != 0 {
+			t.Fatal("no gRPC call while the lease is held")
+		}
+	})
+}
+
+func TestRefillFeedUsecase_Execute_AReadRefusedBeforeACancellationStaysACancellation(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		f := newRefillFixture()
+		f.lease.acquireErr = usecase.ErrFeedLeaseDenied
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		live := refuseReadWhileTheWaitIsLive(t)
+		f.units.during = func(readCtx context.Context) error {
+			err := live(readCtx)
+			cancel()
+			return err
+		}
+
+		_, err := f.usecase.Execute(ctx, f.input)
+
+		if !errors.Is(err, context.Canceled) || errors.Is(err, usecase.ErrFeedTemporarilyUnavailable) {
+			t.Fatalf("error = %v, want the cancellation", err)
+		}
+	})
+}
+
+func TestRefillFeedUsecase_Execute_AReadRefusedOnceDoesNotEndTheWait(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		f := newRefillFixture()
+		f.lease.acquireErr = usecase.ErrFeedLeaseDenied
+		f.units.foundAt = 2
+		f.units.during = func(context.Context) error {
+			if f.units.reads.Load() == 1 {
+				return errReadEndedByDeadline
+			}
+			return nil
+		}
+
+		status, err := f.usecase.Execute(context.Background(), f.input)
+
+		if err != nil || status != usecase.RefillFeedStatusUnitsAvailable {
+			t.Fatalf("Execute() = %q, %v, want the units found by the next read", status, err)
+		}
+	})
+}
+
+// A read that timed out on the repository's own limit, with time left in the wait, is a
+// MongoDB failure: it wraps context.DeadlineExceeded but not the sentinel.
+func TestRefillFeedUsecase_Execute_AReadTimingOutWithTimeLeftStaysAFailure(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		f := newRefillFixture()
+		f.lease.acquireErr = usecase.ErrFeedLeaseDenied
+		f.units.err = fmt.Errorf("check remaining feed units: %w", context.DeadlineExceeded)
+
+		_, err := f.usecase.Execute(context.Background(), f.input)
+
+		if !errors.Is(err, f.units.err) || errors.Is(err, usecase.ErrFeedTemporarilyUnavailable) {
+			t.Fatalf("error = %v, want the read failure", err)
+		}
+	})
 }

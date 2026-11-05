@@ -1213,3 +1213,90 @@ func TestFeedUnitRepository_FindRecentlyServedPostIDs_ReturnsTheMostRecentFirst(
 		t.Fatalf("got = %v, want %v", got, want)
 	}
 }
+
+// pastDeadlineContext is the moment the driver refuses a read: the deadline is on the
+// clock, and the context's timer has not run, so Err is still nil and nothing is done.
+type pastDeadlineContext struct {
+	context.Context
+	deadline time.Time
+}
+
+func withPastDeadline(ctx context.Context) pastDeadlineContext {
+	return pastDeadlineContext{Context: ctx, deadline: time.Now().Add(-time.Millisecond)}
+}
+
+func (c pastDeadlineContext) Deadline() (time.Time, bool) { return c.deadline, true }
+
+func TestFeedUnitRepository_HasAfterPosition_ReportsARefusedReadAsTheCallersDeadline(t *testing.T) {
+	ctx := testContext(t)
+	repository := unitRepository(t, ctx, testDatabase(t))
+
+	_, err := repository.HasAfterPosition(withPastDeadline(context.Background()), "v", nil, true)
+
+	if !errors.Is(err, usecase.ErrCallerDeadlineEndedRead) || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error = %v, want the driver's refusal reported as the caller's deadline", err)
+	}
+}
+
+// refusingUnits reads through the real driver at the moment it refuses the read.
+type refusingUnits struct {
+	*feedmongo.FeedUnitRepository
+}
+
+func (r refusingUnits) HasAfterPosition(ctx context.Context, userID string, afterPosition *int64, unservedOnly bool) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	return r.FeedUnitRepository.HasAfterPosition(withPastDeadline(ctx), userID, afterPosition, unservedOnly)
+}
+
+func TestRefillFeedUsecase_WithTheRealDriver_ARefusedReadIsDegraded(t *testing.T) {
+	ctx := testContext(t)
+	db := testDatabase(t)
+	sessions := sessionRepository(t, ctx, db)
+	units := unitRepository(t, ctx, db)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	lease := usecase.NewFeedLeaseManager(sessions, usecase.FeedLeaseConfig{Owner: "replica-1", TTL: time.Minute, ReleaseTimeout: 5 * time.Second}, logger)
+	backlog := usecase.NewFeedBacklog(units, usecase.FeedBacklogConfig{MaxUnserved: 60, ExcludedIDsCap: 200}, logger)
+	refill := usecase.NewRefillFeed(refusingUnits{units}, lease, backlog, nil, nil, usecase.RefillFeedConfig{
+		LeaseWait:    50 * time.Millisecond,
+		PollInterval: 5 * time.Millisecond,
+		RetryAfter:   time.Second,
+	}, logger)
+	userID := uuid.New()
+	if _, acquired, err := lease.AcquireForRequest(ctx, userID, "corr-1"); err != nil || !acquired {
+		t.Fatalf("AcquireForRequest() = %v, %v", acquired, err)
+	}
+
+	_, err := refill.Execute(ctx, usecase.RefillFeedInput{UserID: userID, CorrelationID: "corr-1"})
+
+	if !errors.Is(err, usecase.ErrFeedTemporarilyUnavailable) {
+		t.Fatalf("error = %v, want the degraded response", err)
+	}
+}
+
+// With nothing to connect to, the read ends on operationTimeout, well before the caller's
+// deadline: that is the store failing to answer, which the wait must not forgive.
+func TestFeedUnitRepository_HasAfterPosition_ATimeoutOnItsOwnLimitIsNotTheCallersDeadline(t *testing.T) {
+	client, err := mongodriver.Connect(options.Client().ApplyURI("mongodb://127.0.0.1:1/?serverSelectionTimeoutMS=60000"))
+	if err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := client.Disconnect(context.Background()); err != nil {
+			t.Errorf("Disconnect() error = %v", err)
+		}
+	})
+	repository := feedmongo.NewFeedUnitRepository(client.Database("unreachable"))
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	_, err = repository.HasAfterPosition(ctx, "v", nil, true)
+
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error = %v, want the operation's timeout", err)
+	}
+	if errors.Is(err, usecase.ErrCallerDeadlineEndedRead) {
+		t.Fatalf("error = %v, reported as the caller's deadline with time left", err)
+	}
+}
