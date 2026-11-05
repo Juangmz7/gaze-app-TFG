@@ -11,6 +11,7 @@ import (
 	"github.com/Juangmz7/TFG/common-packages/go-utils/auth"
 	"github.com/Juangmz7/TFG/common-packages/go-utils/server"
 	feedusecase "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/feed/application/usecase"
+	feedgrpc "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/feed/infrastructure/grpc"
 	feedmongo "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/feed/infrastructure/mongo"
 	feedrabbitmq "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/feed/infrastructure/rabbitmq"
 	feedsweeper "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/feed/infrastructure/sweeper"
@@ -23,6 +24,9 @@ import (
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/publisher"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
+
+// percent turns a configured percentage into a fraction.
+const percent = 100
 
 func main() {
 	err := run()
@@ -80,7 +84,26 @@ func run() error {
 	outboxStore.SendImmediatelyWith(outboxRelay)
 	outboxDone := outboxRelay.Start(ctx)
 
-	feed, err := newFeedWiring(ctx, mongoClient, mongoDatabase, publisher.NewPublisher(outboxStore), cfg.Feed)
+	recommendations, err := feedgrpc.NewRecommendationClient(feedgrpc.RecommendationClientConfig{
+		Address:         cfg.Recommendation.Address,
+		DialTimeout:     cfg.Recommendation.DialTimeout,
+		PerRetryTimeout: cfg.Recommendation.PerRetryTimeout,
+		OverallTimeout:  cfg.Recommendation.OverallTimeout,
+		MaxAttempts:     uint(cfg.Recommendation.MaxAttempts),
+		BackoffBase:     cfg.Recommendation.BackoffBase,
+		BackoffMax:      cfg.Recommendation.BackoffMax,
+		BackoffJitter:   float64(cfg.Recommendation.BackoffJitterPercent) / percent,
+	}, slog.Default())
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if closeErr := recommendations.Close(); closeErr != nil {
+			slog.Error("recommendation client close failed", "error", closeErr)
+		}
+	}()
+
+	feed, err := newFeedWiring(ctx, mongoClient, mongoDatabase, publisher.NewPublisher(outboxStore), recommendations, cfg.Feed)
 	if err != nil {
 		return err
 	}
@@ -128,7 +151,7 @@ type feedWiring struct {
 
 // newFeedWiring ensures the feed's indexes and wires its usecases and handlers around
 // one publisher.
-func newFeedWiring(ctx context.Context, client *mongo.Client, db *mongo.Database, events *publisher.Publisher, cfg config.FeedConfig) (feedWiring, error) {
+func newFeedWiring(ctx context.Context, client *mongo.Client, db *mongo.Database, events *publisher.Publisher, recommendations feedusecase.RecommendationClient, cfg config.FeedConfig) (feedWiring, error) {
 	sessions := feedmongo.NewSessionRepository(db)
 	if err := sessions.EnsureIndexes(ctx); err != nil {
 		return feedWiring{}, err
@@ -166,7 +189,12 @@ func newFeedWiring(ctx context.Context, client *mongo.Client, db *mongo.Database
 		MaxPageSize:     cfg.MaxPageSize,
 		MaxReads:        cfg.MaxReadsPerClaim,
 	}
-	claim := feedusecase.NewClaimFeed(units, hydration, claimConfig, logger).WithLowWatermark(lowWatermark)
+	refill := feedusecase.NewRefillFeed(units, lease, backlog, recommendations, feedusecase.NewBuildFeedUnits(hydration, sessions, units, logger), feedusecase.RefillFeedConfig{
+		LeaseWait:    cfg.RefillLeaseWait,
+		PollInterval: cfg.RefillPollInterval,
+		RetryAfter:   cfg.RefillRetryAfter,
+	}, logger)
+	claim := feedusecase.NewClaimFeed(units, hydration, claimConfig, logger).WithLowWatermark(lowWatermark).WithRefill(refill)
 
 	return feedWiring{
 		routes: feedpresentation.Routes{

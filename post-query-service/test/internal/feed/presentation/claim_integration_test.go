@@ -233,7 +233,7 @@ func TestFeedClaim_AdvancesAcrossConsecutiveCursorsAndNeverReplaysInANewSession(
 
 	// The next cursor returns exactly what remains, without padding.
 	second := app.claim(t, "?lastSeenId="+*first.LastSeenID)
-	if !slices.Equal(second.postIDs(), postIDs[15:]) || second.HasMore || *second.LastSeenID != postIDs[24] {
+	if !slices.Equal(second.postIDs(), postIDs[15:]) || !second.HasMore || *second.LastSeenID != postIDs[24] {
 		t.Fatalf("second page = %+v", second)
 	}
 
@@ -265,7 +265,7 @@ func TestFeedClaim_ASecondSessionContinuesAfterAPartlyServedFeed(t *testing.T) {
 	if got := app.claim(t, "?limit=4"); !slices.Equal(got.postIDs(), postIDs[:4]) || !got.HasMore {
 		t.Fatalf("first session = %+v", got)
 	}
-	if got := app.claim(t, ""); !slices.Equal(got.postIDs(), postIDs[4:]) || got.HasMore {
+	if got := app.claim(t, ""); !slices.Equal(got.postIDs(), postIDs[4:]) || !got.HasMore {
 		t.Fatalf("second session = %+v", got)
 	}
 }

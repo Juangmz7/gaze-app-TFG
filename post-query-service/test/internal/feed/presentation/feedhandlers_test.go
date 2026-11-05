@@ -4,14 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/lestrrat-go/jwx/v2/jwt"
+	oteltrace "go.opentelemetry.io/otel/trace"
 
+	"github.com/Juangmz7/TFG/common-packages/go-utils/common"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/feed/application/usecase"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/feed/presentation"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/health"
@@ -236,6 +240,56 @@ func TestFeedEndpoints_DoNotReportAClientThatWentAwayAsAServerFailure(t *testing
 
 	if recorder := serve(mux, http.MethodGet, "/api/feed", "", nil); recorder.Code != 499 {
 		t.Fatalf("status = %d, want 499", recorder.Code)
+	}
+}
+
+func TestClaimFeedHandler_AnswersADegradedFeedWith503AndRetryAfter(t *testing.T) {
+	tests := map[string]struct {
+		retryAfter time.Duration
+		want       string
+	}{
+		"whole seconds":                 {7 * time.Second, "7"},
+		"a fraction rounds up, never 0": {1500 * time.Millisecond, "2"},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			mux, usecases := newMux(withSubject(t, uuid.NewString()))
+			usecases.err = fmt.Errorf("claim feed usecase: %w", &usecase.FeedTemporarilyUnavailableError{RetryAfter: test.retryAfter, Cause: errors.New("dial tcp 10.1.2.3:50051: refused")})
+
+			recorder := serve(mux, http.MethodGet, "/api/feed", "", nil)
+
+			if recorder.Code != http.StatusServiceUnavailable {
+				t.Fatalf("status = %d, want 503", recorder.Code)
+			}
+			if got := recorder.Header().Get("Retry-After"); got != test.want {
+				t.Fatalf("Retry-After = %q, want %q", got, test.want)
+			}
+			var body common.ApiErrorResponse
+			if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+				t.Fatalf("Unmarshal() error = %v", err)
+			}
+			if body.Code != "feed_temporarily_unavailable" || body.Status != http.StatusServiceUnavailable {
+				t.Fatalf("body = %+v", body)
+			}
+			if strings.Contains(recorder.Body.String(), "10.1.2.3") {
+				t.Fatalf("the body leaks the cause: %s", recorder.Body)
+			}
+		})
+	}
+}
+
+func TestFeedEndpoints_ContinueTheCallersTraceWhenItIsValid(t *testing.T) {
+	const traceID = "4bf92f3577b34da6a3ce929d0e0e4736"
+
+	mux, usecases := newMux(withSubject(t, uuid.NewString()))
+	serve(mux, http.MethodGet, "/api/feed", "", map[string]string{"traceparent": "00-" + traceID + "-00f067aa0ba902b7-01"})
+	if got := oteltrace.SpanContextFromContext(usecases.gotCtx).TraceID().String(); got != traceID {
+		t.Fatalf("trace id = %q, want %q", got, traceID)
+	}
+
+	serve(mux, http.MethodGet, "/api/feed", "", map[string]string{"traceparent": "not-a-trace"})
+	if oteltrace.SpanContextFromContext(usecases.gotCtx).IsValid() {
+		t.Fatal("an invalid traceparent must be ignored")
 	}
 }
 
