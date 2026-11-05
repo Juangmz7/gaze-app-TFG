@@ -15,7 +15,7 @@ Every endpoint needs a valid `Authorization: Bearer` token. The user always come
 | Endpoint | Answer | Effect |
 | --- | --- | --- |
 | `POST /api/feed/heartbeat` | 204 | Marks the user present and due a prefetch, in their single `user_feed_sessions` document. |
-| `POST /api/feed/disconnect` | 202 | Records the end of the session on the same document, even if the client closes right away. |
+| `POST /api/feed/disconnect` | 202 | Records the end of the session on the same document, even if the client closes right away, and asks for the feed to be prepared. Never waits for the broker or recommendation-service. |
 | `GET /api/feed?lastSeenId=<postId>&limit=<n>` | 200 | Returns the next page. |
 
 Both query parameters are optional. A malformed `lastSeenId`, or a `limit` that is not a positive integer up to the maximum, is a 400.
@@ -43,7 +43,15 @@ Each item has:
 | `stats.likeCount`, `stats.commentCount`, `stats.shareCount` | Current values. |
 | `viewer.liked`, `viewer.shared`, `viewer.followingCreator` | The caller's state. |
 
-Nothing populates the stored feed in production yet: the refill and its triggers arrive with the recommendation-service binding.
+## How the feed gets filled
+The feed is prepared ahead of time over RabbitMQ, through the transactional outbox:
+
+1. A trigger asks for a prefetch: a disconnect, a user silent for 3 minutes (a background sweeper on every replica), a newly registered user, or a claim that leaves less than one page unserved.
+2. Skipped when the user already has the maximum of unserved items. Otherwise one transaction takes the user's lease and stores `UserFeedExhaustedEvent` for `x.feed.events` with routing key `rk.post.feed.exhausted`, carrying `reason`, `currentFeedSize` and `excludedPostIds`. Only one trigger per user can hold the lease.
+3. recommendation-service answers on `rk.post.feed.recommended.sent`, consumed from `q.post-query-service.feed`. Its `correlationId` is the lease token.
+4. The units are stored and the lease is released, only if that token still holds it. The lease also expires by itself, which covers a crashed instance or a lost response.
+
+The synchronous refill over gRPC, used when a claim finds nothing left, is not available yet: an exhausted feed answers an empty page and the claim's low watermark asks for more in the background.
 
 ## Configuration
 | Variable | Default | Purpose |
@@ -60,7 +68,17 @@ Nothing populates the stored feed in production yet: the refill and its triggers
 | `FEED_MAX_PAGE_SIZE` | `15` | Largest `limit` accepted. |
 | `FEED_MAX_READS_PER_CLAIM` | `3` | How many times a claim reads further to replace dropped items. |
 | `FEED_RETENTION_HOURS` | `168` | How long a served feed unit is kept. |
-| `FEED_DISCONNECT_WRITE_TIMEOUT_MS` | `5000` | Time limit of the disconnect write. |
+| `FEED_DISCONNECT_WRITE_TIMEOUT_MS` | `5000` | Time limit of the disconnect write and its prefetch request. |
+| `FEED_INSTANCE_ID` | hostname | Owner recorded on a lease. |
+| `FEED_PREFETCH_MAX_UNSERVED` | `60` | Unserved items at which every trigger skips. Not below `FEED_DEFAULT_PAGE_SIZE`. |
+| `FEED_PREFETCH_EXCLUDED_IDS_CAP` | `200` | Most ids sent as `excludedPostIds`. Not below `FEED_PREFETCH_MAX_UNSERVED`. |
+| `FEED_PREFETCH_TIMEOUT_MS` | `5000` | Time limit of one prefetch request. |
+| `FEED_LEASE_TTL_MS` | `300000` | When an unanswered lease expires. Must exceed queue plus pipeline time. An estimate: the pipeline is not measured yet. |
+| `FEED_LEASE_RELEASE_TIMEOUT_MS` | `5000` | Time limit of a lease release. |
+| `FEED_LOW_WATERMARK_CONCURRENCY` | `16` | Background low watermark checks at once. |
+| `FEED_SWEEP_INTERVAL_MS` | `60000` | Pause between sweeps. |
+| `FEED_SWEEP_STALE_AFTER_MS` | `180000` | How old a last heartbeat must be for the sweeper to act. |
+| `FEED_SWEEP_BATCH_SIZE` | `100` | Sessions read per batch by a sweep. |
 
 ## Tests
 `./test.sh` from `post-query-service/`. It needs Docker: integration tests use Testcontainers for MongoDB and RabbitMQ.
