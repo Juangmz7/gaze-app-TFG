@@ -60,6 +60,8 @@ env:
   # Read-only root filesystem: caches and bytecode go to the /tmp emptyDir.
   HOME: /tmp
   PYTHONDONTWRITEBYTECODE: "1"
+  # Level of this service's loggers (default INFO). Libraries stay at WARNING.
+  LOG_LEVEL: INFO
   GRPC_PORT: "50051"
   # Pipeline runs at once in a replica, over gRPC and RabbitMQ together. Feed
   # requests take FEED_CONSUMER_PREFETCH of them, so gRPC keeps a worker.
