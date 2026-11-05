@@ -121,9 +121,12 @@ func run() error {
 	health.Register(mux, mongoClient)
 	feedpresentation.RegisterRoutes(mux, auth.Authenticate(keyCache, cfg.Auth.Issuer, cfg.Auth.Audience), feed.routes)
 
-	if err := server.StartServer(ctx, serverCfg.Port, mux); err != nil {
-		return err
-	}
+	serverErr := server.StartServer(ctx, serverCfg.Port, mux)
+
+	// A shutdown past its budget and a failed listener both return an error, and the waits
+	// below still have to run. Only a signal has cancelled ctx so far: without this, a
+	// failed listener would leave the background work running and the waits hanging.
+	stop()
 
 	// Everything that stores outbox events stops first, and the relay's immediate sends
 	// are waited for last, before the deferred publisher close and Mongo disconnect.
@@ -137,7 +140,7 @@ func run() error {
 	<-outboxDone
 	outboxRelay.Wait()
 
-	return nil
+	return serverErr
 }
 
 // feedWiring is what main shares between the HTTP routes, the sweeper and the RabbitMQ
