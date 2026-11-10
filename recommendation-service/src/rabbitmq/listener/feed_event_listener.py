@@ -16,9 +16,9 @@ logger = logging.getLogger(__name__)
 class FeedEventListener:
     """Unlike the post and user listeners, this one opens no transaction around
     the handler: the pipeline must run outside any write transaction (see
-    ExhaustPostFeedUsecase). It receives the raw body so that a malformed payload
-    is rejected here, once: a validation error raised by FastStream would go
-    through the retry middleware first."""
+    ExhaustPostFeedUsecase). It receives the raw body and validates it itself, so
+    a malformed payload is rejected here, before the handler, with only its error
+    types logged."""
 
     def __init__(self, post_feed_exhausted_event_handler: PostFeedExhaustedEventHandler):
         self.post_feed_exhausted_event_handler = post_feed_exhausted_event_handler
