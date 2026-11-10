@@ -1,0 +1,27 @@
+info:
+  name: unlikeComment
+  type: http
+  seq: 4
+
+http:
+  method: DELETE
+  url: https://api.dev.gaze.localhost/api/posts/7c9e6679-7425-40de-944b-e07fc1f90ae7/comments/1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed/like
+  body:
+    type: json
+    data: |-
+      {
+        "context": {
+          "source": "home_feed",
+          "feedPosition": 0
+        }
+      }
+  auth:
+    type: bearer
+    token: ""
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

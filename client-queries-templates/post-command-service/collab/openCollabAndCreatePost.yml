@@ -1,0 +1,34 @@
+info:
+  name: openCollabAndCreatePost
+  type: http
+  seq: 1
+
+http:
+  method: POST
+  url: https://api.dev.gaze.localhost/api/collabs
+  body:
+    type: json
+    data: |-
+      {
+        "correlationId": "c0a8012e-6f3b-4b7d-8e21-5f4a9d3b7c10",
+        "title": "example collab title",
+        "description": "example description",
+        "postTags": ["example-tag"],
+        "media": [
+          {
+            "mediaType": "IMAGE",
+            "order": 1,
+            "taggedUsers": ["example-username"]
+          }
+        ]
+      }
+  auth:
+    type: bearer
+    token: ""
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

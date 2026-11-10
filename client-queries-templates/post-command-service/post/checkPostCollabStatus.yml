@@ -1,0 +1,18 @@
+info:
+  name: checkPostCollabStatus
+  type: http
+  seq: 5
+
+http:
+  method: GET
+  url: https://api.dev.gaze.localhost/api/posts/7c9e6679-7425-40de-944b-e07fc1f90ae7/collab-status
+  auth:
+    type: bearer
+    token: ""
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

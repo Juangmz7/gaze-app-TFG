@@ -1,0 +1,18 @@
+info:
+  name: getOwnProfile
+  type: http
+  seq: 1
+
+http:
+  method: GET
+  url: https://api.dev.gaze.localhost/api/social/profile/me
+  auth:
+    type: bearer
+    token: ""
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

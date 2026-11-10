@@ -1,0 +1,18 @@
+info:
+  name: acceptJoinRequest
+  type: http
+  seq: 4
+
+http:
+  method: PUT
+  url: https://api.dev.gaze.localhost/api/collabs/9a1de644-815e-46d1-bb8f-44c3a9a7f2d1/requests/b1d7c3e2-5a41-4f0e-9c8a-2d6f7e8a9b10/accept
+  auth:
+    type: bearer
+    token: ""
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

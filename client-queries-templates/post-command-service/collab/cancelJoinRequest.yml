@@ -1,0 +1,18 @@
+info:
+  name: cancelJoinRequest
+  type: http
+  seq: 3
+
+http:
+  method: DELETE
+  url: https://api.dev.gaze.localhost/api/collabs/9a1de644-815e-46d1-bb8f-44c3a9a7f2d1/requests
+  auth:
+    type: bearer
+    token: ""
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

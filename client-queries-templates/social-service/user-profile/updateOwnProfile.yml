@@ -1,0 +1,29 @@
+info:
+  name: updateOwnProfile
+  type: http
+  seq: 3
+
+http:
+  method: PUT
+  url: https://api.dev.gaze.localhost/api/social/profile
+  body:
+    type: json
+    data: |-
+      {
+        "description": "example description",
+        "profilePicture": "https://example.com/media/profile-picture.jpg",
+        "socialMedia": {
+          "instagram": "example-username",
+          "x": "example-username"
+        }
+      }
+  auth:
+    type: bearer
+    token: ""
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false
