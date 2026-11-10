@@ -1,5 +1,5 @@
 # Local development / testing only.
-# Containerized microservices. Requires the infra stack (../compose.yaml) to be
+# Keycloak and the containerized microservices. Requires the infra stack (../compose.yaml) to be
 # up: it creates the `infra_net` network joined here as `external`.
 #
 # Run from infra/local so the shared .env is used for interpolation:
@@ -40,6 +40,51 @@ x-spring-otlp: &spring-otlp
   MANAGEMENT_OTLP_METRICS_EXPORT_URL: http://grafana-lgtm:4318/v1/metrics
 
 services:
+  keycloak:
+    build:
+      context: ../keycloak
+      dockerfile: Dockerfile
+    container_name: keycloak
+    # Needs postgres-keycloak and the exchanges declared by rabbitmq-init
+    # (../compose.yaml); restarts until both are ready.
+    restart: unless-stopped
+
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres-keycloak:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
+
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+
+      # Production Hostname (MUST match the actual URL users visit)
+      #KC_HOSTNAME: ${KC_HOSTNAME:-https://auth.domain.com}
+
+      # Production Proxy Settings
+      # Keycloak requires HTTPS in prod. If you use a reverse proxy (like Nginx),
+      # enable these settings to let Keycloak know it is behind a secure proxy.
+      #KC_PROXY_HEADERS: xforwarded
+      #KC_HTTP_ENABLED: "true"
+
+      # RabbitMQ Event Listener Plugin Config
+      # Host and port are the INTERNAL ones (container-to-container). Do not
+      # reuse RABBITMQ_PORT here: that variable only controls the port
+      # published on the host.
+      KK_TO_RMQ_URL: rabbitmq
+      KK_TO_RMQ_PORT: 5672
+      KK_TO_RMQ_USERNAME: ${RABBITMQ_USER}
+      KK_TO_RMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      KK_TO_RMQ_VHOST: /
+      KK_TO_RMQ_EXCHANGE: x.auth.events
+
+    ports:
+      - "127.0.0.1:${KC_PORT:-8080}:8080"
+    volumes:
+      - ../keycloak/realms:/opt/keycloak/data/import
+    networks:
+      - infra_net
+
   social-service:
     build:
       context: ../../../social-service

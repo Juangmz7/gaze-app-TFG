@@ -18,14 +18,14 @@ Each service has its own `docs/<service>.md` (architecture and design decisions)
 
 `infra/local/` holds the **local development / testing** environment as two independent Compose files that share `infra/local/.env` and the `infra_net` network:
 
-- `infra/local/compose.yaml` — backing services (databases, broker, IAM, observability). Enough on its own if you run the services from your IDE.
-- `infra/local/app/compose.yaml` — the four microservices, built from each service's `Dockerfile`, to test them containerized.
+- `infra/local/compose.yaml` — backing services (databases, broker, observability).
+- `infra/local/app/compose.yaml` — Keycloak (IAM) and the four microservices, built from each service's `Dockerfile`, to test them containerized. If you run the services from your IDE, start only Keycloak from it (`up -d keycloak`).
 
 Technical decisions:
 
 - **One command per stack.** All backing services are defined together so any developer can stand up the full environment with a single `docker compose up -d`, guaranteeing environment parity across machines.
 - **Dedicated bridge network (`infra_net`).** Containers resolve each other by service name. The network has a fixed name so the apps compose can join it as `external`. Ports are published on `127.0.0.1` only (Redis and Mongo have no hardening and Docker bypasses the host firewall).
-- **Healthchecks + explicit startup ordering.** Services that depend on another being ready (e.g. Keycloak on Postgres and on RabbitMQ's exchanges existing) use `depends_on: condition: service_healthy` / `service_completed_successfully` instead of arbitrary sleeps. `depends_on` does not work across compose files, so the apps use `restart: unless-stopped` and retry until their dependencies are up.
+- **Healthchecks + explicit startup ordering.** Services that depend on another being ready (e.g. `rabbitmq-init` on RabbitMQ) use `depends_on: condition: service_healthy` / `service_completed_successfully` instead of arbitrary sleeps. `depends_on` does not work across compose files, so Keycloak and the apps use `restart: unless-stopped` and retry until their dependencies (Postgres, RabbitMQ and its exchanges) are up.
 - **Polyglot persistence, one database per bounded context.** Each service owns its data store rather than sharing a schema:
   - `postgres-keycloak` — Keycloak's own state (realms, users, clients).
   - `social_postgres` — social-service's relational source of truth.
@@ -61,11 +61,17 @@ Fill in `.env` with real values (DB passwords, Keycloak admin credentials, Rabbi
 docker compose up -d
 docker compose ps    # wait until everything is healthy; rabbitmq-init ends as "Exited (0)"
 ```
-This brings up, in dependency order: `postgres-keycloak` → `rabbitmq` → `rabbitmq-init` → `keycloak`, plus every service database, `redis`, `azurite` and `grafana-lgtm`.
+This brings up, in dependency order: `rabbitmq` → `rabbitmq-init`, plus `postgres-keycloak`, every service database, `redis`, `azurite` and `grafana-lgtm`.
+
+### 3. Start Keycloak (and optionally the microservices) in containers
+```bash
+docker compose --env-file .env -f app/compose.yaml up -d keycloak
+```
+Keycloak restarts until `postgres-keycloak` is healthy and `rabbitmq-init` has declared `x.auth.events`.
 
 > If `infra_recommendation_postgres_data` was created with the old `postgres:16-alpine` image, remove it (`docker volume rm infra_recommendation_postgres_data`) to avoid collation warnings (musl vs glibc) with the pgvector image.
 
-### 3. (Optional) Start the microservices in containers
+To also run the four microservices containerized:
 ```bash
 docker compose --env-file .env -f app/compose.yaml up -d --build
 ```
