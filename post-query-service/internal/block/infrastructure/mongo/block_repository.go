@@ -42,20 +42,30 @@ func NewRepository(db *mongo.Database) *Repository {
 
 // EnsureIndexes creates the unique compound index on
 // (blocker_user_id, blocked_user_id) required to make Insert idempotent
-// under concurrent or retried deliveries of the same creation event.
+// under concurrent or retried deliveries of the same creation event, and the
+// reverse (blocked_user_id, blocker_user_id) index the feed claim needs to find
+// blocks in the other direction.
 func (r *Repository) EnsureIndexes(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
 
-	indexModel := mongo.IndexModel{
-		Keys: bson.D{
-			{Key: "blocker_user_id", Value: 1},
-			{Key: "blocked_user_id", Value: 1},
+	indexModels := []mongo.IndexModel{
+		{
+			Keys: bson.D{
+				{Key: "blocker_user_id", Value: 1},
+				{Key: "blocked_user_id", Value: 1},
+			},
+			Options: options.Index().SetUnique(true),
 		},
-		Options: options.Index().SetUnique(true),
+		{
+			Keys: bson.D{
+				{Key: "blocked_user_id", Value: 1},
+				{Key: "blocker_user_id", Value: 1},
+			},
+		},
 	}
 
-	if _, err := r.collection.Indexes().CreateOne(ctx, indexModel); err != nil {
+	if _, err := r.collection.Indexes().CreateMany(ctx, indexModels); err != nil {
 		return fmt.Errorf("ensure user_blocks indexes: %w", err)
 	}
 

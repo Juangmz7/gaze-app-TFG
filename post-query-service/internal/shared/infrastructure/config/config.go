@@ -7,7 +7,11 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
+	"time"
+
+	"github.com/Juangmz7/TFG/common-packages/go-utils/auth"
 )
 
 // defaultMongoDatabase is used when POST_QUERY_MONGO_DATABASE is not set.
@@ -21,6 +25,15 @@ const defaultRabbitMQHost = "localhost"
 // defaultRabbitMQPort is used when RABBITMQ_PORT is not set, matching the
 // default exposed in TFG-code/infra/compose.yaml and .env_template.
 const defaultRabbitMQPort = "5672"
+
+// Feed defaults, used when the matching FEED_* variable is not set.
+const (
+	defaultFeedPageSize               = 15
+	defaultFeedMaxPageSize            = 15
+	defaultFeedMaxReadsPerClaim       = 3
+	defaultFeedRetentionHours         = 168
+	defaultFeedDisconnectWriteTimeout = 5000
+)
 
 // MongoConfig holds the settings required to connect to MongoDB.
 type MongoConfig struct {
@@ -64,6 +77,22 @@ func (c RabbitMQConfig) AMQPURI() string {
 	return u.String()
 }
 
+// FeedConfig holds the limits of the feed endpoints and its stored units.
+type FeedConfig struct {
+	// DefaultPageSize is the page size of a claim with no limit.
+	DefaultPageSize int
+	// MaxPageSize is the largest limit a claim can ask for; above it the claim is
+	// rejected.
+	MaxPageSize int
+	// MaxReadsPerClaim bounds how many times a claim reads further to replace items
+	// dropped at hydration.
+	MaxReadsPerClaim int
+	// Retention is how long a served feed unit is kept (TTL index on served_at).
+	Retention time.Duration
+	// DisconnectWriteTimeout bounds the disconnect write, which outlives its request.
+	DisconnectWriteTimeout time.Duration
+}
+
 // AppConfig holds the post-query-service-specific configuration. The HTTP
 // port is intentionally not duplicated here: it is already loaded by
 // common-packages/go-utils/server.LoadServer, which callers should use
@@ -80,12 +109,17 @@ type AppConfig struct {
 	Mongo MongoConfig
 	// RabbitMQ holds RabbitMQ broker connection settings.
 	RabbitMQ RabbitMQConfig
+	// Auth holds the JWT validation settings of the HTTP API.
+	Auth auth.AuthConfig
+	// Feed holds the limits of the feed endpoints and its stored units.
+	Feed FeedConfig
 }
 
 // Load reads AppConfig from environment variables. It returns an error when
-// a required variable is missing or blank; POST_QUERY_MONGO_URI,
-// RABBITMQ_USER, and RABBITMQ_PASSWORD are required. POST_QUERY_MONGO_DATABASE,
-// RABBITMQ_HOST, and RABBITMQ_PORT fall back to sensible defaults.
+// a required variable is missing or blank; POST_QUERY_MONGO_URI, RABBITMQ_USER,
+// RABBITMQ_PASSWORD, JWKS_URL, JWT_ISSUER and JWT_AUDIENCE are required.
+// POST_QUERY_MONGO_DATABASE, RABBITMQ_HOST, RABBITMQ_PORT and the FEED_* variables
+// fall back to sensible defaults; a FEED_* value that makes no sense is an error.
 func Load() (AppConfig, error) {
 	uri := strings.TrimSpace(os.Getenv("POST_QUERY_MONGO_URI"))
 	if uri == "" {
@@ -102,13 +136,93 @@ func Load() (AppConfig, error) {
 		return AppConfig{}, err
 	}
 
+	authConfig, err := loadAuthConfig()
+	if err != nil {
+		return AppConfig{}, err
+	}
+
+	feed, err := loadFeedConfig()
+	if err != nil {
+		return AppConfig{}, err
+	}
+
 	return AppConfig{
 		Mongo: MongoConfig{
 			URI:      uri,
 			Database: database,
 		},
 		RabbitMQ: rabbitMQ,
+		Auth:     authConfig,
+		Feed:     feed,
 	}, nil
+}
+
+// loadAuthConfig reads the JWT settings. All three are required: without them the
+// feed endpoints could validate no token at all.
+func loadAuthConfig() (auth.AuthConfig, error) {
+	authConfig := auth.LoadAuth()
+	for name, value := range map[string]string{
+		"JWKS_URL":     authConfig.JWKSUrl,
+		"JWT_ISSUER":   authConfig.Issuer,
+		"JWT_AUDIENCE": authConfig.Audience,
+	} {
+		if strings.TrimSpace(value) == "" {
+			return auth.AuthConfig{}, fmt.Errorf("load config: required environment variable %s is missing", name)
+		}
+	}
+
+	return authConfig, nil
+}
+
+// loadFeedConfig reads FeedConfig from environment variables.
+func loadFeedConfig() (FeedConfig, error) {
+	defaultPageSize, err := positiveIntEnv("FEED_DEFAULT_PAGE_SIZE", defaultFeedPageSize)
+	if err != nil {
+		return FeedConfig{}, err
+	}
+	maxPageSize, err := positiveIntEnv("FEED_MAX_PAGE_SIZE", defaultFeedMaxPageSize)
+	if err != nil {
+		return FeedConfig{}, err
+	}
+	if defaultPageSize > maxPageSize {
+		return FeedConfig{}, fmt.Errorf("load config: FEED_DEFAULT_PAGE_SIZE %d is above FEED_MAX_PAGE_SIZE %d", defaultPageSize, maxPageSize)
+	}
+	maxReads, err := positiveIntEnv("FEED_MAX_READS_PER_CLAIM", defaultFeedMaxReadsPerClaim)
+	if err != nil {
+		return FeedConfig{}, err
+	}
+	retentionHours, err := positiveIntEnv("FEED_RETENTION_HOURS", defaultFeedRetentionHours)
+	if err != nil {
+		return FeedConfig{}, err
+	}
+	disconnectTimeoutMs, err := positiveIntEnv("FEED_DISCONNECT_WRITE_TIMEOUT_MS", defaultFeedDisconnectWriteTimeout)
+	if err != nil {
+		return FeedConfig{}, err
+	}
+
+	return FeedConfig{
+		DefaultPageSize:        defaultPageSize,
+		MaxPageSize:            maxPageSize,
+		MaxReadsPerClaim:       maxReads,
+		Retention:              time.Duration(retentionHours) * time.Hour,
+		DisconnectWriteTimeout: time.Duration(disconnectTimeoutMs) * time.Millisecond,
+	}, nil
+}
+
+// positiveIntEnv reads a positive integer, falling back to fallback when the variable
+// is not set.
+func positiveIntEnv(name string, fallback int) (int, error) {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return fallback, nil
+	}
+
+	value, err := strconv.Atoi(raw)
+	if err != nil || value <= 0 {
+		return 0, fmt.Errorf("load config: %s must be a positive integer, got %q", name, raw)
+	}
+
+	return value, nil
 }
 
 // loadRabbitMQConfig reads RabbitMQConfig from environment variables.

@@ -39,7 +39,7 @@ func TestRepository_Insert_PersistsTheCommentReadModelAtVersionOne(t *testing.T)
 		CreatedAt: time.Now().UTC(),
 	}
 
-	if err := repository.Insert(ctx, input); err != nil {
+	if _, err := repository.Insert(ctx, input); err != nil {
 		t.Fatalf("Insert() error = %v", err)
 	}
 
@@ -72,10 +72,10 @@ func TestRepository_Insert_IsIdempotentOnARetriedInsertOfTheSameCommentID(t *tes
 
 	commentID := uuid.New()
 	input := usecase.RecordCommentInput{CommentID: commentID, PostID: uuid.New(), UserID: uuid.New(), Content: "first", CreatedAt: time.Now().UTC()}
-	if err := repository.Insert(ctx, input); err != nil {
+	if _, err := repository.Insert(ctx, input); err != nil {
 		t.Fatalf("Insert() error = %v", err)
 	}
-	if err := repository.Insert(ctx, input); err != nil {
+	if _, err := repository.Insert(ctx, input); err != nil {
 		t.Fatalf("Insert() error = %v, want nil on a retried insert of the same comment id", err)
 	}
 
@@ -96,7 +96,7 @@ func TestRepository_Update_SucceedsAndIncrementsVersionWhenExpectedVersionMatche
 	repository := commentmongo.NewRepository(db)
 
 	commentID := uuid.New()
-	if err := repository.Insert(ctx, usecase.RecordCommentInput{CommentID: commentID, PostID: uuid.New(), UserID: uuid.New(), Content: "first", CreatedAt: time.Now().UTC()}); err != nil {
+	if _, err := repository.Insert(ctx, usecase.RecordCommentInput{CommentID: commentID, PostID: uuid.New(), UserID: uuid.New(), Content: "first", CreatedAt: time.Now().UTC()}); err != nil {
 		t.Fatalf("Insert() error = %v", err)
 	}
 
@@ -122,7 +122,7 @@ func TestRepository_Update_ReturnsVersionConflictAndDoesNotModifyWhenExpectedVer
 	repository := commentmongo.NewRepository(db)
 
 	commentID := uuid.New()
-	if err := repository.Insert(ctx, usecase.RecordCommentInput{CommentID: commentID, PostID: uuid.New(), UserID: uuid.New(), Content: "first", CreatedAt: time.Now().UTC()}); err != nil {
+	if _, err := repository.Insert(ctx, usecase.RecordCommentInput{CommentID: commentID, PostID: uuid.New(), UserID: uuid.New(), Content: "first", CreatedAt: time.Now().UTC()}); err != nil {
 		t.Fatalf("Insert() error = %v", err)
 	}
 
@@ -149,7 +149,7 @@ func TestRepository_GetVersion_ReturnsTheStoredVersionWhenTheCommentExists(t *te
 	repository := commentmongo.NewRepository(db)
 
 	commentID := uuid.New()
-	if err := repository.Insert(ctx, usecase.RecordCommentInput{CommentID: commentID, PostID: uuid.New(), UserID: uuid.New(), Content: "first", CreatedAt: time.Now().UTC()}); err != nil {
+	if _, err := repository.Insert(ctx, usecase.RecordCommentInput{CommentID: commentID, PostID: uuid.New(), UserID: uuid.New(), Content: "first", CreatedAt: time.Now().UTC()}); err != nil {
 		t.Fatalf("Insert() error = %v", err)
 	}
 
@@ -189,7 +189,7 @@ func TestRepository_FindContentAndUpdatedAt_ReturnsTheStoredFieldsWhenTheComment
 	repository := commentmongo.NewRepository(db)
 
 	commentID := uuid.New()
-	if err := repository.Insert(ctx, usecase.RecordCommentInput{CommentID: commentID, PostID: uuid.New(), UserID: uuid.New(), Content: "first", CreatedAt: time.Now().UTC()}); err != nil {
+	if _, err := repository.Insert(ctx, usecase.RecordCommentInput{CommentID: commentID, PostID: uuid.New(), UserID: uuid.New(), Content: "first", CreatedAt: time.Now().UTC()}); err != nil {
 		t.Fatalf("Insert() error = %v", err)
 	}
 
@@ -238,11 +238,11 @@ func TestRepository_Delete_RemovesAnExistingCommentReadModelDocument(t *testing.
 	repository := commentmongo.NewRepository(db)
 
 	commentID := uuid.New()
-	if err := repository.Insert(ctx, usecase.RecordCommentInput{CommentID: commentID, PostID: uuid.New(), UserID: uuid.New(), Content: "first", CreatedAt: time.Now().UTC()}); err != nil {
+	if _, err := repository.Insert(ctx, usecase.RecordCommentInput{CommentID: commentID, PostID: uuid.New(), UserID: uuid.New(), Content: "first", CreatedAt: time.Now().UTC()}); err != nil {
 		t.Fatalf("Insert() error = %v", err)
 	}
 
-	if err := repository.Delete(ctx, commentID); err != nil {
+	if _, err := repository.Delete(ctx, commentID); err != nil {
 		t.Fatalf("Delete() error = %v", err)
 	}
 
@@ -262,7 +262,7 @@ func TestRepository_Delete_IsANoOpWhenTheCommentWasNeverProjected(t *testing.T) 
 	db := testDatabase(t, ctx)
 	repository := commentmongo.NewRepository(db)
 
-	if err := repository.Delete(ctx, uuid.New()); err != nil {
+	if _, err := repository.Delete(ctx, uuid.New()); err != nil {
 		t.Fatalf("Delete() error = %v, want nil for an absent document", err)
 	}
 }
@@ -308,4 +308,45 @@ func testDatabase(t *testing.T, ctx context.Context) *mongodriver.Database {
 	})
 
 	return client.Database("post_query_comment_repository_test")
+}
+
+func TestRepository_Insert_ReportsWhetherItReallyInserted(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	repository := commentmongo.NewRepository(testDatabase(t, ctx))
+	if err := repository.EnsureIndexes(ctx); err != nil {
+		t.Fatalf("EnsureIndexes() error = %v", err)
+	}
+
+	input := usecase.RecordCommentInput{CommentID: uuid.New(), PostID: uuid.New(), UserID: uuid.New(), Content: "first", CreatedAt: time.Now().UTC()}
+	inserted, err := repository.Insert(ctx, input)
+	if err != nil || !inserted {
+		t.Fatalf("Insert() inserted/error = %v/%v, want true/nil", inserted, err)
+	}
+	inserted, err = repository.Insert(ctx, input)
+	if err != nil || inserted {
+		t.Fatalf("Insert() inserted/error = %v/%v, want false/nil on a retried insert", inserted, err)
+	}
+}
+
+func TestRepository_Delete_ReportsWhetherItReallyRemoved(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	repository := commentmongo.NewRepository(testDatabase(t, ctx))
+
+	commentID := uuid.New()
+	if _, err := repository.Insert(ctx, usecase.RecordCommentInput{CommentID: commentID, PostID: uuid.New(), UserID: uuid.New(), Content: "first", CreatedAt: time.Now().UTC()}); err != nil {
+		t.Fatalf("Insert() error = %v", err)
+	}
+
+	removed, err := repository.Delete(ctx, commentID)
+	if err != nil || !removed {
+		t.Fatalf("Delete() removed/error = %v/%v, want true/nil", removed, err)
+	}
+	removed, err = repository.Delete(ctx, commentID)
+	if err != nil || removed {
+		t.Fatalf("Delete() removed/error = %v/%v, want false/nil on an absent document", removed, err)
+	}
 }

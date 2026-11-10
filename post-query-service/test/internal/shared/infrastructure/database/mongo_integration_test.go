@@ -39,6 +39,9 @@ func TestConnect_SucceedsAgainstARealMongoInstanceLoadedFromEnvironment(t *testi
 	t.Setenv("HTTP_PORT", "8080")
 	t.Setenv("RABBITMQ_USER", "post_query_integration_user")
 	t.Setenv("RABBITMQ_PASSWORD", "post_query_integration_password")
+	t.Setenv("JWKS_URL", "http://keycloak:8080/certs")
+	t.Setenv("JWT_ISSUER", "http://localhost:8080/realms/auth-service")
+	t.Setenv("JWT_AUDIENCE", "account")
 
 	cfg, err := config.Load()
 	if err != nil {

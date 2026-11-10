@@ -45,7 +45,7 @@ Every Application uses `automated: {prune: true, selfHeal: true}` and `CreateNam
 Every workload namespace starts with a **default-deny** NetworkPolicy (ingress and egress) and only opens what it needs: DNS, its declared dependencies (by namespace + pod labels + port) and, for databases outside the cluster, a CIDR + port (locally `10.42.0.1/32` on that database's published port only). A compromised pod can't reach other services, the other environment, or infra it doesn't use. Examples: `redis-dev` only accepts `social-service-dev` and `post-command-service-dev` on 6379 and makes no outbound connections; Gateway proxies only reach `gaze.app/tier in (app, identity)` namespaces of their own env.
 
 ### Gateway (Envoy Gateway, Gateway API)
-- `api.<env-domain>` → `/api/social` (social-service), `/api/posts`, `/api/collabs` (post-command-service). post-query-service's route is a placeholder (`httpRoute.enabled: false`) until it has endpoints.
+- `api.<env-domain>` → `/api/social` (social-service), `/api/posts`, `/api/collabs` (post-command-service). `/api/feed` (post-query-service).
 - `auth.<env-domain>` → Keycloak `/realms/`, `/resources/` (+ `/admin/` only in dev).
 - HTTP → HTTPS redirect; TLS by cert-manager (local CA in k3s, Let's Encrypt for prod).
 - Gateway-wide `BackendTrafficPolicy`: **global per-IP rate limiting** (Redis-backed, `sourceCIDR: Distinct`), **circuit breaking** (connection/pending/parallel request limits), passive health checks (outlier ejection), safe retries (connect-failure, refused-stream) and timeouts. Keycloak's route overrides only the rate limit (stricter) with `mergeType: StrategicMerge`.
@@ -95,5 +95,4 @@ The compose stack runs with Docker Engine on the same WSL2 Ubuntu as k3s. Pods c
 5. From Windows, an elevated PowerShell: `infra/k8s/bootstrap/windows-portproxy.ps1` (again after each WSL restart). It forwards `127.0.0.1:80/443` to the WSL IP, because k3s exposes the Gateway through iptables, which WSL's localhost forwarding doesn't see. `kubectl` from Windows works with the kubeconfig at `~/.kube/config` in Ubuntu (API on `127.0.0.1:6443`).
 
 ## Pending (TODO markers in the files)
-- post-query-service routes (`TODO(routes)`).
 - Prod: enable it in both ApplicationSets (`enabled: "true"`), real domain, managed DB hosts, Vault/External Secrets, Workload Identity client id, narrower egress CIDRs (`TODO(aks)`, `TODO(vault)`).

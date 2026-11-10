@@ -27,12 +27,9 @@ const operationTimeout = 5 * time.Second
 // document was modified by another writer since the version was read.
 var ErrVersionConflict = errors.New("collab version conflict")
 
-// collabDocument is the persisted shape of a collab read model entry.
-// Title, CreatedBy, ClosedBy, and Status are populated only once a
-// CollabClosedEvent is projected (see Update); the collab-opened Insert
-// path deliberately leaves them at their Go zero values, since
-// PostCollabOpenedEvent does not carry them. This is an incremental
-// fill-in by design, not an oversight.
+// collabDocument is the persisted shape of a collab read model entry. The
+// collab-opened Insert path sets Title, CreatedBy and Status from the event;
+// ClosedBy stays empty until a CollabClosedEvent is projected (see Update).
 type collabDocument struct {
 	CollabID    string    `bson:"collab_id"`
 	PostID      string    `bson:"post_id"`
@@ -59,17 +56,21 @@ func NewRepository(db *mongo.Database) *Repository {
 
 // EnsureIndexes creates the unique index on collab_id required to make
 // Insert idempotent under concurrent or retried deliveries of the same
-// creation event.
+// creation event, and the post_id index the feed claim needs to find a post's
+// collab when the post itself does not name it.
 func (r *Repository) EnsureIndexes(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
 
-	indexModel := mongo.IndexModel{
-		Keys:    bson.D{{Key: "collab_id", Value: 1}},
-		Options: options.Index().SetUnique(true),
+	indexModels := []mongo.IndexModel{
+		{
+			Keys:    bson.D{{Key: "collab_id", Value: 1}},
+			Options: options.Index().SetUnique(true),
+		},
+		{Keys: bson.D{{Key: "post_id", Value: 1}}},
 	}
 
-	if _, err := r.collection.Indexes().CreateOne(ctx, indexModel); err != nil {
+	if _, err := r.collection.Indexes().CreateMany(ctx, indexModels); err != nil {
 		return fmt.Errorf("ensure post_collabs indexes: %w", err)
 	}
 
@@ -91,6 +92,9 @@ func (r *Repository) Insert(ctx context.Context, input usecase.RecordCollabOpene
 		CollabID:    input.CollabID.String(),
 		PostID:      input.PostID.String(),
 		OwnerUserID: input.OwnerUserID.String(),
+		Title:       input.Title,
+		CreatedBy:   input.OwnerUserID.String(),
+		Status:      input.Status,
 		CreatedAt:   input.CreatedAt,
 		Version:     1,
 	}

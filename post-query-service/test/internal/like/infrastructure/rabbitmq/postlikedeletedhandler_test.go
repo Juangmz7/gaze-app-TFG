@@ -36,6 +36,14 @@ func (f *fakePostLikeDeletedIdempotencyRepository) MarkProcessed(ctx context.Con
 	return nil
 }
 
+// passthroughPostLikeDeletedTransactor runs fn directly: these unit tests exercise the
+// handler's decisions, and transaction behavior is covered against real MongoDB.
+type passthroughPostLikeDeletedTransactor struct{}
+
+func (passthroughPostLikeDeletedTransactor) WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
+	return fn(ctx)
+}
+
 type fakePostLikeDeletedUsecase struct {
 	calls   int
 	gotIn   usecase.DeleteLikeInput
@@ -75,7 +83,7 @@ func literalPostLikeDeletedEvent(t *testing.T, overrides map[string]any) []byte 
 func TestPostLikeDeletedHandler_Handle_DecodesCamelCaseJSONAndCallsUsecase(t *testing.T) {
 	idempotency := newFakePostLikeDeletedIdempotencyRepository()
 	uc := &fakePostLikeDeletedUsecase{}
-	handler := rabbitmq.NewPostLikeDeletedHandler(idempotency, uc, testPostLikeDeletedLogger())
+	handler := rabbitmq.NewPostLikeDeletedHandler(passthroughPostLikeDeletedTransactor{}, idempotency, uc, testPostLikeDeletedLogger())
 
 	postID := uuid.New()
 	userID := uuid.New()
@@ -101,7 +109,7 @@ func TestPostLikeDeletedHandler_Handle_SkipsUsecaseAndAcksWhenEventIsADuplicate(
 	idempotency := newFakePostLikeDeletedIdempotencyRepository()
 	idempotency.processed[eventID] = true
 	uc := &fakePostLikeDeletedUsecase{}
-	handler := rabbitmq.NewPostLikeDeletedHandler(idempotency, uc, testPostLikeDeletedLogger())
+	handler := rabbitmq.NewPostLikeDeletedHandler(passthroughPostLikeDeletedTransactor{}, idempotency, uc, testPostLikeDeletedLogger())
 
 	payload := literalPostLikeDeletedEvent(t, map[string]any{"id": eventID.String()})
 
@@ -119,7 +127,7 @@ func TestPostLikeDeletedHandler_Handle_SkipsUsecaseAndAcksWhenEventIsADuplicate(
 func TestPostLikeDeletedHandler_Handle_ReturnsAPermanentErrorForAMalformedPayload(t *testing.T) {
 	idempotency := newFakePostLikeDeletedIdempotencyRepository()
 	uc := &fakePostLikeDeletedUsecase{}
-	handler := rabbitmq.NewPostLikeDeletedHandler(idempotency, uc, testPostLikeDeletedLogger())
+	handler := rabbitmq.NewPostLikeDeletedHandler(passthroughPostLikeDeletedTransactor{}, idempotency, uc, testPostLikeDeletedLogger())
 
 	err := handler.Handle(context.Background(), message.NewMessage("1", []byte(`not json`)))
 	if err == nil {
@@ -136,7 +144,7 @@ func TestPostLikeDeletedHandler_Handle_ReturnsAPermanentErrorForAMalformedPayloa
 func TestPostLikeDeletedHandler_Handle_ReturnsAPermanentErrorWhenRequiredFieldsAreMissing(t *testing.T) {
 	idempotency := newFakePostLikeDeletedIdempotencyRepository()
 	uc := &fakePostLikeDeletedUsecase{}
-	handler := rabbitmq.NewPostLikeDeletedHandler(idempotency, uc, testPostLikeDeletedLogger())
+	handler := rabbitmq.NewPostLikeDeletedHandler(passthroughPostLikeDeletedTransactor{}, idempotency, uc, testPostLikeDeletedLogger())
 
 	payload := literalPostLikeDeletedEvent(t, map[string]any{"userId": uuid.Nil.String()})
 
@@ -152,7 +160,7 @@ func TestPostLikeDeletedHandler_Handle_ReturnsAPermanentErrorWhenRequiredFieldsA
 func TestPostLikeDeletedHandler_Handle_ReturnsATransientErrorWhenTheUsecaseFails(t *testing.T) {
 	idempotency := newFakePostLikeDeletedIdempotencyRepository()
 	uc := &fakePostLikeDeletedUsecase{execErr: errors.New("mongo delete failed")}
-	handler := rabbitmq.NewPostLikeDeletedHandler(idempotency, uc, testPostLikeDeletedLogger())
+	handler := rabbitmq.NewPostLikeDeletedHandler(passthroughPostLikeDeletedTransactor{}, idempotency, uc, testPostLikeDeletedLogger())
 
 	payload := literalPostLikeDeletedEvent(t, nil)
 

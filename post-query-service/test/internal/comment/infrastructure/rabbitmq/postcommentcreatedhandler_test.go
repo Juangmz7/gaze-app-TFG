@@ -7,7 +7,6 @@ import (
 	"io"
 	"log/slog"
 	"testing"
-	"time"
 
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/google/uuid"
@@ -17,11 +16,19 @@ import (
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/rmqerror"
 )
 
+// literalPostCommentCreatedJSON is the exact JSON the Java publisher emits. It is deliberately
+// a literal, never a marshalled handler struct: marshalling the handler's own
+// struct is what hid the snake_case contract bug.
+const literalPostCommentCreatedJSON = `{"id":"11111111-1111-4111-8111-111111111111","correlationId":"22222222-2222-4222-8222-222222222222","occurredAt":"2026-03-01T10:15:30.123456Z","commentId":"55555555-5555-4555-8555-555555555555","postId":"33333333-3333-4333-8333-333333333333","userId":"44444444-4444-4444-8444-444444444444","content":"Lovely light in this one","replyTo":"66666666-6666-4666-8666-666666666666","createdAt":"2026-03-01T10:15:00.5Z","updatedAt":"2026-03-01T10:15:20Z"}`
+
 type fakePostCommentCreatedIdempotencyRepository struct {
 	processed      map[uuid.UUID]bool
-	markedCtx      context.Context
 	markCalls      int
+	markErr        error
+	markedID       uuid.UUID
+	markedCorrelID uuid.UUID
 	isProcessedCtx context.Context
+	markedCtx      context.Context
 }
 
 func newFakePostCommentCreatedIdempotencyRepository() *fakePostCommentCreatedIdempotencyRepository {
@@ -33,11 +40,12 @@ func (f *fakePostCommentCreatedIdempotencyRepository) IsProcessed(ctx context.Co
 	return f.processed[eventID], nil
 }
 
-func (f *fakePostCommentCreatedIdempotencyRepository) MarkProcessed(ctx context.Context, eventID, _ uuid.UUID, _ string) error {
+func (f *fakePostCommentCreatedIdempotencyRepository) MarkProcessed(ctx context.Context, eventID, correlationID uuid.UUID, _ string) error {
 	f.markCalls++
 	f.markedCtx = ctx
-	f.processed[eventID] = true
-	return nil
+	f.markedID = eventID
+	f.markedCorrelID = correlationID
+	return f.markErr
 }
 
 type fakePostCommentCreatedUsecase struct {
@@ -54,151 +62,193 @@ func (f *fakePostCommentCreatedUsecase) Execute(ctx context.Context, input useca
 	return f.execErr
 }
 
-type postCommentCreatedCtxKey struct{}
+type postCommentCreatedTransactionKey struct{}
 
-func TestPostCommentCreatedHandler_Handle_CallsUsecaseAndMarksProcessedForANewValidEvent(t *testing.T) {
+// fakePostCommentCreatedTransactor marks the context it hands to fn, the way a real transaction
+// carries its session, so tests can prove which calls ran inside it.
+type fakePostCommentCreatedTransactor struct{}
+
+func (fakePostCommentCreatedTransactor) WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
+	return fn(context.WithValue(ctx, postCommentCreatedTransactionKey{}, true))
+}
+
+func TestPostCommentCreatedHandler_Handle_DecodesTheLiteralJavaPayloadAndProjectsIt(t *testing.T) {
 	idempotency := newFakePostCommentCreatedIdempotencyRepository()
 	uc := &fakePostCommentCreatedUsecase{}
-	handler := rabbitmq.NewPostCommentCreatedHandler(idempotency, uc, testPostCommentCreatedLogger())
+	handler := rabbitmq.NewPostCommentCreatedHandler(fakePostCommentCreatedTransactor{}, idempotency, uc, testPostCommentCreatedLogger())
 
-	event := validPostCommentCreatedEvent()
-	ctx := context.WithValue(context.Background(), postCommentCreatedCtxKey{}, "trace-value")
-
-	if err := handler.Handle(ctx, newPostCommentCreatedMessage(t, event)); err != nil {
-		t.Fatalf("Handle() error = %v, want nil", err)
+	if err := handler.Handle(context.Background(), message.NewMessage(uuid.NewString(), []byte(literalPostCommentCreatedJSON))); err != nil {
+		t.Fatalf("Handle() error = %v, want nil for the exact JSON the Java publisher emits", err)
 	}
 
 	if uc.calls != 1 {
-		t.Fatalf("uc Execute() calls = %d, want 1", uc.calls)
+		t.Fatalf("Execute() calls = %d, want 1", uc.calls)
 	}
-	if uc.gotIn.CommentID != event.CommentID {
-		t.Fatalf("uc Execute() CommentID = %v, want %v", uc.gotIn.CommentID, event.CommentID)
+	got := uc.gotIn
+	if got.CommentID != uuid.MustParse("55555555-5555-4555-8555-555555555555") || got.PostID != uuid.MustParse("33333333-3333-4333-8333-333333333333") || got.UserID != uuid.MustParse("44444444-4444-4444-8444-444444444444") {
+		t.Fatalf("Execute() CommentID/PostID/UserID = %v/%v/%v", got.CommentID, got.PostID, got.UserID)
 	}
-	if uc.gotIn.PostID != event.PostID {
-		t.Fatalf("uc Execute() PostID = %v, want %v", uc.gotIn.PostID, event.PostID)
+	if got.Content != "Lovely light in this one" {
+		t.Fatalf("Execute() Content = %q", got.Content)
 	}
-	if uc.gotIn.UserID != event.UserID {
-		t.Fatalf("uc Execute() UserID = %v, want %v", uc.gotIn.UserID, event.UserID)
+	if got.ReplyTo != uuid.MustParse("66666666-6666-4666-8666-666666666666") {
+		t.Fatalf("Execute() ReplyTo = %v", got.ReplyTo)
 	}
-	if !idempotency.processed[event.ID] {
-		t.Fatal("idempotency record was not saved after a successful uc execution")
+	if got.CreatedAt.IsZero() || got.UpdatedAt.IsZero() {
+		t.Fatalf("Execute() CreatedAt/UpdatedAt = %v/%v, want both decoded", got.CreatedAt, got.UpdatedAt)
 	}
-	if uc.gotCtx.Value(postCommentCreatedCtxKey{}) != "trace-value" {
-		t.Fatal("context was not propagated from Handle() to the uc")
+	if idempotency.markedID != uuid.MustParse("11111111-1111-4111-8111-111111111111") || idempotency.markedCorrelID != uuid.MustParse("22222222-2222-4222-8222-222222222222") {
+		t.Fatalf("MarkProcessed() id/correlationId = %v/%v", idempotency.markedID, idempotency.markedCorrelID)
 	}
-	if idempotency.markedCtx.Value(postCommentCreatedCtxKey{}) != "trace-value" {
+}
+
+func TestPostCommentCreatedHandler_Handle_RejectsASnakeCasePayloadAsPermanent(t *testing.T) {
+	uc := &fakePostCommentCreatedUsecase{}
+	handler := rabbitmq.NewPostCommentCreatedHandler(fakePostCommentCreatedTransactor{}, newFakePostCommentCreatedIdempotencyRepository(), uc, testPostCommentCreatedLogger())
+
+	err := handler.Handle(context.Background(), message.NewMessage(uuid.NewString(), []byte(`{"id":"11111111-1111-4111-8111-111111111111","correlation_id":"22222222-2222-4222-8222-222222222222","occurred_at":"2026-03-01T10:15:30Z","post_id":"33333333-3333-4333-8333-333333333333","user_id":"44444444-4444-4444-8444-444444444444","collab_id":"66666666-6666-4666-8666-666666666666","comment_id":"55555555-5555-4555-8555-555555555555","username":"ana_rivera","owner_user_id":"44444444-4444-4444-8444-444444444444","created_at":"2026-03-01T10:15:30Z"}`)))
+	if !rmqerror.IsPermanent(err) {
+		t.Fatalf("Handle() error = %v, want a permanent error because the Java publishers emit camelCase", err)
+	}
+	if uc.calls != 0 {
+		t.Fatalf("Execute() calls = %d, want 0", uc.calls)
+	}
+}
+
+func TestPostCommentCreatedHandler_Handle_PropagatesContextToTheUsecaseAndIdempotencyRepository(t *testing.T) {
+	type contextKey struct{}
+	idempotency := newFakePostCommentCreatedIdempotencyRepository()
+	uc := &fakePostCommentCreatedUsecase{}
+	handler := rabbitmq.NewPostCommentCreatedHandler(fakePostCommentCreatedTransactor{}, idempotency, uc, testPostCommentCreatedLogger())
+	ctx := context.WithValue(context.Background(), contextKey{}, "trace-value")
+
+	if err := handler.Handle(ctx, message.NewMessage(uuid.NewString(), []byte(literalPostCommentCreatedJSON))); err != nil {
+		t.Fatalf("Handle() error = %v", err)
+	}
+
+	if uc.gotCtx.Value(contextKey{}) != "trace-value" {
+		t.Fatal("context was not propagated from Handle() to the usecase")
+	}
+	if idempotency.markedCtx.Value(contextKey{}) != "trace-value" {
 		t.Fatal("context was not propagated from Handle() to the idempotency repository")
 	}
 }
 
 func TestPostCommentCreatedHandler_Handle_SkipsUsecaseAndAcksWhenEventIsADuplicate(t *testing.T) {
-	event := validPostCommentCreatedEvent()
 	idempotency := newFakePostCommentCreatedIdempotencyRepository()
-	idempotency.processed[event.ID] = true
+	idempotency.processed[uuid.MustParse("11111111-1111-4111-8111-111111111111")] = true
 	uc := &fakePostCommentCreatedUsecase{}
-	handler := rabbitmq.NewPostCommentCreatedHandler(idempotency, uc, testPostCommentCreatedLogger())
+	handler := rabbitmq.NewPostCommentCreatedHandler(fakePostCommentCreatedTransactor{}, idempotency, uc, testPostCommentCreatedLogger())
 
-	if err := handler.Handle(context.Background(), newPostCommentCreatedMessage(t, event)); err != nil {
+	if err := handler.Handle(context.Background(), message.NewMessage(uuid.NewString(), []byte(literalPostCommentCreatedJSON))); err != nil {
 		t.Fatalf("Handle() error = %v, want nil (duplicate events ack cleanly)", err)
 	}
 
 	if uc.calls != 0 {
-		t.Fatalf("uc Execute() calls = %d, want 0 for a duplicate event", uc.calls)
+		t.Fatalf("Execute() calls = %d, want 0 for a duplicate event", uc.calls)
 	}
 	if idempotency.markCalls != 0 {
 		t.Fatalf("MarkProcessed() calls = %d, want 0 for a duplicate event", idempotency.markCalls)
 	}
 }
 
-func TestPostCommentCreatedHandler_Handle_MapsPayloadFieldsBeforeCallingUsecase(t *testing.T) {
-	idempotency := newFakePostCommentCreatedIdempotencyRepository()
-	uc := &fakePostCommentCreatedUsecase{}
-	handler := rabbitmq.NewPostCommentCreatedHandler(idempotency, uc, testPostCommentCreatedLogger())
-
-	event := validPostCommentCreatedEvent()
-	event.Content = "a distributed systems comment"
-
-	if err := handler.Handle(context.Background(), newPostCommentCreatedMessage(t, event)); err != nil {
-		t.Fatalf("Handle() error = %v, want nil", err)
-	}
-
-	if uc.gotIn.Content != event.Content {
-		t.Fatalf("uc Execute() Content = %q, want %q", uc.gotIn.Content, event.Content)
-	}
-}
-
 func TestPostCommentCreatedHandler_Handle_ReturnsAPermanentErrorForAMalformedPayload(t *testing.T) {
-	idempotency := newFakePostCommentCreatedIdempotencyRepository()
 	uc := &fakePostCommentCreatedUsecase{}
-	handler := rabbitmq.NewPostCommentCreatedHandler(idempotency, uc, testPostCommentCreatedLogger())
+	handler := rabbitmq.NewPostCommentCreatedHandler(fakePostCommentCreatedTransactor{}, newFakePostCommentCreatedIdempotencyRepository(), uc, testPostCommentCreatedLogger())
 
-	msg := message.NewMessage("1", []byte(`not json`))
-
-	err := handler.Handle(context.Background(), msg)
-	if err == nil {
-		t.Fatal("Handle() error = nil, want an error for a malformed payload")
-	}
+	err := handler.Handle(context.Background(), message.NewMessage(uuid.NewString(), []byte(`not json`)))
 	if !rmqerror.IsPermanent(err) {
-		t.Fatal("Handle() error is not permanent, want a permanent error so it skips retries")
+		t.Fatalf("Handle() error = %v, want a permanent error so it skips retries", err)
 	}
 	if uc.calls != 0 {
-		t.Fatalf("uc Execute() calls = %d, want 0 for a malformed payload", uc.calls)
+		t.Fatalf("Execute() calls = %d, want 0 for a malformed payload", uc.calls)
 	}
 }
 
-func TestPostCommentCreatedHandler_Handle_ReturnsAPermanentErrorWhenRequiredFieldsAreMissing(t *testing.T) {
-	idempotency := newFakePostCommentCreatedIdempotencyRepository()
-	uc := &fakePostCommentCreatedUsecase{}
-	handler := rabbitmq.NewPostCommentCreatedHandler(idempotency, uc, testPostCommentCreatedLogger())
+func TestPostCommentCreatedHandler_Handle_ReturnsAPermanentErrorWhenARequiredFieldIsMissing(t *testing.T) {
+	for _, field := range []string{"id", "correlationId", "occurredAt", "commentId", "postId", "userId"} {
+		t.Run(field, func(t *testing.T) {
+			uc := &fakePostCommentCreatedUsecase{}
+			handler := rabbitmq.NewPostCommentCreatedHandler(fakePostCommentCreatedTransactor{}, newFakePostCommentCreatedIdempotencyRepository(), uc, testPostCommentCreatedLogger())
 
-	event := validPostCommentCreatedEvent()
-	event.CommentID = uuid.Nil
+			payload := mutatedPostCommentCreatedPayload(t, func(fields map[string]any) { delete(fields, field) })
 
-	err := handler.Handle(context.Background(), newPostCommentCreatedMessage(t, event))
-	if err == nil {
-		t.Fatal("Handle() error = nil, want an error for a missing comment_id")
-	}
-	if !rmqerror.IsPermanent(err) {
-		t.Fatal("Handle() error is not permanent, want a permanent error for an invalid envelope")
+			err := handler.Handle(context.Background(), message.NewMessage(uuid.NewString(), payload))
+			if !rmqerror.IsPermanent(err) {
+				t.Fatalf("Handle() error = %v, want a permanent error without %s", err, field)
+			}
+			if uc.calls != 0 {
+				t.Fatalf("Execute() calls = %d, want 0", uc.calls)
+			}
+		})
 	}
 }
 
-func TestPostCommentCreatedHandler_Handle_ReturnsATransientErrorWhenTheUsecaseFails(t *testing.T) {
+func TestPostCommentCreatedHandler_Handle_ReturnsATransientErrorAndDoesNotMarkWhenTheUsecaseFails(t *testing.T) {
 	idempotency := newFakePostCommentCreatedIdempotencyRepository()
 	uc := &fakePostCommentCreatedUsecase{execErr: errors.New("mongo write failed")}
-	handler := rabbitmq.NewPostCommentCreatedHandler(idempotency, uc, testPostCommentCreatedLogger())
+	handler := rabbitmq.NewPostCommentCreatedHandler(fakePostCommentCreatedTransactor{}, idempotency, uc, testPostCommentCreatedLogger())
 
-	err := handler.Handle(context.Background(), newPostCommentCreatedMessage(t, validPostCommentCreatedEvent()))
+	err := handler.Handle(context.Background(), message.NewMessage(uuid.NewString(), []byte(literalPostCommentCreatedJSON)))
 	if err == nil {
-		t.Fatal("Handle() error = nil, want an error when the uc fails")
+		t.Fatal("Handle() error = nil, want an error when the usecase fails")
 	}
 	if rmqerror.IsPermanent(err) {
 		t.Fatal("Handle() error is permanent, want a transient error so retries apply")
 	}
-}
-
-func validPostCommentCreatedEvent() rabbitmq.PostCommentCreatedEvent {
-	return rabbitmq.PostCommentCreatedEvent{
-		ID:            uuid.New(),
-		CorrelationID: uuid.New(),
-		OccurredAt:    time.Now().UTC(),
-		CommentID:     uuid.New(),
-		PostID:        uuid.New(),
-		UserID:        uuid.New(),
-		Content:       "nice post",
-		CreatedAt:     time.Now().UTC(),
+	if idempotency.markCalls != 0 {
+		t.Fatalf("MarkProcessed() calls = %d, want 0 when the usecase failed", idempotency.markCalls)
 	}
 }
 
-func newPostCommentCreatedMessage(t *testing.T, event rabbitmq.PostCommentCreatedEvent) *message.Message {
+func TestPostCommentCreatedHandler_Handle_RunsTheIdempotencyCheckProjectionAndMarkInOneTransaction(t *testing.T) {
+	idempotency := newFakePostCommentCreatedIdempotencyRepository()
+	uc := &fakePostCommentCreatedUsecase{}
+	handler := rabbitmq.NewPostCommentCreatedHandler(fakePostCommentCreatedTransactor{}, idempotency, uc, testPostCommentCreatedLogger())
+
+	if err := handler.Handle(context.Background(), message.NewMessage(uuid.NewString(), []byte(literalPostCommentCreatedJSON))); err != nil {
+		t.Fatalf("Handle() error = %v", err)
+	}
+
+	if idempotency.isProcessedCtx.Value(postCommentCreatedTransactionKey{}) != true {
+		t.Fatal("IsProcessed() ran outside the transaction")
+	}
+	if uc.gotCtx.Value(postCommentCreatedTransactionKey{}) != true {
+		t.Fatal("Execute() ran outside the transaction")
+	}
+	if idempotency.markedCtx.Value(postCommentCreatedTransactionKey{}) != true {
+		t.Fatal("MarkProcessed() ran outside the transaction")
+	}
+}
+
+func TestPostCommentCreatedHandler_Handle_ReturnsATransientErrorWhenMarkProcessedFails(t *testing.T) {
+	idempotency := newFakePostCommentCreatedIdempotencyRepository()
+	idempotency.markErr = errors.New("mongo write failed")
+	handler := rabbitmq.NewPostCommentCreatedHandler(fakePostCommentCreatedTransactor{}, idempotency, &fakePostCommentCreatedUsecase{}, testPostCommentCreatedLogger())
+
+	err := handler.Handle(context.Background(), message.NewMessage(uuid.NewString(), []byte(literalPostCommentCreatedJSON)))
+	if err == nil || rmqerror.IsPermanent(err) {
+		t.Fatalf("Handle() error = %v, want a transient error so the transaction aborts and retries apply", err)
+	}
+}
+
+// mutatedPostCommentCreatedPayload starts from the literal Java JSON and lets a test change
+// individual fields.
+func mutatedPostCommentCreatedPayload(t *testing.T, mutate func(fields map[string]any)) []byte {
 	t.Helper()
 
-	payload, err := json.Marshal(event)
+	var fields map[string]any
+	if err := json.Unmarshal([]byte(literalPostCommentCreatedJSON), &fields); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	mutate(fields)
+
+	payload, err := json.Marshal(fields)
 	if err != nil {
 		t.Fatalf("json.Marshal() error = %v", err)
 	}
 
-	return message.NewMessage(uuid.NewString(), payload)
+	return payload
 }
 
 func testPostCommentCreatedLogger() *slog.Logger {

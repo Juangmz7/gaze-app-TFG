@@ -13,6 +13,7 @@ import (
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/google/uuid"
 
+	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/eventlog"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/rmqerror"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/user/application/usecase"
 )
@@ -20,15 +21,25 @@ import (
 // UserRegisteredEventType identifies this event for idempotency bookkeeping.
 const UserRegisteredEventType = "UserRegisteredEvent"
 
+// UserRegisteredBioPayload is the wire shape of the Java UserBioEventPayload
+// record.
+type UserRegisteredBioPayload struct {
+	Description string            `json:"description"`
+	SocialMedia map[string]string `json:"socialMedia"`
+}
+
 // UserRegisteredEvent is the wire shape of UserRegisteredEvent published by
-// social-service.
+// social-service. Field names are camelCase, matching the real Java record. It
+// carries no createdAt, so occurredAt is projected as the user's creation time,
+// and no picture: picture_url stays empty until a UserUpdatedEvent sets it.
 type UserRegisteredEvent struct {
-	ID            uuid.UUID `json:"id"`
-	CorrelationID uuid.UUID `json:"correlation_id"`
-	OccurredAt    time.Time `json:"occurred_at"`
-	UserID        uuid.UUID `json:"user_id"`
-	Username      string    `json:"username"`
-	CreatedAt     time.Time `json:"created_at"`
+	ID            uuid.UUID                `json:"id"`
+	CorrelationID uuid.UUID                `json:"correlationId"`
+	OccurredAt    time.Time                `json:"occurredAt"`
+	UserID        uuid.UUID                `json:"userId"`
+	Username      string                   `json:"username"`
+	Email         string                   `json:"email"`
+	Bio           UserRegisteredBioPayload `json:"bio"`
 }
 
 // UserRegisteredIdempotencyRepository records and checks processed events.
@@ -59,10 +70,12 @@ func NewUserRegisteredHandler(idempotency UserRegisteredIdempotencyRepository, u
 func (h *UserRegisteredHandler) Handle(ctx context.Context, msg *message.Message) error {
 	var event UserRegisteredEvent
 	if err := json.Unmarshal(msg.Payload, &event); err != nil {
+		eventlog.WarnInvalid(ctx, h.logger, UserRegisteredEventType, msg.Payload, err)
 		return rmqerror.NewPermanent(fmt.Errorf("decode user registered event: %w", err))
 	}
 
 	if err := validateUserRegisteredEvent(event); err != nil {
+		eventlog.WarnInvalid(ctx, h.logger, UserRegisteredEventType, msg.Payload, err)
 		return rmqerror.NewPermanent(err)
 	}
 
@@ -71,14 +84,17 @@ func (h *UserRegisteredHandler) Handle(ctx context.Context, msg *message.Message
 		return fmt.Errorf("check user registered event %s processed: %w", event.ID, err)
 	}
 	if alreadyProcessed {
-		h.logger.WarnContext(ctx, "discarding duplicate user registered event", "event_id", event.ID)
+		h.logger.WarnContext(ctx, "discarding duplicate user registered event", "event_id", event.ID, "correlation_id", event.CorrelationID, "userId", event.UserID)
 		return nil
 	}
 
 	input := usecase.RegisterUserInput{
-		UserID:    event.UserID,
-		Username:  event.Username,
-		CreatedAt: event.CreatedAt,
+		UserID:         event.UserID,
+		Username:       event.Username,
+		Email:          event.Email,
+		BioDescription: event.Bio.Description,
+		BioSocialMedia: event.Bio.SocialMedia,
+		CreatedAt:      event.OccurredAt,
 	}
 	if err := h.usecase.Execute(ctx, input); err != nil {
 		return fmt.Errorf("execute register user usecase for event %s: %w", event.ID, err)
@@ -88,6 +104,8 @@ func (h *UserRegisteredHandler) Handle(ctx context.Context, msg *message.Message
 		return fmt.Errorf("mark user registered event %s processed: %w", event.ID, err)
 	}
 
+	h.logger.InfoContext(ctx, "user registered event projected", "event_id", event.ID, "correlation_id", event.CorrelationID, "userId", event.UserID)
+
 	return nil
 }
 
@@ -96,13 +114,13 @@ func validateUserRegisteredEvent(event UserRegisteredEvent) error {
 		return fmt.Errorf("user registered event: id is required")
 	}
 	if event.CorrelationID == uuid.Nil {
-		return fmt.Errorf("user registered event: correlation_id is required")
+		return fmt.Errorf("user registered event: correlationId is required")
 	}
 	if event.OccurredAt.IsZero() {
-		return fmt.Errorf("user registered event: occurred_at is required")
+		return fmt.Errorf("user registered event: occurredAt is required")
 	}
 	if event.UserID == uuid.Nil {
-		return fmt.Errorf("user registered event: user_id is required")
+		return fmt.Errorf("user registered event: userId is required")
 	}
 	if event.Username == "" {
 		return fmt.Errorf("user registered event: username is required")

@@ -79,6 +79,26 @@ func WithTransaction(ctx context.Context, client *mongo.Client, fn func(ctx cont
 	return nil
 }
 
+// Transactor runs functions inside WithTransaction on a fixed client, so event
+// handlers can receive the transaction boundary as a small injected port.
+type Transactor struct {
+	client *mongo.Client
+}
+
+// NewTransactor creates a Transactor backed by client.
+func NewTransactor(client *mongo.Client) *Transactor {
+	return &Transactor{client: client}
+}
+
+// WithTransaction runs fn inside a multi-document transaction. See the
+// package-level WithTransaction: fn must be safe to re-run.
+func (t *Transactor) WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
+	if t.client == nil {
+		return fmt.Errorf("run mongo transaction: client is required")
+	}
+	return WithTransaction(ctx, t.client, fn)
+}
+
 // afterCommitKey is the context key under which WithTransaction collects
 // AfterCommit callbacks.
 type afterCommitKey struct{}
