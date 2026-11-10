@@ -11,9 +11,8 @@ env:
 
 # Local development values only. Moved to Vault together with the prod values.
 secretEnv:
-  # TODO(dev): RECOMMENDATION_POSTGRES_PASSWORD from infra/local/.env is not
-  # committed anywhere; put the same value here (URL-encoded).
-  DATABASE_URL: postgresql+psycopg://recommendation_user:CHANGE_ME@recommendation-postgres.external-databases.svc.cluster.local:5432/recommendation_db
+  # Same as RECOMMENDATION_POSTGRES_PASSWORD in infra/local/.env (URL-encoded).
+  DATABASE_URL: postgresql+psycopg://recommendation_user:super_secret_recommendation_service_password_123@recommendation-postgres.external-databases.svc.cluster.local:5432/recommendation_db
   RABBITMQ_URL: amqp://recommendation-service:super_secret_recommendation_service_rabbitmq_password_123@rabbitmq.rabbitmq-dev.svc.cluster.local:5672/
   RABBITMQ_AMQP_URI: amqp://recommendation-service:super_secret_recommendation_service_rabbitmq_password_123@rabbitmq.rabbitmq-dev.svc.cluster.local:5672/
 
