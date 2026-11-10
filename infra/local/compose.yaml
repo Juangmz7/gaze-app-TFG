@@ -221,6 +221,19 @@ services:
     networks:
       - infra_net
 
+  azurite-init:
+    image: mcr.microsoft.com/azure-cli
+    container_name: azurite-init
+    depends_on:
+      - azurite
+    networks:
+      - infra_net
+    command: >
+      bash -c "
+      sleep 5 &&
+      az storage container create --name post-media-dev --connection-string 'DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;'
+      "
+
   recommendation_postgres:
     # pgvector image: the recommendation-service migrations run
     # CREATE EXTENSION vector, which plain postgres:16-alpine does not ship.
