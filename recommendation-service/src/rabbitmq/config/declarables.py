@@ -7,6 +7,7 @@ from faststream.rabbit import (
 
 from rabbitmq.config.constants import (
     INCOMING_QUEUES,
+    OBSOLETE_BINDINGS,
     OUTGOING_EXCHANGES,
 )
 
@@ -20,6 +21,7 @@ async def configure_rabbitmq_declarables(
     """
 
     declared_exchanges = {}
+    declared_queues = {}
 
     async def declare_exchange(
         exchange_name: str,
@@ -73,6 +75,8 @@ async def configure_rabbitmq_declarables(
             )
         )
 
+        declared_queues[queue_name] = queue
+
         # Bind all routing keys to the same queue
         for routing_key in routing_keys:
             await queue.bind(
@@ -93,6 +97,13 @@ async def configure_rabbitmq_declarables(
             exchange=dlx,
             routing_key=dlq_routing_key,
         )
+
+    # Unbinding a binding that does not exist is a no-op, so a new broker is fine
+    for binding in OBSOLETE_BINDINGS:
+        exchange = declared_exchanges[binding["exchange"]]
+        queue = declared_queues[binding["queue"]]
+        for routing_key in binding["routing_keys"]:
+            await queue.unbind(exchange, routing_key=routing_key)
 
     # Outgoing exchanges
     for exchange_name in OUTGOING_EXCHANGES:

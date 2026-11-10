@@ -3,6 +3,8 @@ from enum import Enum
 from typing import Optional
 from uuid import UUID
 
+from pydantic import Field, field_validator
+
 from rabbitmq.model.event_message import EventMessage
 
 
@@ -219,5 +221,23 @@ class PostCreatedEvent(EventMessage):
     updatedAt: datetime
 
 
+class PostFeedExhaustedReason(str, Enum):
+    DISCONNECT = "disconnect"
+    STALE_HEARTBEAT = "stale_heartbeat"
+    USER_REGISTERED = "user_registered"
+    LOW_WATERMARK = "low_watermark"
+
+
 class PostFeedExhaustedEvent(EventMessage):
-    pass
+    """UserFeedExhaustedEvent, published by post-query-service on x.feed.events."""
+
+    userId: UUID
+    reason: PostFeedExhaustedReason
+    currentFeedSize: int = Field(ge=0)
+    excludedPostIds: list[UUID] = []
+
+    @field_validator("excludedPostIds", mode="before")
+    @classmethod
+    def _null_means_no_exclusions(cls, value: object) -> object:
+        # post-query-service is written in Go, where an empty slice can marshal as null
+        return [] if value is None else value

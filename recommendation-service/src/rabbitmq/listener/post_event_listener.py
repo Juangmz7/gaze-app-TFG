@@ -63,4 +63,6 @@ class PostEventListener:
 
     async def _match_routing_key_handler(self, routing_key: PostRoutingKey, event: EventMessage) -> str:
         event_model, handler = self.handlers[routing_key]
-        return await handler.handle(event_model.model_validate(event))
+        # FastStream decoded the body as EventMessage: a parent class instance does not
+        # validate as a subclass, so the fields go through as a mapping
+        return await handler.handle(event_model.model_validate(event.model_dump()))

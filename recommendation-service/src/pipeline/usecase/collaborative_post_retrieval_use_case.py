@@ -14,6 +14,10 @@ class CollaborativePostRetrievalUseCase:
     def __init__(self, colaborative_post_retrieval_repository: CollaborativePostRetrievalRepository):
         self.colaborative_post_retrieval_repository = colaborative_post_retrieval_repository
 
+    def has_semantic_signal(self, user_id: UUID) -> bool:
+        """False for a user without signal and for one this service does not know yet."""
+        return self.colaborative_post_retrieval_repository.has_semantic_signal(user_id)
+
     def retrieve_posts(
             self,
             user_id: UUID,

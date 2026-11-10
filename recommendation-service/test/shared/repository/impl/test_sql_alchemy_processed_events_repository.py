@@ -49,3 +49,18 @@ def test_processed_event_upsert_is_idempotent(session_provider):
 
     # Assert
     assert repository.isAlreadyProcessed(event_id, correlation_id) is True
+
+
+def test_mark_as_processed_if_absent_inserts_only_once(session_provider):
+    # Arrange
+    repository = SqlAlchemyProcessedEventsRepository(session_provider)
+    event_id, correlation_id = uuid4(), uuid4()
+
+    # Act
+    first = repository.markAsProcessedIfAbsent(event_id=event_id, correlation_id=correlation_id, event_name="Event")
+    second = repository.markAsProcessedIfAbsent(event_id=event_id, correlation_id=correlation_id, event_name="Event")
+
+    # Assert
+    assert first is True
+    assert second is False
+    assert repository.isAlreadyProcessed(event_id=event_id, correlation_id=correlation_id) is True
