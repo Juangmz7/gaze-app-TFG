@@ -42,3 +42,4 @@ networkPolicy:
   clientNamespaces:
     - social-service-dev
     - post-command-service-dev
+    - post-query-service-dev

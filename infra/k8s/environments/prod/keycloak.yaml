@@ -51,3 +51,4 @@ networkPolicy:
   clientNamespaces:
     - social-service-prod
     - post-command-service-prod
+    - post-query-service-prod
