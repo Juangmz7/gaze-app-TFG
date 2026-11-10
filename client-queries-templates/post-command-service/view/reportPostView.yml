@@ -23,9 +23,7 @@ http:
           "exitReason": "scroll_next"
         }
       }
-  auth:
-    type: bearer
-    token: ""
+  auth: inherit
 
 settings:
   encodeUrl: true

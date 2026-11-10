@@ -14,9 +14,7 @@ http:
         "content": "example reply",
         "replyTo": "1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed"
       }
-  auth:
-    type: bearer
-    token: ""
+  auth: inherit
 
 settings:
   encodeUrl: true

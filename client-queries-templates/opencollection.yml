@@ -2,6 +2,27 @@ opencollection: 1.0.0
 
 info:
   name: client-queries-templates
+
+request:
+  auth:
+    type: oauth2
+    flow: authorization_code
+    authorizationUrl: https://auth.dev.gaze.localhost/realms/auth-service/protocol/openid-connect/auth
+    accessTokenUrl: https://auth.dev.gaze.localhost/realms/auth-service/protocol/openid-connect/token
+    callbackUrl: https://oauth.pstmn.io/v1/callback
+    credentials:
+      clientId: mobile-app
+      placement: body
+    scope: openid
+    pkce: {}
+    tokenConfig:
+      id: credentials
+      placement:
+        header: Bearer
+      source: access_token
+    settings:
+      autoFetchToken: true
+
 config:
   proxy:
     inherit: true

@@ -14,9 +14,7 @@ http:
         "description": "example updated description",
         "postTags": ["example-tag"]
       }
-  auth:
-    type: bearer
-    token: ""
+  auth: inherit
 
 settings:
   encodeUrl: true

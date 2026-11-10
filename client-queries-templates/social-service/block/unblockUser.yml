@@ -12,9 +12,7 @@ http:
       {
         "blockedUserId": "b1d7c3e2-5a41-4f0e-9c8a-2d6f7e8a9b10"
       }
-  auth:
-    type: bearer
-    token: ""
+  auth: inherit
 
 settings:
   encodeUrl: true
