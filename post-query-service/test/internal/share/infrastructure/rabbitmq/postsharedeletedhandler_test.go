@@ -36,6 +36,14 @@ func (f *fakePostShareDeletedIdempotencyRepository) MarkProcessed(ctx context.Co
 	return nil
 }
 
+// passthroughPostShareDeletedTransactor runs fn directly: these unit tests exercise the
+// handler's decisions, and transaction behavior is covered against real MongoDB.
+type passthroughPostShareDeletedTransactor struct{}
+
+func (passthroughPostShareDeletedTransactor) WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
+	return fn(ctx)
+}
+
 type fakePostShareDeletedUsecase struct {
 	calls   int
 	gotIn   usecase.DeleteShareInput
@@ -73,7 +81,7 @@ func literalPostShareDeletedEvent(t *testing.T, overrides map[string]any) []byte
 func TestPostShareDeletedHandler_Handle_DecodesCamelCaseJSONAndCallsUsecase(t *testing.T) {
 	idempotency := newFakePostShareDeletedIdempotencyRepository()
 	uc := &fakePostShareDeletedUsecase{}
-	handler := rabbitmq.NewPostShareDeletedHandler(idempotency, uc, testPostShareDeletedLogger())
+	handler := rabbitmq.NewPostShareDeletedHandler(passthroughPostShareDeletedTransactor{}, idempotency, uc, testPostShareDeletedLogger())
 
 	postID := uuid.New()
 	userID := uuid.New()
@@ -99,7 +107,7 @@ func TestPostShareDeletedHandler_Handle_SkipsUsecaseAndAcksWhenEventIsADuplicate
 	idempotency := newFakePostShareDeletedIdempotencyRepository()
 	idempotency.processed[eventID] = true
 	uc := &fakePostShareDeletedUsecase{}
-	handler := rabbitmq.NewPostShareDeletedHandler(idempotency, uc, testPostShareDeletedLogger())
+	handler := rabbitmq.NewPostShareDeletedHandler(passthroughPostShareDeletedTransactor{}, idempotency, uc, testPostShareDeletedLogger())
 
 	payload := literalPostShareDeletedEvent(t, map[string]any{"id": eventID.String()})
 
@@ -117,7 +125,7 @@ func TestPostShareDeletedHandler_Handle_SkipsUsecaseAndAcksWhenEventIsADuplicate
 func TestPostShareDeletedHandler_Handle_ReturnsAPermanentErrorForAMalformedPayload(t *testing.T) {
 	idempotency := newFakePostShareDeletedIdempotencyRepository()
 	uc := &fakePostShareDeletedUsecase{}
-	handler := rabbitmq.NewPostShareDeletedHandler(idempotency, uc, testPostShareDeletedLogger())
+	handler := rabbitmq.NewPostShareDeletedHandler(passthroughPostShareDeletedTransactor{}, idempotency, uc, testPostShareDeletedLogger())
 
 	err := handler.Handle(context.Background(), message.NewMessage("1", []byte(`not json`)))
 	if err == nil {
@@ -134,7 +142,7 @@ func TestPostShareDeletedHandler_Handle_ReturnsAPermanentErrorForAMalformedPaylo
 func TestPostShareDeletedHandler_Handle_ReturnsAPermanentErrorWhenRequiredFieldsAreMissing(t *testing.T) {
 	idempotency := newFakePostShareDeletedIdempotencyRepository()
 	uc := &fakePostShareDeletedUsecase{}
-	handler := rabbitmq.NewPostShareDeletedHandler(idempotency, uc, testPostShareDeletedLogger())
+	handler := rabbitmq.NewPostShareDeletedHandler(passthroughPostShareDeletedTransactor{}, idempotency, uc, testPostShareDeletedLogger())
 
 	payload := literalPostShareDeletedEvent(t, map[string]any{"userId": uuid.Nil.String()})
 
@@ -150,7 +158,7 @@ func TestPostShareDeletedHandler_Handle_ReturnsAPermanentErrorWhenRequiredFields
 func TestPostShareDeletedHandler_Handle_ReturnsATransientErrorWhenTheUsecaseFails(t *testing.T) {
 	idempotency := newFakePostShareDeletedIdempotencyRepository()
 	uc := &fakePostShareDeletedUsecase{execErr: errors.New("mongo delete failed")}
-	handler := rabbitmq.NewPostShareDeletedHandler(idempotency, uc, testPostShareDeletedLogger())
+	handler := rabbitmq.NewPostShareDeletedHandler(passthroughPostShareDeletedTransactor{}, idempotency, uc, testPostShareDeletedLogger())
 
 	payload := literalPostShareDeletedEvent(t, nil)
 

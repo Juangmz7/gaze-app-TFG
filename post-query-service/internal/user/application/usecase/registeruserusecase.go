@@ -12,9 +12,12 @@ import (
 
 // RegisterUserInput is the data required to project a newly registered user.
 type RegisterUserInput struct {
-	UserID    uuid.UUID
-	Username  string
-	CreatedAt time.Time
+	UserID         uuid.UUID
+	Username       string
+	Email          string
+	BioDescription string
+	BioSocialMedia map[string]string
+	CreatedAt      time.Time
 }
 
 // RegisterUserRepository persists the user read model. Implemented by

@@ -7,6 +7,9 @@ metadata:
     {{- include "microservice.labels" . | nindent 4 }}
 spec:
   type: ClusterIP
+  {{- if .Values.service.headless }}
+  clusterIP: None
+  {{- end }}
   selector:
     {{- include "microservice.selectorLabels" . | nindent 4 }}
   ports:
@@ -15,4 +18,11 @@ spec:
       targetPort: http
       protocol: TCP
       appProtocol: http
+    {{- if .Values.grpc.enabled }}
+    - name: grpc
+      port: {{ .Values.grpc.port }}
+      targetPort: grpc
+      protocol: TCP
+      appProtocol: kubernetes.io/h2c
+    {{- end }}
 {{- end }}

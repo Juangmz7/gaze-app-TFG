@@ -1,5 +1,8 @@
 
-from sqlalchemy import text
+from collections.abc import Collection
+
+from sqlalchemy import Uuid, bindparam, text
+from sqlalchemy.dialects.postgresql import ARRAY
 from uuid import UUID
 
 from pipeline.repository.explorative_post_retrieval_repository import ExplorativePostRetrievalRepository
@@ -117,6 +120,7 @@ class SqlAlchemyExplorativePostRetrievalRepository(ExplorativePostRetrievalRepos
         self,
         user_id: UUID,
         limit: int,
+        excluded_post_ids: Collection[UUID],
     ) -> list[tuple[UUID, float]]:
         with self.session_provider.session() as session:
             result = session.execute(
@@ -128,15 +132,16 @@ class SqlAlchemyExplorativePostRetrievalRepository(ExplorativePostRetrievalRepos
                         ON upi.post_id = p.post_id AND upi.user_id = :user_id
                     WHERE pf.creator_id != :user_id
                         AND (upi.ever_seen IS NULL OR upi.ever_seen = FALSE)
-                        AND p.views < 50
+                        AND p.raw_views < 50
+                        AND p.post_id <> ALL(:excluded_post_ids)
                         AND NOT EXISTS (
                             SELECT 1 FROM blocks b 
                             WHERE (b.blocker_id = :user_id AND b.blocked_id = pf.creator_id)
                                OR (b.blocker_id = pf.creator_id AND b.blocked_id = :user_id)
                         )
-                    ORDER BY pf.created_at DESC, p.views ASC
+                    ORDER BY pf.created_at DESC, p.raw_views ASC
                     LIMIT :limit
-                """),
-                {"user_id": user_id, "limit": limit}
+                """).bindparams(bindparam("excluded_post_ids", type_=ARRAY(Uuid(as_uuid=True)))),
+                {"user_id": user_id, "limit": limit, "excluded_post_ids": list(excluded_post_ids)}
             )
             return [(row[0], row[1]) for row in result]

@@ -23,6 +23,11 @@ class OutboxEventRepository(ABC):
         claim the same event. Returns None when nothing is claimable."""
 
     @abstractmethod
+    def claim_if_pending(self, event_id: UUID) -> OutboxEvent | None:
+        """Claims event_id only if it is still PENDING (the immediate send after
+        commit). Returns None when it is gone or a relay batch already claimed it."""
+
+    @abstractmethod
     def mark_processed(self, event_id: UUID) -> None:
         """Marks a confirmed event PROCESSED, whoever reports it."""
 

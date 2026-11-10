@@ -21,32 +21,27 @@ const collectionName = "post_likes"
 // operationTimeout bounds every Mongo call made by Repository.
 const operationTimeout = 5 * time.Second
 
-// ErrVersionConflict is returned by Update when the stored document's
-// version does not match UpdateInput.ExpectedVersion, meaning the document
-// was modified by another writer since the version was read.
-var ErrVersionConflict = errors.New("like version conflict")
+// legacyLikeIDIndex is the name of the unique index on the removed like_id field.
+const legacyLikeIDIndex = "like_id_1"
 
-// likeDocument is the persisted shape of a like read model entry.
+// MongoDB server error codes dropIndexes returns when there is nothing to drop.
+const (
+	mongoNamespaceNotFoundCode = 26
+	mongoIndexNotFoundCode     = 27
+)
+
+// likeDocument is the persisted shape of a like read model entry. Its identity
+// is (post_id, user_id), the same primary key post_likes has in
+// post-command-service; the events carry no likeId.
 type likeDocument struct {
-	LikeID    string    `bson:"like_id"`
 	PostID    string    `bson:"post_id"`
 	UserID    string    `bson:"user_id"`
 	CreatedAt time.Time `bson:"created_at"`
 	Version   int64     `bson:"version"`
 }
 
-// UpdateInput is the data required to apply an optimistic-concurrency
-// update to an existing like read model document. No use case calls Update
-// yet; it exists so the repository/mongo layer exposes a version-based
-// update capability uniformly across every read-model repository.
-type UpdateInput struct {
-	LikeID          uuid.UUID
-	ExpectedVersion int64
-	PostID          uuid.UUID
-	UserID          uuid.UUID
-}
-
-// Repository implements usecase.Repository against MongoDB.
+// Repository implements usecase.RecordLikeRepository and
+// usecase.DeleteLikeRepository against MongoDB.
 type Repository struct {
 	collection *mongo.Collection
 }
@@ -56,92 +51,83 @@ func NewRepository(db *mongo.Database) *Repository {
 	return &Repository{collection: db.Collection(collectionName)}
 }
 
-// EnsureIndexes creates the unique index on like_id required to make Insert
-// idempotent under concurrent or retried deliveries of the same creation
-// event.
+// EnsureIndexes creates the unique index on (post_id, user_id), the like's
+// identity, and drops the like_id index earlier versions created: like_id no
+// longer exists, so that unique index would treat every new document as a
+// duplicate of the first one (all missing values index as null). The
+// (user_id, post_id) index serves the feed claim's lookup of a viewer's likes.
 func (r *Repository) EnsureIndexes(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
 
-	indexModel := mongo.IndexModel{
-		Keys:    bson.D{{Key: "like_id", Value: 1}},
-		Options: options.Index().SetUnique(true),
+	if err := r.collection.Indexes().DropOne(ctx, legacyLikeIDIndex); err != nil && !isMissingIndexError(err) {
+		return fmt.Errorf("drop post_likes legacy index: %w", err)
 	}
 
-	if _, err := r.collection.Indexes().CreateOne(ctx, indexModel); err != nil {
+	indexModels := []mongo.IndexModel{
+		{
+			Keys:    bson.D{{Key: "post_id", Value: 1}, {Key: "user_id", Value: 1}},
+			Options: options.Index().SetUnique(true),
+		},
+		{Keys: bson.D{{Key: "user_id", Value: 1}, {Key: "post_id", Value: 1}}},
+	}
+
+	if _, err := r.collection.Indexes().CreateMany(ctx, indexModels); err != nil {
 		return fmt.Errorf("ensure post_likes indexes: %w", err)
 	}
 
 	return nil
 }
 
-// Insert writes input as a new like read model document at version 1. A
-// duplicate delivery of the same like-creation event is already filtered
-// out upstream by the idempotency repository before the use case runs, but
-// a crash between MarkProcessed and this write makes a retry of the same
-// creation event theoretically possible; when that retry hits the unique
-// index on like_id, Insert treats the duplicate-key error as an
-// already-applied insert and returns nil.
-func (r *Repository) Insert(ctx context.Context, input usecase.RecordLikeInput) error {
+// isMissingIndexError reports whether a dropIndexes failure only means there was
+// nothing to drop: no such index, or no such collection yet.
+func isMissingIndexError(err error) bool {
+	var commandErr mongo.CommandError
+	if !errors.As(err, &commandErr) {
+		return false
+	}
+	return commandErr.Code == mongoIndexNotFoundCode || commandErr.Code == mongoNamespaceNotFoundCode
+}
+
+// Insert writes input as a new like read model document at version 1 and reports
+// whether it really created one. It runs inside the handler's transaction, where
+// a duplicate-key error aborts the whole transaction, so an existing document is
+// looked up first and reported as (false, nil). A duplicate-key error can then
+// only come from a concurrent writer: it is returned as a retryable error, and
+// the redelivery finds the document.
+func (r *Repository) Insert(ctx context.Context, input usecase.RecordLikeInput) (bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
 
+	filter := bson.D{
+		{Key: "post_id", Value: input.PostID.String()},
+		{Key: "user_id", Value: input.UserID.String()},
+	}
+	err := r.collection.FindOne(ctx, filter, options.FindOne().SetProjection(bson.D{{Key: "_id", Value: 1}})).Err()
+	if err == nil {
+		return false, nil
+	}
+	if !errors.Is(err, mongo.ErrNoDocuments) {
+		return false, fmt.Errorf("find like for post %s user %s: %w", input.PostID, input.UserID, err)
+	}
+
 	doc := likeDocument{
-		LikeID:    input.LikeID.String(),
 		PostID:    input.PostID.String(),
 		UserID:    input.UserID.String(),
 		CreatedAt: input.CreatedAt,
 		Version:   1,
 	}
-
 	if _, err := r.collection.InsertOne(ctx, doc); err != nil {
-		if mongo.IsDuplicateKeyError(err) {
-			return nil
-		}
-		return fmt.Errorf("insert like %s: %w", input.LikeID, err)
+		return false, fmt.Errorf("insert like for post %s user %s: %w", input.PostID, input.UserID, err)
 	}
 
-	return nil
+	return true, nil
 }
 
-// Update applies an optimistic-concurrency update to the like read model
-// document identified by input.LikeID. It only succeeds when the stored
-// document's version equals input.ExpectedVersion; on success the changed
-// fields are set and the version is incremented by one. If no document
-// matched (either the like does not exist or its version has already moved
-// on), Update returns ErrVersionConflict.
-func (r *Repository) Update(ctx context.Context, input UpdateInput) error {
-	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
-	defer cancel()
-
-	filter := bson.D{
-		{Key: "like_id", Value: input.LikeID.String()},
-		{Key: "version", Value: input.ExpectedVersion},
-	}
-	update := bson.D{
-		{Key: "$set", Value: bson.D{
-			{Key: "post_id", Value: input.PostID.String()},
-			{Key: "user_id", Value: input.UserID.String()},
-		}},
-		{Key: "$inc", Value: bson.D{{Key: "version", Value: int64(1)}}},
-	}
-
-	result, err := r.collection.UpdateOne(ctx, filter, update)
-	if err != nil {
-		return fmt.Errorf("update like %s: %w", input.LikeID, err)
-	}
-	if result.ModifiedCount == 0 {
-		return fmt.Errorf("update like %s: %w", input.LikeID, ErrVersionConflict)
-	}
-
-	return nil
-}
-
-// DeleteByPostAndUser idempotently removes the like read model document
-// matching postID and userID. See usecase.DeleteLikeInput's doc comment for
-// why PostLikeDeletedEvent is projected by this filter instead of by
-// like_id. Deleting when no document matches is not an error.
-func (r *Repository) DeleteByPostAndUser(ctx context.Context, postID, userID uuid.UUID) error {
+// DeleteByPostAndUser idempotently removes the like read model document matching
+// postID and userID and reports whether a document was really removed. Deleting
+// when no document matches is not an error.
+func (r *Repository) DeleteByPostAndUser(ctx context.Context, postID, userID uuid.UUID) (bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
 
@@ -149,9 +135,10 @@ func (r *Repository) DeleteByPostAndUser(ctx context.Context, postID, userID uui
 		{Key: "post_id", Value: postID.String()},
 		{Key: "user_id", Value: userID.String()},
 	}
-	if _, err := r.collection.DeleteOne(ctx, filter); err != nil {
-		return fmt.Errorf("delete like for post %s user %s: %w", postID, userID, err)
+	result, err := r.collection.DeleteOne(ctx, filter)
+	if err != nil {
+		return false, fmt.Errorf("delete like for post %s user %s: %w", postID, userID, err)
 	}
 
-	return nil
+	return result.DeletedCount > 0, nil
 }

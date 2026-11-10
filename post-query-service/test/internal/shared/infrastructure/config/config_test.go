@@ -3,7 +3,9 @@ package config_test
 import (
 	"os"
 	"testing"
+	"time"
 
+	"github.com/Juangmz7/TFG/common-packages/go-utils/auth"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/config"
 )
 
@@ -14,6 +16,8 @@ func TestLoad_ParsesValidEnvironmentVariablesIntoConfig(t *testing.T) {
 	setEnv(t, "RABBITMQ_PORT", "5673")
 	setEnv(t, "RABBITMQ_USER", "post_query_user")
 	setEnv(t, "RABBITMQ_PASSWORD", "post_query_password")
+	setAuthEnv(t)
+	unsetFeedEnv(t)
 
 	got, err := config.Load()
 	if err != nil {
@@ -31,6 +35,18 @@ func TestLoad_ParsesValidEnvironmentVariablesIntoConfig(t *testing.T) {
 			User:     "post_query_user",
 			Password: "post_query_password",
 		},
+		Auth: auth.AuthConfig{
+			JWKSUrl:  "http://keycloak:8080/certs",
+			Issuer:   "http://localhost:8080/realms/auth-service",
+			Audience: "account",
+		},
+		Feed: config.FeedConfig{
+			DefaultPageSize:        15,
+			MaxPageSize:            15,
+			MaxReadsPerClaim:       3,
+			Retention:              168 * time.Hour,
+			DisconnectWriteTimeout: 5 * time.Second,
+		},
 	}
 
 	if got != want {
@@ -45,6 +61,8 @@ func TestLoad_AppliesDefaultsWhenOptionalVariablesAreMissing(t *testing.T) {
 	setEnv(t, "RABBITMQ_PASSWORD", "post_query_password")
 	unsetEnv(t, "RABBITMQ_HOST")
 	unsetEnv(t, "RABBITMQ_PORT")
+	setAuthEnv(t)
+	unsetFeedEnv(t)
 
 	got, err := config.Load()
 	if err != nil {
@@ -106,6 +124,71 @@ func TestLoad_ReturnsErrorWhenRabbitMQPasswordIsMissing(t *testing.T) {
 	}
 }
 
+func TestLoad_ReturnsErrorWhenAnAuthVariableIsMissing(t *testing.T) {
+	for _, name := range []string{"JWKS_URL", "JWT_ISSUER", "JWT_AUDIENCE"} {
+		t.Run(name, func(t *testing.T) {
+			setRequiredEnv(t)
+			unsetEnv(t, name)
+
+			if _, err := config.Load(); err == nil {
+				t.Fatalf("Load() error = nil, want error for missing %s", name)
+			}
+		})
+	}
+}
+
+func TestLoad_ReadsTheFeedSettings(t *testing.T) {
+	setRequiredEnv(t)
+	setEnv(t, "FEED_DEFAULT_PAGE_SIZE", "10")
+	setEnv(t, "FEED_MAX_PAGE_SIZE", "30")
+	setEnv(t, "FEED_MAX_READS_PER_CLAIM", "5")
+	setEnv(t, "FEED_RETENTION_HOURS", "24")
+	setEnv(t, "FEED_DISCONNECT_WRITE_TIMEOUT_MS", "750")
+
+	got, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+
+	want := config.FeedConfig{
+		DefaultPageSize:        10,
+		MaxPageSize:            30,
+		MaxReadsPerClaim:       5,
+		Retention:              24 * time.Hour,
+		DisconnectWriteTimeout: 750 * time.Millisecond,
+	}
+	if got.Feed != want {
+		t.Fatalf("Load() Feed = %+v, want %+v", got.Feed, want)
+	}
+}
+
+func TestLoad_RejectsFeedSettingsThatMakeNoSense(t *testing.T) {
+	tests := []struct {
+		name string
+		env  map[string]string
+	}{
+		{"default page size is not a number", map[string]string{"FEED_DEFAULT_PAGE_SIZE": "many"}},
+		{"max page size is zero", map[string]string{"FEED_MAX_PAGE_SIZE": "0"}},
+		{"default above max", map[string]string{"FEED_DEFAULT_PAGE_SIZE": "20", "FEED_MAX_PAGE_SIZE": "10"}},
+		{"max reads is negative", map[string]string{"FEED_MAX_READS_PER_CLAIM": "-1"}},
+		{"retention is zero", map[string]string{"FEED_RETENTION_HOURS": "0"}},
+		{"disconnect timeout is not a number", map[string]string{"FEED_DISCONNECT_WRITE_TIMEOUT_MS": "soon"}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			setRequiredEnv(t)
+			for name, value := range test.env {
+				setEnv(t, name, value)
+			}
+
+			if _, err := config.Load(); err == nil {
+				t.Fatal("Load() error = nil, want an error")
+			}
+		})
+	}
+}
+
 func TestRabbitMQConfig_AMQPURI_BuildsConnectionStringFromFields(t *testing.T) {
 	cfg := config.RabbitMQConfig{
 		Host:     "rabbitmq",
@@ -117,6 +200,31 @@ func TestRabbitMQConfig_AMQPURI_BuildsConnectionStringFromFields(t *testing.T) {
 	want := "amqp://post_query_user:post_query_password@rabbitmq:5672/?connection_timeout=5000"
 	if got := cfg.AMQPURI(); got != want {
 		t.Fatalf("AMQPURI() = %q, want %q", got, want)
+	}
+}
+
+// setRequiredEnv sets every required variable, with the feed settings at their
+// defaults.
+func setRequiredEnv(t *testing.T) {
+	t.Helper()
+	setEnv(t, "POST_QUERY_MONGO_URI", "mongodb://post-query-mongo:27017")
+	setEnv(t, "RABBITMQ_USER", "post_query_user")
+	setEnv(t, "RABBITMQ_PASSWORD", "post_query_password")
+	setAuthEnv(t)
+	unsetFeedEnv(t)
+}
+
+func setAuthEnv(t *testing.T) {
+	t.Helper()
+	setEnv(t, "JWKS_URL", "http://keycloak:8080/certs")
+	setEnv(t, "JWT_ISSUER", "http://localhost:8080/realms/auth-service")
+	setEnv(t, "JWT_AUDIENCE", "account")
+}
+
+func unsetFeedEnv(t *testing.T) {
+	t.Helper()
+	for _, name := range []string{"FEED_DEFAULT_PAGE_SIZE", "FEED_MAX_PAGE_SIZE", "FEED_MAX_READS_PER_CLAIM", "FEED_RETENTION_HOURS", "FEED_DISCONNECT_WRITE_TIMEOUT_MS"} {
+		unsetEnv(t, name)
 	}
 }
 

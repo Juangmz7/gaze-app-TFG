@@ -24,6 +24,14 @@ CLAIM_SQL = text("""
     RETURNING id, correlation_id, event_type, exchange, routing_key, payload, attempts
 """)
 
+# Claims one specific row, only if it is still PENDING (immediate send after commit)
+CLAIM_IF_PENDING_SQL = text("""
+    UPDATE outbox_events
+       SET status = 'PROCESSING', locked_at = now(), attempts = attempts + 1
+     WHERE id = :id AND status = 'PENDING'
+    RETURNING id, correlation_id, event_type, exchange, routing_key, payload, attempts
+""")
+
 MARK_PROCESSED_SQL = text("""
     UPDATE outbox_events
        SET status = 'PROCESSED', processed_at = now(), locked_at = NULL, last_error = NULL
@@ -68,6 +76,15 @@ class SqlAlchemyOutboxEventRepository(OutboxEventRepository):
     def claim_next(self, locked_before: datetime) -> OutboxEvent | None:
         with self.session_provider.session() as session:
             row = session.execute(CLAIM_SQL, {"locked_before": locked_before}).first()
+        return self._to_claimed_event(row)
+
+    def claim_if_pending(self, event_id: UUID) -> OutboxEvent | None:
+        with self.session_provider.session() as session:
+            row = session.execute(CLAIM_IF_PENDING_SQL, {"id": event_id}).first()
+        return self._to_claimed_event(row)
+
+    @staticmethod
+    def _to_claimed_event(row) -> OutboxEvent | None:
         if row is None:
             return None
         return OutboxEvent(

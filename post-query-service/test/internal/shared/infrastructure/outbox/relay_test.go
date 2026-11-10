@@ -40,6 +40,18 @@ func (s *fakeStore) ClaimNext(context.Context, time.Duration) (*outbox.Event, er
 	return &event, nil
 }
 
+func (s *fakeStore) ClaimIfPending(_ context.Context, id uuid.UUID) (*outbox.Event, error) {
+	for i, event := range s.queue {
+		if event.ID == id {
+			s.queue = append(s.queue[:i:i], s.queue[i+1:]...)
+			event.Attempts++
+			event.Status = outbox.StatusProcessing
+			return &event, nil
+		}
+	}
+	return nil, nil
+}
+
 func (s *fakeStore) MarkProcessed(_ context.Context, id uuid.UUID) error {
 	if s.processErr != nil {
 		return s.processErr
@@ -177,5 +189,59 @@ func TestRelay_Start_StopsWhenContextIsCancelled(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("relay did not stop after the context was cancelled")
+	}
+}
+
+func TestRelay_RelayImmediately_PublishesOnlyTheCommittedEventAndMarksItProcessed(t *testing.T) {
+	older, committed := pendingEvent(0), pendingEvent(0)
+	store := &fakeStore{queue: []outbox.Event{older, committed}}
+	publisher := &fakePublisher{}
+
+	newTestRelay(store, publisher).RelayImmediately(context.Background(), committed.ID)
+
+	if len(publisher.published) != 1 || publisher.published[0] != committed.ID {
+		t.Fatalf("published = %v, want only [%v]", publisher.published, committed.ID)
+	}
+	if len(store.processed) != 1 || store.processed[0] != committed.ID {
+		t.Fatalf("processed = %v, want [%v]", store.processed, committed.ID)
+	}
+	if len(store.queue) != 1 || store.queue[0].ID != older.ID {
+		t.Fatal("RelayImmediately() claimed another event, want the older one left to the batch")
+	}
+}
+
+func TestRelay_RelayImmediately_DoesNothingWhenABatchAlreadyClaimedTheEvent(t *testing.T) {
+	store := &fakeStore{}
+	publisher := &fakePublisher{}
+
+	newTestRelay(store, publisher).RelayImmediately(context.Background(), uuid.New())
+
+	if len(publisher.published) != 0 || len(store.processed) != 0 || len(store.failed) != 0 {
+		t.Fatalf("published=%v processed=%v failed=%v, want nothing", publisher.published, store.processed, store.failed)
+	}
+}
+
+func TestRelay_RelayImmediately_ReleasesAFailedPublishAsPendingForTheBatch(t *testing.T) {
+	event := pendingEvent(0)
+	store := &fakeStore{queue: []outbox.Event{event}}
+	publisher := &fakePublisher{failFor: map[uuid.UUID]error{event.ID: errors.New("broker nacked")}}
+
+	newTestRelay(store, publisher).RelayImmediately(context.Background(), event.ID)
+
+	want := failedAttempt{id: event.ID, attempts: 1, status: outbox.StatusPending, lastError: "broker nacked"}
+	if len(store.failed) != 1 || store.failed[0] != want {
+		t.Fatalf("failed = %+v, want [%+v]", store.failed, want)
+	}
+}
+
+func TestRelay_RelayImmediately_ClaimsNothingWhileTheBrokerIsUnreachable(t *testing.T) {
+	event := pendingEvent(0)
+	store := &fakeStore{queue: []outbox.Event{event}}
+	publisher := &fakePublisher{unavailable: errors.New("connection refused")}
+
+	newTestRelay(store, publisher).RelayImmediately(context.Background(), event.ID)
+
+	if len(store.queue) != 1 || store.queue[0].Attempts != 0 {
+		t.Fatalf("queue = %+v, want the event untouched for the batch", store.queue)
 	}
 }

@@ -2,7 +2,6 @@ package mongo_test
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
@@ -16,8 +15,9 @@ import (
 	likemongo "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/like/infrastructure/mongo"
 )
 
+const likesCollection = "post_likes"
+
 type likeDocument struct {
-	LikeID  string `bson:"like_id"`
 	PostID  string `bson:"post_id"`
 	UserID  string `bson:"user_id"`
 	Version int64  `bson:"version"`
@@ -30,35 +30,27 @@ func TestRepository_Insert_PersistsTheLikeReadModelAtVersionOne(t *testing.T) {
 	db := testDatabase(t, ctx)
 	repository := likemongo.NewRepository(db)
 
-	input := usecase.RecordLikeInput{
-		LikeID:    uuid.New(),
-		PostID:    uuid.New(),
-		UserID:    uuid.New(),
-		CreatedAt: time.Now().UTC(),
-	}
+	input := usecase.RecordLikeInput{PostID: uuid.New(), UserID: uuid.New(), CreatedAt: time.Now().UTC()}
 
-	if err := repository.Insert(ctx, input); err != nil {
+	inserted, err := repository.Insert(ctx, input)
+	if err != nil {
 		t.Fatalf("Insert() error = %v", err)
 	}
-
-	got := findLike(t, ctx, db, input.LikeID)
-	if got.PostID != input.PostID.String() {
-		t.Fatalf("stored document PostID = %q, want %q", got.PostID, input.PostID.String())
+	if !inserted {
+		t.Fatal("Insert() inserted = false, want true for a new document")
 	}
-	if got.UserID != input.UserID.String() {
-		t.Fatalf("stored document UserID = %q, want %q", got.UserID, input.UserID.String())
+
+	var got likeDocument
+	filter := bson.D{{Key: "post_id", Value: input.PostID.String()}, {Key: "user_id", Value: input.UserID.String()}}
+	if err := db.Collection(likesCollection).FindOne(ctx, filter).Decode(&got); err != nil {
+		t.Fatalf("FindOne() error = %v", err)
 	}
 	if got.Version != 1 {
 		t.Fatalf("stored document Version = %d, want 1", got.Version)
 	}
 }
 
-// TestRepository_Insert_IsIdempotentOnARetriedInsertOfTheSameLikeID proves
-// the crash-and-retry race named by Insert's doc comment: a unique index on
-// like_id makes a second Insert of the same business id a no-op (duplicate
-// key treated as already-applied) rather than a second document or an
-// error, so EnsureIndexes must run first.
-func TestRepository_Insert_IsIdempotentOnARetriedInsertOfTheSameLikeID(t *testing.T) {
+func TestRepository_Insert_ReportsFalseAndWritesNothingWhenThePairAlreadyExists(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
@@ -68,96 +60,81 @@ func TestRepository_Insert_IsIdempotentOnARetriedInsertOfTheSameLikeID(t *testin
 		t.Fatalf("EnsureIndexes() error = %v", err)
 	}
 
-	likeID := uuid.New()
-	input := usecase.RecordLikeInput{LikeID: likeID, PostID: uuid.New(), UserID: uuid.New(), CreatedAt: time.Now().UTC()}
-	if err := repository.Insert(ctx, input); err != nil {
+	input := usecase.RecordLikeInput{PostID: uuid.New(), UserID: uuid.New(), CreatedAt: time.Now().UTC()}
+	if _, err := repository.Insert(ctx, input); err != nil {
 		t.Fatalf("Insert() error = %v", err)
 	}
-	if err := repository.Insert(ctx, input); err != nil {
-		t.Fatalf("Insert() error = %v, want nil on a retried insert of the same like id", err)
+
+	inserted, err := repository.Insert(ctx, input)
+	if err != nil {
+		t.Fatalf("Insert() error = %v, want nil on a repeated (post, user) pair", err)
+	}
+	if inserted {
+		t.Fatal("Insert() inserted = true, want false on a repeated (post, user) pair")
 	}
 
-	count, err := db.Collection("post_likes").CountDocuments(ctx, bson.D{{Key: "like_id", Value: likeID.String()}})
+	count, err := db.Collection(likesCollection).CountDocuments(ctx, bson.D{{Key: "post_id", Value: input.PostID.String()}})
 	if err != nil {
 		t.Fatalf("CountDocuments() error = %v", err)
 	}
 	if count != 1 {
-		t.Fatalf("CountDocuments() = %d, want exactly 1 document for like_id %s", count, likeID)
+		t.Fatalf("CountDocuments() = %d, want exactly 1", count)
 	}
 }
 
-func TestRepository_Update_SucceedsAndIncrementsVersionWhenExpectedVersionMatches(t *testing.T) {
+func TestRepository_Insert_AllowsSeveralUsersOnOnePostAfterEnsureIndexes(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	db := testDatabase(t, ctx)
 	repository := likemongo.NewRepository(db)
-
-	likeID := uuid.New()
-	if err := repository.Insert(ctx, usecase.RecordLikeInput{LikeID: likeID, PostID: uuid.New(), UserID: uuid.New(), CreatedAt: time.Now().UTC()}); err != nil {
-		t.Fatalf("Insert() error = %v", err)
+	if err := repository.EnsureIndexes(ctx); err != nil {
+		t.Fatalf("EnsureIndexes() error = %v", err)
 	}
 
-	newPostID := uuid.New()
-	newUserID := uuid.New()
-	update := likemongo.UpdateInput{LikeID: likeID, ExpectedVersion: 1, PostID: newPostID, UserID: newUserID}
-	if err := repository.Update(ctx, update); err != nil {
-		t.Fatalf("Update() error = %v", err)
-	}
-
-	got := findLike(t, ctx, db, likeID)
-	if got.PostID != newPostID.String() {
-		t.Fatalf("stored document PostID = %q, want %q", got.PostID, newPostID.String())
-	}
-	if got.UserID != newUserID.String() {
-		t.Fatalf("stored document UserID = %q, want %q", got.UserID, newUserID.String())
-	}
-	if got.Version != 2 {
-		t.Fatalf("stored document Version = %d, want 2", got.Version)
+	postID := uuid.New()
+	for range 3 {
+		inserted, err := repository.Insert(ctx, usecase.RecordLikeInput{PostID: postID, UserID: uuid.New(), CreatedAt: time.Now().UTC()})
+		if err != nil {
+			t.Fatalf("Insert() error = %v", err)
+		}
+		if !inserted {
+			t.Fatal("Insert() inserted = false, want true for a different user")
+		}
 	}
 }
 
-func TestRepository_Update_ReturnsVersionConflictAndDoesNotModifyWhenExpectedVersionIsStale(t *testing.T) {
+// Earlier versions created a unique index on the removed like_id field. Left in
+// place it would index every new document as null and reject all but the first.
+func TestRepository_EnsureIndexes_DropsTheLegacyIDIndexAndIsRepeatable(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	db := testDatabase(t, ctx)
+	collection := db.Collection(likesCollection)
+	if _, err := collection.Indexes().CreateOne(ctx, mongodriver.IndexModel{
+		Keys:    bson.D{{Key: "like_id", Value: 1}},
+		Options: options.Index().SetUnique(true),
+	}); err != nil {
+		t.Fatalf("CreateOne() error = %v", err)
+	}
+
 	repository := likemongo.NewRepository(db)
-
-	likeID := uuid.New()
-	originalPostID := uuid.New()
-	if err := repository.Insert(ctx, usecase.RecordLikeInput{LikeID: likeID, PostID: originalPostID, UserID: uuid.New(), CreatedAt: time.Now().UTC()}); err != nil {
-		t.Fatalf("Insert() error = %v", err)
+	for range 2 {
+		if err := repository.EnsureIndexes(ctx); err != nil {
+			t.Fatalf("EnsureIndexes() error = %v", err)
+		}
 	}
 
-	update := likemongo.UpdateInput{LikeID: likeID, ExpectedVersion: 99, PostID: uuid.New(), UserID: uuid.New()}
-	err := repository.Update(ctx, update)
-	if !errors.Is(err, likemongo.ErrVersionConflict) {
-		t.Fatalf("Update() error = %v, want it to wrap ErrVersionConflict", err)
-	}
-
-	got := findLike(t, ctx, db, likeID)
-	if got.PostID != originalPostID.String() {
-		t.Fatalf("stored document PostID = %q, want unchanged %q", got.PostID, originalPostID.String())
-	}
-	if got.Version != 1 {
-		t.Fatalf("stored document Version = %d, want unchanged 1", got.Version)
+	postID := uuid.New()
+	for range 2 {
+		if inserted, err := repository.Insert(ctx, usecase.RecordLikeInput{PostID: postID, UserID: uuid.New(), CreatedAt: time.Now().UTC()}); err != nil || !inserted {
+			t.Fatalf("Insert() inserted/error = %v/%v, want true/nil once the legacy index is gone", inserted, err)
+		}
 	}
 }
 
-func findLike(t *testing.T, ctx context.Context, db *mongodriver.Database, likeID uuid.UUID) likeDocument {
-	t.Helper()
-
-	var doc likeDocument
-	err := db.Collection("post_likes").FindOne(ctx, bson.D{{Key: "like_id", Value: likeID.String()}}).Decode(&doc)
-	if err != nil {
-		t.Fatalf("FindOne() error = %v", err)
-	}
-
-	return doc
-}
-
-func TestRepository_DeleteByPostAndUser_RemovesTheMatchingLikeReadModelDocument(t *testing.T) {
+func TestRepository_DeleteByPostAndUser_RemovesTheDocumentAndReportsIt(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
@@ -166,15 +143,19 @@ func TestRepository_DeleteByPostAndUser_RemovesTheMatchingLikeReadModelDocument(
 
 	postID := uuid.New()
 	userID := uuid.New()
-	if err := repository.Insert(ctx, usecase.RecordLikeInput{LikeID: uuid.New(), PostID: postID, UserID: userID, CreatedAt: time.Now().UTC()}); err != nil {
+	if _, err := repository.Insert(ctx, usecase.RecordLikeInput{PostID: postID, UserID: userID, CreatedAt: time.Now().UTC()}); err != nil {
 		t.Fatalf("Insert() error = %v", err)
 	}
 
-	if err := repository.DeleteByPostAndUser(ctx, postID, userID); err != nil {
+	removed, err := repository.DeleteByPostAndUser(ctx, postID, userID)
+	if err != nil {
 		t.Fatalf("DeleteByPostAndUser() error = %v", err)
 	}
+	if !removed {
+		t.Fatal("DeleteByPostAndUser() removed = false, want true")
+	}
 
-	count, err := db.Collection("post_likes").CountDocuments(ctx, bson.D{{Key: "post_id", Value: postID.String()}, {Key: "user_id", Value: userID.String()}})
+	count, err := db.Collection(likesCollection).CountDocuments(ctx, bson.D{{Key: "post_id", Value: postID.String()}, {Key: "user_id", Value: userID.String()}})
 	if err != nil {
 		t.Fatalf("CountDocuments() error = %v", err)
 	}
@@ -183,15 +164,18 @@ func TestRepository_DeleteByPostAndUser_RemovesTheMatchingLikeReadModelDocument(
 	}
 }
 
-func TestRepository_DeleteByPostAndUser_IsANoOpWhenNoLikeMatches(t *testing.T) {
+func TestRepository_DeleteByPostAndUser_ReportsFalseWhenNothingMatches(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	db := testDatabase(t, ctx)
-	repository := likemongo.NewRepository(db)
+	repository := likemongo.NewRepository(testDatabase(t, ctx))
 
-	if err := repository.DeleteByPostAndUser(ctx, uuid.New(), uuid.New()); err != nil {
+	removed, err := repository.DeleteByPostAndUser(ctx, uuid.New(), uuid.New())
+	if err != nil {
 		t.Fatalf("DeleteByPostAndUser() error = %v, want nil for an absent document", err)
+	}
+	if removed {
+		t.Fatal("DeleteByPostAndUser() removed = true, want false for an absent document")
 	}
 }
 

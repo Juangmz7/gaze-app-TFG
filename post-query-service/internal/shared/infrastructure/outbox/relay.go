@@ -15,6 +15,7 @@ const maxErrorLength = 1000
 // RelayStore is the subset of Store the relay depends on.
 type RelayStore interface {
 	ClaimNext(ctx context.Context, lockTimeout time.Duration) (*Event, error)
+	ClaimIfPending(ctx context.Context, id uuid.UUID) (*Event, error)
 	MarkProcessed(ctx context.Context, id uuid.UUID) error
 	MarkFailedAttempt(ctx context.Context, id uuid.UUID, attempts int, status Status, lastError string) (bool, error)
 }
@@ -29,7 +30,8 @@ type Publisher interface {
 
 // RelayConfig tunes the relay loop.
 type RelayConfig struct {
-	// Interval is the pause between batches.
+	// Interval is the pause between batches. Events are normally published
+	// right after their commit (RelayImmediately); the batch is the safety net.
 	Interval time.Duration
 	// BatchSize caps how many events one batch claims.
 	BatchSize int
@@ -43,7 +45,7 @@ type RelayConfig struct {
 // DefaultRelayConfig returns the settings used in production.
 func DefaultRelayConfig() RelayConfig {
 	return RelayConfig{
-		Interval:    5 * time.Second,
+		Interval:    4 * time.Second,
 		BatchSize:   100,
 		MaxAttempts: 10,
 		LockTimeout: 60 * time.Second,
@@ -112,22 +114,57 @@ func (r *Relay) RelayBatch(ctx context.Context) error {
 			return nil
 		}
 
-		// Release/mark even if ctx is cancelled mid-publish (shutdown), so the
-		// claim does not have to wait for the lock timeout.
-		markCtx := context.WithoutCancel(ctx)
-
-		if publishErr := r.publisher.Publish(ctx, *event); publishErr != nil {
-			return r.releaseFailedAttempt(markCtx, event, publishErr)
-		}
-
-		if err := r.store.MarkProcessed(markCtx, event.ID); err != nil {
-			// Delivered but still PROCESSING: it is reclaimed and sent again once the lock expires
-			return fmt.Errorf("outbox event %s (type %s, attempt %d) was published but not marked processed; "+
-				"it will be republished as a duplicate after the %s lock timeout: %w",
-				event.ID, event.EventType, event.Attempts, r.cfg.LockTimeout, err)
+		if published, err := r.publishClaimed(ctx, event); !published {
+			return err
 		}
 	}
 	return nil
+}
+
+// RelayImmediately is the low-latency path: called right after the
+// transaction that stored event id commits (see Store.SendImmediatelyWith),
+// it publishes that event through the same claim, confirm and mark steps as
+// RelayBatch. It is best effort: when the broker is unreachable or the publish
+// fails, the event is left to the next batch.
+func (r *Relay) RelayImmediately(ctx context.Context, id uuid.UUID) {
+	// Same reason as RelayBatch: do not spend an attempt while the broker is down
+	if err := r.publisher.Ready(ctx); err != nil {
+		return
+	}
+
+	event, err := r.store.ClaimIfPending(ctx, id)
+	if err != nil {
+		r.logger.Warn("outbox immediate send failed to claim the event, left to the relay batch", "id", id, "error", err)
+		return
+	}
+	if event == nil {
+		return // a relay batch already took it
+	}
+
+	if _, err := r.publishClaimed(ctx, event); err != nil {
+		r.logger.Error("outbox immediate send failed", "id", id, "error", err)
+	}
+}
+
+// publishClaimed publishes a claimed event and records the outcome. It
+// returns false when the event was not marked PROCESSED, so a batch stops
+// there and later events are not sent ahead of it.
+func (r *Relay) publishClaimed(ctx context.Context, event *Event) (bool, error) {
+	// Release/mark even if ctx is cancelled mid-publish (shutdown), so the
+	// claim does not have to wait for the lock timeout.
+	markCtx := context.WithoutCancel(ctx)
+
+	if publishErr := r.publisher.Publish(ctx, *event); publishErr != nil {
+		return false, r.releaseFailedAttempt(markCtx, event, publishErr)
+	}
+
+	if err := r.store.MarkProcessed(markCtx, event.ID); err != nil {
+		// Delivered but still PROCESSING: it is reclaimed and sent again once the lock expires
+		return false, fmt.Errorf("outbox event %s (type %s, attempt %d) was published but not marked processed; "+
+			"it will be republished as a duplicate after the %s lock timeout: %w",
+			event.ID, event.EventType, event.Attempts, r.cfg.LockTimeout, err)
+	}
+	return true, nil
 }
 
 func (r *Relay) releaseFailedAttempt(ctx context.Context, event *Event, publishErr error) error {

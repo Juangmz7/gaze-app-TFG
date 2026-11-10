@@ -39,14 +39,15 @@ def test_retrieve_and_prepare_cold_start_posts_returns_normalized_features():
 
     # Act
     limit = 2
-    result = usecase.retrieve_and_prepare_cold_start_posts(user_id, limit)
+    ranked_post_ids = {uuid4(), uuid4()}
+    result = usecase.retrieve_and_prepare_cold_start_posts(user_id, limit, ranked_post_ids)
 
     # Assert
     assert len(result) == 1
     assert result[0].post_id == post_id_1
     assert result[0].retrieved_source == PostRetrieveSource.COLD_START
     
-    repository.get_cold_start_posts.assert_called_once_with(user_id, limit)
+    repository.get_cold_start_posts.assert_called_once_with(user_id, limit, ranked_post_ids)
     enricher.enrich.assert_called_once()
     normalizer.normalize.assert_called_once_with(["enriched_mock"])
 
@@ -63,10 +64,10 @@ def test_retrieve_and_prepare_cold_start_posts_returns_empty_when_no_posts():
     usecase = ColdStartPostRetrievalUseCase(repository, enricher, normalizer)
 
     # Act
-    result = usecase.retrieve_and_prepare_cold_start_posts(user_id, 2)
+    result = usecase.retrieve_and_prepare_cold_start_posts(user_id, 2, set())
 
     # Assert
     assert result == []
-    repository.get_cold_start_posts.assert_called_once_with(user_id, 2)
+    repository.get_cold_start_posts.assert_called_once_with(user_id, 2, set())
     enricher.enrich.assert_not_called()
     normalizer.normalize.assert_not_called()

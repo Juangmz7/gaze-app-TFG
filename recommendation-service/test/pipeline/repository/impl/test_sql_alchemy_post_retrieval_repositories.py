@@ -236,6 +236,35 @@ def test_explorative_queries_random_posts_exclude_blocked_and_seen(db_session_fa
     assert random_posts[0][0] == post_1_id
 
 
+def test_explorative_queries_cold_start_posts_exclude_blocked_seen_and_already_ranked(db_session_factory):
+    # Arrange
+    session_provider = SQLAlchemySessionProvider(db_session_factory)
+
+    user_id = uuid4()
+    creator_1_id = uuid4()
+    creator_2_id = uuid4()
+    creator_3_id = uuid4()
+    post_1_id = uuid4()
+    post_2_id = uuid4()
+    post_3_id = uuid4()
+    post_4_id = uuid4()
+    similar_user_id = uuid4()
+
+    seed_data(session_provider, user_id, creator_1_id, creator_2_id, creator_3_id, post_1_id, post_2_id, post_3_id, post_4_id, similar_user_id)
+
+    repo = SqlAlchemyExplorativePostRetrievalRepository(session_provider)
+
+    # Act
+    without_exclusions = repo.get_cold_start_posts(user_id, 10, set())
+    excluding_post_1 = repo.get_cold_start_posts(user_id, 10, {post_1_id})
+
+    # Assert
+    # Post 2 is blocked and Post 3 is seen; Post 1 and Post 4 are unseen with < 50 views
+    assert {post_id for post_id, _ in without_exclusions} == {post_1_id, post_4_id}
+    # Post 1 was already picked by the ranker, so cold start must not return it again
+    assert [post_id for post_id, _ in excluding_post_1] == [post_4_id]
+
+
 def test_collaborative_queries_compute_affinity(db_session_factory):
     # Arrange
 

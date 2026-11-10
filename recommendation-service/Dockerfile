@@ -36,6 +36,8 @@ ENV PYTHONPATH=/app/src
 
 # Kubernetes liveness/readiness probes (/healthz/live, /healthz/ready)
 EXPOSE 8000
+# GetRecommendedFeed. The stubs live in src/, so the build never needs ../proto.
+EXPOSE 50051
 
 # Run migrations, then start FastStream wrapped in opentelemetry-instrument.
 # Migrations at startup are fine with a single replica (compose). On

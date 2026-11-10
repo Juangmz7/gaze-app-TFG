@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/post/application/usecase"
+	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/eventlog"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/rmqerror"
 )
 
@@ -22,19 +23,21 @@ import (
 const PostCreatedEventType = "PostCreatedEvent"
 
 // PostCreatedEvent is the wire shape of PostCreatedEvent published by
-// post-command-service.
+// post-command-service. Field names are camelCase, matching the real Java
+// record. CollabID is null for a BASIC post.
 type PostCreatedEvent struct {
-	ID            uuid.UUID `json:"id"`
-	CorrelationID uuid.UUID `json:"correlation_id"`
-	OccurredAt    time.Time `json:"occurred_at"`
-	PostID        uuid.UUID `json:"post_id"`
-	UserID        uuid.UUID `json:"user_id"`
-	CollabID      uuid.UUID `json:"collab_id"`
-	PostType      string    `json:"post_type"`
-	Description   string    `json:"description"`
-	PostTags      []string  `json:"post_tags"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ID            uuid.UUID          `json:"id"`
+	CorrelationID uuid.UUID          `json:"correlationId"`
+	OccurredAt    time.Time          `json:"occurredAt"`
+	PostID        uuid.UUID          `json:"postId"`
+	UserID        uuid.UUID          `json:"userId"`
+	CollabID      uuid.UUID          `json:"collabId"`
+	PostType      string             `json:"postType"`
+	Description   string             `json:"description"`
+	PostTags      []string           `json:"postTags"`
+	Media         []PostMediaPayload `json:"media"`
+	CreatedAt     time.Time          `json:"createdAt"`
+	UpdatedAt     time.Time          `json:"updatedAt"`
 }
 
 // PostCreatedIdempotencyRepository records and checks processed events.
@@ -67,10 +70,12 @@ func NewPostCreatedHandler(idempotency PostCreatedIdempotencyRepository, usecase
 func (h *PostCreatedHandler) Handle(ctx context.Context, msg *message.Message) error {
 	var event PostCreatedEvent
 	if err := json.Unmarshal(msg.Payload, &event); err != nil {
+		eventlog.WarnInvalid(ctx, h.logger, PostCreatedEventType, msg.Payload, err)
 		return rmqerror.NewPermanent(fmt.Errorf("decode post created event: %w", err))
 	}
 
 	if err := validatePostCreatedEvent(event); err != nil {
+		eventlog.WarnInvalid(ctx, h.logger, PostCreatedEventType, msg.Payload, err)
 		return rmqerror.NewPermanent(err)
 	}
 
@@ -79,7 +84,7 @@ func (h *PostCreatedHandler) Handle(ctx context.Context, msg *message.Message) e
 		return fmt.Errorf("check post created event %s processed: %w", event.ID, err)
 	}
 	if alreadyProcessed {
-		h.logger.WarnContext(ctx, "discarding duplicate post created event", "event_id", event.ID)
+		h.logger.WarnContext(ctx, "discarding duplicate post created event", "event_id", event.ID, "correlation_id", event.CorrelationID, "userId", event.UserID)
 		return nil
 	}
 
@@ -90,6 +95,7 @@ func (h *PostCreatedHandler) Handle(ctx context.Context, msg *message.Message) e
 		PostType:    event.PostType,
 		Description: event.Description,
 		Tags:        event.PostTags,
+		Media:       toPostMedia(event.Media),
 		CreatedAt:   event.CreatedAt,
 		UpdatedAt:   event.UpdatedAt,
 	}
@@ -101,6 +107,8 @@ func (h *PostCreatedHandler) Handle(ctx context.Context, msg *message.Message) e
 		return fmt.Errorf("mark post created event %s processed: %w", event.ID, err)
 	}
 
+	h.logger.InfoContext(ctx, "post created event projected", "event_id", event.ID, "correlation_id", event.CorrelationID, "userId", event.UserID, "post_id", event.PostID)
+
 	return nil
 }
 
@@ -109,16 +117,19 @@ func validatePostCreatedEvent(event PostCreatedEvent) error {
 		return fmt.Errorf("post created event: id is required")
 	}
 	if event.CorrelationID == uuid.Nil {
-		return fmt.Errorf("post created event: correlation_id is required")
+		return fmt.Errorf("post created event: correlationId is required")
 	}
 	if event.OccurredAt.IsZero() {
-		return fmt.Errorf("post created event: occurred_at is required")
+		return fmt.Errorf("post created event: occurredAt is required")
 	}
 	if event.PostID == uuid.Nil {
-		return fmt.Errorf("post created event: post_id is required")
+		return fmt.Errorf("post created event: postId is required")
 	}
 	if event.UserID == uuid.Nil {
-		return fmt.Errorf("post created event: user_id is required")
+		return fmt.Errorf("post created event: userId is required")
+	}
+	if err := usecase.ValidatePostMedia(toPostMedia(event.Media)); err != nil {
+		return fmt.Errorf("post created event: %w", err)
 	}
 
 	return nil

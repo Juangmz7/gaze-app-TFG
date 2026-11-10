@@ -42,3 +42,18 @@ class SqlAlchemyProcessedEventsRepository(ProcessedEventsRepository):
                 )
             )
 
+    def markAsProcessedIfAbsent(self, event_id: UUID, correlation_id: UUID, event_name: str) -> bool:
+        with self.session_provider.session() as session:
+            inserted = session.execute(
+                pg_insert(ProcessedEventRecord)
+                .values(
+                    event_id=event_id,
+                    correlation_id=correlation_id,
+                    event_name=event_name,
+                    processed_at=datetime.now(timezone.utc),
+                )
+                .on_conflict_do_nothing(index_elements=["event_id", "correlation_id"])
+                .returning(ProcessedEventRecord.event_id)
+            ).first()
+            return inserted is not None
+

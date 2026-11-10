@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -51,7 +52,9 @@ func Connect(ctx context.Context, uri, databaseName string) (*mongo.Client, *mon
 // replica set). Every write fn makes with the ctx it receives (for example a
 // read-model update plus outbox.Store.Add) commits or aborts together; fn
 // returning an error aborts the transaction. The driver retries fn on
-// transient transaction errors, so fn must be safe to re-run.
+// transient transaction errors, so fn must be safe to re-run. Callbacks
+// registered with AfterCommit run once the commit succeeds, before
+// WithTransaction returns.
 func WithTransaction(ctx context.Context, client *mongo.Client, fn func(ctx context.Context) error) error {
 	session, err := client.StartSession()
 	if err != nil {
@@ -59,10 +62,84 @@ func WithTransaction(ctx context.Context, client *mongo.Client, fn func(ctx cont
 	}
 	defer session.EndSession(context.WithoutCancel(ctx))
 
-	_, err = session.WithTransaction(ctx, func(ctx context.Context) (any, error) {
+	hooks := &afterCommitHooks{}
+	_, err = session.WithTransaction(context.WithValue(ctx, afterCommitKey{}, hooks), func(ctx context.Context) (any, error) {
+		// A retried attempt registers its callbacks again: keep only the last attempt's
+		hooks.reset()
 		return nil, fn(ctx)
 	})
-	return err
+	if err != nil {
+		return err
+	}
+
+	// ctx, not the session context: the callbacks run outside the finished transaction
+	for _, callback := range hooks.drain() {
+		callback(ctx)
+	}
+	return nil
+}
+
+// Transactor runs functions inside WithTransaction on a fixed client, so event
+// handlers can receive the transaction boundary as a small injected port.
+type Transactor struct {
+	client *mongo.Client
+}
+
+// NewTransactor creates a Transactor backed by client.
+func NewTransactor(client *mongo.Client) *Transactor {
+	return &Transactor{client: client}
+}
+
+// WithTransaction runs fn inside a multi-document transaction. See the
+// package-level WithTransaction: fn must be safe to re-run.
+func (t *Transactor) WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
+	if t.client == nil {
+		return fmt.Errorf("run mongo transaction: client is required")
+	}
+	return WithTransaction(ctx, t.client, fn)
+}
+
+// afterCommitKey is the context key under which WithTransaction collects
+// AfterCommit callbacks.
+type afterCommitKey struct{}
+
+// afterCommitHooks holds the callbacks registered during one transaction.
+type afterCommitHooks struct {
+	mu        sync.Mutex
+	callbacks []func(ctx context.Context)
+}
+
+func (h *afterCommitHooks) add(callback func(ctx context.Context)) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.callbacks = append(h.callbacks, callback)
+}
+
+func (h *afterCommitHooks) reset() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.callbacks = nil
+}
+
+func (h *afterCommitHooks) drain() []func(ctx context.Context) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	callbacks := h.callbacks
+	h.callbacks = nil
+	return callbacks
+}
+
+// AfterCommit runs callback once the WithTransaction transaction carried by
+// ctx has committed, and never if it aborts. Outside a transaction it runs
+// callback right away, because the write it follows is already durable. The
+// callback gets a context outside the transaction's session.
+func AfterCommit(ctx context.Context, callback func(ctx context.Context)) {
+	hooks, ok := ctx.Value(afterCommitKey{}).(*afterCommitHooks)
+	if !ok {
+		callback(ctx)
+		return
+	}
+	hooks.add(callback)
 }
 
 // Disconnect closes client using its own bounded timeout context, independent

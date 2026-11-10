@@ -138,6 +138,9 @@ class CommentLikeFlowIT {
                 .orElseThrow();
         assertThat(commandOutboxEvent.getStatus()).isEqualTo(EventStatus.PROCESSED);
         assertThat(commandOutboxEvent.getCorrelationId()).isNotNull();
+        // The service also consumes the command it published: wait for it, or its writes land after
+        // tearDown and leak into the next test
+        waitUntil(() -> processedEventsRepository.count() == 1);
 
         rabbitAdmin.deleteQueue(queueName);
     }
@@ -216,6 +219,9 @@ class CommentLikeFlowIT {
                 .orElseThrow();
         assertThat(commandOutboxEvent.getStatus()).isEqualTo(EventStatus.PROCESSED);
         assertThat(commandOutboxEvent.getCorrelationId()).isNotNull();
+        // The service also consumes the command it published: wait for it, or its writes land after
+        // tearDown and leak into the next test
+        waitUntil(() -> processedEventsRepository.count() == 1);
 
         rabbitAdmin.deleteQueue(queueName);
     }

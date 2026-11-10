@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/post/application/usecase"
+	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/eventlog"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/rmqerror"
 )
 
@@ -19,20 +20,20 @@ const PostUpdatedEventType = "PostUpdatedEvent"
 
 // PostUpdatedEvent is the wire shape of PostUpdatedEvent published by
 // post-command-service. Field names are camelCase, matching the real Java
-// PostUpdatedEvent record. Media is deliberately not modeled here, matching
-// the pre-existing gap in PostCreatedEvent's/CollabLinkedEvent's handlers.
+// PostUpdatedEvent record.
 type PostUpdatedEvent struct {
-	ID            uuid.UUID `json:"id"`
-	CorrelationID uuid.UUID `json:"correlationId"`
-	OccurredAt    time.Time `json:"occurredAt"`
-	PostID        uuid.UUID `json:"postId"`
-	UserID        uuid.UUID `json:"userId"`
-	CollabID      uuid.UUID `json:"collabId"`
-	PostType      string    `json:"postType"`
-	Description   string    `json:"description"`
-	PostTags      []string  `json:"postTags"`
-	CreatedAt     time.Time `json:"createdAt"`
-	UpdatedAt     time.Time `json:"updatedAt"`
+	ID            uuid.UUID          `json:"id"`
+	CorrelationID uuid.UUID          `json:"correlationId"`
+	OccurredAt    time.Time          `json:"occurredAt"`
+	PostID        uuid.UUID          `json:"postId"`
+	UserID        uuid.UUID          `json:"userId"`
+	CollabID      uuid.UUID          `json:"collabId"`
+	PostType      string             `json:"postType"`
+	Description   string             `json:"description"`
+	PostTags      []string           `json:"postTags"`
+	Media         []PostMediaPayload `json:"media"`
+	CreatedAt     time.Time          `json:"createdAt"`
+	UpdatedAt     time.Time          `json:"updatedAt"`
 }
 
 // PostUpdatedIdempotencyRepository records and checks processed events.
@@ -63,10 +64,12 @@ func NewPostUpdatedHandler(idempotency PostUpdatedIdempotencyRepository, uc Post
 func (h *PostUpdatedHandler) Handle(ctx context.Context, msg *message.Message) error {
 	var event PostUpdatedEvent
 	if err := json.Unmarshal(msg.Payload, &event); err != nil {
+		eventlog.WarnInvalid(ctx, h.logger, PostUpdatedEventType, msg.Payload, err)
 		return rmqerror.NewPermanent(fmt.Errorf("decode post updated event: %w", err))
 	}
 
 	if err := validatePostUpdatedEvent(event); err != nil {
+		eventlog.WarnInvalid(ctx, h.logger, PostUpdatedEventType, msg.Payload, err)
 		return rmqerror.NewPermanent(err)
 	}
 
@@ -75,7 +78,7 @@ func (h *PostUpdatedHandler) Handle(ctx context.Context, msg *message.Message) e
 		return fmt.Errorf("check post updated event %s processed: %w", event.ID, err)
 	}
 	if alreadyProcessed {
-		h.logger.WarnContext(ctx, "discarding duplicate post updated event", "event_id", event.ID)
+		h.logger.WarnContext(ctx, "discarding duplicate post updated event", "event_id", event.ID, "correlation_id", event.CorrelationID, "userId", event.UserID)
 		return nil
 	}
 
@@ -84,6 +87,7 @@ func (h *PostUpdatedHandler) Handle(ctx context.Context, msg *message.Message) e
 		PostType:    event.PostType,
 		Description: event.Description,
 		Tags:        event.PostTags,
+		Media:       toPostMedia(event.Media),
 		UpdatedAt:   event.UpdatedAt,
 	}
 	if err := h.usecase.Execute(ctx, input); err != nil {
@@ -93,6 +97,8 @@ func (h *PostUpdatedHandler) Handle(ctx context.Context, msg *message.Message) e
 	if err := h.idempotency.MarkProcessed(ctx, event.ID, event.CorrelationID, PostUpdatedEventType); err != nil {
 		return fmt.Errorf("mark post updated event %s processed: %w", event.ID, err)
 	}
+
+	h.logger.InfoContext(ctx, "post updated event projected", "event_id", event.ID, "correlation_id", event.CorrelationID, "userId", event.UserID, "post_id", event.PostID)
 
 	return nil
 }
@@ -112,6 +118,9 @@ func validatePostUpdatedEvent(event PostUpdatedEvent) error {
 	}
 	if event.UserID == uuid.Nil {
 		return fmt.Errorf("post updated event: userId is required")
+	}
+	if err := usecase.ValidatePostMedia(toPostMedia(event.Media)); err != nil {
+		return fmt.Errorf("post updated event: %w", err)
 	}
 
 	return nil

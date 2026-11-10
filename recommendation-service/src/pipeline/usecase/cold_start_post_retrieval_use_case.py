@@ -1,3 +1,4 @@
+from collections.abc import Collection
 from uuid import UUID
 
 from pipeline.enum.post_retrieve_source import PostRetrieveSource
@@ -21,12 +22,13 @@ class ColdStartPostRetrievalUseCase:
     def retrieve_and_prepare_cold_start_posts(
         self,
         user_id: UUID,
-        limit: int
+        limit: int,
+        excluded_post_ids: Collection[UUID],
     ) -> list[NormalizedPostRankingFeatures]:
         if limit <= 0:
             limit = 1
             
-        posts = self.repository.get_cold_start_posts(user_id, limit)
+        posts = self.repository.get_cold_start_posts(user_id, limit, excluded_post_ids)
         if not posts:
             return []
             

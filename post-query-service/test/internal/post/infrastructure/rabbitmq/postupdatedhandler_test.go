@@ -175,3 +175,47 @@ func TestPostUpdatedHandler_Handle_ReturnsATransientErrorWhenTheUsecaseFails(t *
 func testPostUpdatedLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
+
+// literalPostUpdatedWithMedia is the exact JSON the Java publisher emits.
+const literalPostUpdatedWithMedia = `{"id":"11111111-1111-4111-8111-111111111111","correlationId":"22222222-2222-4222-8222-222222222222","occurredAt":"2026-03-01T10:15:30.123456Z","postId":"33333333-3333-4333-8333-333333333333","userId":"44444444-4444-4444-8444-444444444444","collabId":null,"postType":"BASIC","description":"Edited caption","postTags":["travel"],"media":[{"id":"77777777-7777-4777-8777-777777777777","url":"https://media.example.test/sunset.jpg","thumbnailUrl":null,"mediaType":"IMAGE","taggedUsers":["ana_rivera"],"order":1},{"id":"88888888-8888-4888-8888-888888888888","url":"https://media.example.test/harbour.mp4","thumbnailUrl":"https://media.example.test/harbour-thumb.jpg","mediaType":"VIDEO","duration":15000,"taggedUsers":[],"order":2}],"createdAt":"2026-03-01T10:15:00.5Z","updatedAt":"2026-03-01T10:15:20Z"}`
+
+func TestPostUpdatedHandler_Handle_DecodesMediaFromTheLiteralJavaPayload(t *testing.T) {
+	uc := &fakePostUpdatedUsecase{}
+	handler := rabbitmq.NewPostUpdatedHandler(newFakePostUpdatedIdempotencyRepository(), uc, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	if err := handler.Handle(context.Background(), message.NewMessage(uuid.NewString(), []byte(literalPostUpdatedWithMedia))); err != nil {
+		t.Fatalf("Handle() error = %v", err)
+	}
+
+	media := uc.gotIn.Media
+	if len(media) != 2 {
+		t.Fatalf("Media length = %d, want 2", len(media))
+	}
+	if media[0].ID != uuid.MustParse("77777777-7777-4777-8777-777777777777") || media[0].URL != "https://media.example.test/sunset.jpg" || media[0].MediaType != "IMAGE" || media[0].Order != 1 {
+		t.Fatalf("Media[0] = %+v", media[0])
+	}
+	if media[0].ThumbnailURL != nil || media[0].Duration != nil {
+		t.Fatalf("Media[0] ThumbnailURL/Duration = %v/%v, want nil for a null thumbnail and an omitted duration", media[0].ThumbnailURL, media[0].Duration)
+	}
+	if media[1].Duration == nil || *media[1].Duration != 15000 {
+		t.Fatalf("Media[1] Duration = %v, want 15000 unchanged", media[1].Duration)
+	}
+	if media[1].ThumbnailURL == nil || *media[1].ThumbnailURL != "https://media.example.test/harbour-thumb.jpg" {
+		t.Fatalf("Media[1] ThumbnailURL = %v", media[1].ThumbnailURL)
+	}
+}
+
+func TestPostUpdatedHandler_Handle_ReturnsAPermanentErrorForInvalidMedia(t *testing.T) {
+	uc := &fakePostUpdatedUsecase{}
+	handler := rabbitmq.NewPostUpdatedHandler(newFakePostUpdatedIdempotencyRepository(), uc, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	payload := `{"id":"11111111-1111-4111-8111-111111111111","correlationId":"22222222-2222-4222-8222-222222222222","occurredAt":"2026-03-01T10:15:30.123456Z","postId":"33333333-3333-4333-8333-333333333333","userId":"44444444-4444-4444-8444-444444444444","media":[{"id":"77777777-7777-4777-8777-777777777777","url":"https://media.example.test/a.gif","mediaType":"GIF","order":1}]}`
+
+	err := handler.Handle(context.Background(), message.NewMessage(uuid.NewString(), []byte(payload)))
+	if !rmqerror.IsPermanent(err) {
+		t.Fatalf("Handle() error = %v, want a permanent error", err)
+	}
+	if uc.calls != 0 {
+		t.Fatalf("Execute() calls = %d, want 0", uc.calls)
+	}
+}

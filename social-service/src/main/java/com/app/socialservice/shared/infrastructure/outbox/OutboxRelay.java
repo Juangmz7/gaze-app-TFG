@@ -41,7 +41,7 @@ public class OutboxRelay {
     private final OutboxEventRepository outboxRepository;
     private final RabbitTemplate rabbitTemplate;
 
-    @Scheduled(fixedDelayString = "${outbox.relay.fixed-delay-ms:5000}")
+    @Scheduled(fixedDelayString = "${outbox.relay.fixed-delay-ms:4000}")
     public void relay() {
         if (!brokerAvailable()) {
             return;

@@ -22,6 +22,12 @@ autoscaling:
   maxReplicas: 2
 
 networkPolicy:
+  ingress:
+    - name: post-query-service
+      namespace: post-query-service-dev
+      podLabels:
+        app.kubernetes.io/name: post-query-service
+      ports: [50051]
   egress:
     - name: rabbitmq
       namespace: rabbitmq-dev

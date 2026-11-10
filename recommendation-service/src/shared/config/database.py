@@ -6,7 +6,7 @@ from contextvars import ContextVar
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from shared.transaction.transaction_manager import TransactionManager
+from shared.transaction.transaction_manager import TransactionManager, after_commit_scope
 
 
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -56,7 +56,8 @@ class SQLAlchemySessionProvider:
 class SQLAlchemyTransactionManager(TransactionManager):
     """Opens one SQLAlchemy session and transaction and publishes it through the
     current-session context, so every SQLAlchemySessionProvider-based repository
-    called inside joins it. The session never leaves this class."""
+    called inside joins it. The session never leaves this class. after_commit()
+    callbacks run once the outermost transaction has committed."""
 
     def __init__(
         self,
@@ -72,11 +73,13 @@ class SQLAlchemyTransactionManager(TransactionManager):
             yield
             return
 
-        with self.session_factory() as session:
-            token = _current_session.set(session)
+        # Outside the session: callbacks run after the commit, with the session closed
+        with after_commit_scope():
+            with self.session_factory() as session:
+                token = _current_session.set(session)
 
-            try:
-                with session.begin():
-                    yield
-            finally:
-                _current_session.reset(token)
+                try:
+                    with session.begin():
+                        yield
+                finally:
+                    _current_session.reset(token)

@@ -12,6 +12,9 @@ env:
   RABBITMQ_HOST: rabbitmq.rabbitmq-dev.svc.cluster.local
   RABBITMQ_PORT: "5672"
   RABBITMQ_USER: post-query-service
+  # Keycloak: tokens carry the public issuer; keys are fetched in-cluster.
+  JWT_ISSUER: https://auth.dev.gaze.localhost/realms/auth-service
+  JWKS_URL: http://keycloak-service.keycloak-dev.svc.cluster.local:8080/realms/auth-service/protocol/openid-connect/certs
 
 # Local development values only. Moved to Vault together with the prod values.
 secretEnv:
@@ -36,6 +39,11 @@ networkPolicy:
       podLabels:
         app.kubernetes.io/component: rabbitmq
       ports: [5672]
+    - name: keycloak (JWKS)
+      namespace: keycloak-dev
+      podLabels:
+        app.kubernetes.io/managed-by: keycloak-operator
+      ports: [8080]
   externalEgress:
     # Databases on the k3s host (compose, DB_BIND_IP=0.0.0.0), reached through
     # infra/k8s/platform/external-databases: after the Service DNAT the

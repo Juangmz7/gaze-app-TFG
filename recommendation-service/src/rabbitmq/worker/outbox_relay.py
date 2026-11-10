@@ -10,6 +10,7 @@ from faststream.rabbit import RabbitBroker
 
 from shared.enum.outbox_event_status import OutboxEventStatus
 from shared.model.outbox_event import OutboxEvent
+from shared.outbox.committed_outbox_events import add_committed_listener, remove_committed_listener
 from shared.repository.outbox_event_repository import OutboxEventRepository
 
 logger = logging.getLogger(__name__)
@@ -20,14 +21,16 @@ MAX_ERROR_LENGTH = 1000
 class OutboxRelayWorker:
     """Publishes outbox events with publisher confirms (at-least-once):
     claim one event, publish, wait for the broker ack, then mark it PROCESSED.
-    Consumers must deduplicate by message id (= event id)."""
+    Each event is published right after its transaction commits; the periodic
+    batch is the safety net for anything that path missed. Consumers must
+    deduplicate by message id (= event id)."""
 
     def __init__(
         self,
         outbox_event_repository: OutboxEventRepository,
         broker: RabbitBroker,
         *,
-        interval_s: float = 5.0,
+        interval_s: float = 4.0,
         batch_size: int = 100,
         max_attempts: int = 10,
         lock_timeout_s: float = 60.0,
@@ -46,16 +49,23 @@ class OutboxRelayWorker:
         self._cleanup_interval_s = cleanup_interval_s
         self._last_cleanup = 0.0
         self._task: asyncio.Task | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._immediate_tasks: set[asyncio.Task] = set()
 
     def start(self) -> None:
+        self._loop = asyncio.get_running_loop()
+        add_committed_listener(self._on_event_committed)
         self._task = asyncio.create_task(self._run(), name="outbox-relay")
 
     async def stop(self) -> None:
+        remove_committed_listener(self._on_event_committed)
+        tasks = list(self._immediate_tasks)
         if self._task is not None:
-            self._task.cancel()
-            with suppress(asyncio.CancelledError):
-                await self._task
+            tasks.append(self._task)
             self._task = None
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
 
     async def _run(self) -> None:
         while True:
@@ -82,24 +92,57 @@ class OutboxRelayWorker:
             event = await asyncio.to_thread(self._claim_next)
             if event is None:
                 return
-            try:
-                await self._publish(event)
-            except Exception as exc:
-                await asyncio.to_thread(self._mark_failed, event, exc)
+            if not await self._publish_claimed(event):
                 return
-            try:
-                await asyncio.to_thread(self._mark_processed, event.id)
-            except Exception:
-                # Delivered but still PROCESSING: it is reclaimed and sent again once the lock expires
-                logger.exception(
-                    "Outbox event was published but could not be marked PROCESSED; it will be republished "
-                    "as a duplicate after the %.0fs lock timeout: id=%s type=%s attempt=%s",
-                    self._lock_timeout.total_seconds(), event.id, event.event_type, event.attempts,
-                )
-                return  # the database is failing: stop the batch
+
+    async def relay_immediately(self, event_id: UUID) -> None:
+        """Low-latency path: publishes one just-committed event through the same
+        claim, confirm and mark steps as relay_batch. Best effort: when the broker
+        is unreachable or the publish fails, the event is left to the next batch."""
+        try:
+            # Same reason as relay_batch: do not spend an attempt while the broker is down
+            if not await self._broker.ping(timeout=self._confirm_timeout_s):
+                return
+            event = await asyncio.to_thread(self._repository.claim_if_pending, event_id)
+            if event is not None:
+                await self._publish_claimed(event)
+        except Exception:
+            logger.exception("Outbox immediate send failed, left to the relay batch: id=%s", event_id)
 
     async def delete_processed(self) -> int:
         return await asyncio.to_thread(self._delete_processed)
+
+    def _on_event_committed(self, event_id: UUID) -> None:
+        # Runs in whichever thread committed: hand the send over to the relay's event loop
+        if self._loop is not None:
+            with suppress(RuntimeError):  # the loop closed during shutdown: the next start's batch sends it
+                self._loop.call_soon_threadsafe(self._start_immediate_send, event_id)
+
+    def _start_immediate_send(self, event_id: UUID) -> None:
+        task = asyncio.create_task(self.relay_immediately(event_id), name=f"outbox-immediate-{event_id}")
+        self._immediate_tasks.add(task)
+        task.add_done_callback(self._immediate_tasks.discard)
+
+    async def _publish_claimed(self, event: OutboxEvent) -> bool:
+        """Publishes a claimed event and records the outcome. Returns False when
+        it was not marked PROCESSED, so a batch stops there and later events are
+        not sent ahead of it."""
+        try:
+            await self._publish(event)
+        except Exception as exc:
+            await asyncio.to_thread(self._mark_failed, event, exc)
+            return False
+        try:
+            await asyncio.to_thread(self._mark_processed, event.id)
+        except Exception:
+            # Delivered but still PROCESSING: it is reclaimed and sent again once the lock expires
+            logger.exception(
+                "Outbox event was published but could not be marked PROCESSED; it will be republished "
+                "as a duplicate after the %.0fs lock timeout: id=%s type=%s attempt=%s",
+                self._lock_timeout.total_seconds(), event.id, event.event_type, event.attempts,
+            )
+            return False  # the database is failing: stop the batch
+        return True
 
     async def _publish(self, event: OutboxEvent) -> None:
         # Raises DeliveryError on a broker nack and TimeoutError without a confirm
