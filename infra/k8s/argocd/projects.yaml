@@ -33,6 +33,8 @@ spec:
     - server: https://kubernetes.default.svc
       namespace: observability
     - server: https://kubernetes.default.svc
+      namespace: observability-agent
+    - server: https://kubernetes.default.svc
       namespace: external-databases
     # KEDA's metrics server binds the extension-apiserver-authentication-reader
     # Role, which only exists in kube-system (RoleBinding keda-operator-auth-reader).

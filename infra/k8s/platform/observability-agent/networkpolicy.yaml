@@ -1,0 +1,70 @@
+# The node agent never receives connections. It only reaches the kubelet of
+# its node (stats), the API server (k8s_attributes watches) and the cluster
+# collector (otlp/agent receiver).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: observability-agent
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: observability-agent
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-agent
+  namespace: observability-agent
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: opentelemetry-collector
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: opentelemetry-collector
+      ports:
+        - protocol: TCP
+          port: 4319
+    # Kubelet (node IP:10250) and the Kubernetes API server (after DNAT, the
+    # k3s node IP on 6443). The node IP is not stable on WSL2, so only the
+    # ports are pinned (same as the cluster collector in
+    # platform/observability).
+    # TODO(aks): the managed API server is reached on 443; restrict both
+    # rules with an ipBlock (node subnet / API server IP).
+    - ports:
+        - protocol: TCP
+          port: 10250
+        - protocol: TCP
+          port: 6443

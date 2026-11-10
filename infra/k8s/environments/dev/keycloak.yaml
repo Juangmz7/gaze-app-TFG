@@ -38,6 +38,12 @@ rateLimit:
   requests: 120
   unit: Minute
 
+# OpenTelemetry tracing: off until the Keycloak 26.1 upgrade (25.0.6 has no
+# tracing support). Sample every trace in dev.
+tracing:
+  enabled: false
+  samplerRatio: 1.0
+
 networkPolicy:
   clientNamespaces:
     - social-service-dev

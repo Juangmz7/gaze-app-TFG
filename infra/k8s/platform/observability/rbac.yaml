@@ -1,0 +1,68 @@
+# Read-only Kubernetes API access for the collector (ServiceAccount
+# gaze-collector, created by the operator as "<collector name>-collector").
+# The operator chart keeps manager.createRbacPermissions=false, so the
+# operator does not grant this itself.
+#   - k8s_attributes: pods and namespaces (metadata + namespace labels);
+#     replicasets for workload lookups (k8s.deployment.name is derived from
+#     the ReplicaSet name today, the rule keeps uid/label lookups working).
+#   - prometheus receiver kubernetes_sd (role: pod): pods.
+#   - k8s_cluster: every object kind it watches (list from the receiver
+#     README; it starts informers for all of them, even for kinds whose
+#     metrics are disabled).
+#   - k8s_events: events.
+# No Secrets, no write verbs.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: gaze-collector
+  labels:
+    app.kubernetes.io/name: gaze-collector
+    app.kubernetes.io/part-of: gaze
+rules:
+  - apiGroups: [""]
+    resources:
+      - pods
+      - pods/status
+      - namespaces
+      - namespaces/status
+      - nodes
+      - nodes/spec
+      - events
+      - replicationcontrollers
+      - replicationcontrollers/status
+      - resourcequotas
+      - services
+      - persistentvolumeclaims
+      - persistentvolumes
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["replicasets", "deployments", "statefulsets", "daemonsets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["events.k8s.io"]
+    resources: ["events"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: gaze-collector
+  labels:
+    app.kubernetes.io/name: gaze-collector
+    app.kubernetes.io/part-of: gaze
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: gaze-collector
+subjects:
+  - kind: ServiceAccount
+    name: gaze-collector
+    namespace: observability

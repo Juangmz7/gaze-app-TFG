@@ -10,16 +10,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
+COPY requirements.txt requirements-otel.txt ./
 
 # CPU-only PyTorch (much smaller image). The container runs with MODEL_DEVICE=cpu
 # and requirements.txt does not pin a CUDA build.
 RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
 
-RUN pip install --no-cache-dir -r requirements.txt \
-    opentelemetry-distro \
-    opentelemetry-exporter-otlp \
- && opentelemetry-bootstrap -a install
+# requirements-otel.txt lists the OpenTelemetry instrumentations explicitly
+# (no `opentelemetry-bootstrap`), so the aio-pika one is never installed.
+RUN pip install --no-cache-dir -r requirements.txt -r requirements-otel.txt
 
 # Model cache outside /root so the Kubernetes pod (non-root, read-only root
 # filesystem) can read it; HF_HUB_OFFLINE is set at runtime there.

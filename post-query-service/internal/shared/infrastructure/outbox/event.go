@@ -5,11 +5,14 @@
 package outbox
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/Juangmz7/TFG/common-packages/go-utils/telemetry"
 )
 
 // Status is the lifecycle state of an outbox event:
@@ -40,6 +43,10 @@ type Event struct {
 	// ProcessedAt is only set once PROCESSED, so the TTL index never expires
 	// unfinished events.
 	ProcessedAt *time.Time `bson:"processed_at,omitempty"`
+	// TraceContext holds the W3C trace headers (traceparent, tracestate, baggage)
+	// of the request that stored the event. The relay sends them as AMQP headers,
+	// so the consumer continues that trace although the publish happens later.
+	TraceContext map[string]string `bson:"trace_context,omitempty"`
 }
 
 // NewPendingEvent builds a PENDING outbox event whose payload is payload
@@ -60,4 +67,18 @@ func NewPendingEvent(id, correlationID uuid.UUID, eventType, exchange, routingKe
 		Status:        StatusPending,
 		CreatedAt:     time.Now().UTC(),
 	}, nil
+}
+
+// WithTraceContext returns the event carrying the trace context of ctx. It keeps
+// a trace context the event already has, and leaves the event as it is when ctx
+// has no span.
+func (e Event) WithTraceContext(ctx context.Context) Event {
+	if len(e.TraceContext) > 0 {
+		return e
+	}
+	if headers := telemetry.InjectMetadata(ctx, nil); len(headers) > 0 {
+		e.TraceContext = headers
+	}
+
+	return e
 }

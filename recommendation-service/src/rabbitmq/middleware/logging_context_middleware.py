@@ -42,7 +42,9 @@ class LoggingContextMiddleware(BaseMiddleware):
                 if raw_correlation_id is not None:
                     correlation_id = str(raw_correlation_id)
 
-        except (ValueError, TypeError):
+        except Exception:
+            # Never fail a message over its log context: the handler reports
+            # a malformed body on its own.
             pass
 
         event_token = event_id_ctx.set(event_id)

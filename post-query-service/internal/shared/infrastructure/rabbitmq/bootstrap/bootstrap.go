@@ -83,7 +83,8 @@ func Bootstrap(ctx context.Context, amqpURI string, db *mongo.Database, outboxWr
 	if err != nil {
 		return Result{}, fmt.Errorf("bootstrap rabbitmq: create router: %w", err)
 	}
-	wmRouter.AddMiddleware(router.NewRetryMiddleware(wmLogger).Middleware)
+	// Tracing first (outermost): retries then run inside the same consumer span.
+	wmRouter.AddMiddleware(router.TracingMiddleware, router.NewRetryMiddleware(wmLogger).Middleware)
 
 	result := Result{Router: wmRouter}
 	ok := false

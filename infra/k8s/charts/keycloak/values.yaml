@@ -75,6 +75,30 @@ rateLimit:
   requests: 60
   unit: Minute
 
+# Management interface (Prometheus /metrics and /health/*). It is served on its
+# own port, separate from 8080, so the Gateway never exposes it.
+# metrics-enabled and health-enabled are build-time options. The image already
+# bakes them in (infra/local/keycloak/Dockerfile) and the server starts
+# --optimized, so these values must match the image build.
+management:
+  metricsEnabled: true
+  healthEnabled: true
+
+# OpenTelemetry tracing. Keycloak 25.0.6 has no tracing at all: no tracing-*
+# options, no "opentelemetry" feature, and no quarkus-opentelemetry in the
+# distribution. Tracing arrived as a preview in 26.0 and became supported in
+# 26.1, so the chart refuses tracing.enabled=true on an older appVersion.
+# tracing-enabled is a build-time option: after the upgrade, bake
+# KC_TRACING_ENABLED=true into the image as well.
+tracing:
+  enabled: false
+  collector:
+    host: gaze-collector.observability.svc.cluster.local
+    # OTLP/gRPC (tracing-protocol defaults to grpc).
+    port: 4317
+  serviceName: keycloak
+  samplerRatio: 1.0
+
 networkPolicy:
   # Services that fetch the JWKS in-cluster.
   clientNamespaces: []

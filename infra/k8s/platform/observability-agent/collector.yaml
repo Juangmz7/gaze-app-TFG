@@ -1,0 +1,192 @@
+# Per-node agent (DaemonSet): what only a node can see.
+#   - file_log: stdout/stderr of every container on the node, read from
+#     /var/log/pods (RabbitMQ, Keycloak, Envoy, operators, Argo CD, CoreDNS,
+#     crashing pods, ...).
+#   - kubelet_stats: CPU / memory / network / filesystem usage of the node,
+#     its pods, containers and volumes (kubelet /stats/summary).
+# Both are enriched here (k8s_attributes, filtered to this node, so each agent
+# only caches its own node's pods) and sent to the cluster collector's
+# dedicated receiver (gaze-collector:4319, otlp/agent), which forwards them to
+# LGTM unchanged. The backend therefore stays configured in one place
+# (platform/observability/collector.yaml).
+#
+# Needs the "privileged" Pod Security level (namespace label set by the Argo
+# CD Application): hostPath volumes are forbidden by "baseline". The
+# container runs as root because the log files are root-owned (0640), but
+# without any capability, privilege escalation or writable root filesystem.
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: gaze-agent
+  namespace: observability-agent
+  annotations:
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  mode: daemonset
+  # Every node, including tainted ones (control plane, AKS system pool).
+  tolerations:
+    - operator: Exists
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 384Mi
+  podSecurityContext:
+    runAsNonRoot: false
+    runAsUser: 0
+    runAsGroup: 0
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
+  env:
+    - name: K8S_NODE_NAME
+      valueFrom:
+        fieldRef:
+          fieldPath: spec.nodeName
+    - name: K8S_NODE_IP
+      valueFrom:
+        fieldRef:
+          fieldPath: status.hostIP
+  volumeMounts:
+    - name: varlogpods
+      mountPath: /var/log/pods
+      readOnly: true
+    - name: file-storage
+      mountPath: /var/lib/otelcol/file_storage
+  volumes:
+    - name: varlogpods
+      hostPath:
+        path: /var/log/pods
+        type: Directory
+    # Read offsets of file_log survive agent restarts (no duplicated or lost
+    # lines on a rollout). Node-local on purpose: it describes this node's
+    # files.
+    - name: file-storage
+      hostPath:
+        path: /var/lib/otelcol/gaze-agent
+        type: DirectoryOrCreate
+  config:
+    extensions:
+      file_storage:
+        directory: /var/lib/otelcol/file_storage
+    receivers:
+      file_log:
+        include:
+          - /var/log/pods/*/*/*.log
+        exclude:
+          # The agent's own output (an export error would be logged, read and
+          # exported again).
+          - /var/log/pods/observability-agent_*/*/*.log
+          # Gaze microservices: they already export their logs over OTLP with
+          # trace correlation, and some loggers are stdout-only on purpose
+          # (SQL bind values, OAuth2 details: see each service's logging
+          # config), so they must not reach Loki through this path.
+          - /var/log/pods/*-service-dev_*/*/*.log
+          - /var/log/pods/*-service-prod_*/*/*.log
+        # Existing files from their end on the very first start; files created
+        # later (new pods) from the beginning; after a restart, from the
+        # offsets in file_storage.
+        start_at: end
+        include_file_path: true
+        include_file_name: false
+        storage: file_storage
+        retry_on_failure:
+          enabled: true
+        operators:
+          # Parses the CRI (containerd) / Docker log line and sets
+          # k8s.namespace.name, k8s.pod.name, k8s.pod.uid, k8s.container.name
+          # and k8s.container.restart_count from the file path.
+          - type: container
+            id: container-parser
+      kubelet_stats:
+        auth_type: serviceAccount
+        collection_interval: 30s
+        # The node IP from the downward API: no DNS for the node name needed.
+        endpoint: https://${env:K8S_NODE_IP}:10250
+        # The kubelet serving certificate is self-signed on k3s and on AKS
+        # (unless serving-certificate rotation is enabled), so it cannot be
+        # verified against the cluster CA. The ServiceAccount token sent here
+        # can only read node stats (rbac.yaml).
+        insecure_skip_verify: true
+        metric_groups: [node, pod, container, volume]
+    processors:
+      memory_limiter:
+        check_interval: 1s
+        limit_percentage: 80
+        spike_limit_percentage: 25
+      # Same metadata as the cluster collector adds to the services' data.
+      k8s_attributes:
+        auth_type: serviceAccount
+        passthrough: false
+        filter:
+          node_from_env_var: K8S_NODE_NAME
+        pod_association:
+          - sources:
+              - from: resource_attribute
+                name: k8s.pod.uid
+        extract:
+          metadata:
+            - k8s.namespace.name
+            - k8s.pod.name
+            - k8s.pod.uid
+            - k8s.deployment.name
+            - k8s.statefulset.name
+            - k8s.daemonset.name
+            - k8s.job.name
+            - k8s.node.name
+          labels:
+            - tag_name: deployment.environment.name
+              key: gaze.app/env
+              from: namespace
+            - tag_name: k8s.pod.label.app.kubernetes.io/name
+              key: app.kubernetes.io/name
+              from: pod
+      # Envoy's stdout access log duplicates the access log the proxies
+      # already export over OTLP (charts/gateway, telemetry.accessLog.otel);
+      # keep only Envoy's own (non access log) lines.
+      filter/envoy-access-log:
+        error_mode: ignore
+        logs:
+          log_record:
+            - resource.attributes["k8s.container.name"] == "envoy" and IsMatch(resource.attributes["k8s.namespace.name"], "^gateway-") and IsMatch(log.body, "\"start_time\":")
+      # Loki groups streams by service_name: name container logs after the
+      # container (rabbitmq, keycloak, envoy, argocd-server, ...).
+      transform/service-name:
+        error_mode: ignore
+        log_statements:
+          - context: resource
+            statements:
+              - set(resource.attributes["service.name"], resource.attributes["k8s.container.name"]) where resource.attributes["service.name"] == nil
+      # Prometheus (LGTM) only turns a fixed list of resource attributes into
+      # labels; volumes of one pod would collapse into one series without
+      # their name on the data points.
+      transform/volume-identity:
+        error_mode: ignore
+        metric_statements:
+          - context: datapoint
+            statements:
+              - set(datapoint.attributes["k8s.volume.name"], resource.attributes["k8s.volume.name"]) where resource.attributes["k8s.volume.name"] != nil
+              # persistentVolumeClaim / emptyDir / configMap / ... (dashboard filter).
+              - set(datapoint.attributes["k8s.volume.type"], resource.attributes["k8s.volume.type"]) where resource.attributes["k8s.volume.type"] != nil
+      batch: {}
+    exporters:
+      # otlp/agent receiver of the cluster collector (gaze-collector Service,
+      # port otlp-agent-http).
+      otlp_http/gateway:
+        endpoint: http://gaze-collector.observability.svc.cluster.local:4319
+    service:
+      extensions: [file_storage]
+      pipelines:
+        logs:
+          receivers: [file_log]
+          processors: [memory_limiter, k8s_attributes, filter/envoy-access-log, transform/service-name, batch]
+          exporters: [otlp_http/gateway]
+        metrics:
+          receivers: [kubelet_stats]
+          processors: [memory_limiter, k8s_attributes, transform/volume-identity, batch]
+          exporters: [otlp_http/gateway]

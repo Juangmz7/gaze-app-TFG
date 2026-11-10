@@ -54,6 +54,10 @@ env:
   MODEL_DEVICE: cpu
   OTEL_SERVICE_NAME: recommendation-service
   OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+  # Export Python logs over OTLP and inject trace/span IDs into the records.
+  OTEL_PYTHON_LOG_CORRELATION: "true"
+  # Root log level, read at startup (src/observability/logging_config.py).
+  LOG_LEVEL: INFO
   # The model is baked into the image (HF_HOME): never call the Hub at runtime.
   HF_HUB_OFFLINE: "1"
   TRANSFORMERS_OFFLINE: "1"

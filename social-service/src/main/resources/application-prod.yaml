@@ -1,8 +1,5 @@
 # Production Configuration — social-service
 spring:
-  application:
-    name: social-service
-
   # --- Virtual Threads ---
   threads:
     virtual:
@@ -108,8 +105,6 @@ logging:
 # --- OpenTelemetry (OTLP HTTP export) ---
 management:
   opentelemetry:
-    resource-attributes:
-      "service.name": social-service
     tracing:
       export:
         otlp:

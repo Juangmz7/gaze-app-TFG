@@ -6,10 +6,15 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
+	"time"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	"github.com/Juangmz7/TFG/common-packages/go-utils/auth"
 	"github.com/Juangmz7/TFG/common-packages/go-utils/server"
+	"github.com/Juangmz7/TFG/common-packages/go-utils/telemetry"
 	feedusecase "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/feed/application/usecase"
 	feedmongo "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/feed/infrastructure/mongo"
 	feedpresentation "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/feed/presentation"
@@ -20,6 +25,16 @@ import (
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/bootstrap"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
+
+// healthzPathPrefix covers the liveness and readiness probes, which are
+// excluded from HTTP tracing so kubelet polling does not flood Tempo.
+const healthzPathPrefix = "/healthz/"
+
+// defaultServiceName is used when OTEL_SERVICE_NAME is not set.
+const defaultServiceName = "post-query-service"
+
+// telemetryShutdownTimeout bounds the final flush of spans, metrics and logs.
+const telemetryShutdownTimeout = 5 * time.Second
 
 func main() {
 	err := run()
@@ -32,6 +47,27 @@ func main() {
 func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// Traces, metrics and logs over OTLP, configured from the OTEL_* env vars
+	// (endpoint, OTEL_RESOURCE_ATTRIBUTES, OTEL_TRACES_SAMPLER_ARG). It also
+	// installs the default slog logger (JSON stdout + OTLP, with trace_id).
+	telemetryCfg := telemetry.Config{}
+	if strings.TrimSpace(os.Getenv(telemetry.EnvServiceName)) == "" {
+		telemetryCfg.ServiceName = defaultServiceName
+	}
+	shutdownTelemetry, err := telemetry.Init(ctx, telemetryCfg)
+	if err != nil {
+		return err
+	}
+	// Registered before any other defer so it runs last: after <-rabbitmqDone
+	// and the Mongo disconnect, so telemetry from the whole shutdown is flushed.
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), telemetryShutdownTimeout)
+		defer cancel()
+		if shutdownErr := shutdownTelemetry(shutdownCtx); shutdownErr != nil {
+			slog.Error("telemetry shutdown failed", "error", shutdownErr)
+		}
+	}()
 
 	serverCfg := server.LoadServer()
 
@@ -93,7 +129,22 @@ func run() error {
 	health.Register(mux, mongoClient)
 	feedpresentation.RegisterRoutes(mux, auth.Authenticate(keyCache, cfg.Auth.Issuer, cfg.Auth.Audience), feedRoutes)
 
-	if err := server.StartServer(ctx, serverCfg.Port, mux); err != nil {
+	handler := otelhttp.NewHandler(mux, "http.server",
+		otelhttp.WithFilter(func(r *http.Request) bool {
+			return !strings.HasPrefix(r.URL.Path, healthzPathPrefix)
+		}),
+		// Low-cardinality span names ("GET"); the route goes in attributes.
+		otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
+			return r.Method
+		}),
+	)
+
+	if err := server.StartServer(ctx, serverCfg.Port, handler); err != nil {
+		// Stop the RabbitMQ loop and wait for it before returning, so the
+		// deferred Mongo disconnect (and telemetry shutdown) never run while
+		// consumers are still in flight.
+		stop()
+		<-rabbitmqDone
 		return err
 	}
 

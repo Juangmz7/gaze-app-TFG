@@ -126,7 +126,8 @@ services:
       - infra_net
 
   grafana-lgtm:
-    image: grafana/otel-lgtm:latest
+    # Keep in sync with infra/k8s/platform/observability/lgtm.yaml.
+    image: grafana/otel-lgtm:0.38.0
     container_name: grafana-lgtm
     restart: unless-stopped
     ports:

@@ -38,6 +38,7 @@ x-spring-otlp: &spring-otlp
   MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://grafana-lgtm:4318/v1/traces
   MANAGEMENT_OPENTELEMETRY_LOGGING_EXPORT_OTLP_ENDPOINT: http://grafana-lgtm:4318/v1/logs
   MANAGEMENT_OTLP_METRICS_EXPORT_URL: http://grafana-lgtm:4318/v1/metrics
+  OTEL_RESOURCE_ATTRIBUTES: deployment.environment.name=local
 
 services:
   social-service:
@@ -86,8 +87,8 @@ services:
       AZURE_STORAGE_ACCOUNT_URL: http://azurite:10000/devstoreaccount1
       <<: [*spring-rabbitmq, *spring-redis, *keycloak-jwt, *spring-otlp]
     ports:
-      # dev profile does not set server.port, so Spring's default 8080 applies
-      - "127.0.0.1:${POST_COMMAND_SERVICE_PORT:-8082}:8080"
+      # application-dev.yaml sets server.port=8082
+      - "127.0.0.1:${POST_COMMAND_SERVICE_PORT:-8082}:8082"
     networks:
       - infra_net
 
@@ -119,6 +120,10 @@ services:
       FEED_MAX_READS_PER_CLAIM: ${FEED_MAX_READS_PER_CLAIM:-3}
       FEED_RETENTION_HOURS: ${FEED_RETENTION_HOURS:-168}
       FEED_DISCONNECT_WRITE_TIMEOUT_MS: ${FEED_DISCONNECT_WRITE_TIMEOUT_MS:-5000}
+      # OpenTelemetry (go-utils/telemetry), OTLP over gRPC
+      OTEL_SERVICE_NAME: post-query-service
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://grafana-lgtm:4317
+      OTEL_RESOURCE_ATTRIBUTES: deployment.environment.name=local
     ports:
       - "127.0.0.1:${POST_QUERY_SERVICE_PORT:-8083}:8080"
     networks:
@@ -138,6 +143,9 @@ services:
       OTEL_SERVICE_NAME: recommendation-service
       OTEL_EXPORTER_OTLP_ENDPOINT: http://grafana-lgtm:4317
       OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+      OTEL_RESOURCE_ATTRIBUTES: deployment.environment.name=local
+      # Export Python logs over OTLP and inject trace/span ids into log records
+      OTEL_PYTHON_LOG_CORRELATION: "true"
       LOG_LEVEL: INFO
       GRPC_PORT: "50051"
       PIPELINE_WORKER_POOL_SIZE: "2"

@@ -14,7 +14,21 @@ DEFAULT_LOG_LEVEL = logging.INFO
 # Libraries stay here whatever LOG_LEVEL says, so that LOG_LEVEL=DEBUG shows this
 # service's lines and not every AMQP frame
 THIRD_PARTY_LOG_LEVEL = logging.WARNING
-LOG_FORMAT = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
+# otelTraceID/otelSpanID come from the OpenTelemetry LoggingInstrumentor that
+# opentelemetry-instrument runs, correlationId/eventId from configure_log_context.
+# The defaults keep the format valid when they are missing: tests, a run without
+# opentelemetry-instrument, a log line outside a message.
+LOG_FORMAT = (
+    "%(asctime)s %(levelname)s [%(name)s] "
+    "[trace_id=%(otelTraceID)s span_id=%(otelSpanID)s "
+    "correlation_id=%(correlationId)s event_id=%(eventId)s] %(message)s"
+)
+LOG_FORMAT_DEFAULTS = {
+    "otelTraceID": "0",
+    "otelSpanID": "0",
+    "correlationId": "-",
+    "eventId": "-",
+}
 SOURCE_ROOT = Path(__file__).resolve().parents[1]
 
 _installed = False
@@ -31,7 +45,7 @@ def configure_logging() -> None:
     root_logger.setLevel(THIRD_PARTY_LOG_LEVEL)
     if not _has_console_handler(root_logger):
         handler = logging.StreamHandler(sys.stdout)
-        handler.setFormatter(logging.Formatter(LOG_FORMAT))
+        handler.setFormatter(logging.Formatter(LOG_FORMAT, defaults=LOG_FORMAT_DEFAULTS))
         root_logger.addHandler(handler)
 
     for package in _application_packages():
@@ -82,3 +96,4 @@ def configure_log_context() -> None:
     logging.setLogRecordFactory(record_factory)
 
     _installed = True
+

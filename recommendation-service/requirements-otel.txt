@@ -1,0 +1,20 @@
+# OpenTelemetry auto-instrumentation runtime for the image CMD
+# (`opentelemetry-instrument`). Install together with requirements.txt:
+#   pip install -r requirements.txt -r requirements-otel.txt
+#
+# Replaces `opentelemetry-bootstrap -a install`, which installs an
+# instrumentation for every library it detects. Only these are wanted:
+# - logging (in requirements.txt: src/observability imports it)
+# - psycopg: one span per SQL statement, at the driver SQLAlchemy runs on
+# Left out on purpose:
+# - aio-pika: FastStream's RabbitTelemetryMiddleware already creates the
+#   publish/consume spans; the aio-pika instrumentation would duplicate them.
+# - sqlalchemy: 0.66bX only instruments sqlalchemy<2.1 and we resolve 2.1.x,
+#   so it would do nothing. If a later release supports 2.1, it can replace
+#   psycopg (installing both gives two spans per statement).
+#
+# Core 1.45.x <-> contrib 0.66bX: keep in step with requirements.txt.
+opentelemetry-distro>=0.66b0,<0.67
+# OTLP over gRPC (OTEL_EXPORTER_OTLP_PROTOCOL=grpc) for traces, metrics and logs
+opentelemetry-exporter-otlp-proto-grpc>=1.45.0,<1.46
+opentelemetry-instrumentation-psycopg>=0.66b0,<0.67

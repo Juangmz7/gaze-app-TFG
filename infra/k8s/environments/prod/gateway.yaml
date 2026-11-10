@@ -25,3 +25,9 @@ trafficPolicy:
   rateLimit:
     requests: 600
     unit: Minute
+
+telemetry:
+  enabled: true
+  tracing:
+    # 10% of requests without an upstream sampling decision.
+    samplingRate: 10

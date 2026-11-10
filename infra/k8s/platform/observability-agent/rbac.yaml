@@ -1,0 +1,41 @@
+# Read-only Kubernetes API access for the node agent (ServiceAccount
+# gaze-agent-collector, created by the operator as "<collector name>-collector";
+# the operator chart runs with manager.createRbacPermissions=false).
+#   - kubelet_stats: nodes/stats (kubelet /stats/summary). No nodes/proxy and
+#     no nodes/pods: the limit/request utilization metrics that would need them
+#     stay off; dashboards divide usage by the k8s_cluster limits instead.
+#   - k8s_attributes: pods and namespaces (metadata + namespace labels);
+#     replicasets for k8s.deployment.name.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: gaze-agent
+  labels:
+    app.kubernetes.io/name: gaze-agent
+    app.kubernetes.io/part-of: gaze
+rules:
+  - apiGroups: [""]
+    resources: ["nodes/stats"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["pods", "namespaces"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: gaze-agent
+  labels:
+    app.kubernetes.io/name: gaze-agent
+    app.kubernetes.io/part-of: gaze
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: gaze-agent
+subjects:
+  - kind: ServiceAccount
+    name: gaze-agent-collector
+    namespace: observability-agent

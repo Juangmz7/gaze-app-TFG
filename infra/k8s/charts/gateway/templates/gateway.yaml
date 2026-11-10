@@ -20,6 +20,62 @@ spec:
       envoyPDB:
         minAvailable: {{ .Values.proxy.pdbMinAvailable }}
       {{- end }}
+  {{- $t := .Values.telemetry }}
+  {{- if $t.enabled }}
+  {{- $c := $t.collector }}
+  # Edge spans, Envoy metrics and access logs over OTLP gRPC to the collector
+  # (-> Tempo / Mimir / Loki). host/port are deprecated in favour of
+  # backendRefs but still supported; see values.yaml (telemetry.collector).
+  telemetry:
+    {{- if $t.tracing.enabled }}
+    tracing:
+      samplingRate: {{ int $t.tracing.samplingRate }}
+      provider:
+        type: OpenTelemetry
+        host: {{ $c.host }}
+        port: {{ int $c.port }}
+        serviceName: {{ $t.serviceName | quote }}
+        openTelemetry:
+          resourceAttributes:
+            deployment.environment.name: {{ .Values.environment | quote }}
+    {{- end }}
+    {{- if $t.metrics.enabled }}
+    metrics:
+      sinks:
+        - type: OpenTelemetry
+          openTelemetry:
+            host: {{ $c.host }}
+            port: {{ int $c.port }}
+            resourceAttributes:
+              {{- include "gateway.otlpResourceAttributes" . | nindent 14 }}
+    {{- end }}
+    {{- if $t.accessLog.otel.enabled }}
+    accessLog:
+      settings:
+        {{- if $t.accessLog.stdout }}
+        # No format: Envoy Gateway's default JSON access log, as before.
+        - sinks:
+            - type: File
+              file:
+                path: /dev/stdout
+        {{- end }}
+        # No format type: text is the OTLP log body, json its attributes.
+        - format:
+            text: {{ $t.accessLog.otel.text | quote }}
+            json:
+              {{- toYaml $t.accessLog.otel.attributes | nindent 14 }}
+          sinks:
+            - type: OpenTelemetry
+              openTelemetry:
+                host: {{ $c.host }}
+                port: {{ int $c.port }}
+                resourceAttributes:
+                  {{- include "gateway.otlpResourceAttributes" . | nindent 18 }}
+    {{- else if not $t.accessLog.stdout }}
+    accessLog:
+      disable: true
+    {{- end }}
+  {{- end }}
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway

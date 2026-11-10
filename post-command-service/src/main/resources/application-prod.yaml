@@ -1,8 +1,5 @@
 # Production Configuration — post-command-service
 spring:
-  application:
-    name: post-command-service
-
   # --- Virtual Threads ---
   threads:
     virtual:
@@ -89,8 +86,6 @@ logging:
 # --- OpenTelemetry (OTLP HTTP export) ---
 management:
   opentelemetry:
-    resource-attributes:
-      "service.name": post-command-service
     tracing:
       export:
         otlp:

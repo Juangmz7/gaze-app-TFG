@@ -2,5 +2,27 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - networkpolicy.yaml
+  - rbac.yaml
   - collector.yaml
   - lgtm.yaml
+# Grafana dashboards provisioned into LGTM (mounted by lgtm.yaml). One
+# ConfigMap per dashboard keeps each object well below the size limits. No
+# name hash: Grafana re-reads the files itself, so a dashboard change must not
+# restart LGTM.
+generatorOptions:
+  disableNameSuffixHash: true
+  labels:
+    app.kubernetes.io/part-of: gaze
+configMapGenerator:
+  - name: grafana-dashboard-provider
+    namespace: observability
+    files:
+      - gaze.yaml=dashboards/provider.yaml
+  - name: grafana-dashboard-kubernetes
+    namespace: observability
+    files:
+      - dashboards/kubernetes-cluster.json
+  - name: grafana-dashboard-rabbitmq
+    namespace: observability
+    files:
+      - dashboards/rabbitmq.json
