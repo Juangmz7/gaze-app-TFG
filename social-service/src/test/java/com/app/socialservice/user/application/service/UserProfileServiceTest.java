@@ -24,10 +24,10 @@ import com.app.socialservice.user.domain.model.valueobj.ProfilePictureUrl;
 import com.app.socialservice.user.domain.model.valueobj.UserBio;
 import com.app.socialservice.user.domain.model.valueobj.UserId;
 import com.app.socialservice.user.domain.model.valueobj.Username;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.cache.annotation.CachePut;
@@ -57,20 +57,31 @@ class UserProfileServiceTest {
     @Mock
     private UserCacheEvictor userCacheEvictor;
 
-    @InjectMocks
     private UserProfileService userProfileService;
+
+    // A real reader over the mocks: the own profile tests read through it
+    @BeforeEach
+    void setUp() {
+        userProfileService = new UserProfileService(
+                userRepository,
+                publicUserProfileReader,
+                new OwnUserProfileReader(userRepository, userStatsService),
+                userCacheEvictor
+        );
+    }
 
     @Nested
     class CacheAnnotationsTest {
 
         @Test
-        void shouldCacheTheOwnProfilePerUser() throws NoSuchMethodException {
-            var method = UserProfileService.class.getMethod("getOwnProfile", UUID.class);
-            var cacheable = method.getAnnotation(Cacheable.class);
+        void shouldCacheTheOwnProfileInTheReaderAndCheckTheAccountStatusOnEveryRequest() throws NoSuchMethodException {
+            var cacheable = OwnUserProfileReader.class.getMethod("read", UUID.class).getAnnotation(Cacheable.class);
 
-            assertThat(cacheable).isNotNull();
             assertThat(cacheable.cacheNames()).containsExactly(CacheNames.OWN_PROFILE);
             assertThat(cacheable.key()).isEqualTo(CacheNames.KEY_BY_USER_ID);
+            // A ban must apply at once, so the status check itself is not cached
+            assertThat(UserProfileService.class.getMethod("getOwnProfile", UUID.class).getAnnotation(Cacheable.class))
+                    .isNull();
         }
 
         @Test
@@ -100,11 +111,25 @@ class UserProfileServiceTest {
 
         when(publicUserProfileReader.read(targetUserId)).thenReturn(publicProfile(targetUserId));
         when(userRepository.findProfileRelationship(requesterUserId, targetUserId))
-                .thenReturn(new ProfileRelationship(false, false, true));
+                .thenReturn(new ProfileRelationship(false, false, true, true));
 
         assertThatThrownBy(() -> userProfileService.getUserProfile(requesterUserId, targetUserId))
                 .isInstanceOf(UserProfileBlockedException.class)
                 .hasMessageContaining("Profile access is blocked");
+    }
+
+    @Test
+    void shouldThrowNotFoundWhenTheUserWasBannedOrDeletedAfterTheProfileWasCached() {
+        var requesterUserId = UUID.randomUUID();
+        var targetUserId = UUID.randomUUID();
+
+        when(publicUserProfileReader.read(targetUserId)).thenReturn(publicProfile(targetUserId));
+        when(userRepository.findProfileRelationship(requesterUserId, targetUserId))
+                .thenReturn(new ProfileRelationship(false, false, false, false));
+
+        assertThatThrownBy(() -> userProfileService.getUserProfile(requesterUserId, targetUserId))
+                .isInstanceOf(UserProfileNotFoundException.class)
+                .hasMessageContaining(targetUserId.toString());
     }
 
     @Test
@@ -150,7 +175,7 @@ class UserProfileServiceTest {
                 23L
         ));
         when(userRepository.findProfileRelationship(requesterUserId, targetUserId))
-                .thenReturn(new ProfileRelationship(true, false, false));
+                .thenReturn(new ProfileRelationship(true, false, false, true));
 
         var response = userProfileService.getUserProfile(requesterUserId, targetUserId);
 
@@ -178,6 +203,7 @@ class UserProfileServiceTest {
                 false
         );
 
+        when(userRepository.findAccountStatus(userId)).thenReturn(Optional.of(UserAccountStatus.ACCEPTED));
         when(userRepository.findOwnProfileById(userId)).thenReturn(Optional.of(ownProfileData));
         when(userStatsService.getStats(userId)).thenReturn(new UserStats(11L, 13L, 19L));
 
@@ -195,21 +221,14 @@ class UserProfileServiceTest {
     @Test
     void shouldThrowForbiddenWhenOwnProfileUserIsBanned() {
         var userId = UUID.randomUUID();
-        var ownProfileData = new OwnUserProfileData(
-                "banned-user",
-                null,
-                null,
-                0L,
-                null,
-                true
-        );
-
-        when(userRepository.findOwnProfileById(userId)).thenReturn(Optional.of(ownProfileData));
+        // Live: also when the profile was cached before the ban
+        when(userRepository.findAccountStatus(userId)).thenReturn(Optional.of(UserAccountStatus.BANNED));
 
         assertThatThrownBy(() -> userProfileService.getOwnProfile(userId))
                 .isInstanceOf(UserBannedException.class)
                 .hasMessage("User is banned: " + userId);
 
+        verify(userRepository, never()).findOwnProfileById(any());
         verifyNoInteractions(userStatsService);
     }
 
@@ -217,7 +236,7 @@ class UserProfileServiceTest {
     void shouldThrowWhenOwnProfileUserDoesNotExist() {
         var userId = UUID.randomUUID();
 
-        when(userRepository.findOwnProfileById(userId)).thenReturn(Optional.empty());
+        when(userRepository.findAccountStatus(userId)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> userProfileService.getOwnProfile(userId))
                 .isInstanceOf(UserNotFoundException.class)
@@ -258,6 +277,7 @@ class UserProfileServiceTest {
 
         when(userRepository.findById(userId)).thenReturn(Optional.of(existingUser));
         when(userRepository.updateProfile(any(User.class))).thenReturn(savedUser);
+        when(userRepository.findAccountStatus(userId)).thenReturn(Optional.of(UserAccountStatus.ACCEPTED));
         when(userRepository.findOwnProfileById(userId)).thenReturn(Optional.of(ownProfileData));
         when(userStatsService.getStats(userId)).thenReturn(new UserStats(22L, 31L, 41L));
 
@@ -303,6 +323,7 @@ class UserProfileServiceTest {
         );
 
         when(userRepository.findById(userId)).thenReturn(Optional.of(existingUser));
+        when(userRepository.findAccountStatus(userId)).thenReturn(Optional.of(UserAccountStatus.ACCEPTED));
         when(userRepository.findOwnProfileById(userId)).thenReturn(Optional.of(ownProfileData));
         when(userStatsService.getStats(userId)).thenReturn(new UserStats(8L, 13L, 21L));
 

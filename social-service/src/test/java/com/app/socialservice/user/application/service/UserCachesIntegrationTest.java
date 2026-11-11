@@ -96,7 +96,9 @@ class UserCachesIntegrationTest {
         assertThat(publicUserProfileReader.read(userId).username()).isEqualTo("renamed");
     }
 
-    @Test
+    // Repeated: with the asynchronous writes of Spring Data Redis 4, an eviction after the
+    // commit raced the read that followed it and lost about half the time
+    @org.junit.jupiter.api.RepeatedTest(10)
     void shouldEvictOnlyAfterTheTransactionCommits() {
         var userId = UUID.randomUUID();
         var key = CacheNames.userKey(userId);

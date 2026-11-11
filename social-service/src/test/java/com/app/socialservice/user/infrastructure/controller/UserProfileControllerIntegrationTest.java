@@ -210,9 +210,9 @@ class UserProfileControllerIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.username").value("target-user"));
 
+        // The profile is cached: the ban below must apply anyway
         assertThat(cacheManager.getCache("user-public-profile")).isNotNull();
-        assertThat(cacheManager.getCache("user-public-profile")
-                .get(requesterUserId + ":" + targetUserId)).isNull();
+        assertThat(cacheManager.getCache("user-public-profile").get(targetUserId.toString())).isNotNull();
 
         var targetUser = jpaUserRepository.findById(targetUserId).orElseThrow();
         targetUser.setAccountStatus(UserAccountStatus.BANNED);
@@ -306,8 +306,9 @@ class UserProfileControllerIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.username").value("profile-user"));
 
+        // The profile is cached: the ban below must apply anyway
         assertThat(cacheManager.getCache("user-own-profile")).isNotNull();
-        assertThat(cacheManager.getCache("user-own-profile").get(userId.toString())).isNull();
+        assertThat(cacheManager.getCache("user-own-profile").get(userId.toString())).isNotNull();
 
         var user = jpaUserRepository.findById(userId).orElseThrow();
         user.setAccountStatus(UserAccountStatus.BANNED);

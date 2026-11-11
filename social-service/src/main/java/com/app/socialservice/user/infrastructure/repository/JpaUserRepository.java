@@ -65,7 +65,10 @@ public interface JpaUserRepository extends JpaRepository<UserEntity, UUID> {
                                       AND f.status = 'ACTIVE') AS "followsMe",
                            EXISTS (SELECT 1 FROM blocks b
                                     WHERE (b.blocker_id = :requesterUserId AND b.blocked_id = :targetUserId)
-                                       OR (b.blocker_id = :targetUserId AND b.blocked_id = :requesterUserId)) AS blocked
+                                       OR (b.blocker_id = :targetUserId AND b.blocked_id = :requesterUserId)) AS blocked,
+                           EXISTS (SELECT 1 FROM users u
+                                    WHERE u.id = :targetUserId
+                                      AND u.account_status NOT IN ('DELETED', 'BANNED')) AS "targetVisible"
                     """,
             nativeQuery = true
     )
@@ -80,7 +83,12 @@ public interface JpaUserRepository extends JpaRepository<UserEntity, UUID> {
         boolean getFollowsMe();
 
         boolean getBlocked();
+
+        boolean getTargetVisible();
     }
+
+    @Query("select user.accountStatus from UserEntity user where user.id = :id")
+    Optional<UserAccountStatus> findAccountStatusById(@Param("id") UUID id);
            
     Optional<UserEntity> findByIdAndAccountStatusIn(UUID id, Collection<UserAccountStatus> accountStatuses);
            

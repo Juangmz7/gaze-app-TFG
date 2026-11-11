@@ -84,7 +84,19 @@ public class UserRepositoryImpl implements UserRepository {
         validateUserId(targetUserId, "targetUserId");
 
         var relationship = jpaUserRepository.findProfileRelationship(requesterUserId, targetUserId);
-        return new ProfileRelationship(relationship.getFollowing(), relationship.getFollowsMe(), relationship.getBlocked());
+        return new ProfileRelationship(
+                relationship.getFollowing(),
+                relationship.getFollowsMe(),
+                relationship.getBlocked(),
+                relationship.getTargetVisible()
+        );
+    }
+
+    @Override
+    public Optional<UserAccountStatus> findAccountStatus(UUID id) {
+        validateUserId(id, "id");
+
+        return jpaUserRepository.findAccountStatusById(id);
     }
   
     public Optional<OwnUserProfileData> findOwnProfileById(UUID id) {

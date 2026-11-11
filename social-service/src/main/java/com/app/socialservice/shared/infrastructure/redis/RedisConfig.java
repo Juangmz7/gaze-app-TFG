@@ -53,7 +53,8 @@ public class RedisConfig {
      * Every cache stores one declared type, read back with that type: the generic JSON
      * serializer writes class names and cannot rebuild the immutable maps of the
      * records. Transaction aware, so a put or evict inside a transaction runs after the
-     * commit. A clear scans instead of KEYS, which blocks Redis.
+     * commit, and immediate, so it has happened when the call returns. A clear scans
+     * instead of KEYS, which blocks Redis.
      */
     @Bean
     public CacheManager cacheManager(RedisConnectionFactory factory) {
@@ -81,8 +82,14 @@ public class RedisConfig {
                         .entryTtl(RECOMMENDED_USERS_TTL)
         );
 
-        return RedisCacheManager.builder(
-                        RedisCacheWriter.nonLockingRedisCacheWriter(factory, BatchStrategies.scan(CLEAR_SCAN_BATCH_SIZE)))
+        // Immediate writes: Spring Data Redis 4 sends puts and evictions asynchronously by
+        // default, so a read right after an eviction could still find the old entry, and a
+        // put of a stale read could land after the eviction that was meant to replace it
+        RedisCacheWriter cacheWriter = RedisCacheWriter.create(factory, writer -> writer
+                .batchStrategy(BatchStrategies.scan(CLEAR_SCAN_BATCH_SIZE))
+                .immediateWrites(true));
+
+        return RedisCacheManager.builder(cacheWriter)
                 .cacheDefaults(defaultConfig)
                 .withInitialCacheConfigurations(cacheConfigs)
                 .transactionAware()
