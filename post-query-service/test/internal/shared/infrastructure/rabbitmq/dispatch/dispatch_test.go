@@ -1,10 +1,12 @@
 package dispatch_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/ThreeDotsLabs/watermill/message"
@@ -85,4 +87,22 @@ func TestDispatcher_Handle_AcksAndSkipsWhenNoHandlerIsRegisteredForTheRoutingKey
 
 func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
+func TestDispatcher_Handle_NamesTheDiscardedEvent(t *testing.T) {
+	const eventID = "11111111-1111-4111-8111-111111111111"
+	logs := &bytes.Buffer{}
+	dispatcher := dispatch.New(topology.QueuePost, map[string]dispatch.EventHandlerFunc{}, slog.New(slog.NewTextHandler(logs, nil)))
+
+	msg := message.NewMessage("1", []byte(`{"id":"`+eventID+`"}`))
+	msg.Metadata.Set(topology.RoutingKeyHeader, topology.RKPostRecommendedSent)
+	if err := dispatcher.Handle(msg); err != nil {
+		t.Fatalf("Handle() error = %v", err)
+	}
+
+	for _, want := range []string{"no handler registered", "routing_key=" + topology.RKPostRecommendedSent, "event_id=" + eventID, "queue=" + topology.QueuePost} {
+		if !strings.Contains(logs.String(), want) {
+			t.Fatalf("log misses %q: %s", want, logs)
+		}
+	}
 }

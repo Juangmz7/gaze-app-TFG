@@ -78,6 +78,7 @@ func New(ctx context.Context, params Params) (*Feed, error) {
 	lease := feedusecase.NewFeedLeaseManager(sessions, feedusecase.FeedLeaseConfig{
 		Owner:          cfg.InstanceID,
 		TTL:            cfg.LeaseTTL,
+		RequestTTL:     cfg.RefillLeaseTTL,
 		ReleaseTimeout: cfg.LeaseReleaseTimeout,
 	}, logger)
 	backlog := feedusecase.NewFeedBacklog(units, feedusecase.FeedBacklogConfig{

@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/retry"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel/propagation"
 	googlegrpc "google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
@@ -81,6 +82,10 @@ func NewRecommendationClient(config RecommendationClientConfig, logger *slog.Log
 		googlegrpc.WithDisableServiceConfig(),
 		googlegrpc.WithConnectParams(connectParams),
 		googlegrpc.WithChainUnaryInterceptor(retry.UnaryClientInterceptor(retryOptions(config, logger)...)),
+		// A client span (and the rpc.client.* metrics) per attempt, below the retry
+		// interceptor, so recommendation-service's server span hangs from it. It also
+		// sends the W3C trace context, with that span as the parent.
+		googlegrpc.WithStatsHandler(otelgrpc.NewClientHandler(otelgrpc.WithPropagators(propagation.TraceContext{}))),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create recommendation client: %w", err)
@@ -213,19 +218,14 @@ type retryLogFieldsKey struct{}
 // withOutgoingMetadata adds the correlation id and the W3C trace context. An unusable
 // correlation id is left out, because the server generates one and gRPC would refuse
 // to send one that is not printable ASCII.
+// withOutgoingMetadata adds the correlation id. The trace context is the stats
+// handler's: it injects it per attempt, with the attempt's client span as the parent.
 func withOutgoingMetadata(ctx context.Context, correlationID string) context.Context {
-	pairs := make([]string, 0, 6)
-	if isUsableCorrelationID(correlationID) {
-		pairs = append(pairs, CorrelationIDMetadataKey, correlationID)
+	if !isUsableCorrelationID(correlationID) {
+		return ctx
 	}
 
-	trace := propagation.MapCarrier{}
-	propagation.TraceContext{}.Inject(ctx, trace)
-	for _, key := range trace.Keys() {
-		pairs = append(pairs, key, trace.Get(key))
-	}
-
-	return metadata.AppendToOutgoingContext(ctx, pairs...)
+	return metadata.AppendToOutgoingContext(ctx, CorrelationIDMetadataKey, correlationID)
 }
 
 func isUsableCorrelationID(value string) bool {

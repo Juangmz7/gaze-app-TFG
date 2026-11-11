@@ -64,7 +64,7 @@ The feed is prepared ahead of time over RabbitMQ, through the transactional outb
 When a claim still finds nothing, the user is waiting, so it refills over gRPC, never RabbitMQ:
 
 1. It takes the same lease. It first checks the stored feed again, because a build may have just finished.
-2. It calls `GetRecommendedFeed` with reason `FEED_EMPTY`, the `excludedPostIds`, and the `x-correlation-id`, `traceparent` and `tracestate` metadata.
+2. It calls `GetRecommendedFeed` with reason `FEED_EMPTY`, the `excludedPostIds`, and the `x-correlation-id` metadata. The otelgrpc client handler opens a client span per attempt and sends `traceparent`/`tracestate` with it as the parent.
 3. It stores the posts as feed units, continuing the position sequence, releases the lease and serves the first page in the same response. The lease is released whatever happens, also when the client went away, in which case the cancellation reaches MongoDB and the gRPC call.
 4. If another trigger holds the lease it makes no call: it polls the stored feed for a short wait, and serves the page if units appear.
 
@@ -104,7 +104,7 @@ A retry on a timeout runs the pipeline again, so the limit per attempt (10 s) is
 | `FEED_PREFETCH_MAX_UNSERVED` | `60` | Unserved items at which every trigger skips. Not below `FEED_DEFAULT_PAGE_SIZE`. |
 | `FEED_PREFETCH_EXCLUDED_IDS_CAP` | `200` | Most ids sent as `excludedPostIds`. Not below `FEED_PREFETCH_MAX_UNSERVED`. |
 | `FEED_PREFETCH_TIMEOUT_MS` | `5000` | Time limit of one prefetch request. |
-| `FEED_LEASE_TTL_MS` | `300000` | When an unanswered lease expires. Must exceed queue plus pipeline time, and `RECOMMENDATION_GRPC_OVERALL_TIMEOUT_MS`. The pipeline takes seconds; queue time is an estimate. |
+| `FEED_LEASE_TTL_MS` | `300000` | When an unanswered asynchronous lease expires. Must exceed queue plus pipeline time. The pipeline takes seconds; queue time is an estimate. |
 | `FEED_LEASE_RELEASE_TIMEOUT_MS` | `5000` | Time limit of a lease release. |
 | `FEED_LOW_WATERMARK_CONCURRENCY` | `16` | Background low watermark checks at once. |
 | `FEED_SWEEP_INTERVAL_MS` | `60000` | Pause between sweeps. |
@@ -113,6 +113,7 @@ A retry on a timeout runs the pipeline again, so the limit per attempt (10 s) is
 | `FEED_REFILL_LEASE_WAIT_MS` | `8000` | How long a claim waits for a build in flight. Just above the slowest measured run. |
 | `FEED_REFILL_POLL_INTERVAL_MS` | `250` | Pause between reads during that wait. Not above the wait. |
 | `FEED_REFILL_RETRY_AFTER_SECONDS` | `5` | `Retry-After` of the 503. |
+| `FEED_REFILL_LEASE_TTL_MS` | `30000` | When the lease of a synchronous refill expires if its pod dies mid-call. Must exceed `RECOMMENDATION_GRPC_OVERALL_TIMEOUT_MS` and not exceed `FEED_LEASE_TTL_MS`. |
 | `RECOMMENDATION_GRPC_ADDR` | required | gRPC target: `dns:///recommendation-service.recommendation-service-<env>.svc.cluster.local:50051`, or `dns:///recommendation-service:50051` in compose. |
 | `RECOMMENDATION_GRPC_DIAL_TIMEOUT_MS` | `2000` | Time limit of one connection attempt. |
 | `RECOMMENDATION_GRPC_PER_RETRY_TIMEOUT_MS` | `10000` | Time limit of one attempt. Must exceed the pipeline's duration. |

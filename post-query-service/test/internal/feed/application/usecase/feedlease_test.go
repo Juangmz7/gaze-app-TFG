@@ -37,7 +37,7 @@ func (f *fakeFeedLeaseRepository) ReleaseFeedLease(ctx context.Context, _, token
 	return f.released, f.releaseErr
 }
 
-var testLeaseConfig = usecase.FeedLeaseConfig{Owner: "replica-1", TTL: time.Minute, ReleaseTimeout: time.Second}
+var testLeaseConfig = usecase.FeedLeaseConfig{Owner: "replica-1", TTL: time.Minute, RequestTTL: 30 * time.Second, ReleaseTimeout: time.Second}
 
 func TestFeedLeaseManager_Acquire_TakesTheLeaseWithANewTokenAndTheConfiguredExpiry(t *testing.T) {
 	repository := &fakeFeedLeaseRepository{}
@@ -61,6 +61,21 @@ func TestFeedLeaseManager_Acquire_TakesTheLeaseWithANewTokenAndTheConfiguredExpi
 	}
 	if got := first.ExpiresAt.Sub(repository.acquireNow[0]); got != time.Minute {
 		t.Fatalf("lease expires %s after now, want the TTL", got)
+	}
+}
+
+// A synchronous refill only has to outlive its call: a holder that dies mid-call must
+// not block the user's empty feed for the asynchronous TTL.
+func TestFeedLeaseManager_AcquireForRequest_ExpiresAfterTheRequestTTL(t *testing.T) {
+	repository := &fakeFeedLeaseRepository{}
+	manager := usecase.NewFeedLeaseManager(repository, testLeaseConfig, discardLogger())
+
+	lease, acquired, err := manager.AcquireForRequest(context.Background(), uuid.New(), "corr-1")
+	if err != nil || !acquired {
+		t.Fatalf("AcquireForRequest() = %v, %v; want acquired", acquired, err)
+	}
+	if got := lease.ExpiresAt.Sub(repository.acquireNow[0]); got != testLeaseConfig.RequestTTL {
+		t.Fatalf("lease lasts %s, want the request TTL %s", got, testLeaseConfig.RequestTTL)
 	}
 }
 

@@ -40,7 +40,7 @@ env:
   FEED_PREFETCH_EXCLUDED_IDS_CAP: "200"
   FEED_PREFETCH_TIMEOUT_MS: "5000"
   # Must exceed queue time plus pipeline time (seconds, see below); queue time is an
-  # estimate. Also above RECOMMENDATION_GRPC_OVERALL_TIMEOUT_MS.
+  # estimate.
   FEED_LEASE_TTL_MS: "300000"
   FEED_LEASE_RELEASE_TIMEOUT_MS: "5000"
   FEED_LOW_WATERMARK_CONCURRENCY: "16"
@@ -52,6 +52,9 @@ env:
   FEED_REFILL_LEASE_WAIT_MS: "8000"
   FEED_REFILL_POLL_INTERVAL_MS: "250"
   FEED_REFILL_RETRY_AFTER_SECONDS: "5"
+  # Lease of a synchronous refill, if its pod dies mid-call: above
+  # RECOMMENDATION_GRPC_OVERALL_TIMEOUT_MS plus storing the posts.
+  FEED_REFILL_LEASE_TTL_MS: "30000"
   # gRPC client. RECOMMENDATION_GRPC_ADDR is per environment. Pipeline measured on CPU in
   # WSL with 20000 posts, not in production: p50 4.4 s, 5.1 s at most, 7.7 s at most with
   # two runs at once. A retry on a timeout runs it again, so the per-retry timeout is above
