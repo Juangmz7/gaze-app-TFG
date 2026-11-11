@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/Juangmz7/TFG/common-packages/go-utils/auth"
 	"github.com/Juangmz7/TFG/common-packages/go-utils/common"
@@ -55,10 +56,16 @@ func RegisterRoutes(mux *http.ServeMux, authenticate func(http.Handler) http.Han
 }
 
 // withTraceContext continues the caller's W3C trace, so a call to another service
-// carries it. A missing or invalid traceparent leaves the context as it was.
+// carries it. A missing or invalid traceparent leaves the context as it was. Only
+// without a span already in the context: behind otelhttp the server span is a child
+// of the caller's, and replacing it with the remote one would parent the downstream
+// spans (gRPC, outbox events) and the log span_id on the caller instead of on it.
 func withTraceContext(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := propagation.TraceContext{}.Extract(r.Context(), propagation.HeaderCarrier(r.Header))
+		ctx := r.Context()
+		if !trace.SpanContextFromContext(ctx).IsValid() {
+			ctx = propagation.TraceContext{}.Extract(ctx, propagation.HeaderCarrier(r.Header))
+		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

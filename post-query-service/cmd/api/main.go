@@ -126,6 +126,10 @@ func run() error {
 		Logger:         slog.Default(),
 	})
 	if err != nil {
+		// The relay already runs: stop it before the deferred publisher close and
+		// Mongo disconnect, so they never race a batch in flight.
+		stop()
+		<-outboxDone
 		return err
 	}
 	defer func() {
