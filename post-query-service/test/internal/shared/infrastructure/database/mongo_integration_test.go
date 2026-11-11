@@ -42,6 +42,7 @@ func TestConnect_SucceedsAgainstARealMongoInstanceLoadedFromEnvironment(t *testi
 	t.Setenv("JWKS_URL", "http://keycloak:8080/certs")
 	t.Setenv("JWT_ISSUER", "http://localhost:8080/realms/auth-service")
 	t.Setenv("JWT_AUDIENCE", "account")
+	t.Setenv("RECOMMENDATION_GRPC_ADDR", "dns:///recommendation-service:50051")
 
 	cfg, err := config.Load()
 	if err != nil {

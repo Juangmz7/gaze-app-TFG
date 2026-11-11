@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -31,7 +32,8 @@ type Publisher interface {
 // RelayConfig tunes the relay loop.
 type RelayConfig struct {
 	// Interval is the pause between batches. Events are normally published
-	// right after their commit (RelayImmediately); the batch is the safety net.
+	// right after their commit, in the background (RelayImmediately); the batch
+	// is the safety net.
 	Interval time.Duration
 	// BatchSize caps how many events one batch claims.
 	BatchSize int
@@ -40,6 +42,14 @@ type RelayConfig struct {
 	// LockTimeout is how long a PROCESSING claim is honored before another
 	// relay may reclaim it. It must exceed the publisher's confirm timeout.
 	LockTimeout time.Duration
+	// ImmediateConcurrency bounds the immediate sends in flight. When they are all
+	// busy (a slow broker) an event is simply left to the next batch.
+	ImmediateConcurrency int
+	// ImmediateTimeout bounds one immediate send, which outlives its caller.
+	ImmediateTimeout time.Duration
+	// ShutdownWait bounds how long Wait waits for the immediate sends in flight.
+	// Whatever does not finish in time is recovered by a batch.
+	ShutdownWait time.Duration
 }
 
 // DefaultRelayConfig returns the settings used in production.
@@ -49,6 +59,11 @@ func DefaultRelayConfig() RelayConfig {
 		BatchSize:   100,
 		MaxAttempts: 10,
 		LockTimeout: 60 * time.Second,
+		// Publishes are serialized by AMQPPublisher, so more than a few in flight
+		// would only queue up behind a slow broker.
+		ImmediateConcurrency: 8,
+		ImmediateTimeout:     20 * time.Second,
+		ShutdownWait:         15 * time.Second,
 	}
 }
 
@@ -58,11 +73,35 @@ type Relay struct {
 	publisher Publisher
 	cfg       RelayConfig
 	logger    *slog.Logger
+
+	// mu orders stopping against immediateInFlight.Add, so Wait cannot miss a send.
+	mu                sync.Mutex
+	stopping          bool
+	immediateSlots    chan struct{}
+	immediateInFlight sync.WaitGroup
 }
 
-// NewRelay creates a Relay.
+// NewRelay creates a Relay. Call Wait on shutdown, after whatever stores events has
+// stopped and before closing the publisher.
 func NewRelay(store RelayStore, publisher Publisher, cfg RelayConfig, logger *slog.Logger) *Relay {
-	return &Relay{store: store, publisher: publisher, cfg: cfg, logger: logger}
+	defaults := DefaultRelayConfig()
+	if cfg.ImmediateConcurrency <= 0 {
+		cfg.ImmediateConcurrency = defaults.ImmediateConcurrency
+	}
+	if cfg.ImmediateTimeout <= 0 {
+		cfg.ImmediateTimeout = defaults.ImmediateTimeout
+	}
+	if cfg.ShutdownWait <= 0 {
+		cfg.ShutdownWait = defaults.ShutdownWait
+	}
+
+	return &Relay{
+		store:          store,
+		publisher:      publisher,
+		cfg:            cfg,
+		logger:         logger,
+		immediateSlots: make(chan struct{}, cfg.ImmediateConcurrency),
+	}
 }
 
 // Start runs the relay loop in its own goroutine until ctx is cancelled. The
@@ -121,12 +160,70 @@ func (r *Relay) RelayBatch(ctx context.Context) error {
 	return nil
 }
 
-// RelayImmediately is the low-latency path: called right after the
-// transaction that stored event id commits (see Store.SendImmediatelyWith),
-// it publishes that event through the same claim, confirm and mark steps as
-// RelayBatch. It is best effort: when the broker is unreachable or the publish
-// fails, the event is left to the next batch.
+// RelayImmediately is the low-latency path: called right after the transaction
+// that stored event id commits (see Store.SendImmediatelyWith), it starts the
+// publish in the background and returns at once, so a slow broker never holds up
+// the caller, who may be answering an HTTP request. The send is detached from the
+// caller's cancellation and bounded by ImmediateTimeout. It is best effort: with
+// every slot busy, while stopping, when the broker is unreachable or when the
+// publish fails, the event is left to the next batch.
 func (r *Relay) RelayImmediately(ctx context.Context, id uuid.UUID) {
+	if !r.reserveImmediateSlot(id) {
+		return
+	}
+
+	sendCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), r.cfg.ImmediateTimeout)
+	go func() {
+		defer func() {
+			cancel()
+			<-r.immediateSlots
+			r.immediateInFlight.Done()
+		}()
+		r.sendImmediately(sendCtx, id)
+	}()
+}
+
+// Wait stops new immediate sends and waits for those in flight, up to ShutdownWait.
+func (r *Relay) Wait() {
+	r.mu.Lock()
+	r.stopping = true
+	r.mu.Unlock()
+
+	done := make(chan struct{})
+	go func() {
+		r.immediateInFlight.Wait()
+		close(done)
+	}()
+
+	timer := time.NewTimer(r.cfg.ShutdownWait)
+	defer timer.Stop()
+	select {
+	case <-done:
+	case <-timer.C:
+		r.logger.Warn("outbox immediate sends still running at shutdown, left to a relay batch", "waited", r.cfg.ShutdownWait)
+	}
+}
+
+func (r *Relay) reserveImmediateSlot(id uuid.UUID) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.stopping {
+		return false
+	}
+	select {
+	case r.immediateSlots <- struct{}{}:
+		r.immediateInFlight.Add(1)
+		return true
+	default:
+		r.logger.Info("outbox immediate sends all busy, event left to the relay batch", "id", id)
+		return false
+	}
+}
+
+// sendImmediately publishes one event through the same claim, confirm and mark
+// steps as RelayBatch.
+func (r *Relay) sendImmediately(ctx context.Context, id uuid.UUID) {
 	// Same reason as RelayBatch: do not spend an attempt while the broker is down
 	if err := r.publisher.Ready(ctx); err != nil {
 		return

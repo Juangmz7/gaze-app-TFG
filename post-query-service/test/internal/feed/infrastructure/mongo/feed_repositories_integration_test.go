@@ -858,3 +858,470 @@ func TestSessionRepository_RecordDisconnect_IsBoundedByTheCallersDeadline(t *tes
 		t.Fatalf("maxTimeMS = %v, want one write bounded by the caller's 60s, not 5s", maxTimeMS)
 	}
 }
+
+func newLease(userID uuid.UUID, expiresAt time.Time) usecase.FeedLease {
+	return usecase.FeedLease{UserID: userID, Owner: "replica-1", Token: uuid.New(), ExpiresAt: expiresAt}
+}
+
+func readLease(t *testing.T, ctx context.Context, db *mongodriver.Database, userID uuid.UUID) (token string, expiresAt *time.Time, owner string) {
+	t.Helper()
+	var document struct {
+		Owner     *string    `bson:"prefetch_lease_owner"`
+		Token     *string    `bson:"prefetch_lease_token"`
+		ExpiresAt *time.Time `bson:"prefetch_lease_expires_at"`
+	}
+	if err := db.Collection("user_feed_sessions").FindOne(ctx, bson.D{{Key: "user_id", Value: userID.String()}}).Decode(&document); err != nil {
+		t.Fatalf("FindOne() error = %v", err)
+	}
+	if document.Token != nil {
+		token = *document.Token
+	}
+	if document.Owner != nil {
+		owner = *document.Owner
+	}
+	return token, document.ExpiresAt, owner
+}
+
+// Both ways the race can look: a user with no document at all, and one who has a
+// document without a lease.
+func TestSessionRepository_AcquireFeedLease_GrantsItToExactlyOneOfManyConcurrentAcquirers(t *testing.T) {
+	tests := []struct {
+		name          string
+		hasPresence   bool
+		wantDocuments int64
+	}{
+		{"no presence document", false, 1},
+		{"existing presence document", true, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := testContext(t)
+			db := testDatabase(t)
+			repository := sessionRepository(t, ctx, db)
+			userID := uuid.New()
+			if tt.hasPresence {
+				if err := repository.RecordHeartbeat(ctx, userID, time.Now().UTC()); err != nil {
+					t.Fatalf("RecordHeartbeat() error = %v", err)
+				}
+			}
+
+			const workers = 16
+			now := time.Now().UTC()
+			results := make(chan error, workers)
+			var wg sync.WaitGroup
+			for range workers {
+				wg.Go(func() {
+					results <- repository.AcquireFeedLease(ctx, newLease(userID, now.Add(time.Minute)), now)
+				})
+			}
+			wg.Wait()
+			close(results)
+
+			granted := 0
+			for err := range results {
+				switch {
+				case err == nil:
+					granted++
+				case !errors.Is(err, usecase.ErrFeedLeaseDenied):
+					t.Fatalf("AcquireFeedLease() error = %v, want nil or denied", err)
+				}
+			}
+			if granted != 1 {
+				t.Fatalf("granted = %d, want exactly 1", granted)
+			}
+
+			count, err := db.Collection("user_feed_sessions").CountDocuments(ctx, bson.D{{Key: "user_id", Value: userID.String()}})
+			if err != nil || count != tt.wantDocuments {
+				t.Fatalf("documents = %d, %v; want %d", count, err, tt.wantDocuments)
+			}
+		})
+	}
+}
+
+func TestSessionRepository_AcquireFeedLease_CreatesACompleteDocumentForANewUser(t *testing.T) {
+	ctx := testContext(t)
+	db := testDatabase(t)
+	repository := sessionRepository(t, ctx, db)
+	userID := uuid.New()
+	now := time.Now().UTC()
+	lease := newLease(userID, now.Add(time.Minute))
+
+	if err := repository.AcquireFeedLease(ctx, lease, now); err != nil {
+		t.Fatalf("AcquireFeedLease() error = %v", err)
+	}
+
+	token, expiresAt, owner := readLease(t, ctx, db, userID)
+	if token != lease.Token.String() || owner != "replica-1" || expiresAt == nil {
+		t.Fatalf("lease = %s/%v/%s", token, expiresAt, owner)
+	}
+	var document bson.M
+	if err := db.Collection("user_feed_sessions").FindOne(ctx, bson.D{{Key: "user_id", Value: userID.String()}}).Decode(&document); err != nil {
+		t.Fatalf("FindOne() error = %v", err)
+	}
+	for _, field := range []string{"last_heartbeat_date", "disconnected_at", "last_prefetch_at", "prefetch_due", "next_position"} {
+		if _, found := document[field]; !found {
+			t.Fatalf("document = %v misses %s", document, field)
+		}
+	}
+	if document["prefetch_due"] != false {
+		t.Fatalf("prefetch_due = %v, want false: a user with no heartbeat is not due", document["prefetch_due"])
+	}
+}
+
+// The recovery from a crashed instance.
+func TestSessionRepository_AcquireFeedLease_GrantsItAgainOnceTheTTLHasExpired(t *testing.T) {
+	ctx := testContext(t)
+	repository := sessionRepository(t, ctx, testDatabase(t))
+	userID := uuid.New()
+	now := time.Now().UTC()
+
+	if err := repository.AcquireFeedLease(ctx, newLease(userID, now.Add(time.Minute)), now); err != nil {
+		t.Fatalf("AcquireFeedLease() error = %v", err)
+	}
+	if err := repository.AcquireFeedLease(ctx, newLease(userID, now.Add(2*time.Minute)), now.Add(59*time.Second)); !errors.Is(err, usecase.ErrFeedLeaseDenied) {
+		t.Fatalf("AcquireFeedLease() before expiry error = %v, want denied", err)
+	}
+	if err := repository.AcquireFeedLease(ctx, newLease(userID, now.Add(3*time.Minute)), now.Add(time.Minute+time.Second)); err != nil {
+		t.Fatalf("AcquireFeedLease() after expiry error = %v, want granted", err)
+	}
+}
+
+func TestSessionRepository_ReleaseFeedLease_OnlyTheCurrentTokenReleasesIt(t *testing.T) {
+	ctx := testContext(t)
+	db := testDatabase(t)
+	repository := sessionRepository(t, ctx, db)
+	userID := uuid.New()
+	now := time.Now().UTC()
+	lease := newLease(userID, now.Add(time.Minute))
+	if err := repository.AcquireFeedLease(ctx, lease, now); err != nil {
+		t.Fatalf("AcquireFeedLease() error = %v", err)
+	}
+
+	released, err := repository.ReleaseFeedLease(ctx, userID, uuid.New())
+	if err != nil || released {
+		t.Fatalf("ReleaseFeedLease(other token) = %v, %v; want not released", released, err)
+	}
+	if token, _, _ := readLease(t, ctx, db, userID); token != lease.Token.String() {
+		t.Fatalf("token = %s, want the lease untouched", token)
+	}
+
+	released, err = repository.ReleaseFeedLease(ctx, userID, lease.Token)
+	if err != nil || !released {
+		t.Fatalf("ReleaseFeedLease(token) = %v, %v; want released", released, err)
+	}
+	if token, expiresAt, owner := readLease(t, ctx, db, userID); token != "" || expiresAt != nil || owner != "" {
+		t.Fatalf("lease = %s/%v/%s, want it cleared", token, expiresAt, owner)
+	}
+
+	// Free again, and a second release finds nothing.
+	if err := repository.AcquireFeedLease(ctx, newLease(userID, now.Add(time.Minute)), now); err != nil {
+		t.Fatalf("AcquireFeedLease() after release error = %v", err)
+	}
+	if released, err := repository.ReleaseFeedLease(ctx, userID, lease.Token); err != nil || released {
+		t.Fatalf("second ReleaseFeedLease() = %v, %v; want not released", released, err)
+	}
+}
+
+func TestSessionRepository_ReleaseFeedLease_NeverCreatesADocument(t *testing.T) {
+	ctx := testContext(t)
+	db := testDatabase(t)
+	repository := sessionRepository(t, ctx, db)
+	userID := uuid.New()
+
+	if released, err := repository.ReleaseFeedLease(ctx, userID, uuid.New()); err != nil || released {
+		t.Fatalf("ReleaseFeedLease() = %v, %v", released, err)
+	}
+	if err := repository.MarkPrefetched(ctx, userID, time.Now().UTC()); err != nil {
+		t.Fatalf("MarkPrefetched() error = %v", err)
+	}
+	if err := repository.ClearPrefetchDue(ctx, userID); err != nil {
+		t.Fatalf("ClearPrefetchDue() error = %v", err)
+	}
+
+	count, err := db.Collection("user_feed_sessions").CountDocuments(ctx, bson.D{})
+	if err != nil || count != 0 {
+		t.Fatalf("documents = %d, %v; want none, so a deleted user does not come back", count, err)
+	}
+}
+
+func TestSessionRepository_RecordDisconnect_LeavesTheUserDueSoTheSweeperCoversAFailedPrefetch(t *testing.T) {
+	ctx := testContext(t)
+	db := testDatabase(t)
+	repository := sessionRepository(t, ctx, db)
+	userID := uuid.New()
+
+	if err := repository.RecordDisconnect(ctx, userID, time.Now().UTC()); err != nil {
+		t.Fatalf("RecordDisconnect() error = %v", err)
+	}
+
+	var document struct {
+		PrefetchDue bool `bson:"prefetch_due"`
+	}
+	if err := db.Collection("user_feed_sessions").FindOne(ctx, bson.D{{Key: "user_id", Value: userID.String()}}).Decode(&document); err != nil {
+		t.Fatalf("FindOne() error = %v", err)
+	}
+	if !document.PrefetchDue {
+		t.Fatal("prefetch_due = false, want true")
+	}
+}
+
+func TestSessionRepository_FindStaleSessions_SelectsOnlyDueUsersWithAnOldHeartbeat(t *testing.T) {
+	ctx := testContext(t)
+	repository := sessionRepository(t, ctx, testDatabase(t))
+	now := time.Now().UTC()
+	staleBefore := now.Add(-3 * time.Minute)
+
+	older, old, fresh, prefetched, registered := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	for userID, heartbeat := range map[uuid.UUID]time.Time{
+		older:      now.Add(-time.Hour),
+		old:        now.Add(-4 * time.Minute),
+		fresh:      now.Add(-time.Minute),
+		prefetched: now.Add(-time.Hour),
+	} {
+		if err := repository.RecordHeartbeat(ctx, userID, heartbeat); err != nil {
+			t.Fatalf("RecordHeartbeat() error = %v", err)
+		}
+	}
+	// Built after the last heartbeat: a dormant user must not be queued again.
+	if err := repository.MarkPrefetched(ctx, prefetched, now); err != nil {
+		t.Fatalf("MarkPrefetched() error = %v", err)
+	}
+	// Registered and never seen: no heartbeat to be stale.
+	if err := repository.AcquireFeedLease(ctx, newLease(registered, now.Add(time.Minute)), now); err != nil {
+		t.Fatalf("AcquireFeedLease() error = %v", err)
+	}
+
+	sessions, err := repository.FindStaleSessions(ctx, staleBefore, nil, 10)
+	if err != nil {
+		t.Fatalf("FindStaleSessions() error = %v", err)
+	}
+
+	if len(sessions) != 2 || sessions[0].UserID != older || sessions[1].UserID != old {
+		t.Fatalf("sessions = %+v, want [%v %v], oldest first", sessions, older, old)
+	}
+
+	// A later heartbeat makes a prefetched user due again.
+	if err := repository.RecordHeartbeat(ctx, prefetched, now.Add(-5*time.Minute)); err != nil {
+		t.Fatalf("RecordHeartbeat() error = %v", err)
+	}
+	sessions, err = repository.FindStaleSessions(ctx, staleBefore, nil, 10)
+	if err != nil || len(sessions) != 3 {
+		t.Fatalf("sessions = %+v, %v; want the prefetched user due again", sessions, err)
+	}
+}
+
+func TestSessionRepository_FindStaleSessions_PagesWithTheCursorThroughTheIndex(t *testing.T) {
+	ctx := testContext(t)
+	db := testDatabase(t)
+	repository := sessionRepository(t, ctx, db)
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	users := []uuid.UUID{uuid.New(), uuid.New(), uuid.New()}
+	for index, userID := range users {
+		if err := repository.RecordHeartbeat(ctx, userID, now.Add(time.Duration(index-10)*time.Minute)); err != nil {
+			t.Fatalf("RecordHeartbeat() error = %v", err)
+		}
+	}
+
+	first, err := repository.FindStaleSessions(ctx, now, nil, 2)
+	if err != nil || len(first) != 2 || first[0].UserID != users[0] || first[1].UserID != users[1] {
+		t.Fatalf("first batch = %+v, %v", first, err)
+	}
+	second, err := repository.FindStaleSessions(ctx, now, &first[1].LastHeartbeatDate, 2)
+	if err != nil || len(second) != 1 || second[0].UserID != users[2] {
+		t.Fatalf("second batch = %+v, %v", second, err)
+	}
+
+	var plan bson.M
+	explain := bson.D{{Key: "explain", Value: bson.D{
+		{Key: "find", Value: "user_feed_sessions"},
+		{Key: "filter", Value: bson.D{{Key: "prefetch_due", Value: true}, {Key: "last_heartbeat_date", Value: bson.D{{Key: "$lt", Value: now}}}}},
+		{Key: "sort", Value: bson.D{{Key: "last_heartbeat_date", Value: 1}}},
+		{Key: "limit", Value: 2},
+	}}}
+	if err := db.RunCommand(ctx, explain).Decode(&plan); err != nil {
+		t.Fatalf("explain error = %v", err)
+	}
+	encoded, err := bson.MarshalExtJSON(plan["queryPlanner"], false, false)
+	if err != nil {
+		t.Fatalf("MarshalExtJSON() error = %v", err)
+	}
+	winning := string(encoded)
+	if !strings.Contains(winning, "prefetch_due_1_last_heartbeat_date_1") || strings.Contains(winning, `"COLLSCAN"`) || strings.Contains(winning, `"SORT"`) {
+		t.Fatalf("query plan = %s, want the index with no scan or sort", winning)
+	}
+}
+
+func seedUnits(t *testing.T, ctx context.Context, repository *feedmongo.FeedUnitRepository, userID string, count int, firstPosition int64) []string {
+	t.Helper()
+	postIDs := make([]string, 0, count)
+	units := make([]usecase.FeedUnit, 0, count)
+	for index := range count {
+		postID := uuid.NewString()
+		postIDs = append(postIDs, postID)
+		units = append(units, usecase.FeedUnit{UserID: userID, PostID: postID, Position: firstPosition + int64(index), PostType: usecase.FeedPostTypeBasic, IngestedAt: time.Now().UTC()})
+	}
+	if _, err := repository.InsertUnits(ctx, units); err != nil {
+		t.Fatalf("InsertUnits() error = %v", err)
+	}
+	return postIDs
+}
+
+func TestFeedUnitRepository_CountUnserved_CountsOnlyTheUsersUnservedUnitsUpToTheLimit(t *testing.T) {
+	ctx := testContext(t)
+	repository := feedmongo.NewFeedUnitRepository(testDatabase(t))
+	if err := repository.EnsureIndexes(ctx, time.Hour); err != nil {
+		t.Fatalf("EnsureIndexes() error = %v", err)
+	}
+	userID, other := uuid.NewString(), uuid.NewString()
+	postIDs := seedUnits(t, ctx, repository, userID, 4, 0)
+	seedUnits(t, ctx, repository, other, 2, 0)
+	if err := repository.MarkServed(ctx, userID, postIDs[:1], time.Now().UTC()); err != nil {
+		t.Fatalf("MarkServed() error = %v", err)
+	}
+
+	if count, err := repository.CountUnserved(ctx, userID, 10); err != nil || count != 3 {
+		t.Fatalf("CountUnserved() = %d, %v; want 3", count, err)
+	}
+	if count, err := repository.CountUnserved(ctx, userID, 2); err != nil || count != 2 {
+		t.Fatalf("CountUnserved(limit 2) = %d, %v; want 2", count, err)
+	}
+}
+
+func TestFeedUnitRepository_FindRecentlyServedPostIDs_ReturnsTheMostRecentFirst(t *testing.T) {
+	ctx := testContext(t)
+	repository := feedmongo.NewFeedUnitRepository(testDatabase(t))
+	if err := repository.EnsureIndexes(ctx, time.Hour); err != nil {
+		t.Fatalf("EnsureIndexes() error = %v", err)
+	}
+	userID := uuid.NewString()
+	postIDs := seedUnits(t, ctx, repository, userID, 5, 0)
+	now := time.Now().UTC()
+	if err := repository.MarkServed(ctx, userID, postIDs[:2], now.Add(-time.Hour)); err != nil {
+		t.Fatalf("MarkServed() error = %v", err)
+	}
+	if err := repository.MarkServed(ctx, userID, postIDs[2:4], now); err != nil {
+		t.Fatalf("MarkServed() error = %v", err)
+	}
+
+	got, err := repository.FindRecentlyServedPostIDs(ctx, userID, 3)
+	if err != nil {
+		t.Fatalf("FindRecentlyServedPostIDs() error = %v", err)
+	}
+
+	// The last batch first, later positions first within it; never the unserved one.
+	if want := []string{postIDs[3], postIDs[2], postIDs[1]}; !slices.Equal(got, want) {
+		t.Fatalf("got = %v, want %v", got, want)
+	}
+}
+
+// pastDeadlineContext is the moment the driver refuses a read: the deadline is on the
+// clock, and the context's timer has not run, so Err is still nil and nothing is done.
+type pastDeadlineContext struct {
+	context.Context
+	deadline time.Time
+}
+
+func withPastDeadline(ctx context.Context) pastDeadlineContext {
+	return pastDeadlineContext{Context: ctx, deadline: time.Now().Add(-time.Millisecond)}
+}
+
+func (c pastDeadlineContext) Deadline() (time.Time, bool) { return c.deadline, true }
+
+func TestFeedUnitRepository_HasAfterPosition_ReportsARefusedReadAsTheCallersDeadline(t *testing.T) {
+	ctx := testContext(t)
+	repository := unitRepository(t, ctx, testDatabase(t))
+
+	_, err := repository.HasAfterPosition(withPastDeadline(context.Background()), "v", nil, true)
+
+	if !errors.Is(err, usecase.ErrCallerDeadlineEndedRead) || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error = %v, want the driver's refusal reported as the caller's deadline", err)
+	}
+}
+
+// refusingUnits reads through the real driver at the moment it refuses the read.
+type refusingUnits struct {
+	*feedmongo.FeedUnitRepository
+}
+
+func (r refusingUnits) HasAfterPosition(ctx context.Context, userID string, afterPosition *int64, unservedOnly bool) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	return r.FeedUnitRepository.HasAfterPosition(withPastDeadline(ctx), userID, afterPosition, unservedOnly)
+}
+
+func TestRefillFeedUsecase_WithTheRealDriver_ARefusedReadIsDegraded(t *testing.T) {
+	ctx := testContext(t)
+	db := testDatabase(t)
+	sessions := sessionRepository(t, ctx, db)
+	units := unitRepository(t, ctx, db)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	lease := usecase.NewFeedLeaseManager(sessions, usecase.FeedLeaseConfig{Owner: "replica-1", TTL: time.Minute, ReleaseTimeout: 5 * time.Second}, logger)
+	backlog := usecase.NewFeedBacklog(units, usecase.FeedBacklogConfig{MaxUnserved: 60, ExcludedIDsCap: 200}, logger)
+	refill := usecase.NewRefillFeed(refusingUnits{units}, lease, backlog, nil, nil, usecase.RefillFeedConfig{
+		LeaseWait:    50 * time.Millisecond,
+		PollInterval: 5 * time.Millisecond,
+		RetryAfter:   time.Second,
+	}, logger)
+	userID := uuid.New()
+	if _, acquired, err := lease.AcquireForRequest(ctx, userID, "corr-1"); err != nil || !acquired {
+		t.Fatalf("AcquireForRequest() = %v, %v", acquired, err)
+	}
+
+	_, err := refill.Execute(ctx, usecase.RefillFeedInput{UserID: userID, CorrelationID: "corr-1"})
+
+	if !errors.Is(err, usecase.ErrFeedTemporarilyUnavailable) {
+		t.Fatalf("error = %v, want the degraded response", err)
+	}
+}
+
+// With nothing to connect to, the read ends on operationTimeout, well before the caller's
+// deadline: that is the store failing to answer, which the wait must not forgive.
+func TestFeedUnitRepository_HasAfterPosition_ATimeoutOnItsOwnLimitIsNotTheCallersDeadline(t *testing.T) {
+	client, err := mongodriver.Connect(options.Client().ApplyURI("mongodb://127.0.0.1:1/?serverSelectionTimeoutMS=60000"))
+	if err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := client.Disconnect(context.Background()); err != nil {
+			t.Errorf("Disconnect() error = %v", err)
+		}
+	})
+	repository := feedmongo.NewFeedUnitRepository(client.Database("unreachable"))
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	_, err = repository.HasAfterPosition(ctx, "v", nil, true)
+
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error = %v, want the operation's timeout", err)
+	}
+	if errors.Is(err, usecase.ErrCallerDeadlineEndedRead) {
+		t.Fatalf("error = %v, reported as the caller's deadline with time left", err)
+	}
+}
+
+// The caller's 3 s is under operationTimeout, so the operation carries the caller's
+// deadline and only the kind of error tells this failure from the end of the wait. A
+// client that is gone is a MongoDB failure, however close the deadline is.
+func TestFeedUnitRepository_HasAfterPosition_AFailureThatIsNotATimeoutIsNotTheCallersDeadline(t *testing.T) {
+	client, err := mongodriver.Connect(options.Client().ApplyURI("mongodb://127.0.0.1:1"))
+	if err != nil {
+		t.Fatalf("Connect() error = %v", err)
+	}
+	if err := client.Disconnect(context.Background()); err != nil {
+		t.Fatalf("Disconnect() error = %v", err)
+	}
+	repository := feedmongo.NewFeedUnitRepository(client.Database("disconnected"))
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	_, err = repository.HasAfterPosition(ctx, "v", nil, true)
+
+	if !errors.Is(err, mongodriver.ErrClientDisconnected) {
+		t.Fatalf("error = %v, want the disconnected client's failure", err)
+	}
+	if errors.Is(err, usecase.ErrCallerDeadlineEndedRead) {
+		t.Fatalf("error = %v, reported as the caller's deadline", err)
+	}
+}

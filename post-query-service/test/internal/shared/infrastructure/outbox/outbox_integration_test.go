@@ -407,7 +407,8 @@ func TestRelay_PublishesRightAfterTheCommitWithoutWaitingForABatch(t *testing.T)
 	publisher := outbox.NewAMQPPublisher(amqpURI, quietLogger())
 	t.Cleanup(func() { publisher.Close() })
 	// No Start/RelayBatch: only the immediate path can publish
-	store.SendImmediatelyWith(outbox.NewRelay(store, publisher, outbox.DefaultRelayConfig(), quietLogger()))
+	relay := outbox.NewRelay(store, publisher, outbox.DefaultRelayConfig(), quietLogger())
+	store.SendImmediatelyWith(relay)
 
 	event, _ := outbox.NewPendingEvent(uuid.New(), uuid.New(), "TestEvent", testExchange, testRoutingKey,
 		map[string]string{"hello": "world"})
@@ -417,15 +418,71 @@ func TestRelay_PublishesRightAfterTheCommitWithoutWaitingForABatch(t *testing.T)
 		t.Fatalf("WithTransaction() error = %v", err)
 	}
 
-	// Published synchronously before WithTransaction returned
-	if stored := findEvent(t, ctx, db, event.ID); stored.Status != outbox.StatusProcessed || stored.Attempts != 1 {
-		t.Fatalf("stored = %+v, want PROCESSED after one attempt", stored)
-	}
+	// Published in the background: WithTransaction may return first
 	select {
 	case delivery := <-deliveries:
 		assertDelivery(t, delivery, event)
 	case <-time.After(20 * time.Second):
 		t.Fatal("timed out waiting for the immediately relayed event")
+	}
+	relay.Wait()
+	if stored := findEvent(t, ctx, db, event.ID); stored.Status != outbox.StatusProcessed || stored.Attempts != 1 {
+		t.Fatalf("stored = %+v, want PROCESSED after one attempt", stored)
+	}
+}
+
+// failingOncePublisher makes the first publish fail, as a broker hiccup would.
+type failingOncePublisher struct {
+	outbox.Publisher
+	failed bool
+}
+
+func (p *failingOncePublisher) Publish(ctx context.Context, event outbox.Event) error {
+	if !p.failed {
+		p.failed = true
+		return errors.New("broker refused the publish")
+	}
+	return p.Publisher.Publish(ctx, event)
+}
+
+func TestRelay_TheBatchPublishesAnEventTheImmediateSendCouldNot(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	client := startReplicaSetMongo(t, ctx)
+	db := client.Database("outbox_safety_net_test")
+	amqpURI := startRabbitMQ(t, ctx)
+	store := newStore(t, ctx, db)
+	deliveries := bindVerificationQueue(t, ctx, amqpURI, testExchange, testRoutingKey)
+
+	amqpPublisher := outbox.NewAMQPPublisher(amqpURI, quietLogger())
+	t.Cleanup(func() { amqpPublisher.Close() })
+	relay := outbox.NewRelay(store, &failingOncePublisher{Publisher: amqpPublisher}, outbox.DefaultRelayConfig(), quietLogger())
+	store.SendImmediatelyWith(relay)
+
+	event, _ := outbox.NewPendingEvent(uuid.New(), uuid.New(), "TestEvent", testExchange, testRoutingKey, "payload")
+	if err := database.WithTransaction(ctx, client, func(ctx context.Context) error {
+		return store.Add(ctx, event)
+	}); err != nil {
+		t.Fatalf("WithTransaction() error = %v", err)
+	}
+	relay.Wait()
+
+	if stored := findEvent(t, ctx, db, event.ID); stored.Status != outbox.StatusPending || stored.Attempts != 1 {
+		t.Fatalf("stored = %+v, want PENDING after the failed immediate send", stored)
+	}
+
+	if err := relay.RelayBatch(ctx); err != nil {
+		t.Fatalf("RelayBatch() error = %v", err)
+	}
+	select {
+	case delivery := <-deliveries:
+		assertDelivery(t, delivery, event)
+	case <-time.After(20 * time.Second):
+		t.Fatal("timed out waiting for the event the batch should publish")
+	}
+	if stored := findEvent(t, ctx, db, event.ID); stored.Status != outbox.StatusProcessed {
+		t.Fatalf("stored = %+v, want PROCESSED", stored)
 	}
 }
 

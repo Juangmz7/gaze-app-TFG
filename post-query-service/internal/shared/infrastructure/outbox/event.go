@@ -1,7 +1,10 @@
 // Package outbox implements the transactional outbox for post-query-service:
 // events are stored in MongoDB in the same transaction as the state change
 // that produced them, and a relay publishes them to RabbitMQ with publisher
-// confirms (at-least-once delivery, consumers deduplicate by message id).
+// confirms (at-least-once delivery, consumers deduplicate by message id). An event
+// is sent right after its commit by a bounded background goroutine, which never holds
+// up the caller and is waited for on shutdown; a polling batch is the safety net for
+// anything that send could not publish.
 package outbox
 
 import (

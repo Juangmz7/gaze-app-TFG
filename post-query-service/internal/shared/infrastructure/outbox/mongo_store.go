@@ -25,7 +25,8 @@ const processedRetention = 7 * 24 * time.Hour
 const operationTimeout = 5 * time.Second
 
 // ImmediateSender publishes one just-committed event without waiting for the
-// next relay batch (implemented by Relay).
+// next relay batch (implemented by Relay). RelayImmediately must not block its
+// caller: Relay starts the publish in a bounded background goroutine.
 type ImmediateSender interface {
 	RelayImmediately(ctx context.Context, id uuid.UUID)
 }
@@ -68,7 +69,8 @@ func (s *Store) EnsureIndexes(ctx context.Context) error {
 }
 
 // SendImmediatelyWith makes Add hand every event to sender as soon as its
-// transaction commits (the low-latency path); the relay batch still covers
+// transaction commits (the low-latency path, which never waits for the broker);
+// the relay batch still covers
 // any event the sender could not publish. Call it once at startup, before the
 // store is used.
 func (s *Store) SendImmediatelyWith(sender ImmediateSender) {
@@ -78,7 +80,8 @@ func (s *Store) SendImmediatelyWith(sender ImmediateSender) {
 // Add inserts event. Pass the context of the Mongo transaction that changes
 // state (see database.WithTransaction) so both writes commit or abort
 // together; outside a transaction they are two independent writes. With an
-// ImmediateSender set, the event is published right after that commit.
+// ImmediateSender set, the event is published in the background right after that
+// commit, so Add never waits for the broker.
 func (s *Store) Add(ctx context.Context, event Event) error {
 	event = event.WithTraceContext(ctx)
 	if _, err := s.collection.InsertOne(ctx, event); err != nil {

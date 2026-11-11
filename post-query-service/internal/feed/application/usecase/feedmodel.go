@@ -1,5 +1,6 @@
 // Package usecase implements the feed: presence (heartbeat and disconnect), the
-// construction of stored feed units and the feed claim. One file per goal; every
+// construction of stored feed units, the feed claim, the per-user lease and the
+// asynchronous prefetch with its triggers. One file per goal; every
 // exported identifier is prefixed with its goal because they share this directory.
 package usecase
 

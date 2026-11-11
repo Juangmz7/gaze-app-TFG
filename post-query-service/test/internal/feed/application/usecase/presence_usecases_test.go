@@ -102,7 +102,7 @@ func TestRegisterHeartbeatUsecase_Execute_PropagatesTheRepositoryError(t *testin
 
 func TestRegisterUserDisconnectedUsecase_Execute_WritesEvenWithACancelledRequestContext(t *testing.T) {
 	repository := &fakeSessionRepository{}
-	uc := usecase.NewRegisterUserDisconnected(repository, 3*time.Second, discardLogger())
+	uc := usecase.NewRegisterUserDisconnected(repository, &fakeDisconnectPrefetch{}, 3*time.Second, discardLogger())
 
 	userID := uuid.New()
 	ctx, cancel := context.WithCancel(context.WithValue(context.Background(), contextKey{}, "propagated"))
@@ -128,7 +128,7 @@ func TestRegisterUserDisconnectedUsecase_Execute_WritesEvenWithACancelledRequest
 }
 
 func TestRegisterUserDisconnectedUsecase_Execute_RejectsAMissingUserID(t *testing.T) {
-	uc := usecase.NewRegisterUserDisconnected(&fakeSessionRepository{}, time.Second, discardLogger())
+	uc := usecase.NewRegisterUserDisconnected(&fakeSessionRepository{}, &fakeDisconnectPrefetch{}, time.Second, discardLogger())
 
 	if err := uc.Execute(context.Background(), usecase.RegisterUserDisconnectedInput{}); err == nil {
 		t.Fatal("Execute() error = nil, want an error")
@@ -137,10 +137,78 @@ func TestRegisterUserDisconnectedUsecase_Execute_RejectsAMissingUserID(t *testin
 
 func TestRegisterUserDisconnectedUsecase_Execute_PropagatesTheRepositoryError(t *testing.T) {
 	wantErr := errors.New("mongo failed")
-	uc := usecase.NewRegisterUserDisconnected(&fakeSessionRepository{err: wantErr}, time.Second, discardLogger())
+	uc := usecase.NewRegisterUserDisconnected(&fakeSessionRepository{err: wantErr}, &fakeDisconnectPrefetch{}, time.Second, discardLogger())
 
 	err := uc.Execute(context.Background(), usecase.RegisterUserDisconnectedInput{UserID: uuid.New()})
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("Execute() error = %v, want it to wrap %v", err, wantErr)
+	}
+}
+
+type fakeDisconnectPrefetch struct {
+	inputs  []usecase.RequestFeedPrefetchInput
+	ctxErrs []error
+	err     error
+}
+
+func (f *fakeDisconnectPrefetch) Execute(ctx context.Context, input usecase.RequestFeedPrefetchInput) (usecase.RequestFeedPrefetchOutput, error) {
+	f.inputs = append(f.inputs, input)
+	f.ctxErrs = append(f.ctxErrs, ctx.Err())
+	return usecase.RequestFeedPrefetchOutput{Status: usecase.RequestFeedPrefetchPublished}, f.err
+}
+
+func TestRegisterUserDisconnectedUsecase_Execute_RequestsAPrefetchWithReasonDisconnect(t *testing.T) {
+	prefetch := &fakeDisconnectPrefetch{}
+	uc := usecase.NewRegisterUserDisconnected(&fakeSessionRepository{}, prefetch, time.Second, discardLogger())
+	userID := uuid.New()
+
+	if err := uc.Execute(context.Background(), usecase.RegisterUserDisconnectedInput{UserID: userID, CorrelationID: "corr-1"}); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	want := usecase.RequestFeedPrefetchInput{UserID: userID, Reason: usecase.FeedPrefetchReasonDisconnect, CorrelationID: "corr-1"}
+	if len(prefetch.inputs) != 1 || prefetch.inputs[0] != want {
+		t.Fatalf("prefetch inputs = %+v, want [%+v]", prefetch.inputs, want)
+	}
+}
+
+func TestRegisterUserDisconnectedUsecase_Execute_LogsAFailedPrefetchInsteadOfReturningIt(t *testing.T) {
+	prefetch := &fakeDisconnectPrefetch{err: errors.New("mongo failed")}
+	logger, logs := bufferLogger()
+	uc := usecase.NewRegisterUserDisconnected(&fakeSessionRepository{}, prefetch, time.Second, logger)
+
+	if err := uc.Execute(context.Background(), usecase.RegisterUserDisconnectedInput{UserID: uuid.New(), CorrelationID: "corr-1"}); err != nil {
+		t.Fatalf("Execute() error = %v, want the failure logged, not returned", err)
+	}
+
+	if !bytes.Contains(logs.Bytes(), []byte("level=ERROR")) || !bytes.Contains(logs.Bytes(), []byte("correlation_id=corr-1")) {
+		t.Fatalf("logs = %s, want an error line with the correlation id", logs)
+	}
+}
+
+func TestRegisterUserDisconnectedUsecase_Execute_RequestsThePrefetchEvenWithACancelledRequestContext(t *testing.T) {
+	prefetch := &fakeDisconnectPrefetch{}
+	uc := usecase.NewRegisterUserDisconnected(&fakeSessionRepository{}, prefetch, time.Second, discardLogger())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := uc.Execute(ctx, usecase.RegisterUserDisconnectedInput{UserID: uuid.New()}); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if len(prefetch.ctxErrs) != 1 || prefetch.ctxErrs[0] != nil {
+		t.Fatalf("prefetch context errors = %v, want one live context", prefetch.ctxErrs)
+	}
+}
+
+func TestRegisterUserDisconnectedUsecase_Execute_RequestsNoPrefetchWhenTheWriteFails(t *testing.T) {
+	prefetch := &fakeDisconnectPrefetch{}
+	uc := usecase.NewRegisterUserDisconnected(&fakeSessionRepository{err: errors.New("mongo failed")}, prefetch, time.Second, discardLogger())
+
+	if err := uc.Execute(context.Background(), usecase.RegisterUserDisconnectedInput{UserID: uuid.New()}); err == nil {
+		t.Fatal("Execute() error = nil, want the write failure")
+	}
+	if len(prefetch.inputs) != 0 {
+		t.Fatalf("prefetch inputs = %+v, want none", prefetch.inputs)
 	}
 }

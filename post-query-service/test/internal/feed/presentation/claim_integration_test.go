@@ -94,6 +94,13 @@ type feedApp struct {
 	users    *usermongo.Repository
 }
 
+// noPrefetch stands in for the prefetch, which has its own tests against a broker.
+type noPrefetch struct{}
+
+func (noPrefetch) Execute(context.Context, usecase.RequestFeedPrefetchInput) (usecase.RequestFeedPrefetchOutput, error) {
+	return usecase.RequestFeedPrefetchOutput{Status: usecase.RequestFeedPrefetchPublished}, nil
+}
+
 func newFeedApp(t *testing.T, ctx context.Context) *feedApp {
 	t.Helper()
 
@@ -125,7 +132,7 @@ func newFeedApp(t *testing.T, ctx context.Context) *feedApp {
 	mux := http.NewServeMux()
 	presentation.RegisterRoutes(mux, withSubject(t, viewerID.String()), presentation.Routes{
 		Heartbeat:  presentation.NewHeartbeatHandler(usecase.NewRegisterHeartbeat(sessions, logger), logger),
-		Disconnect: presentation.NewDisconnectHandler(usecase.NewRegisterUserDisconnected(sessions, 5*time.Second, logger), logger),
+		Disconnect: presentation.NewDisconnectHandler(usecase.NewRegisterUserDisconnected(sessions, noPrefetch{}, 5*time.Second, logger), logger),
 		ClaimFeed:  presentation.NewClaimFeedHandler(usecase.NewClaimFeed(units, hydration, config, logger), logger),
 	})
 
@@ -226,7 +233,7 @@ func TestFeedClaim_AdvancesAcrossConsecutiveCursorsAndNeverReplaysInANewSession(
 
 	// The next cursor returns exactly what remains, without padding.
 	second := app.claim(t, "?lastSeenId="+*first.LastSeenID)
-	if !slices.Equal(second.postIDs(), postIDs[15:]) || second.HasMore || *second.LastSeenID != postIDs[24] {
+	if !slices.Equal(second.postIDs(), postIDs[15:]) || !second.HasMore || *second.LastSeenID != postIDs[24] {
 		t.Fatalf("second page = %+v", second)
 	}
 
@@ -258,7 +265,7 @@ func TestFeedClaim_ASecondSessionContinuesAfterAPartlyServedFeed(t *testing.T) {
 	if got := app.claim(t, "?limit=4"); !slices.Equal(got.postIDs(), postIDs[:4]) || !got.HasMore {
 		t.Fatalf("first session = %+v", got)
 	}
-	if got := app.claim(t, ""); !slices.Equal(got.postIDs(), postIDs[4:]) || got.HasMore {
+	if got := app.claim(t, ""); !slices.Equal(got.postIDs(), postIDs[4:]) || !got.HasMore {
 		t.Fatalf("second session = %+v", got)
 	}
 }

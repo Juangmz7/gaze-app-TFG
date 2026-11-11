@@ -31,8 +31,9 @@ type ClaimFeedInput struct {
 	CorrelationID string
 }
 
-// ClaimFeedOutput is one page. LastSeenID is null for an empty page. HasMore says
-// whether stored items remain after the page.
+// ClaimFeedOutput is one page. LastSeenID is null for an empty page. HasMore is true
+// whenever the page is not empty, because the next claim can refill, and false only
+// when the page is empty because recommendation-service returned nothing.
 type ClaimFeedOutput struct {
 	Items      []FeedCard
 	LastSeenID *string
@@ -61,17 +62,43 @@ type ClaimFeedHydrationRepository interface {
 	FindBlockRelatedUserIDs(ctx context.Context, viewerID string, userIDs []string) ([]string, error)
 }
 
+// ClaimFeedLowWatermark is told about every served claim, must not block, and decides
+// whether the feed is running low. Implemented by RequestLowWatermarkPrefetchUsecase.
+type ClaimFeedLowWatermark interface {
+	Notify(ctx context.Context, input RequestLowWatermarkPrefetchInput)
+}
+
+// ClaimFeedRefiller builds the feed when a claim found nothing, while the user waits.
+// Implemented by RefillFeedUsecase.
+type ClaimFeedRefiller interface {
+	Execute(ctx context.Context, input RefillFeedInput) (RefillFeedStatus, error)
+}
+
 // ClaimFeedUsecase serves the next page of a user's stored feed.
 type ClaimFeedUsecase struct {
-	units     ClaimFeedUnitRepository
-	hydration ClaimFeedHydrationRepository
-	config    ClaimFeedConfig
-	logger    *slog.Logger
+	units        ClaimFeedUnitRepository
+	hydration    ClaimFeedHydrationRepository
+	config       ClaimFeedConfig
+	lowWatermark ClaimFeedLowWatermark
+	refiller     ClaimFeedRefiller
+	logger       *slog.Logger
 }
 
 // NewClaimFeed creates a ClaimFeedUsecase.
 func NewClaimFeed(units ClaimFeedUnitRepository, hydration ClaimFeedHydrationRepository, config ClaimFeedConfig, logger *slog.Logger) *ClaimFeedUsecase {
 	return &ClaimFeedUsecase{units: units, hydration: hydration, config: config, logger: logger}
+}
+
+// WithLowWatermark makes every served claim notify lowWatermark, and returns u.
+func (u *ClaimFeedUsecase) WithLowWatermark(lowWatermark ClaimFeedLowWatermark) *ClaimFeedUsecase {
+	u.lowWatermark = lowWatermark
+	return u
+}
+
+// WithRefill makes a claim that finds nothing refill the feed, and returns u.
+func (u *ClaimFeedUsecase) WithRefill(refiller ClaimFeedRefiller) *ClaimFeedUsecase {
+	u.refiller = refiller
+	return u
 }
 
 // claimFeedRead is where a claim reads from, and advances as it reads further.
@@ -91,9 +118,19 @@ func (d claimFeedDrops) total() int {
 	return d.postMissing + d.creatorMissing + d.blocked
 }
 
-// Execute resolves where to read from, fills the page with up to MaxReads reads
-// because hydration can drop items, and marks what it consumed as served. A short
-// page, even an empty one, is a valid result.
+// claimFeedPage is what one pass over the stored feed found.
+type claimFeedPage struct {
+	cards []FeedCard
+	drops claimFeedDrops
+	// remaining says stored units were left unread, known only for an empty page: any
+	// other page answers hasMore=true without asking.
+	remaining bool
+}
+
+// Execute resolves where to read from and serves a page. When nothing is left it
+// refills first, so the asynchronous path cannot take the lease the refill needs, and
+// notifies the low watermark afterwards, except when recommendation-service has nothing:
+// a prefetch per claim would find nothing either.
 func (u *ClaimFeedUsecase) Execute(ctx context.Context, input ClaimFeedInput) (ClaimFeedOutput, error) {
 	if input.UserID == uuid.Nil {
 		return ClaimFeedOutput{}, fmt.Errorf("claim feed usecase: user id is required")
@@ -109,6 +146,47 @@ func (u *ClaimFeedUsecase) Execute(ctx context.Context, input ClaimFeedInput) (C
 		return ClaimFeedOutput{}, err
 	}
 
+	page, err := u.readPage(ctx, viewerID, &read, limit, input)
+	if err != nil {
+		return ClaimFeedOutput{}, err
+	}
+
+	refilled := false
+	if len(page.cards) == 0 && !page.remaining && u.refiller != nil {
+		status, err := u.refiller.Execute(ctx, RefillFeedInput{UserID: input.UserID, AfterPosition: read.afterPosition, UnservedOnly: read.unservedOnly, CorrelationID: input.CorrelationID})
+		if err != nil {
+			return ClaimFeedOutput{}, fmt.Errorf("claim feed usecase: %w", err)
+		}
+		if status == RefillFeedStatusNoPosts {
+			u.logger.InfoContext(ctx, "feed claim served", "correlation_id", input.CorrelationID, "userId", input.UserID, "items", 0, "has_more", false)
+			return ClaimFeedOutput{Items: page.cards, HasMore: false}, nil
+		}
+
+		refilled = true
+		page, err = u.readPage(ctx, viewerID, &read, limit, input)
+		if err != nil {
+			return ClaimFeedOutput{}, err
+		}
+	}
+
+	// An empty page after a refill means every new unit was dropped at hydration: those
+	// are served now, so the next claim gets others.
+	hasMore := len(page.cards) > 0 || page.remaining || refilled
+	u.logger.InfoContext(ctx, "feed claim served", "correlation_id", input.CorrelationID, "userId", input.UserID,
+		"items", len(page.cards), "dropped", page.drops.total(), "has_more", hasMore, "refilled", refilled)
+
+	// After MarkServed, so the check counts what this claim served.
+	if u.lowWatermark != nil {
+		u.lowWatermark.Notify(ctx, RequestLowWatermarkPrefetchInput{UserID: input.UserID, CorrelationID: input.CorrelationID})
+	}
+
+	return ClaimFeedOutput{Items: page.cards, LastSeenID: lastSeenID(page.cards), HasMore: hasMore}, nil
+}
+
+// readPage fills a page with up to MaxReads reads, because hydration can drop items,
+// advances read past what it consumed and marks that as served. A short page, even an
+// empty one, is a valid result.
+func (u *ClaimFeedUsecase) readPage(ctx context.Context, viewerID string, read *claimFeedRead, limit int, input ClaimFeedInput) (claimFeedPage, error) {
 	cards := make([]FeedCard, 0, limit)
 	consumed := make([]string, 0, limit)
 	var drops claimFeedDrops
@@ -117,7 +195,7 @@ func (u *ClaimFeedUsecase) Execute(ctx context.Context, input ClaimFeedInput) (C
 		remaining := limit - len(cards)
 		refs, err := u.units.FindAfterPosition(ctx, viewerID, read.afterPosition, read.unservedOnly, remaining)
 		if err != nil {
-			return ClaimFeedOutput{}, fmt.Errorf("claim feed usecase: %w", err)
+			return claimFeedPage{}, fmt.Errorf("claim feed usecase: %w", err)
 		}
 		exhausted = len(refs) < remaining
 		if len(refs) == 0 {
@@ -126,7 +204,7 @@ func (u *ClaimFeedUsecase) Execute(ctx context.Context, input ClaimFeedInput) (C
 
 		pageCards, pageDrops, err := u.hydrate(ctx, viewerID, refs)
 		if err != nil {
-			return ClaimFeedOutput{}, err
+			return claimFeedPage{}, err
 		}
 		cards = append(cards, pageCards...)
 		drops.postMissing += pageDrops.postMissing
@@ -140,11 +218,12 @@ func (u *ClaimFeedUsecase) Execute(ctx context.Context, input ClaimFeedInput) (C
 		read.afterPosition = &lastPosition
 	}
 
-	hasMore := false
-	if !exhausted {
-		hasMore, err = u.units.HasAfterPosition(ctx, viewerID, read.afterPosition, read.unservedOnly)
+	remaining := false
+	if len(cards) == 0 && !exhausted {
+		var err error
+		remaining, err = u.units.HasAfterPosition(ctx, viewerID, read.afterPosition, read.unservedOnly)
 		if err != nil {
-			return ClaimFeedOutput{}, fmt.Errorf("claim feed usecase: %w", err)
+			return claimFeedPage{}, fmt.Errorf("claim feed usecase: %w", err)
 		}
 	}
 
@@ -153,7 +232,7 @@ func (u *ClaimFeedUsecase) Execute(ctx context.Context, input ClaimFeedInput) (C
 	// and leave the user with empty pages forever.
 	if len(consumed) > 0 {
 		if err := u.units.MarkServed(ctx, viewerID, consumed, time.Now().UTC()); err != nil {
-			return ClaimFeedOutput{}, fmt.Errorf("claim feed usecase: %w", err)
+			return claimFeedPage{}, fmt.Errorf("claim feed usecase: %w", err)
 		}
 	}
 
@@ -161,10 +240,8 @@ func (u *ClaimFeedUsecase) Execute(ctx context.Context, input ClaimFeedInput) (C
 		u.logger.WarnContext(ctx, "feed items dropped at claim", "correlation_id", input.CorrelationID, "userId", input.UserID,
 			"post_missing", drops.postMissing, "creator_missing", drops.creatorMissing, "blocked", drops.blocked)
 	}
-	u.logger.InfoContext(ctx, "feed claim served", "correlation_id", input.CorrelationID, "userId", input.UserID,
-		"items", len(cards), "dropped", drops.total(), "has_more", hasMore)
 
-	return ClaimFeedOutput{Items: cards, LastSeenID: lastSeenID(cards), HasMore: hasMore}, nil
+	return claimFeedPage{cards: cards, drops: drops, remaining: remaining}, nil
 }
 
 func (u *ClaimFeedUsecase) pageSize(limit *int) (int, error) {

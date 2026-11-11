@@ -35,6 +35,36 @@ env:
   FEED_DISCONNECT_WRITE_TIMEOUT_MS: "5000"
   # OpenTelemetry (common-packages/go-utils/telemetry, OTLP/gRPC)
   OTEL_SERVICE_NAME: post-query-service
+  # Asynchronous prefetch. The instance id is the pod's hostname.
+  FEED_PREFETCH_MAX_UNSERVED: "60"
+  FEED_PREFETCH_EXCLUDED_IDS_CAP: "200"
+  FEED_PREFETCH_TIMEOUT_MS: "5000"
+  # Must exceed queue time plus pipeline time (seconds, see below); queue time is an
+  # estimate. Also above RECOMMENDATION_GRPC_OVERALL_TIMEOUT_MS.
+  FEED_LEASE_TTL_MS: "300000"
+  FEED_LEASE_RELEASE_TIMEOUT_MS: "5000"
+  FEED_LOW_WATERMARK_CONCURRENCY: "16"
+  FEED_SWEEP_INTERVAL_MS: "60000"
+  FEED_SWEEP_STALE_AFTER_MS: "180000"
+  FEED_SWEEP_BATCH_SIZE: "100"
+  # Synchronous refill. Claim that finds the lease held: wait just above the slowest
+  # pipeline run measured (7.7 s), then 503 with this Retry-After.
+  FEED_REFILL_LEASE_WAIT_MS: "8000"
+  FEED_REFILL_POLL_INTERVAL_MS: "250"
+  FEED_REFILL_RETRY_AFTER_SECONDS: "5"
+  # gRPC client. RECOMMENDATION_GRPC_ADDR is per environment. Pipeline measured on CPU in
+  # WSL with 20000 posts, not in production: p50 4.4 s, 5.1 s at most, 7.7 s at most with
+  # two runs at once. A retry on a timeout runs it again, so the per-retry timeout is above
+  # that. The overall deadline fits two runs that time out and expires during the second
+  # backoff, so no third run starts that could not finish. It stays below httpRoute.timeout.
+  RECOMMENDATION_GRPC_DIAL_TIMEOUT_MS: "2000"
+  RECOMMENDATION_GRPC_PER_RETRY_TIMEOUT_MS: "10000"
+  RECOMMENDATION_GRPC_OVERALL_TIMEOUT_MS: "20500"
+  # The total, 3 retries: go-grpc-middleware v2 counts attempts.
+  RECOMMENDATION_GRPC_MAX_ATTEMPTS: "4"
+  RECOMMENDATION_GRPC_BACKOFF_BASE_MS: "250"
+  RECOMMENDATION_GRPC_BACKOFF_MAX_MS: "1000"
+  RECOMMENDATION_GRPC_BACKOFF_JITTER_PERCENT: "20"
 
 httpRoute:
   enabled: true
@@ -55,7 +85,7 @@ autoscaling:
       # New and updated users, follows and blocks (what the feed filters on).
       - name: q.post-query-service.user.fast
         value: "50"
-      # Recommended / trending signals from recommendation-service.
+      # Recommended feeds (and trending signals) from recommendation-service.
       - name: q.post-query-service.feed
         value: "200"
       # Deletions, unfollows and unblocks, latency-tolerant by design.
