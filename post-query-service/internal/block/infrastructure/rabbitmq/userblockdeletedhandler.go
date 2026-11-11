@@ -70,7 +70,7 @@ func (h *UserBlockDeletedHandler) Handle(ctx context.Context, msg *message.Messa
 		return fmt.Errorf("check user block deleted event %s processed: %w", event.ID, err)
 	}
 	if alreadyProcessed {
-		h.logger.WarnContext(ctx, "discarding duplicate user block deleted event", "event_id", event.ID)
+		h.logger.WarnContext(ctx, "discarding duplicate user block deleted event", "event_id", event.ID, "correlation_id", event.CorrelationID, "userId", event.BlockerUserID, "blocked_user_id", event.BlockedUserID)
 		return nil
 	}
 
@@ -85,6 +85,7 @@ func (h *UserBlockDeletedHandler) Handle(ctx context.Context, msg *message.Messa
 	if err := h.idempotency.MarkProcessed(ctx, event.ID, event.CorrelationID, UserBlockDeletedEventType); err != nil {
 		return fmt.Errorf("mark user block deleted event %s processed: %w", event.ID, err)
 	}
+	h.logger.InfoContext(ctx, "user block deleted event projected", "event_id", event.ID, "correlation_id", event.CorrelationID, "userId", event.BlockerUserID, "blocked_user_id", event.BlockedUserID)
 
 	return nil
 }

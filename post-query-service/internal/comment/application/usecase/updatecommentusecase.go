@@ -118,7 +118,7 @@ func (u *UpdateCommentUsecase) Execute(ctx context.Context, input UpdateCommentI
 	if storedFound && content == input.Content && updatedAt.Equal(input.UpdatedAt) {
 		if u.logger != nil {
 			u.logger.InfoContext(ctx, "comment update version conflict was a harmless redelivery of an already-applied update",
-				"comment_id", input.CommentID)
+				"userId", input.UserID, "post_id", input.PostID, "comment_id", input.CommentID)
 		}
 		return nil
 	}

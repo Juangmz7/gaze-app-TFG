@@ -70,7 +70,7 @@ func (h *UserFollowDeletedHandler) Handle(ctx context.Context, msg *message.Mess
 		return fmt.Errorf("check user follow deleted event %s processed: %w", event.ID, err)
 	}
 	if alreadyProcessed {
-		h.logger.WarnContext(ctx, "discarding duplicate user follow deleted event", "event_id", event.ID)
+		h.logger.WarnContext(ctx, "discarding duplicate user follow deleted event", "event_id", event.ID, "correlation_id", event.CorrelationID, "userId", event.FollowerUserID, "followed_user_id", event.FollowedUserID)
 		return nil
 	}
 
@@ -85,6 +85,7 @@ func (h *UserFollowDeletedHandler) Handle(ctx context.Context, msg *message.Mess
 	if err := h.idempotency.MarkProcessed(ctx, event.ID, event.CorrelationID, UserFollowDeletedEventType); err != nil {
 		return fmt.Errorf("mark user follow deleted event %s processed: %w", event.ID, err)
 	}
+	h.logger.InfoContext(ctx, "user follow deleted event projected", "event_id", event.ID, "correlation_id", event.CorrelationID, "userId", event.FollowerUserID, "followed_user_id", event.FollowedUserID)
 
 	return nil
 }

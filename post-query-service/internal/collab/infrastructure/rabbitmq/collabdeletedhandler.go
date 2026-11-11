@@ -69,7 +69,7 @@ func (h *CollabDeletedHandler) Handle(ctx context.Context, msg *message.Message)
 		return fmt.Errorf("check collab deleted event %s processed: %w", event.ID, err)
 	}
 	if alreadyProcessed {
-		h.logger.WarnContext(ctx, "discarding duplicate collab deleted event", "event_id", event.ID)
+		h.logger.WarnContext(ctx, "discarding duplicate collab deleted event", "event_id", event.ID, "correlation_id", event.CorrelationID, "userId", event.ActionedBy, "collab_id", event.CollabID)
 		return nil
 	}
 
@@ -81,6 +81,7 @@ func (h *CollabDeletedHandler) Handle(ctx context.Context, msg *message.Message)
 	if err := h.idempotency.MarkProcessed(ctx, event.ID, event.CorrelationID, CollabDeletedEventType); err != nil {
 		return fmt.Errorf("mark collab deleted event %s processed: %w", event.ID, err)
 	}
+	h.logger.InfoContext(ctx, "collab deleted event projected", "event_id", event.ID, "correlation_id", event.CorrelationID, "userId", event.ActionedBy, "collab_id", event.CollabID)
 
 	return nil
 }

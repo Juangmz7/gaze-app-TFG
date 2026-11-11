@@ -74,7 +74,7 @@ func (h *PostCollabClosedHandler) Handle(ctx context.Context, msg *message.Messa
 		return fmt.Errorf("check post collab closed event %s processed: %w", event.ID, err)
 	}
 	if alreadyProcessed {
-		h.logger.WarnContext(ctx, "discarding duplicate post collab closed event", "event_id", event.ID)
+		h.logger.WarnContext(ctx, "discarding duplicate post collab closed event", "event_id", event.ID, "correlation_id", event.CorrelationID, "userId", event.ClosedBy, "collab_id", event.CollabID)
 		return nil
 	}
 
@@ -93,6 +93,7 @@ func (h *PostCollabClosedHandler) Handle(ctx context.Context, msg *message.Messa
 	if err := h.idempotency.MarkProcessed(ctx, event.ID, event.CorrelationID, PostCollabClosedEventType); err != nil {
 		return fmt.Errorf("mark post collab closed event %s processed: %w", event.ID, err)
 	}
+	h.logger.InfoContext(ctx, "post collab closed event projected", "event_id", event.ID, "correlation_id", event.CorrelationID, "userId", event.ClosedBy, "collab_id", event.CollabID)
 
 	return nil
 }

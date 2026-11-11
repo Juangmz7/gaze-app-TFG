@@ -216,7 +216,7 @@ func (r *Relay) reserveImmediateSlot(id uuid.UUID) bool {
 		r.immediateInFlight.Add(1)
 		return true
 	default:
-		r.logger.Info("outbox immediate sends all busy, event left to the relay batch", "id", id)
+		r.logger.Info("outbox immediate sends all busy, event left to the relay batch", "event_id", id)
 		return false
 	}
 }
@@ -231,7 +231,7 @@ func (r *Relay) sendImmediately(ctx context.Context, id uuid.UUID) {
 
 	event, err := r.store.ClaimIfPending(ctx, id)
 	if err != nil {
-		r.logger.Warn("outbox immediate send failed to claim the event, left to the relay batch", "id", id, "error", err)
+		r.logger.Warn("outbox immediate send failed to claim the event, left to the relay batch", "event_id", id, "error", err)
 		return
 	}
 	if event == nil {
@@ -239,7 +239,7 @@ func (r *Relay) sendImmediately(ctx context.Context, id uuid.UUID) {
 	}
 
 	if _, err := r.publishClaimed(ctx, event); err != nil {
-		r.logger.Error("outbox immediate send failed", "id", id, "error", err)
+		r.logger.Error("outbox immediate send failed", "event_id", id, "error", err)
 	}
 }
 
@@ -269,10 +269,10 @@ func (r *Relay) releaseFailedAttempt(ctx context.Context, event *Event, publishE
 	if event.Attempts >= r.cfg.MaxAttempts {
 		status = StatusFailed
 		r.logger.Error("outbox event moved to FAILED",
-			"id", event.ID, "type", event.EventType, "attempts", event.Attempts, "error", publishErr)
+			"event_id", event.ID, "event_type", event.EventType, "routing_key", event.RoutingKey, "attempts", event.Attempts, "error", publishErr)
 	} else {
 		r.logger.Warn("outbox publish failed",
-			"id", event.ID, "type", event.EventType, "attempt", event.Attempts, "error", publishErr)
+			"event_id", event.ID, "event_type", event.EventType, "routing_key", event.RoutingKey, "attempt", event.Attempts, "error", publishErr)
 	}
 
 	lastError := publishErr.Error()
@@ -286,7 +286,7 @@ func (r *Relay) releaseFailedAttempt(ctx context.Context, event *Event, publishE
 	}
 	if !released {
 		r.logger.Warn("outbox claim expired before its failure was recorded, left to the current owner",
-			"id", event.ID, "attempt", event.Attempts)
+			"event_id", event.ID, "event_type", event.EventType, "attempt", event.Attempts)
 	}
 	return nil
 }

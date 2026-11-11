@@ -75,7 +75,7 @@ func (h *UserBlockCreatedHandler) Handle(ctx context.Context, msg *message.Messa
 		return fmt.Errorf("check user block created event %s processed: %w", event.ID, err)
 	}
 	if alreadyProcessed {
-		h.logger.WarnContext(ctx, "discarding duplicate user block created event", "event_id", event.ID)
+		h.logger.WarnContext(ctx, "discarding duplicate user block created event", "event_id", event.ID, "correlation_id", event.CorrelationID, "userId", event.BlockerUserID, "blocked_user_id", event.BlockedUserID)
 		return nil
 	}
 
@@ -91,6 +91,7 @@ func (h *UserBlockCreatedHandler) Handle(ctx context.Context, msg *message.Messa
 	if err := h.idempotency.MarkProcessed(ctx, event.ID, event.CorrelationID, UserBlockCreatedEventType); err != nil {
 		return fmt.Errorf("mark user block created event %s processed: %w", event.ID, err)
 	}
+	h.logger.InfoContext(ctx, "user block created event projected", "event_id", event.ID, "correlation_id", event.CorrelationID, "userId", event.BlockerUserID, "blocked_user_id", event.BlockedUserID)
 
 	return nil
 }
