@@ -134,6 +134,12 @@ services:
       - "127.0.0.1:3000:3000"   # Grafana UI
       - "127.0.0.1:4317:4317"   # OTLP gRPC
       - "127.0.0.1:4318:4318"   # OTLP HTTP
+    # The Gaze dashboards, as on Kubernetes (platform/observability/lgtm.yaml): the
+    # provider next to the image's own, and the generated JSON files. The
+    # Kubernetes panels stay empty here: there is no kubelet to read.
+    volumes:
+      - ../k8s/platform/observability/dashboards/provider.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/gaze.yaml:ro
+      - ../k8s/platform/observability/dashboards:/otel-lgtm/gaze-dashboards:ro
     networks:
       - infra_net
 

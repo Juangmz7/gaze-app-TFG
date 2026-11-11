@@ -110,3 +110,9 @@ spec:
                   name: grafana-dashboard-kubernetes
               - configMap:
                   name: grafana-dashboard-rabbitmq
+              - configMap:
+                  name: grafana-dashboard-services-java
+              - configMap:
+                  name: grafana-dashboard-services-go
+              - configMap:
+                  name: grafana-dashboard-services-python

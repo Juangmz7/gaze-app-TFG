@@ -26,3 +26,15 @@ configMapGenerator:
     namespace: observability
     files:
       - dashboards/rabbitmq.json
+  - name: grafana-dashboard-services-java
+    namespace: observability
+    files:
+      - dashboards/services-java.json
+  - name: grafana-dashboard-services-go
+    namespace: observability
+    files:
+      - dashboards/services-go.json
+  - name: grafana-dashboard-services-python
+    namespace: observability
+    files:
+      - dashboards/services-python.json

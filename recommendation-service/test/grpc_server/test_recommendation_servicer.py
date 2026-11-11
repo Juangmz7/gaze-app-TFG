@@ -190,6 +190,29 @@ async def test_should_propagate_correlation_id_and_trace_context_from_metadata_t
     assert correlation_id_ctx.get() is None
 
 
+async def test_should_keep_the_server_span_of_the_grpc_instrumentation_as_parent(pool):
+    # Arrange
+    server_span = trace.NonRecordingSpan(trace.SpanContext(
+        trace_id=0x4BF92F3577B34DA6A3CE929D0E0E4736, span_id=0x00F067AA0BA902B7,
+        is_remote=False, trace_flags=trace.TraceFlags(trace.TraceFlags.SAMPLED)))
+    seen = SimpleNamespace()
+
+    def recommend(user_id, passed_correlation_id, excluded):
+        seen.span_context = trace.get_current_span().get_span_context()
+        return []
+
+    usecase = Mock()
+    usecase.recommend.side_effect = recommend
+    context = FakeContext(metadata=(("traceparent", "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"),))
+
+    # Act
+    with trace.use_span(server_span):
+        await RecommendationServicer(usecase, pool).GetRecommendedFeed(request(), context)
+
+    # Assert
+    assert seen.span_context == server_span.get_span_context()
+
+
 @pytest.mark.parametrize(
     "correlation_id",
     [
