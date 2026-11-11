@@ -3,6 +3,7 @@ import os
 from faststream.rabbit import RabbitBroker
 from faststream.rabbit.opentelemetry import RabbitTelemetryMiddleware
 
+from observability.messaging_metrics import SecondsHistogramMeter
 from rabbitmq.middleware.logging_context_middleware import LoggingContextMiddleware
 from rabbitmq.middleware.retry_middleware import RabbitRetryMiddleware
 
@@ -21,6 +22,7 @@ broker = RabbitBroker(
     middlewares=[
         LoggingContextMiddleware,
         RabbitRetryMiddleware,
-        RabbitTelemetryMiddleware()
+        # Duration histograms with bucket boundaries in seconds, not FastStream's defaults
+        RabbitTelemetryMiddleware(meter=SecondsHistogramMeter())
     ],
 )
