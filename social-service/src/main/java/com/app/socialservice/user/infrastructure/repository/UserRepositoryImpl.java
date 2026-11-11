@@ -5,7 +5,8 @@ import java.util.UUID;
 import java.util.List;
 
 import com.app.socialservice.block.application.dto.BlockedUserDetails;
-import com.app.socialservice.user.application.dto.UserProfileDetails;
+import com.app.socialservice.user.application.dto.ProfileRelationship;
+import com.app.socialservice.user.application.dto.PublicUserProfileData;
 import com.app.socialservice.user.application.mapper.UserMapper;
 import com.app.socialservice.user.application.repository.UserRepository;
 import com.app.socialservice.shared.domain.exception.UserNotFoundException;
@@ -71,11 +72,19 @@ public class UserRepositoryImpl implements UserRepository {
     }
 
     @Override
-    public Optional<UserProfileDetails> findProfileDetails(UUID requesterUserId, UUID targetUserId) {
+    public Optional<PublicUserProfileData> findPublicProfileData(UUID targetUserId) {
+        validateUserId(targetUserId, "targetUserId");
+
+        return jpaUserRepository.findPublicProfileData(targetUserId);
+    }
+
+    @Override
+    public ProfileRelationship findProfileRelationship(UUID requesterUserId, UUID targetUserId) {
         validateUserId(requesterUserId, "requesterUserId");
         validateUserId(targetUserId, "targetUserId");
 
-        return jpaUserRepository.findProfileDetails(requesterUserId, targetUserId);
+        var relationship = jpaUserRepository.findProfileRelationship(requesterUserId, targetUserId);
+        return new ProfileRelationship(relationship.getFollowing(), relationship.getFollowsMe(), relationship.getBlocked());
     }
   
     public Optional<OwnUserProfileData> findOwnProfileById(UUID id) {

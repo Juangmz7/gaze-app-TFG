@@ -49,6 +49,24 @@ abstract class AbstractRabbitMQListenerSupport {
         );
     }
 
+    /**
+     * Records the event as processed and reports whether this call did it: false when a
+     * previous or concurrent delivery already had. Inside a transaction, the change it
+     * guards commits or rolls back with the record.
+     */
+    protected final boolean markEventAsProcessed(
+            UUID eventId,
+            UUID correlationId,
+            String eventType,
+            TargetDatabase targetDatabase) {
+        return processedEventsRepository.insertIfAbsent(
+                eventId,
+                targetDatabase.name(),
+                correlationId,
+                eventType
+        ) > 0;
+    }
+
     protected final AmqpRejectAndDontRequeueException rejectToDlq(RuntimeException exception) {
         return new AmqpRejectAndDontRequeueException(exception.getMessage(), exception);
     }

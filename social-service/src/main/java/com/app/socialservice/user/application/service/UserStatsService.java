@@ -2,11 +2,9 @@ package com.app.socialservice.user.application.service;
 
 import java.util.UUID;
 
-import com.app.socialservice.user.application.cache.CacheNames;
+import com.app.socialservice.user.application.dto.UserStats;
 import com.app.socialservice.user.application.repository.UserStatsRepository;
 import lombok.RequiredArgsConstructor;
-import org.springframework.cache.annotation.CacheEvict;
-import org.springframework.cache.annotation.Caching;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -14,94 +12,30 @@ import org.springframework.stereotype.Service;
 public class UserStatsService {
 
     private final UserStatsRepository userStatsRepository;
+    private final UserCacheEvictor userCacheEvictor;
 
-    public long getFollowersCount(UUID userId) {
-        validateUserId(userId, "userId");
-        return userStatsRepository.getFollowersCount(userId);
+    public UserStats getStats(UUID userId) {
+        validateUserId(userId);
+        return userStatsRepository.getStats(userId);
     }
 
-    public long getFollowingCount(UUID userId) {
-        validateUserId(userId, "userId");
-        return userStatsRepository.getFollowingCount(userId);
-    }
-
-    public long getPostCount(UUID userId) {
-        validateUserId(userId, "userId");
-        return userStatsRepository.getPostCount(userId);
-    }
-
-    @Caching(evict = {
-            @CacheEvict(
-                    cacheNames = CacheNames.OWN_PROFILE,
-                    key = CacheNames.OWN_PROFILE_KEY_BY_FOLLOWER_USER_ID
-            ),
-            @CacheEvict(
-                    cacheNames = CacheNames.OWN_PROFILE,
-                    key = CacheNames.OWN_PROFILE_KEY_BY_FOLLOWED_USER_ID
-            ),
-            @CacheEvict(cacheNames = CacheNames.PUBLIC_PROFILE, allEntries = true)
-    })
-    public void incrementFollowCounters(UUID followerUserId, UUID followedUserId) {
-        validateDistinctUserIds(followerUserId, followedUserId);
-
-        userStatsRepository.incrementFollowingCount(followerUserId);
-        userStatsRepository.incrementFollowersCount(followedUserId);
-    }
-
-    @Caching(evict = {
-            @CacheEvict(
-                    cacheNames = CacheNames.OWN_PROFILE,
-                    key = CacheNames.OWN_PROFILE_KEY_BY_FOLLOWER_USER_ID
-            ),
-            @CacheEvict(
-                    cacheNames = CacheNames.OWN_PROFILE,
-                    key = CacheNames.OWN_PROFILE_KEY_BY_FOLLOWED_USER_ID
-            ),
-            @CacheEvict(cacheNames = CacheNames.PUBLIC_PROFILE, allEntries = true)
-    })
-    public void decrementFollowCounters(UUID followerUserId, UUID followedUserId) {
-        validateDistinctUserIds(followerUserId, followedUserId);
-
-        userStatsRepository.decrementFollowingCount(followerUserId);
-        userStatsRepository.decrementFollowersCount(followedUserId);
-    }
-
-    @Caching(evict = {
-            @CacheEvict(
-                    cacheNames = CacheNames.OWN_PROFILE,
-                    key = CacheNames.OWN_PROFILE_KEY_BY_USER_ID
-            ),
-            @CacheEvict(cacheNames = CacheNames.PUBLIC_PROFILE, allEntries = true)
-    })
+    /** Call in the transaction that records the event as processed, so it counts once. */
     public void incrementPostCount(UUID userId) {
-        validateUserId(userId, "userId");
+        validateUserId(userId);
         userStatsRepository.incrementPostCount(userId);
+        userCacheEvictor.evictProfiles(userId);
     }
 
-    @Caching(evict = {
-            @CacheEvict(
-                    cacheNames = CacheNames.OWN_PROFILE,
-                    key = CacheNames.OWN_PROFILE_KEY_BY_USER_ID
-            ),
-            @CacheEvict(cacheNames = CacheNames.PUBLIC_PROFILE, allEntries = true)
-    })
+    /** Call in the transaction that records the event as processed, so it counts once. */
     public void decrementPostCount(UUID userId) {
-        validateUserId(userId, "userId");
+        validateUserId(userId);
         userStatsRepository.decrementPostCount(userId);
+        userCacheEvictor.evictProfiles(userId);
     }
 
-    private void validateDistinctUserIds(UUID followerUserId, UUID followedUserId) {
-        validateUserId(followerUserId, "followerUserId");
-        validateUserId(followedUserId, "followedUserId");
-
-        if (followerUserId.equals(followedUserId)) {
-            throw new IllegalArgumentException("followerUserId must not equal followedUserId");
-        }
-    }
-
-    private void validateUserId(UUID userId, String fieldName) {
+    private void validateUserId(UUID userId) {
         if (userId == null) {
-            throw new IllegalArgumentException(fieldName + " must not be null");
+            throw new IllegalArgumentException("userId must not be null");
         }
     }
 }

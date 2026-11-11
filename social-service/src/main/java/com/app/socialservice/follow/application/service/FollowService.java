@@ -22,6 +22,7 @@ import com.app.socialservice.shared.infrastructure.enums.EventStatus;
 import com.app.socialservice.shared.infrastructure.mapper.JsonMapper;
 import com.app.socialservice.shared.infrastructure.repository.OutboxEventRepository;
 import com.app.socialservice.user.application.repository.UserRepository;
+import com.app.socialservice.user.application.service.UserCacheEvictor;
 import com.app.socialservice.user.domain.model.valueobj.UserId;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -42,6 +43,7 @@ public class FollowService {
     private final OutboxEventRepository outboxEventRepository;
     private final FollowEventMapper followEventMapper;
     private final JsonMapper jsonMapper;
+    private final UserCacheEvictor userCacheEvictor;
 
     @Transactional
     public FollowResponse followUser(FollowUserCommand command) {
@@ -86,6 +88,9 @@ public class FollowService {
                     command.followerUserId(), command.followedUserId());
             return;
         }
+
+        // Their following and follower counts changed
+        userCacheEvictor.evictProfiles(command.followerUserId(), command.followedUserId());
 
         var occurredOn = java.time.Instant.now();
         var outboxEvent = createAndSaveUnfollowOutboxEvent(activeFollow.get(), occurredOn);
@@ -184,6 +189,9 @@ public class FollowService {
     }
 
     private FollowResponse publishCreatedFollow(FollowUserCommand command, Follow savedFollow) {
+        // Their following and follower counts changed
+        userCacheEvictor.evictProfiles(command.followerUserId(), command.followedUserId());
+
         var occurredOn = java.time.Instant.now();
         var outboxEvent = createAndSaveOutboxEvent(savedFollow, occurredOn);
 

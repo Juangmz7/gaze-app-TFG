@@ -8,7 +8,9 @@ import com.app.socialservice.user.application.cache.CacheNames;
 import com.app.socialservice.user.application.commands.UpdateOwnUserProfileCommand;
 import com.app.socialservice.user.application.dto.OwnUserProfileData;
 import com.app.socialservice.user.application.dto.OwnUserProfileResponse;
-import com.app.socialservice.user.application.dto.UserProfileDetails;
+import com.app.socialservice.user.application.dto.ProfileRelationship;
+import com.app.socialservice.user.application.dto.PublicUserProfile;
+import com.app.socialservice.user.application.dto.UserStats;
 import com.app.socialservice.user.application.repository.UserRepository;
 import com.app.socialservice.user.domain.enums.UserAccountStatus;
 import com.app.socialservice.user.domain.exception.SelfProfileRequestNotAllowedException;
@@ -28,6 +30,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.cache.annotation.CachePut;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.cache.annotation.Caching;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -47,6 +51,12 @@ class UserProfileServiceTest {
     @Mock
     private UserStatsService userStatsService;
 
+    @Mock
+    private PublicUserProfileReader publicUserProfileReader;
+
+    @Mock
+    private UserCacheEvictor userCacheEvictor;
+
     @InjectMocks
     private UserProfileService userProfileService;
 
@@ -54,96 +64,62 @@ class UserProfileServiceTest {
     class CacheAnnotationsTest {
 
         @Test
-        void shouldNotCacheOwnProfileReadBecauseBannedStatusMustAlwaysBeReevaluated() throws NoSuchMethodException {
+        void shouldCacheTheOwnProfilePerUser() throws NoSuchMethodException {
             var method = UserProfileService.class.getMethod("getOwnProfile", UUID.class);
-            var cacheable = method.getAnnotationsByType(org.springframework.cache.annotation.Cacheable.class);
+            var cacheable = method.getAnnotation(Cacheable.class);
 
-            assertThat(cacheable).isEmpty();
+            assertThat(cacheable).isNotNull();
+            assertThat(cacheable.cacheNames()).containsExactly(CacheNames.OWN_PROFILE);
+            assertThat(cacheable.key()).isEqualTo(CacheNames.KEY_BY_USER_ID);
         }
 
         @Test
-        void shouldNotCachePublicProfileReadBecauseBannedUsersMustResolveAsNotFoundImmediately()
-                throws NoSuchMethodException {
+        void shouldNotCacheThePublicProfileResponseBecauseItDependsOnTheRequester() throws NoSuchMethodException {
+            // Its requester-independent part is cached by PublicUserProfileReader
             var method = UserProfileService.class.getMethod("getUserProfile", UUID.class, UUID.class);
-            var cacheable = method.getAnnotationsByType(org.springframework.cache.annotation.Cacheable.class);
 
-            assertThat(cacheable).isEmpty();
+            assertThat(method.getAnnotation(Cacheable.class)).isNull();
         }
 
         @Test
-        void shouldRefreshOwnProfileAndEvictPublicProfilesOnProfileUpdate() throws NoSuchMethodException {
+        void shouldReplaceTheOwnProfileOnProfileUpdate() throws NoSuchMethodException {
             var method = UserProfileService.class.getMethod("updateOwnUserProfile", UpdateOwnUserProfileCommand.class);
-            var caching = method.getAnnotation(Caching.class);
+            var cachePut = method.getAnnotation(CachePut.class);
 
-            assertThat(caching).isNotNull();
-            assertThat(caching.put()).singleElement().satisfies(cachePut -> {
-                assertThat(cachePut.cacheNames()).containsExactly(CacheNames.OWN_PROFILE);
-                assertThat(cachePut.key()).isEqualTo(CacheNames.OWN_PROFILE_KEY_BY_COMMAND);
-            });
-            assertThat(caching.evict()).singleElement().satisfies(cacheEvict -> {
-                assertThat(cacheEvict.cacheNames()).containsExactly(CacheNames.PUBLIC_PROFILE);
-                assertThat(cacheEvict.allEntries()).isTrue();
-            });
+            assertThat(cachePut).isNotNull();
+            assertThat(cachePut.cacheNames()).containsExactly(CacheNames.OWN_PROFILE);
+            assertThat(cachePut.key()).isEqualTo(CacheNames.KEY_BY_COMMAND);
+            assertThat(method.getAnnotation(Caching.class)).isNull();
         }
     }
 
     @Test
-    void shouldThrowForbiddenWhenRequesterHasBlockedTarget() {
+    void shouldThrowForbiddenWhenEitherUserBlockedTheOther() {
         var requesterUserId = UUID.randomUUID();
         var targetUserId = UUID.randomUUID();
 
-        when(userRepository.findProfileDetails(requesterUserId, targetUserId))
-                .thenReturn(Optional.of(buildProfileDetails(targetUserId, true, false)));
+        when(publicUserProfileReader.read(targetUserId)).thenReturn(publicProfile(targetUserId));
+        when(userRepository.findProfileRelationship(requesterUserId, targetUserId))
+                .thenReturn(new ProfileRelationship(false, false, true));
 
         assertThatThrownBy(() -> userProfileService.getUserProfile(requesterUserId, targetUserId))
                 .isInstanceOf(UserProfileBlockedException.class)
                 .hasMessageContaining("Profile access is blocked");
-
-        verifyNoInteractions(userStatsService);
     }
 
     @Test
-    void shouldThrowForbiddenWhenTargetHasBlockedRequester() {
+    void shouldThrowNotFoundWhenTheReaderFindsNoVisibleProfile() {
+        // Missing, deleted or banned: the reader throws and nothing is cached
         var requesterUserId = UUID.randomUUID();
         var targetUserId = UUID.randomUUID();
 
-        when(userRepository.findProfileDetails(requesterUserId, targetUserId))
-                .thenReturn(Optional.of(buildProfileDetails(targetUserId, true, false)));
-
-        assertThatThrownBy(() -> userProfileService.getUserProfile(requesterUserId, targetUserId))
-                .isInstanceOf(UserProfileBlockedException.class)
-                .hasMessageContaining("Profile access is blocked");
-
-        verifyNoInteractions(userStatsService);
-    }
-
-    @Test
-    void shouldThrowNotFoundWhenTargetUserIsBanned() {
-        var requesterUserId = UUID.randomUUID();
-        var targetUserId = UUID.randomUUID();
-
-        when(userRepository.findProfileDetails(requesterUserId, targetUserId))
-                .thenReturn(Optional.of(buildProfileDetails(targetUserId, true, true)));
+        when(publicUserProfileReader.read(targetUserId)).thenThrow(new UserProfileNotFoundException(targetUserId));
 
         assertThatThrownBy(() -> userProfileService.getUserProfile(requesterUserId, targetUserId))
                 .isInstanceOf(UserProfileNotFoundException.class)
                 .hasMessageContaining(targetUserId.toString());
 
-        verifyNoInteractions(userStatsService);
-    }
-
-    @Test
-    void shouldThrowNotFoundWhenTargetUserDoesNotExist() {
-        var requesterUserId = UUID.randomUUID();
-        var targetUserId = UUID.randomUUID();
-
-        when(userRepository.findProfileDetails(requesterUserId, targetUserId)).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> userProfileService.getUserProfile(requesterUserId, targetUserId))
-                .isInstanceOf(UserProfileNotFoundException.class)
-                .hasMessageContaining(targetUserId.toString());
-
-        verifyNoInteractions(userStatsService);
+        verify(userRepository, never()).findProfileRelationship(any(), any());
     }
 
     @Test
@@ -154,31 +130,27 @@ class UserProfileServiceTest {
                 .isInstanceOf(SelfProfileRequestNotAllowedException.class)
                 .hasMessageContaining("cannot request their own public profile");
 
-        verifyNoInteractions(userRepository);
-        verifyNoInteractions(userStatsService);
+        verifyNoInteractions(userRepository, publicUserProfileReader);
     }
 
     @Test
-    void shouldReturnProfileDataWithCorrectCountersAndFollowingStatus() {
+    void shouldCombineTheCachedProfileWithTheRelationshipOfTheRequester() {
         var requesterUserId = UUID.randomUUID();
         var targetUserId = UUID.randomUUID();
         var socialMedia = Map.of("github", "target-user", "linkedin", "target-user-linkedin");
 
-        when(userRepository.findProfileDetails(requesterUserId, targetUserId))
-                .thenReturn(Optional.of(new UserProfileDetails(
-                        targetUserId,
-                        "target-user",
-                        "Target description",
-                        socialMedia,
-                        "https://cdn.example.com/profile.png",
-                        true,
-                        false,
-                        false,
-                        false
-                )));
-        when(userStatsService.getFollowersCount(targetUserId)).thenReturn(17L);
-        when(userStatsService.getFollowingCount(targetUserId)).thenReturn(9L);
-        when(userStatsService.getPostCount(targetUserId)).thenReturn(23L);
+        when(publicUserProfileReader.read(targetUserId)).thenReturn(new PublicUserProfile(
+                targetUserId,
+                "target-user",
+                "Target description",
+                socialMedia,
+                "https://cdn.example.com/profile.png",
+                17L,
+                9L,
+                23L
+        ));
+        when(userRepository.findProfileRelationship(requesterUserId, targetUserId))
+                .thenReturn(new ProfileRelationship(true, false, false));
 
         var response = userProfileService.getUserProfile(requesterUserId, targetUserId);
 
@@ -195,7 +167,7 @@ class UserProfileServiceTest {
     }
 
     @Test
-    void shouldReturnOwnProfileUsingRedisCountersAndPostgresFields() {
+    void shouldReturnOwnProfileWithItsStats() {
         var userId = UUID.randomUUID();
         var ownProfileData = new OwnUserProfileData(
                 "profile-user",
@@ -207,9 +179,7 @@ class UserProfileServiceTest {
         );
 
         when(userRepository.findOwnProfileById(userId)).thenReturn(Optional.of(ownProfileData));
-        when(userStatsService.getFollowersCount(userId)).thenReturn(11L);
-        when(userStatsService.getFollowingCount(userId)).thenReturn(13L);
-        when(userStatsService.getPostCount(userId)).thenReturn(19L);
+        when(userStatsService.getStats(userId)).thenReturn(new UserStats(11L, 13L, 19L));
 
         var response = userProfileService.getOwnProfile(userId);
 
@@ -289,13 +259,13 @@ class UserProfileServiceTest {
         when(userRepository.findById(userId)).thenReturn(Optional.of(existingUser));
         when(userRepository.updateProfile(any(User.class))).thenReturn(savedUser);
         when(userRepository.findOwnProfileById(userId)).thenReturn(Optional.of(ownProfileData));
-        when(userStatsService.getFollowersCount(userId)).thenReturn(22L);
-        when(userStatsService.getFollowingCount(userId)).thenReturn(31L);
-        when(userStatsService.getPostCount(userId)).thenReturn(41L);
+        when(userStatsService.getStats(userId)).thenReturn(new UserStats(22L, 31L, 41L));
 
         var response = userProfileService.updateOwnUserProfile(command);
 
         verify(userRepository).updateProfile(existingUser);
+        // The own profile is replaced by @CachePut; the public one must go
+        verify(userCacheEvictor).evictPublicProfiles(userId);
         assertThat(response).isEqualTo(new OwnUserProfileResponse(
                 userId,
                 "profile-user",
@@ -334,13 +304,12 @@ class UserProfileServiceTest {
 
         when(userRepository.findById(userId)).thenReturn(Optional.of(existingUser));
         when(userRepository.findOwnProfileById(userId)).thenReturn(Optional.of(ownProfileData));
-        when(userStatsService.getFollowersCount(userId)).thenReturn(8L);
-        when(userStatsService.getFollowingCount(userId)).thenReturn(13L);
-        when(userStatsService.getPostCount(userId)).thenReturn(21L);
+        when(userStatsService.getStats(userId)).thenReturn(new UserStats(8L, 13L, 21L));
 
         var response = userProfileService.updateOwnUserProfile(command);
 
         verify(userRepository, never()).updateProfile(any(User.class));
+        verifyNoInteractions(userCacheEvictor);
         assertThat(response).isEqualTo(new OwnUserProfileResponse(
                 userId,
                 "same-user",
@@ -407,20 +376,19 @@ class UserProfileServiceTest {
         verify(userRepository, never()).updateProfile(any(User.class));
     }
 
-    private UserProfileDetails buildProfileDetails(UUID userId, boolean blocked, boolean banned) {
-        return new UserProfileDetails(
+    private PublicUserProfile publicProfile(UUID userId) {
+        return new PublicUserProfile(
                 userId,
                 "blocked-user",
                 "Blocked description",
                 Map.of("github", "blocked-user"),
                 "https://cdn.example.com/blocked.png",
-                false,
-                false,
-                blocked,
-                banned
+                0L,
+                0L,
+                0L
         );
     }
-    
+
     private User buildUser(UUID userId, String username, String email, UserAccountStatus status) {
         var user = new User(
                 new UserId(userId),

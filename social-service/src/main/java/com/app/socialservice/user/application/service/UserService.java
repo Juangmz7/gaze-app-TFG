@@ -39,6 +39,7 @@ public class UserService {
     private final OutboxEventRepository outboxEventRepository;
     private final UserEventMapper userEventMapper;
     private final JsonMapper jsonMapper;
+    private final UserCacheEvictor userCacheEvictor;
 
     @Transactional
     public void registerUser(UserRegisterCommand command) {
@@ -117,6 +118,7 @@ public class UserService {
         }
 
         user.get().updateAuthInfo(username, email);
+        userCacheEvictor.evictProfiles(command.userId());
         
         var occurredOn = Instant.now();
         var outboxEvent = createAndSaveOutboxEvent(command, user.get(), occurredOn);
@@ -168,6 +170,8 @@ public class UserService {
             return;
         }
         
+        userCacheEvictor.evictProfiles(command.userId());
+
         var occurredOn = Instant.now();
         var outboxEvent = createAndSaveOutboxEvent(command, command.userId(), occurredOn);
 
