@@ -80,6 +80,7 @@ func (s *Store) SendImmediatelyWith(sender ImmediateSender) {
 // together; outside a transaction they are two independent writes. With an
 // ImmediateSender set, the event is published right after that commit.
 func (s *Store) Add(ctx context.Context, event Event) error {
+	event = event.WithTraceContext(ctx)
 	if _, err := s.collection.InsertOne(ctx, event); err != nil {
 		return fmt.Errorf("add outbox event %s: %w", event.EventType, err)
 	}

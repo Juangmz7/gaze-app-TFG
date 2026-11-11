@@ -18,3 +18,9 @@ trafficPolicy:
   rateLimit:
     requests: 1200
     unit: Minute
+
+telemetry:
+  enabled: true
+  tracing:
+    # Trace every request in dev.
+    samplingRate: 100

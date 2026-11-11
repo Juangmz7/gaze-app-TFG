@@ -57,7 +57,8 @@ logging:
     org.springframework.amqp: DEBUG
     org.neo4j.driver: DEBUG
     org.springframework.data.neo4j: DEBUG
-    io.opentelemetry: DEBUG
+    # INFO: the SDK logs are console-only (see logback-spring.xml); DEBUG is just noise.
+    io.opentelemetry: INFO
 
 # --- OpenTelemetry (local Grafana LGTM stack) ---
 management:

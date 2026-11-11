@@ -9,6 +9,11 @@ env:
   # Keycloak: tokens carry the public issuer; keys are fetched in-cluster.
   JWT_ISSUER: https://auth.gaze.localhost/realms/auth-service
   JWKS_URL: http://keycloak-service.keycloak-prod.svc.cluster.local:8080/realms/auth-service/protocol/openid-connect/certs
+  # --- OpenTelemetry (cluster collector, OTLP gRPC) ---
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://gaze-collector.observability.svc.cluster.local:4317
+  OTEL_RESOURCE_ATTRIBUTES: deployment.environment.name=prod
+  # Root-span ratio; spans with a sampled parent always follow the parent.
+  OTEL_TRACES_SAMPLER_ARG: "0.1"
 
 # Created by External Secrets from Vault. Required keys:
 #   POST_QUERY_MONGO_URI (mongodb+srv://user:pass@CHANGE_ME/post_query?...),
@@ -46,6 +51,11 @@ networkPolicy:
       podLabels:
         app.kubernetes.io/managed-by: keycloak-operator
       ports: [8080]
+    - name: otel-collector
+      namespace: observability
+      podLabels:
+        app.kubernetes.io/component: opentelemetry-collector
+      ports: [4317, 4318]
   externalEgress:
     # TODO(aks): narrow to the private endpoint of the managed database.
     - name: mongodb

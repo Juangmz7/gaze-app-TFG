@@ -2,6 +2,27 @@
 # 4317 gRPC / 4318 HTTP). Services only know this endpoint, so swapping the
 # backend (e.g. Grafana Cloud / Azure Monitor on AKS) only changes the
 # exporter below.
+#
+# Besides the services' OTLP, this collector is the cluster-level source:
+#   - k8s_cluster: object state (pod phase, restarts, replicas, limits, ...).
+#   - k8s_events: Kubernetes Events (scheduling, OOMKilled, probe and image
+#     pull failures, ...) as logs, service.name "k8s-events".
+#   - prometheus: RabbitMQ (aggregated + per-queue) and Keycloak scrapes.
+#   - otlp/agent (4319): pod stdout logs and kubelet resource metrics from
+#     the per-node agent (platform/observability-agent), already enriched
+#     there.
+# k8s_cluster and k8s_events must run in exactly one collector: with more
+# than one replica they need the k8s_leader_elector extension.
+#
+# The operator deploys opentelemetry-collector-k8s:0.161.0 (chart 0.126.2
+# default tag). Every component used here is in that distribution. Component
+# types use their current names (k8s_attributes, otlp_http); the old ones
+# (k8sattributes, otlphttp) are deprecated aliases.
+#
+# Kubernetes API access (k8s_attributes, kubernetes_sd, k8s_cluster,
+# k8s_events) is granted by rbac.yaml to the operator-created ServiceAccount
+# gaze-collector; the operator chart runs with
+# manager.createRbacPermissions=false, so it does not create it.
 apiVersion: opentelemetry.io/v1beta1
 kind: OpenTelemetryCollector
 metadata:
@@ -17,7 +38,9 @@ spec:
       cpu: 100m
       memory: 256Mi
     limits:
-      memory: 512Mi
+      # k8s_cluster / k8s_events / k8s_attributes keep informer caches of
+      # the cluster objects on top of the telemetry buffers.
+      memory: 768Mi
   podSecurityContext:
     runAsNonRoot: true
     seccompProfile:
@@ -35,26 +58,216 @@ spec:
             endpoint: 0.0.0.0:4317
           http:
             endpoint: 0.0.0.0:4318
+      # Node agent (observability-agent namespace) only; see allow-collector
+      # in networkpolicy.yaml. A separate receiver so its data skips
+      # k8s_attributes here: node-level metrics carry no pod attributes, and
+      # the "connection" association would tag them with the agent's own pod.
+      # The operator exposes it on the gaze-collector Service as
+      # "otlp-agent-http".
+      otlp/agent:
+        protocols:
+          http:
+            endpoint: 0.0.0.0:4319
+      # Cluster object state through the API server (watches, no kubelet).
+      k8s_cluster:
+        auth_type: serviceAccount
+        collection_interval: 30s
+        node_conditions_to_report: [Ready, MemoryPressure, DiskPressure, PIDPressure]
+        allocatable_types_to_report: [cpu, memory, ephemeral-storage, pods]
+        metrics:
+          # Why a pod/container is not running (Evicted, CrashLoopBackOff,
+          # OOMKilled, ImagePullBackOff, ...).
+          k8s.pod.status_reason:
+            enabled: true
+          k8s.container.status.reason:
+            enabled: true
+          k8s.container.status.state:
+            enabled: true
+      # Every namespace. dedup_interval keeps recurring events (probe
+      # failures, BackOff) to one record per 5 minutes; k8s.event.count still
+      # carries the recurrence count.
+      k8s_events:
+        auth_type: serviceAccount
+        dedup_interval: 5m
+      # Infrastructure that exposes Prometheus metrics instead of pushing
+      # OTLP. Pods are discovered (not scraped through their Service) so
+      # every broker / Keycloak replica is its own target. kubernetes_sd sets
+      # k8s.namespace.name, k8s.pod.name, k8s.pod.uid, k8s.node.name and
+      # k8s.statefulset.name on the resource, which k8s_attributes then
+      # enriches through the k8s.pod.uid association.
+      # Relabel rules use the default replacement on purpose: a literal "$"
+      # would need "$$" escaping in the collector config.
+      prometheus:
+        config:
+          scrape_configs:
+            # RabbitMQ Cluster Operator pods: container "rabbitmq", port
+            # "prometheus" (15692), aggregated metrics on /metrics.
+            - job_name: rabbitmq
+              scrape_interval: 30s
+              metrics_path: /metrics
+              kubernetes_sd_configs:
+                - role: pod
+                  namespaces:
+                    names: [rabbitmq-dev]
+                    # TODO(aks): add rabbitmq-prod once prod is enabled in
+                    # argocd/applicationsets/env-infra.yaml (until then it
+                    # would only produce permanent scrape failures).
+                  selectors:
+                    - role: pod
+                      label: app.kubernetes.io/component=rabbitmq
+              relabel_configs:
+                - source_labels: [__meta_kubernetes_pod_container_name, __meta_kubernetes_pod_container_port_name]
+                  regex: rabbitmq;prometheus
+                  action: keep
+                - source_labels: [__meta_kubernetes_pod_phase]
+                  regex: Running
+                  action: keep
+            # Same brokers, per-object metrics (rabbitmq_detailed_*, labels
+            # vhost + queue / exchange). /metrics/detailed returns only the
+            # families requested here:
+            #   queue_coarse_metrics    ready / unacked / total messages
+            #   queue_consumer_count    consumers per queue
+            #   queue_delivery_metrics  delivered / acked / redelivered
+            #   exchange_metrics        published / unroutable per exchange
+            # Cardinality grows with the number of queues and exchanges; add a
+            # "queue" regex param if that ever becomes a problem.
+            - job_name: rabbitmq-detailed
+              scrape_interval: 30s
+              metrics_path: /metrics/detailed
+              params:
+                family:
+                  - queue_coarse_metrics
+                  - queue_consumer_count
+                  - queue_delivery_metrics
+                  - exchange_metrics
+              kubernetes_sd_configs:
+                - role: pod
+                  namespaces:
+                    names: [rabbitmq-dev]
+                    # TODO(aks): add rabbitmq-prod (see job "rabbitmq").
+                  selectors:
+                    - role: pod
+                      label: app.kubernetes.io/component=rabbitmq
+              relabel_configs:
+                - source_labels: [__meta_kubernetes_pod_container_name, __meta_kubernetes_pod_container_port_name]
+                  regex: rabbitmq;prometheus
+                  action: keep
+                - source_labels: [__meta_kubernetes_pod_phase]
+                  regex: Running
+                  action: keep
+            # Keycloak Operator pods (StatefulSet "keycloak"): container
+            # "keycloak", port "management" (9000), /metrics once
+            # metrics-enabled is on. The keycloak-service Service also exposes
+            # 9000, but would balance scrapes across replicas.
+            - job_name: keycloak
+              scrape_interval: 30s
+              metrics_path: /metrics
+              kubernetes_sd_configs:
+                - role: pod
+                  namespaces:
+                    names: [keycloak-dev]
+                    # TODO(aks): add keycloak-prod once prod is enabled in
+                    # argocd/applicationsets/env-infra.yaml.
+                  selectors:
+                    - role: pod
+                      label: app=keycloak,app.kubernetes.io/managed-by=keycloak-operator
+              relabel_configs:
+                - source_labels: [__meta_kubernetes_pod_container_name, __meta_kubernetes_pod_container_port_name]
+                  regex: keycloak;management
+                  action: keep
+                # Server replicas only, not the realm-import Job pod.
+                - source_labels: [__meta_kubernetes_pod_controller_kind]
+                  regex: StatefulSet
+                  action: keep
+                - source_labels: [__meta_kubernetes_pod_phase]
+                  regex: Running
+                  action: keep
     processors:
       memory_limiter:
         check_interval: 1s
         limit_percentage: 80
         spike_limit_percentage: 25
+      # Adds Kubernetes metadata to every signal. It never overwrites a
+      # non-empty attribute, so a deployment.environment.name set by the SDK
+      # (OTEL_RESOURCE_ATTRIBUTES) wins over the namespace label.
+      k8s_attributes:
+        auth_type: serviceAccount
+        passthrough: false
+        pod_association:
+          # Set by the sender, or by the prometheus receiver (kubernetes_sd)
+          # and k8s_cluster (pod-level metrics).
+          - sources:
+              - from: resource_attribute
+                name: k8s.pod.ip
+          - sources:
+              - from: resource_attribute
+                name: k8s.pod.uid
+          # Peer IP of the OTLP connection (pods talk to the collector
+          # directly, no proxy in between).
+          - sources:
+              - from: connection
+        extract:
+          metadata:
+            - k8s.namespace.name
+            - k8s.pod.name
+            - k8s.pod.uid
+            - k8s.deployment.name
+            - k8s.node.name
+          labels:
+            # Every gaze namespace carries gaze.app/env (Argo CD
+            # managedNamespaceMetadata), unlike operator-managed pods such
+            # as Envoy, Keycloak or RabbitMQ.
+            - tag_name: deployment.environment.name
+              key: gaze.app/env
+              from: namespace
+            - tag_name: k8s.pod.label.app.kubernetes.io/name
+              key: app.kubernetes.io/name
+              from: pod
+      # Prometheus (LGTM) only turns a fixed list of resource attributes into
+      # labels (k8s.namespace/pod/container/node/workload names, ...). Objects
+      # identified by any other resource attribute would collapse into one
+      # series, so copy those identities onto the data points.
+      transform/k8s-cluster-identity:
+        error_mode: ignore
+        metric_statements:
+          - context: datapoint
+            statements:
+              - set(datapoint.attributes["k8s.hpa.name"], resource.attributes["k8s.hpa.name"]) where resource.attributes["k8s.hpa.name"] != nil
+              - set(datapoint.attributes["k8s.resourcequota.name"], resource.attributes["k8s.resourcequota.name"]) where resource.attributes["k8s.resourcequota.name"] != nil
+      # Kubernetes Events land in Loki as service_name="k8s-events".
+      resource/k8s-events:
+        attributes:
+          - key: service.name
+            value: k8s-events
+            action: upsert
       batch: {}
     exporters:
-      otlphttp/lgtm:
+      otlp_http/lgtm:
         endpoint: http://lgtm.observability.svc.cluster.local:4318
     service:
       pipelines:
         traces:
           receivers: [otlp]
-          processors: [memory_limiter, batch]
-          exporters: [otlphttp/lgtm]
+          processors: [memory_limiter, k8s_attributes, batch]
+          exporters: [otlp_http/lgtm]
         metrics:
-          receivers: [otlp]
-          processors: [memory_limiter, batch]
-          exporters: [otlphttp/lgtm]
+          receivers: [otlp, prometheus, k8s_cluster]
+          processors: [memory_limiter, k8s_attributes, transform/k8s-cluster-identity, batch]
+          exporters: [otlp_http/lgtm]
         logs:
           receivers: [otlp]
+          processors: [memory_limiter, k8s_attributes, batch]
+          exporters: [otlp_http/lgtm]
+        logs/k8s-events:
+          receivers: [k8s_events]
+          processors: [memory_limiter, resource/k8s-events, batch]
+          exporters: [otlp_http/lgtm]
+        # Node agent data: enriched by the agent, forwarded as is.
+        metrics/agent:
+          receivers: [otlp/agent]
           processors: [memory_limiter, batch]
-          exporters: [otlphttp/lgtm]
+          exporters: [otlp_http/lgtm]
+        logs/agent:
+          receivers: [otlp/agent]
+          processors: [memory_limiter, batch]
+          exporters: [otlp_http/lgtm]

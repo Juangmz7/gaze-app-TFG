@@ -83,6 +83,20 @@ spec:
         - protocol: TCP
           port: {{ . }}
         {{- end }}
+    {{- if include "gateway.otlpEnabled" . }}
+    {{- $c := .Values.telemetry.collector }}
+    # OTLP gRPC (traces, metrics, access logs) to the OpenTelemetry collector.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $c.namespace }}
+          podSelector:
+            matchLabels:
+              {{- toYaml $c.podLabels | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ int $c.port }}
+    {{- end }}
 ---
 # cert-manager ACME HTTP-01 solver pods (Let's Encrypt issuer on AKS) are
 # created in this namespace and receive the challenge through the proxies.

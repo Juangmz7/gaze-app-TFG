@@ -1,5 +1,8 @@
-# Telemetry flows one way: services -> collector -> LGTM. Nothing in this
-# namespace may initiate connections elsewhere.
+# Telemetry flows one way: services / node agent -> collector -> LGTM. The
+# k8s_cluster and k8s_events receivers only use the Kubernetes API (6443
+# rule below). The only other
+# connections started from this namespace are the collector's Prometheus
+# scrapes (RabbitMQ, Keycloak) and its Kubernetes API watches.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -47,16 +50,31 @@ spec:
     - Ingress
     - Egress
   ingress:
-    # OTLP from the service namespaces of every environment.
+    # OTLP from every environment: services (app), Envoy proxies (edge) and
+    # Keycloak (identity).
     - from:
         - namespaceSelector:
-            matchLabels:
-              gaze.app/tier: app
+            matchExpressions:
+              - key: gaze.app/tier
+                operator: In
+                values: [app, edge, identity]
       ports:
         - protocol: TCP
           port: 4317
         - protocol: TCP
           port: 4318
+    # Node agent (platform/observability-agent): pod logs + kubelet metrics,
+    # on its own receiver (otlp/agent), which skips k8s_attributes here.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability-agent
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: opentelemetry-collector
+      ports:
+        - protocol: TCP
+          port: 4319
   egress:
     - to:
         - podSelector:
@@ -65,6 +83,40 @@ spec:
       ports:
         - protocol: TCP
           port: 4318
+    # Prometheus scrapes (receiver "prometheus" in collector.yaml). Selected
+    # by tier, so prod only needs its scrape targets enabled.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              gaze.app/tier: messaging
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: rabbitmq
+      ports:
+        - protocol: TCP
+          port: 15692
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              gaze.app/tier: identity
+          podSelector:
+            matchLabels:
+              app: keycloak
+              app.kubernetes.io/managed-by: keycloak-operator
+      ports:
+        - protocol: TCP
+          port: 9000
+    # Kubernetes API server (k8sattributes informers, kubernetes_sd).
+    # NetworkPolicy is evaluated after kube-proxy's DNAT, so the traffic to
+    # kubernetes.default (10.43.0.1:443) is matched as the k3s node IP on
+    # 6443. The node IP is not stable on WSL2, so only the port is pinned
+    # (same as the Keycloak operator in charts/keycloak).
+    # TODO(aks): the managed API server is reached on 443 (public FQDN or
+    # private endpoint); replace 6443 with 443 there, ideally restricted to
+    # the API server IP/CIDR with an ipBlock.
+    - ports:
+        - protocol: TCP
+          port: 6443
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

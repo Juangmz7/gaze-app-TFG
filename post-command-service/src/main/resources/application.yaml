@@ -1,5 +1,8 @@
-# --- RabbitMQ publisher confirms (required by the outbox relay) ---
+# --- Application identity (also the default OpenTelemetry service.name) ---
 spring:
+  application:
+    name: post-command-service
+  # --- RabbitMQ publisher confirms (required by the outbox relay) ---
   rabbitmq:
     publisher-confirm-type: correlated
     publisher-returns: true

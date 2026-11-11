@@ -66,6 +66,7 @@ func (p *AMQPPublisher) Publish(ctx context.Context, event Event) error {
 		CorrelationId:   event.CorrelationID.String(),
 		Type:            event.EventType,
 		Timestamp:       time.Now().UTC(),
+		Headers:         traceHeaders(event),
 		Body:            []byte(event.Payload),
 	})
 	if err != nil {
@@ -86,6 +87,20 @@ func (p *AMQPPublisher) Publish(ctx context.Context, event Event) error {
 
 	p.logReturned(event)
 	return nil
+}
+
+// traceHeaders returns the event's trace context as AMQP headers, nil when it has none.
+func traceHeaders(event Event) amqp.Table {
+	if len(event.TraceContext) == 0 {
+		return nil
+	}
+
+	headers := make(amqp.Table, len(event.TraceContext))
+	for key, value := range event.TraceContext {
+		headers[key] = value
+	}
+
+	return headers
 }
 
 // Close closes the publisher's channel and connection.

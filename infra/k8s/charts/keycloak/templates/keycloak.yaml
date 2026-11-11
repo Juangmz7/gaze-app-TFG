@@ -50,6 +50,11 @@ spec:
   http:
     httpEnabled: true
     httpPort: 8080
+  # Management interface: /metrics and /health/* (operator probes). It is
+  # enabled because metrics/health are on. Plain HTTP, like 8080. The
+  # NetworkPolicy and the observability scrape both target 9000.
+  httpManagement:
+    port: 9000
   hostname:
     hostname: https://{{ .Values.hostname }}
     # Services reach Keycloak through the in-cluster Service (JWKS).
@@ -64,6 +69,30 @@ spec:
   additionalOptions:
     - name: log-console-output
       value: json
+    # Build-time options: they must match the image build (see values.yaml).
+    - name: metrics-enabled
+      value: {{ .Values.management.metricsEnabled | quote }}
+    - name: health-enabled
+      value: {{ .Values.management.healthEnabled | quote }}
+    {{- with .Values.tracing }}
+    {{- if .enabled }}
+    {{- if semverCompare "<26.1.0-0" $.Chart.AppVersion }}
+    {{- fail (printf "tracing.enabled requires Keycloak >= 26.1 (OpenTelemetry tracing is supported from 26.1; %s has no tracing support)" $.Chart.AppVersion) }}
+    {{- end }}
+    - name: tracing-enabled
+      value: "true"
+    - name: tracing-endpoint
+      value: {{ printf "http://%s:%v" .collector.host .collector.port | quote }}
+    - name: tracing-protocol
+      value: grpc
+    - name: tracing-service-name
+      value: {{ .serviceName | quote }}
+    - name: tracing-sampler-ratio
+      value: {{ .samplerRatio | toString | quote }}
+    - name: tracing-resource-attributes
+      value: {{ printf "deployment.environment.name=%s" $.Values.environment | quote }}
+    {{- end }}
+    {{- end }}
   unsupported:
     podTemplate:
       spec:

@@ -35,10 +35,14 @@ jobs:
         with:
           python-version: "3.14"
           cache: pip
-          cache-dependency-path: recommendation-service/requirements.txt
+          cache-dependency-path: |
+            recommendation-service/requirements.txt
+            recommendation-service/requirements-otel.txt
 
+      # Same set as the image, so a version conflict fails here and not in
+      # docker publish
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements.txt -r requirements-otel.txt
 
       - name: Run tests
         run: pytest

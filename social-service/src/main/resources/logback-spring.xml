@@ -5,6 +5,38 @@
     <appender name="OTEL" class="io.opentelemetry.instrumentation.logback.appender.v1_0.OpenTelemetryAppender">
     </appender>
 
+    <!--
+        Local-only loggers: never exported over OTLP (Loki).
+        - io.opentelemetry: the SDK's own logs (bridged from JUL) would be fed back into
+          the OTel exporter -> noise and a possible feedback loop on export failures.
+        - org.hibernate.SQL / org.hibernate.orm.jdbc.bind / org.hibernate.orm.jdbc.extract:
+          SQL statements and bound/extracted values may contain personal data.
+        - org.springframework.security.oauth2: token/claim details at DEBUG/TRACE.
+        additivity="false" stops these events (and their child loggers) from reaching the
+        root logger's OTEL appender; CONSOLE and FILE are re-attached so local output stays
+        exactly as with base.xml. No level is set here: levels stay driven by logging.level.*.
+    -->
+    <logger name="io.opentelemetry" additivity="false">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+    </logger>
+    <logger name="org.hibernate.SQL" additivity="false">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+    </logger>
+    <logger name="org.hibernate.orm.jdbc.bind" additivity="false">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+    </logger>
+    <logger name="org.hibernate.orm.jdbc.extract" additivity="false">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+    </logger>
+    <logger name="org.springframework.security.oauth2" additivity="false">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+    </logger>
+
     <root level="INFO">
         <appender-ref ref="CONSOLE"/>
         <appender-ref ref="OTEL"/>

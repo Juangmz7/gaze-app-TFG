@@ -58,7 +58,8 @@ logging:
     org.hibernate.SQL: DEBUG
     org.hibernate.orm.jdbc.bind: TRACE
     org.springframework.amqp: DEBUG
-    io.opentelemetry: DEBUG
+    # INFO: the SDK logs are console-only (see logback-spring.xml); DEBUG is just noise.
+    io.opentelemetry: INFO
 
 # --- OpenTelemetry (local Grafana LGTM stack) ---
 management:

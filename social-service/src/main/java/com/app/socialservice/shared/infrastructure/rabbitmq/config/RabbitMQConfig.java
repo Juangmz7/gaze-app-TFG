@@ -17,6 +17,7 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.amqp.rabbit.retry.RejectAndDontRequeueRecoverer;
 import org.springframework.amqp.support.converter.JacksonJsonMessageConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
+import org.springframework.boot.amqp.autoconfigure.RabbitTemplateConfigurer;
 import org.springframework.boot.amqp.autoconfigure.SimpleRabbitListenerContainerFactoryConfigurer;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -298,6 +299,15 @@ public class RabbitMQConfig {
 
         configurer.configure(factory, connectionFactory);
 
+        /*
+         * Continue the producer's trace: the listener observation extracts the W3C
+         * "traceparent"/"baggage" headers and opens a consumer span around the delivery.
+         * The observation wraps the whole advice chain, so every retry attempt made by
+         * retryInterceptor() runs inside that same span (and therefore the same trace).
+         * Spring Boot defaults spring.rabbitmq.listener.simple.observation-enabled to
+         * false, so it is forced on here, after configurer.configure(...) applied it.
+         */
+        factory.setObservationEnabled(true);
         factory.setDefaultRequeueRejected(false);
         factory.setAdviceChain(retryInterceptor());
 
@@ -342,14 +352,26 @@ public class RabbitMQConfig {
 
     @Bean
     public RabbitTemplate rabbitTemplate(
+            RabbitTemplateConfigurer configurer,
             MessageConverter messageConverter,
             CachingConnectionFactory cachingConnectionFactory) {
 
-        var template = new RabbitTemplate(cachingConnectionFactory);
+        var template = new RabbitTemplate();
+
+        // Apply spring.rabbitmq.template.* the same way Boot's own RabbitTemplate bean does.
+        configurer.configure(template, cachingConnectionFactory);
         template.setMessageConverter(messageConverter);
         // Unroutable messages are returned to the publisher instead of silently dropped
         // (requires spring.rabbitmq.publisher-returns). Used by the outbox relay.
         template.setMandatory(true);
+
+        /*
+         * Publish the current trace context as W3C string headers ("traceparent", plus
+         * "baggage" when present) so the Go (Watermill: string-only headers) and Python
+         * (FastStream) consumers can continue the trace. Spring Boot defaults
+         * spring.rabbitmq.template.observation-enabled to false.
+         */
+        template.setObservationEnabled(true);
 
         return template;
     }

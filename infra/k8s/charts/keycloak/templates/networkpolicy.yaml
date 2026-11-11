@@ -72,6 +72,34 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/managed-by: keycloak-operator
+{{- if .Values.tracing.enabled }}
+---
+# Keycloak server pods -> OpenTelemetry collector (OTLP/gRPC traces). Only
+# rendered with tracing on, so nothing is opened for a flow that doesn't exist.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-keycloak-otlp-egress
+  labels:
+    {{- include "keycloak.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/managed-by: keycloak-operator
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $np.observabilityNamespace }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/component: opentelemetry-collector
+      ports:
+        - protocol: TCP
+          port: {{ .Values.tracing.collector.port }}
+{{- end }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

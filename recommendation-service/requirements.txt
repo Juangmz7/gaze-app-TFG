@@ -20,3 +20,9 @@ grpcio>=1.85.1,<2
 grpcio-health-checking>=1.85.1,<2
 grpcio-tools>=1.85.1,<2
 protobuf>=7.35.1,<8
+# Imported by src/observability. OpenTelemetry core (1.45.x) and contrib
+# (0.66bX) are released together and pin each other through
+# opentelemetry-semantic-conventions: bump these and requirements-otel.txt
+# together.
+opentelemetry-sdk>=1.45.0,<1.46
+opentelemetry-instrumentation-logging>=0.66b0,<0.67
