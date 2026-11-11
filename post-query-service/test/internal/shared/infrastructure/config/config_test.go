@@ -61,6 +61,7 @@ func TestLoad_ParsesValidEnvironmentVariablesIntoConfig(t *testing.T) {
 			RefillLeaseWait:         8 * time.Second,
 			RefillPollInterval:      250 * time.Millisecond,
 			RefillRetryAfter:        5 * time.Second,
+			RefillLeaseTTL:          30 * time.Second,
 		},
 		Recommendation: config.RecommendationConfig{
 			Address:              "dns:///recommendation-service:50051",
@@ -183,6 +184,7 @@ func TestLoad_ReadsTheFeedSettings(t *testing.T) {
 	setEnv(t, "FEED_REFILL_LEASE_WAIT_MS", "1500")
 	setEnv(t, "FEED_REFILL_POLL_INTERVAL_MS", "150")
 	setEnv(t, "FEED_REFILL_RETRY_AFTER_SECONDS", "9")
+	setEnv(t, "FEED_REFILL_LEASE_TTL_MS", "45000")
 
 	got, err := config.Load()
 	if err != nil {
@@ -208,6 +210,7 @@ func TestLoad_ReadsTheFeedSettings(t *testing.T) {
 		RefillLeaseWait:         1500 * time.Millisecond,
 		RefillPollInterval:      150 * time.Millisecond,
 		RefillRetryAfter:        9 * time.Second,
+		RefillLeaseTTL:          45 * time.Second,
 	}
 	if got.Feed != want {
 		t.Fatalf("Load() Feed = %+v, want %+v", got.Feed, want)
@@ -239,6 +242,8 @@ func TestLoad_RejectsFeedSettingsThatMakeNoSense(t *testing.T) {
 		{"poll interval is not a number", map[string]string{"FEED_REFILL_POLL_INTERVAL_MS": "often"}},
 		{"poll interval above the wait", map[string]string{"FEED_REFILL_LEASE_WAIT_MS": "100", "FEED_REFILL_POLL_INTERVAL_MS": "200"}},
 		{"retry after is zero", map[string]string{"FEED_REFILL_RETRY_AFTER_SECONDS": "0"}},
+		{"refill lease ttl is zero", map[string]string{"FEED_REFILL_LEASE_TTL_MS": "0"}},
+		{"refill lease ttl above the lease ttl", map[string]string{"FEED_LEASE_TTL_MS": "25000", "FEED_REFILL_LEASE_TTL_MS": "30000"}},
 		{"recommendation address is blank", map[string]string{"RECOMMENDATION_GRPC_ADDR": "  "}},
 		{"dial timeout is zero", map[string]string{"RECOMMENDATION_GRPC_DIAL_TIMEOUT_MS": "0"}},
 		{"per retry timeout is not a number", map[string]string{"RECOMMENDATION_GRPC_PER_RETRY_TIMEOUT_MS": "soon"}},
@@ -249,7 +254,7 @@ func TestLoad_RejectsFeedSettingsThatMakeNoSense(t *testing.T) {
 		{"jitter above everything", map[string]string{"RECOMMENDATION_GRPC_BACKOFF_JITTER_PERCENT": "101"}},
 		{"backoff base above the cap", map[string]string{"RECOMMENDATION_GRPC_BACKOFF_BASE_MS": "2000", "RECOMMENDATION_GRPC_BACKOFF_MAX_MS": "1000"}},
 		{"per retry timeout above the overall", map[string]string{"RECOMMENDATION_GRPC_PER_RETRY_TIMEOUT_MS": "3000", "RECOMMENDATION_GRPC_OVERALL_TIMEOUT_MS": "2000"}},
-		{"lease ttl not above the overall deadline", map[string]string{"FEED_LEASE_TTL_MS": "10000", "RECOMMENDATION_GRPC_PER_RETRY_TIMEOUT_MS": "3000", "RECOMMENDATION_GRPC_OVERALL_TIMEOUT_MS": "10000"}},
+		{"refill lease ttl not above the overall deadline", map[string]string{"FEED_REFILL_LEASE_TTL_MS": "10000", "RECOMMENDATION_GRPC_PER_RETRY_TIMEOUT_MS": "3000", "RECOMMENDATION_GRPC_OVERALL_TIMEOUT_MS": "10000"}},
 	}
 
 	for _, test := range tests {
@@ -304,7 +309,7 @@ func unsetFeedEnv(t *testing.T) {
 	for _, name := range []string{"FEED_DEFAULT_PAGE_SIZE", "FEED_MAX_PAGE_SIZE", "FEED_MAX_READS_PER_CLAIM", "FEED_RETENTION_HOURS", "FEED_DISCONNECT_WRITE_TIMEOUT_MS",
 		"FEED_INSTANCE_ID", "FEED_PREFETCH_MAX_UNSERVED", "FEED_PREFETCH_EXCLUDED_IDS_CAP", "FEED_PREFETCH_TIMEOUT_MS", "FEED_LEASE_TTL_MS", "FEED_LEASE_RELEASE_TIMEOUT_MS",
 		"FEED_LOW_WATERMARK_CONCURRENCY", "FEED_SWEEP_INTERVAL_MS", "FEED_SWEEP_STALE_AFTER_MS", "FEED_SWEEP_BATCH_SIZE",
-		"FEED_REFILL_LEASE_WAIT_MS", "FEED_REFILL_POLL_INTERVAL_MS", "FEED_REFILL_RETRY_AFTER_SECONDS",
+		"FEED_REFILL_LEASE_WAIT_MS", "FEED_REFILL_POLL_INTERVAL_MS", "FEED_REFILL_RETRY_AFTER_SECONDS", "FEED_REFILL_LEASE_TTL_MS",
 		"RECOMMENDATION_GRPC_DIAL_TIMEOUT_MS", "RECOMMENDATION_GRPC_PER_RETRY_TIMEOUT_MS", "RECOMMENDATION_GRPC_OVERALL_TIMEOUT_MS", "RECOMMENDATION_GRPC_MAX_ATTEMPTS",
 		"RECOMMENDATION_GRPC_BACKOFF_BASE_MS", "RECOMMENDATION_GRPC_BACKOFF_MAX_MS", "RECOMMENDATION_GRPC_BACKOFF_JITTER_PERCENT"} {
 		unsetEnv(t, name)
@@ -435,7 +440,7 @@ func TestLoad_DefaultsToFourAttemptsWithABackoffCappedAtOneSecond(t *testing.T) 
 	if got.Recommendation.BackoffMax != time.Second {
 		t.Fatalf("BackoffMax = %s, want 1s", got.Recommendation.BackoffMax)
 	}
-	if got.Recommendation.OverallTimeout <= got.Recommendation.PerRetryTimeout || got.Feed.LeaseTTL <= got.Recommendation.OverallTimeout {
-		t.Fatalf("Recommendation = %+v, LeaseTTL = %s, want consistent defaults", got.Recommendation, got.Feed.LeaseTTL)
+	if got.Recommendation.OverallTimeout <= got.Recommendation.PerRetryTimeout || got.Feed.RefillLeaseTTL <= got.Recommendation.OverallTimeout || got.Feed.RefillLeaseTTL > got.Feed.LeaseTTL {
+		t.Fatalf("Recommendation = %+v, RefillLeaseTTL = %s, LeaseTTL = %s, want consistent defaults", got.Recommendation, got.Feed.RefillLeaseTTL, got.Feed.LeaseTTL)
 	}
 }

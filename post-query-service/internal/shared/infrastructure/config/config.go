@@ -51,6 +51,9 @@ const (
 	defaultFeedRefillLeaseWait    = 8000
 	defaultFeedRefillPollInterval = 250
 	defaultFeedRefillRetryAfter   = 5
+	// The gRPC call's 20.5 s (RECOMMENDATION_GRPC_OVERALL_TIMEOUT_MS) plus the reads
+	// around it and storing the posts.
+	defaultFeedRefillLeaseTTL = 30000
 )
 
 // Recommendation-service gRPC defaults, used when the matching RECOMMENDATION_GRPC_*
@@ -158,6 +161,9 @@ type FeedConfig struct {
 	RefillPollInterval time.Duration
 	// RefillRetryAfter is what the degraded response tells a client to wait.
 	RefillRetryAfter time.Duration
+	// RefillLeaseTTL is the recovery from a holder that died during a synchronous
+	// refill. It must exceed the gRPC call's overall timeout, and not exceed LeaseTTL.
+	RefillLeaseTTL time.Duration
 }
 
 // RecommendationConfig holds the settings of the gRPC client of recommendation-service.
@@ -237,7 +243,7 @@ func Load() (AppConfig, error) {
 		return AppConfig{}, err
 	}
 
-	recommendation, err := loadRecommendationConfig(feed.LeaseTTL)
+	recommendation, err := loadRecommendationConfig(feed.RefillLeaseTTL)
 	if err != nil {
 		return AppConfig{}, err
 	}
@@ -343,6 +349,7 @@ func loadFeedPrefetchConfig(feed *FeedConfig) error {
 		{"FEED_SWEEP_STALE_AFTER_MS", defaultFeedSweepStaleAfter, &feed.SweepStaleAfter},
 		{"FEED_REFILL_LEASE_WAIT_MS", defaultFeedRefillLeaseWait, &feed.RefillLeaseWait},
 		{"FEED_REFILL_POLL_INTERVAL_MS", defaultFeedRefillPollInterval, &feed.RefillPollInterval},
+		{"FEED_REFILL_LEASE_TTL_MS", defaultFeedRefillLeaseTTL, &feed.RefillLeaseTTL},
 	}
 	for _, setting := range durations {
 		value, err := positiveIntEnv(setting.name, setting.fallback)
@@ -364,6 +371,9 @@ func loadFeedPrefetchConfig(feed *FeedConfig) error {
 		return fmt.Errorf("load config: FEED_LEASE_TTL_MS %s must exceed FEED_PREFETCH_TIMEOUT_MS %s", feed.LeaseTTL, feed.PrefetchTimeout)
 	}
 
+	if feed.RefillLeaseTTL > feed.LeaseTTL {
+		return fmt.Errorf("load config: FEED_REFILL_LEASE_TTL_MS %s is above FEED_LEASE_TTL_MS %s", feed.RefillLeaseTTL, feed.LeaseTTL)
+	}
 	if feed.RefillPollInterval > feed.RefillLeaseWait {
 		return fmt.Errorf("load config: FEED_REFILL_POLL_INTERVAL_MS %s is above FEED_REFILL_LEASE_WAIT_MS %s", feed.RefillPollInterval, feed.RefillLeaseWait)
 	}
@@ -379,8 +389,9 @@ func loadFeedPrefetchConfig(feed *FeedConfig) error {
 }
 
 // loadRecommendationConfig reads RecommendationConfig from environment variables.
-// leaseTTL is checked against the deadline: the lease must outlive the call it guards.
-func loadRecommendationConfig(leaseTTL time.Duration) (RecommendationConfig, error) {
+// refillLeaseTTL is checked against the deadline: the lease must outlive the call it
+// guards.
+func loadRecommendationConfig(refillLeaseTTL time.Duration) (RecommendationConfig, error) {
 	address := strings.TrimSpace(os.Getenv("RECOMMENDATION_GRPC_ADDR"))
 	if address == "" {
 		return RecommendationConfig{}, fmt.Errorf("load config: required environment variable %s is missing", "RECOMMENDATION_GRPC_ADDR")
@@ -427,8 +438,8 @@ func loadRecommendationConfig(leaseTTL time.Duration) (RecommendationConfig, err
 	if recommendation.PerRetryTimeout > recommendation.OverallTimeout {
 		return RecommendationConfig{}, fmt.Errorf("load config: RECOMMENDATION_GRPC_PER_RETRY_TIMEOUT_MS %s is above RECOMMENDATION_GRPC_OVERALL_TIMEOUT_MS %s", recommendation.PerRetryTimeout, recommendation.OverallTimeout)
 	}
-	if leaseTTL <= recommendation.OverallTimeout {
-		return RecommendationConfig{}, fmt.Errorf("load config: FEED_LEASE_TTL_MS %s must exceed RECOMMENDATION_GRPC_OVERALL_TIMEOUT_MS %s", leaseTTL, recommendation.OverallTimeout)
+	if refillLeaseTTL <= recommendation.OverallTimeout {
+		return RecommendationConfig{}, fmt.Errorf("load config: FEED_REFILL_LEASE_TTL_MS %s must exceed RECOMMENDATION_GRPC_OVERALL_TIMEOUT_MS %s", refillLeaseTTL, recommendation.OverallTimeout)
 	}
 
 	return recommendation, nil

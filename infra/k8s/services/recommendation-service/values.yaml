@@ -62,8 +62,6 @@ env:
   OTEL_PYTHON_SYSTEM_METRICS_EXCLUDED_METRICS: "system.*,process.runtime.*"
   # A trace per gRPC health check would bury the real calls.
   OTEL_PYTHON_GRPC_EXCLUDED_SERVICES: grpc.health.v1.Health
-  # Root log level, read at startup (src/observability/logging_config.py).
-  LOG_LEVEL: INFO
   # The model is baked into the image (HF_HOME): never call the Hub at runtime.
   HF_HUB_OFFLINE: "1"
   TRANSFORMERS_OFFLINE: "1"

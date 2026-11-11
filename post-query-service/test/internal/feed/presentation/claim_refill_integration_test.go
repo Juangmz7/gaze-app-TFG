@@ -182,7 +182,7 @@ func newRefillApp(t *testing.T, ctx context.Context, answer func(ctx context.Con
 	hydration := feedmongo.NewHydrationRepository(app.db)
 	leaseDenied := make(chan struct{})
 	leaseLogger := slog.New(messageSignal{message: "feed lease denied", once: &sync.Once{}, seen: leaseDenied})
-	lease := usecase.NewFeedLeaseManager(sessions, usecase.FeedLeaseConfig{Owner: "replica-1", TTL: time.Minute, ReleaseTimeout: 5 * time.Second}, leaseLogger)
+	lease := usecase.NewFeedLeaseManager(sessions, usecase.FeedLeaseConfig{Owner: "replica-1", TTL: time.Minute, RequestTTL: 30 * time.Second, ReleaseTimeout: 5 * time.Second}, leaseLogger)
 	backlog := usecase.NewFeedBacklog(units, usecase.FeedBacklogConfig{MaxUnserved: 60, ExcludedIDsCap: 200}, logger)
 	prefetch := &countingPrefetch{}
 	lowWatermark := usecase.NewRequestLowWatermarkPrefetch(backlog, prefetch, usecase.RequestLowWatermarkPrefetchConfig{PageSize: 15, Concurrency: 4, Timeout: 5 * time.Second}, logger)

@@ -1256,7 +1256,7 @@ func TestRefillFeedUsecase_WithTheRealDriver_ARefusedReadIsDegraded(t *testing.T
 	sessions := sessionRepository(t, ctx, db)
 	units := unitRepository(t, ctx, db)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	lease := usecase.NewFeedLeaseManager(sessions, usecase.FeedLeaseConfig{Owner: "replica-1", TTL: time.Minute, ReleaseTimeout: 5 * time.Second}, logger)
+	lease := usecase.NewFeedLeaseManager(sessions, usecase.FeedLeaseConfig{Owner: "replica-1", TTL: time.Minute, RequestTTL: 30 * time.Second, ReleaseTimeout: 5 * time.Second}, logger)
 	backlog := usecase.NewFeedBacklog(units, usecase.FeedBacklogConfig{MaxUnserved: 60, ExcludedIDsCap: 200}, logger)
 	refill := usecase.NewRefillFeed(refusingUnits{units}, lease, backlog, nil, nil, usecase.RefillFeedConfig{
 		LeaseWait:    50 * time.Millisecond,

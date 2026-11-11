@@ -71,7 +71,7 @@ func newPrefetchStack(t *testing.T, ctx context.Context, amqpURI string, db *mon
 	t.Cleanup(relay.Wait)
 	store.SendImmediatelyWith(relay)
 
-	lease := feedusecase.NewFeedLeaseManager(sessions, feedusecase.FeedLeaseConfig{Owner: "test-replica", TTL: time.Minute, ReleaseTimeout: 5 * time.Second}, logger)
+	lease := feedusecase.NewFeedLeaseManager(sessions, feedusecase.FeedLeaseConfig{Owner: "test-replica", TTL: time.Minute, RequestTTL: 30 * time.Second, ReleaseTimeout: 5 * time.Second}, logger)
 	backlog := feedusecase.NewFeedBacklog(units, feedusecase.FeedBacklogConfig{MaxUnserved: testMaxUnserved, ExcludedIDsCap: testExcludedCap}, logger)
 	prefetch := feedusecase.NewRequestFeedPrefetch(database.NewTransactor(db.Client()), backlog, lease, sessions,
 		feedrabbitmq.NewFeedPrefetchPublisher(publisher.NewPublisher(store)), 10*time.Second, logger)

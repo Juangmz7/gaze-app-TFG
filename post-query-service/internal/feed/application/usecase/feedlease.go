@@ -33,11 +33,15 @@ type FeedLeaseRepository interface {
 }
 
 // FeedLeaseConfig holds the lease's settings (config.FeedConfig). Owner is the id of
-// this instance. TTL is the recovery from a crashed holder and must exceed queue time
-// plus pipeline time. ReleaseTimeout bounds a release, which outlives its caller.
+// this instance. TTL is the recovery from a crashed holder of an asynchronous request
+// and must exceed queue time plus pipeline time. RequestTTL is the same for a holder of
+// one synchronous call (AcquireForRequest): it only has to outlive that call, so a pod
+// that dies mid-refill does not leave the user's empty feed answering 503 for TTL.
+// ReleaseTimeout bounds a release, which outlives its caller.
 type FeedLeaseConfig struct {
 	Owner          string
 	TTL            time.Duration
+	RequestTTL     time.Duration
 	ReleaseTimeout time.Duration
 }
 
@@ -58,12 +62,16 @@ func NewFeedLeaseManager(repository FeedLeaseRepository, config FeedLeaseConfig,
 // nothing, because inside a transaction the outcome is only known after the commit
 // and the driver may re-run it: RequestFeedPrefetchUsecase logs for it.
 func (m *FeedLeaseManager) Acquire(ctx context.Context, userID uuid.UUID) (FeedLease, error) {
+	return m.acquire(ctx, userID, m.config.TTL)
+}
+
+func (m *FeedLeaseManager) acquire(ctx context.Context, userID uuid.UUID, ttl time.Duration) (FeedLease, error) {
 	if userID == uuid.Nil {
 		return FeedLease{}, fmt.Errorf("acquire feed lease: user id is required")
 	}
 
 	now := time.Now().UTC()
-	lease := FeedLease{UserID: userID, Owner: m.config.Owner, Token: uuid.New(), ExpiresAt: now.Add(m.config.TTL)}
+	lease := FeedLease{UserID: userID, Owner: m.config.Owner, Token: uuid.New(), ExpiresAt: now.Add(ttl)}
 	if err := m.repository.AcquireFeedLease(ctx, lease, now); err != nil {
 		return FeedLease{}, err
 	}
@@ -71,11 +79,11 @@ func (m *FeedLeaseManager) Acquire(ctx context.Context, userID uuid.UUID) (FeedL
 	return lease, nil
 }
 
-// AcquireForRequest takes the lease outside a transaction, for a caller that holds it
-// for the duration of a call and then calls Release. A denied lease reports false and
-// no error.
+// AcquireForRequest takes the lease outside a transaction, for RequestTTL, for a caller
+// that holds it for the duration of a call and then calls Release. A denied lease
+// reports false and no error.
 func (m *FeedLeaseManager) AcquireForRequest(ctx context.Context, userID uuid.UUID, correlationID string) (FeedLease, bool, error) {
-	lease, err := m.Acquire(ctx, userID)
+	lease, err := m.acquire(ctx, userID, m.config.RequestTTL)
 	if errors.Is(err, ErrFeedLeaseDenied) {
 		m.logger.InfoContext(ctx, "feed lease denied", "correlation_id", correlationID, "userId", userID)
 		return FeedLease{}, false, nil
