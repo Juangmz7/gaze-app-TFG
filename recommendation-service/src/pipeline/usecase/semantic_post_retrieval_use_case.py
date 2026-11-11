@@ -17,7 +17,7 @@ class SemanticPostRetrievalUseCase:
     def retrieve_posts(self, user_id: UUID, limit_multiplier: float = 1.0) -> list[Candidate]:
         posts = self.semantic_post_retrieval_repository.get_similar_posts(user_id, int(POST_LIMIT * limit_multiplier))
 
-        logger.info(f"Total posts retrieved from semantic retrieval: {len(posts)}")
+        logger.debug("Semantic retrieval: user_id=%s posts=%s", user_id, len(posts))
 
         return [
             Candidate(post_id, PostRetrieveSource.SEMANTIC, score)

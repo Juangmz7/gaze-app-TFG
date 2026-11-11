@@ -311,3 +311,44 @@ def test_should_return_nothing_without_candidates_and_cold_start_posts():
 
     assert orchestrator.recommend(uuid4()) == []
     mocks.reranker.rerank.assert_not_called()
+
+
+def test_should_log_one_summary_line_per_run_with_the_time_of_each_stage(orchestrator_and_mocks, caplog):
+    # Arrange
+    orchestrator, mock_collab, mock_semantic, mock_explorative, mock_enricher, mock_ranker, mock_reranker = orchestrator_and_mocks
+    user_id = uuid4()
+    mock_collab.retrieve_posts.return_value = [Candidate(uuid4(), PostRetrieveSource.COLLABORATIVE, 1.0) for _ in range(TARGET_RECOMMENDED_POSTS)]
+    mock_semantic.retrieve_posts.return_value = []
+    mock_explorative.retrieve_posts.return_value = []
+    mock_enricher.enrich.return_value = ["e1"]
+    mock_ranker.get_top_k_posts.return_value = [ranked_post()]
+    mock_reranker.rerank.return_value = ["reranked1"]
+
+    # Act
+    with caplog.at_level("INFO", logger="pipeline.usecase.recommendation_pipeline_orchestrator_use_case"):
+        orchestrator.recommend(user_id)
+
+    # Assert
+    summaries = [r.getMessage() for r in caplog.records if r.getMessage().startswith("Recommendation pipeline stages")]
+    assert len(summaries) == 1
+    for field in (f"user_id={user_id}", "retrieval_ms=", "enrich_rank_ms=", "cold_start_ms=", "rerank_ms=",
+                  "attempts=1", f"candidates={TARGET_RECOMMENDED_POSTS}", "ranked=1", "posts=1"):
+        assert field in summaries[0], field
+
+
+def test_should_not_warn_when_there_are_just_few_posts_to_choose_from(orchestrator_and_mocks, caplog):
+    # Arrange: fewer candidates than the target on every attempt, which is normal with few posts
+    orchestrator, mock_collab, mock_semantic, mock_explorative, mock_enricher, mock_ranker, mock_reranker = orchestrator_and_mocks
+    mock_collab.retrieve_posts.return_value = [Candidate(uuid4(), PostRetrieveSource.COLLABORATIVE, 1.0)]
+    mock_semantic.retrieve_posts.return_value = []
+    mock_explorative.retrieve_posts.return_value = []
+    mock_enricher.enrich.return_value = ["e1"]
+    mock_ranker.get_top_k_posts.return_value = [ranked_post()]
+    mock_reranker.rerank.return_value = ["reranked1"]
+
+    # Act
+    with caplog.at_level("WARNING"):
+        orchestrator.recommend(uuid4())
+
+    # Assert
+    assert [r.getMessage() for r in caplog.records if r.levelname == "WARNING"] == []

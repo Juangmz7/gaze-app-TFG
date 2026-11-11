@@ -52,7 +52,7 @@ class PostCandidateEnricherService:
         user_tag_features_map = self._fetch_user_tag_features(user_id, list(all_posts_tags))
         followed_creator_ids = self._fetch_followed_creators(user_id, list(creator_ids))
 
-        return self._build_enriched_candidates(
+        enriched_candidates = self._build_enriched_candidates(
             candidates,
             post_features_map,
             post_interaction_features_map,
@@ -60,6 +60,13 @@ class PostCandidateEnricherService:
             user_tag_features_map,
             followed_creator_ids,
         )
+        # One line per run, not one per post: a missing projection drops many at once
+        if len(enriched_candidates) < len(candidates):
+            logger.warning(
+                "Dropped candidates without features: user_id=%s dropped=%s of %s",
+                user_id, len(candidates) - len(enriched_candidates), len(candidates),
+            )
+        return enriched_candidates
 
     def _fetch_post_features(self, post_ids: list[UUID]) -> dict[UUID, PostFeatures]:
         post_features_list = self.post_features_repository.get_post_features_batch(post_ids)
@@ -96,7 +103,7 @@ class PostCandidateEnricherService:
             pif = post_interaction_features_map.get(candidate.post_id)
             
             if not pf or not pif:
-                logger.warning("Dropping candidate post_id=%s due to missing features", candidate.post_id)
+                logger.debug("Dropping candidate post_id=%s due to missing features", candidate.post_id)
                 continue
                 
             ucf = user_creator_features_map.get(pf.creator_id)

@@ -29,7 +29,7 @@ class ExplorativePostRetrievalUsecase:
         self._retrieve_random_posts(user_id, candidates, limit_multiplier)
         self._retrieve_unseen_tag_posts(user_id, candidates, limit_multiplier)
 
-        logger.info(f"Total posts retrieved from explorative retrieval: {len(candidates)}")
+        logger.debug("Explorative retrieval: user_id=%s posts=%s", user_id, len(candidates))
 
         return candidates
 
@@ -39,7 +39,7 @@ class ExplorativePostRetrievalUsecase:
         self._retrieve_popular_posts(user_id, candidates, limit_multiplier)
         self._retrieve_random_posts(user_id, candidates, limit_multiplier)
 
-        logger.info(f"Total posts retrieved from explorative retrieval for new user: {len(candidates)}")
+        logger.debug("Explorative retrieval for a user without signal: user_id=%s posts=%s", user_id, len(candidates))
 
         return candidates
 
