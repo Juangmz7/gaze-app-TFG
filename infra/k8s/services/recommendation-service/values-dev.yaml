@@ -20,6 +20,15 @@ autoscaling:
   minReplicas: 1
   maxReplicas: 2
 
+# The single dev node has no room for a second 2Gi replica next to the old one, so a
+# surge rollout never schedules the new pod and the old image keeps running. Replace
+# it instead: a short gap in dev, while post-query-service answers 503 to a refill.
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 0
+    maxUnavailable: 1
+
 networkPolicy:
   ingress:
     - name: post-query-service
