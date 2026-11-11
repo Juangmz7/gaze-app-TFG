@@ -4,8 +4,9 @@
 #
 # Prerequisites (inside the Ubuntu WSL2 distro):
 #   - systemd enabled: /etc/wsl.conf -> [boot] systemd=true, then `wsl --shutdown`
-#   - Docker Engine installed in Ubuntu (not Docker Desktop's WSL integration),
-#     running the databases of infra/local/compose.yaml with DB_BIND_IP=0.0.0.0
+#   - the databases of infra/local/compose.yaml running with DB_BIND_IP=0.0.0.0,
+#     either on Docker Engine in Ubuntu or on Docker Desktop with WSL integration
+#     enabled for this distro (it forwards published ports into the distro)
 #   - helm, curl, sudo
 # Run from the repository root:  ./infra/k8s/bootstrap/bootstrap.sh
 #
@@ -27,12 +28,9 @@ fail() { printf '\033[0;31m[FAIL]\033[0m  %s\n' "$1"; exit 1; }
 # --- Prerequisites -----------------------------------------------------------
 [ "$(uname -s)" = "Linux" ] || fail "run this inside the Ubuntu WSL2 distro (k3s only runs on Linux)"
 [ "$(ps -p 1 -o comm=)" = "systemd" ] || fail "systemd is not PID 1: add '[boot] systemd=true' to /etc/wsl.conf and run 'wsl --shutdown' from Windows"
-for bin in docker helm curl sudo ss; do
+for bin in helm curl sudo ss; do
   command -v "$bin" >/dev/null 2>&1 || fail "$bin is not installed"
 done
-if docker info --format '{{.OperatingSystem}}' 2>/dev/null | grep -qi 'docker desktop'; then
-  fail "docker points to Docker Desktop: install Docker Engine in Ubuntu and disable Desktop's WSL integration for this distro (pods must reach the databases on this host)"
-fi
 ok "prerequisites"
 
 # --- Databases (out of the cluster, on this host) ----------------------------
