@@ -160,7 +160,7 @@ func (u *RefillFeedUsecase) build(ctx context.Context, input RefillFeedInput) (R
 		return "", u.degraded(ctx, input, "recommendation-service call failed", err)
 	}
 	if len(postIDs) == 0 {
-		u.logger.InfoContext(ctx, "feed refill found no posts", "correlation_id", input.CorrelationID, "userId", input.UserID)
+		u.logger.InfoContext(ctx, "feed refill found no posts", "correlation_id", input.CorrelationID, "userId", input.UserID, "excluded", len(excluded))
 		return RefillFeedStatusNoPosts, nil
 	}
 

@@ -25,14 +25,14 @@ class CollaborativePostRetrievalUseCase:
     ) -> list[Candidate]:
         users_ids = self.colaborative_post_retrieval_repository.get_similar_users(user_id, int(USER_LIMIT * limit_multiplier))
         if not users_ids:
-            logger.info("Total posts retrieved from collaborative retrieval: 0")
+            logger.debug("Collaborative retrieval found no similar users: user_id=%s", user_id)
             return []
 
         posts = self.colaborative_post_retrieval_repository.get_posts_ordered_by_user_affinity(
             users_ids, user_id, int(POST_LIMIT * limit_multiplier), int(POST_LIMIT * limit_multiplier)
         )
 
-        logger.info(f"Total posts retrieved from collaborative retrieval: {len(posts)}")
+        logger.debug("Collaborative retrieval: user_id=%s similar_users=%s posts=%s", user_id, len(users_ids), len(posts))
 
         return [
             Candidate(post_id, PostRetrieveSource.COLLABORATIVE, score)

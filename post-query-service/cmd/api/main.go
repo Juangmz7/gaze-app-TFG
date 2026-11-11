@@ -21,6 +21,7 @@ import (
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/config"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/database"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/health"
+	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/logging"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/outbox"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/bootstrap"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/publisher"
@@ -63,6 +64,8 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// Every attribute in the message too: Grafana lists an OTLP log by its body only.
+	slog.SetDefault(slog.New(logging.NewInlineAttributesHandler(slog.Default().Handler())))
 	// Registered before any other defer so it runs last: after <-rabbitmqDone
 	// and the Mongo disconnect, so telemetry from the whole shutdown is flushed.
 	defer func() {

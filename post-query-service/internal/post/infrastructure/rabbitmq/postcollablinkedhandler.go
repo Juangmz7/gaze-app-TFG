@@ -77,7 +77,7 @@ func (h *PostCollabLinkedHandler) Handle(ctx context.Context, msg *message.Messa
 		return fmt.Errorf("check post collab linked event %s processed: %w", event.ID, err)
 	}
 	if alreadyProcessed {
-		h.logger.WarnContext(ctx, "discarding duplicate post collab linked event", "event_id", event.ID)
+		h.logger.WarnContext(ctx, "discarding duplicate post collab linked event", "event_id", event.ID, "correlation_id", event.CorrelationID, "post_id", event.PostID, "collab_id", event.CollabID)
 		return nil
 	}
 
@@ -92,6 +92,7 @@ func (h *PostCollabLinkedHandler) Handle(ctx context.Context, msg *message.Messa
 	if err := h.idempotency.MarkProcessed(ctx, event.ID, event.CorrelationID, PostCollabLinkedEventType); err != nil {
 		return fmt.Errorf("mark post collab linked event %s processed: %w", event.ID, err)
 	}
+	h.logger.InfoContext(ctx, "post collab linked event projected", "event_id", event.ID, "correlation_id", event.CorrelationID, "post_id", event.PostID, "collab_id", event.CollabID)
 
 	return nil
 }

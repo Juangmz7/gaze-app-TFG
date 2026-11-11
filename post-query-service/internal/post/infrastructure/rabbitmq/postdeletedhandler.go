@@ -68,7 +68,7 @@ func (h *PostDeletedHandler) Handle(ctx context.Context, msg *message.Message) e
 		return fmt.Errorf("check post deleted event %s processed: %w", event.ID, err)
 	}
 	if alreadyProcessed {
-		h.logger.WarnContext(ctx, "discarding duplicate post deleted event", "event_id", event.ID)
+		h.logger.WarnContext(ctx, "discarding duplicate post deleted event", "event_id", event.ID, "correlation_id", event.CorrelationID, "userId", event.UserID, "post_id", event.PostID)
 		return nil
 	}
 
@@ -80,6 +80,7 @@ func (h *PostDeletedHandler) Handle(ctx context.Context, msg *message.Message) e
 	if err := h.idempotency.MarkProcessed(ctx, event.ID, event.CorrelationID, PostDeletedEventType); err != nil {
 		return fmt.Errorf("mark post deleted event %s processed: %w", event.ID, err)
 	}
+	h.logger.InfoContext(ctx, "post deleted event projected", "event_id", event.ID, "correlation_id", event.CorrelationID, "userId", event.UserID, "post_id", event.PostID)
 
 	return nil
 }

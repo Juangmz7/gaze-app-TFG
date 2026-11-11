@@ -85,6 +85,7 @@ func (h *CommentUpdatedHandler) Handle(ctx context.Context, msg *message.Message
 	if err := h.usecase.Execute(ctx, input); err != nil {
 		return fmt.Errorf("execute update comment usecase for comment %s: %w", event.CommentID, err)
 	}
+	h.logger.InfoContext(ctx, "comment updated event projected", "userId", event.UserID, "post_id", event.PostID, "comment_id", event.CommentID)
 
 	return nil
 }

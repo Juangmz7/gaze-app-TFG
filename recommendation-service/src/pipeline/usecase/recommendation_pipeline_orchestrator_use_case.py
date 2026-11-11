@@ -1,5 +1,7 @@
 import logging
-from collections.abc import Collection
+import time
+from collections.abc import Collection, Iterator
+from contextlib import contextmanager
 from uuid import UUID
 
 from pipeline.usecase.cold_start_post_retrieval_use_case import ColdStartPostRetrievalUseCase
@@ -20,6 +22,24 @@ COLD_START_MULTIPLIER = 0.05
 
 
 logger = logging.getLogger(__name__)
+
+
+## Milliseconds per pipeline stage, for the one summary line of a run.
+class _StageTimer:
+    def __init__(self) -> None:
+        self._durations_ms: dict[str, float] = {}
+
+    @contextmanager
+    def measure(self, stage: str) -> Iterator[None]:
+        started_at = time.perf_counter()
+        try:
+            yield
+        finally:
+            self._durations_ms[stage] = (time.perf_counter() - started_at) * 1000
+
+    def summary(self) -> str:
+        return " ".join(f"{stage}_ms={duration:.0f}" for stage, duration in self._durations_ms.items())
+
 
 class RecommendationPipelineOrchestratorUseCase:
     def __init__(
@@ -45,64 +65,76 @@ class RecommendationPipelineOrchestratorUseCase:
         posts plus the cold start ones. Never contains excluded_post_ids. Having no
         candidates or no features is a normal result, not an error."""
         excluded = set(excluded_post_ids)
-        logger.info(f"Starting recommendation pipeline for user: {user_id}, excluded posts: {len(excluded)}")
+        logger.info("Starting recommendation pipeline: user_id=%s excluded=%s", user_id, len(excluded))
+        stages = _StageTimer()
 
-        candidates = self._retrieve_and_deduplicate(user_id, excluded)
-        top_k_normalized_posts = self._enrich_and_rank(user_id, candidates)
+        with stages.measure("retrieval"):
+            candidates, attempts = self._retrieve_and_deduplicate(user_id, excluded)
+        with stages.measure("enrich_rank"):
+            top_k_normalized_posts = self._enrich_and_rank(user_id, candidates)
 
         cold_start_limit = max(1, math.ceil(TARGET_RECOMMENDED_POSTS * COLD_START_MULTIPLIER))
-        logger.debug(f"Fetching {cold_start_limit} cold start posts for user {user_id}.")
+        logger.debug("Fetching %s cold start posts: user_id=%s", cold_start_limit, user_id)
 
         # Cold start only adds posts neither the ranker nor the caller already has
         ranked_post_ids = {p.post_id for p in top_k_normalized_posts}
-        cold_start_normalized_posts = self.cold_start_usecase.retrieve_and_prepare_cold_start_posts(
-            user_id, cold_start_limit, ranked_post_ids | excluded
-        )
+        with stages.measure("cold_start"):
+            cold_start_normalized_posts = self.cold_start_usecase.retrieve_and_prepare_cold_start_posts(
+                user_id, cold_start_limit, ranked_post_ids | excluded
+            )
 
         # Combine the lists
         combined_posts = top_k_normalized_posts + cold_start_normalized_posts
 
-        if not combined_posts:
-            logger.warning(f"No eligible posts for user {user_id}.")
-            return []
+        reranked_post_ids: list[UUID] = []
+        if combined_posts:
+            logger.debug("Reranking %s combined top posts: user_id=%s", len(combined_posts), user_id)
+            with stages.measure("rerank"):
+                reranked_post_ids = self.post_reranker_service.rerank(user_id, combined_posts)
+        else:
+            # Normal with few posts; RecommendedFeedUseCase warns once about the empty result
+            logger.debug("No eligible posts: user_id=%s", user_id)
 
-        logger.debug(f"Proceeding to rerank {len(combined_posts)} combined top posts for user {user_id}.")
-        reranked_post_ids = self.post_reranker_service.rerank(user_id, combined_posts)
-
-        logger.info(f"Successfully generated {len(reranked_post_ids)} recommendations for user {user_id}.")
+        # One line per run, with where the time went: the total is in RecommendedFeedUseCase's
+        logger.info(
+            "Recommendation pipeline stages: user_id=%s %s attempts=%s candidates=%s ranked=%s cold_start=%s posts=%s",
+            user_id, stages.summary(), attempts, len(candidates), len(top_k_normalized_posts),
+            len(cold_start_normalized_posts), len(reranked_post_ids),
+        )
         return reranked_post_ids
 
     def _enrich_and_rank(self, user_id: UUID, candidates: list[Candidate]) -> list[NormalizedPostRankingFeatures]:
         if not candidates:
-            logger.warning(f"No candidates retrieved for user {user_id}.")
+            # Normal for a user with nothing left to discover: cold start still runs
+            logger.debug("No candidates retrieved: user_id=%s", user_id)
             return []
 
-        logger.debug(f"Proceeding to enrich {len(candidates)} candidates for user {user_id}.")
+        logger.debug("Enriching %s candidates: user_id=%s", len(candidates), user_id)
         enriched_candidates = self.candidate_enricher_service.enrich(user_id, candidates)
 
         if not enriched_candidates:
-            logger.warning(f"Enricher returned empty candidates for user {user_id}.")
+            # There were candidates, but none had features: a projection is missing
+            logger.warning("Enricher dropped every candidate: user_id=%s candidates=%s", user_id, len(candidates))
             return []
 
-        logger.debug(f"Proceeding to rank {len(enriched_candidates)} enriched candidates for user {user_id}.")
+        logger.debug("Ranking %s enriched candidates: user_id=%s", len(enriched_candidates), user_id)
         top_k_normalized_posts = self.post_weighted_ranker_service.get_top_k_posts(
             enriched_candidates, TARGET_RECOMMENDED_POSTS
         )
 
         if not top_k_normalized_posts:
-            logger.warning(f"Ranker returned empty posts for user {user_id}.")
+            logger.warning("Ranker returned no posts: user_id=%s enriched=%s", user_id, len(enriched_candidates))
 
         return top_k_normalized_posts
 
-    def _retrieve_and_deduplicate(self, user_id: UUID, excluded_post_ids: set[UUID]) -> list[Candidate]:
+    def _retrieve_and_deduplicate(self, user_id: UUID, excluded_post_ids: set[UUID]) -> tuple[list[Candidate], int]:
+        """The eligible candidates and how many retrieval attempts it took."""
         # Personalised retrieval compares against the user's embedding: without
         # signal (or without a features row) it has nothing to compare with
         has_signal = self.collaborative_retrieval_usecase.has_semantic_signal(user_id)
         multiplier = 1.0
 
         for attempt in range(1, MAX_RETRIEVAL_RETRIES + 1):
-            logger.debug(f"Retrieval attempt {attempt}/{MAX_RETRIEVAL_RETRIES} for user {user_id} with multiplier {multiplier}.")
-
             candidates = self._retrieve(user_id, multiplier, has_signal)
 
             # Exclusions are removed before counting, so the target counts only eligible posts
@@ -113,17 +145,22 @@ class RecommendationPipelineOrchestratorUseCase:
                     seen_ids.add(c.post_id)
                     deduplicated.append(c)
 
-            logger.debug(f"Retrieved {len(candidates)} raw candidates, deduplicated to {len(deduplicated)} for user {user_id}.")
-
+            logger.debug(
+                "Retrieval attempt %s/%s: user_id=%s multiplier=%s raw=%s eligible=%s target=%s",
+                attempt, MAX_RETRIEVAL_RETRIES, user_id, multiplier, len(candidates), len(deduplicated),
+                TARGET_RECOMMENDED_POSTS,
+            )
             if len(deduplicated) >= TARGET_RECOMMENDED_POSTS:
-                logger.info(f"Target of {TARGET_RECOMMENDED_POSTS} posts reached ({len(deduplicated)} found) for user {user_id}.")
-                return deduplicated
+                return deduplicated, attempt
 
-            logger.warning(f"Insufficient candidates ({len(deduplicated)} < {TARGET_RECOMMENDED_POSTS}) for user {user_id}. Retrying...")
             multiplier += RETRIEVAL_MULTIPLIER_STEP
 
-        logger.warning(f"Max retrieval retries reached for user {user_id}. Returning {len(deduplicated)} candidates.")
-        return deduplicated
+        # Few posts to choose from, not a failure: the summary line shows attempts and candidates
+        logger.info(
+            "Retrieval stopped below the target after %s attempts: user_id=%s eligible=%s target=%s",
+            MAX_RETRIEVAL_RETRIES, user_id, len(deduplicated), TARGET_RECOMMENDED_POSTS,
+        )
+        return deduplicated, MAX_RETRIEVAL_RETRIES
 
     def _retrieve(self, user_id: UUID, multiplier: float, has_signal: bool) -> list[Candidate]:
         if not has_signal:

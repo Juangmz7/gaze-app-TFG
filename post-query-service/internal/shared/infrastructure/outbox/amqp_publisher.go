@@ -117,7 +117,7 @@ func (p *AMQPPublisher) logReturned(event Event) {
 		select {
 		case returned := <-p.returns:
 			p.logger.Warn("outbox event was unroutable and is marked as processed",
-				"id", returned.MessageId, "type", returned.Type, "exchange", returned.Exchange,
+				"event_id", returned.MessageId, "event_type", returned.Type, "exchange", returned.Exchange,
 				"routing_key", returned.RoutingKey, "reply", returned.ReplyText)
 		default:
 			return
