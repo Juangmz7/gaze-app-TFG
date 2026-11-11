@@ -23,7 +23,8 @@ class PostViewExitReason(str, Enum):
 
 class PostType(str, Enum):
     BASIC = "BASIC"
-    COLAB = "COLAB"
+    # As post-command-service's PostType names it: any other value fails validation
+    COLLAB = "COLLAB"
 
 
 class CollabStatus(str, Enum):
