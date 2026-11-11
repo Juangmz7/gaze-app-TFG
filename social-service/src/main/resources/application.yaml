@@ -13,7 +13,7 @@ spring:
 # --- Outbox relay ---
 outbox:
   relay:
-    fixed-delay-ms: 4000
+    fixed-delay-ms: 40000
   cleanup:
     cron: "0 0 3 * * *"
 

@@ -20,7 +20,6 @@ spring:
     show-sql: true
     properties:
       hibernate:
-        format_sql: true
         generate_statistics: true
 
   # --- Neo4j ---
