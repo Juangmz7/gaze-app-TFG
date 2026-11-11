@@ -60,12 +60,17 @@ func startFeedOnBroker(t *testing.T, ctx context.Context) *feedOnBroker {
 		})
 	}
 
+	// A claim that leaves less than a page asks for more, the same as in main.
+	lowWatermark := usecase.NewRequestLowWatermarkPrefetch(app.backlog, app.prefetch, usecase.RequestLowWatermarkPrefetchConfig{PageSize: 15, Concurrency: 8, Timeout: 10 * time.Second}, logger)
+	t.Cleanup(lowWatermark.Wait)
+
 	mux := http.NewServeMux()
 	config := usecase.ClaimFeedConfig{DefaultPageSize: 15, MaxPageSize: 15, MaxReads: 3}
+	claim := usecase.NewClaimFeed(units, hydration, config, logger).WithLowWatermark(lowWatermark)
 	presentation.RegisterRoutes(mux, authenticate, presentation.Routes{
 		Heartbeat:  presentation.NewHeartbeatHandler(usecase.NewRegisterHeartbeat(sessions, logger), logger),
-		Disconnect: presentation.NewDisconnectHandler(usecase.NewRegisterUserDisconnected(sessions, 5*time.Second, logger), logger),
-		ClaimFeed:  presentation.NewClaimFeedHandler(usecase.NewClaimFeed(units, hydration, config, logger), logger),
+		Disconnect: presentation.NewDisconnectHandler(usecase.NewRegisterUserDisconnected(sessions, app.prefetch, 5*time.Second, logger), logger),
+		ClaimFeed:  presentation.NewClaimFeedHandler(claim, logger),
 	})
 
 	return &feedOnBroker{

@@ -16,15 +16,14 @@ import (
 	"github.com/Juangmz7/TFG/common-packages/go-utils/auth"
 	"github.com/Juangmz7/TFG/common-packages/go-utils/server"
 	"github.com/Juangmz7/TFG/common-packages/go-utils/telemetry"
-	feedusecase "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/feed/application/usecase"
-	feedmongo "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/feed/infrastructure/mongo"
 	feedpresentation "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/feed/presentation"
+	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/feed/wiring"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/config"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/database"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/health"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/outbox"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/bootstrap"
-	"go.mongodb.org/mongo-driver/v2/mongo"
+	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/publisher"
 )
 
 // healthzPathPrefix covers the liveness and readiness probes, which are
@@ -100,14 +99,10 @@ func run() error {
 		return err
 	}
 
-	feedRoutes, err := newFeedRoutes(ctx, mongoDatabase, cfg.Feed)
-	if err != nil {
-		return err
-	}
-
 	// Transactional outbox relay: publishes events stored by use cases (in the
 	// same Mongo transaction as their state change) with publisher confirms,
-	// right after their commit, with the periodic batch as the safety net.
+	// in the background right after their commit, with the periodic batch as the
+	// safety net.
 	outboxStore := outbox.NewStore(mongoDatabase)
 	if err := outboxStore.EnsureIndexes(ctx); err != nil {
 		return err
@@ -122,17 +117,39 @@ func run() error {
 	outboxStore.SendImmediatelyWith(outboxRelay)
 	outboxDone := outboxRelay.Start(ctx)
 
-	// RunWithRetry rebuilds the router/subscribers/publisher from scratch on
+	feed, err := wiring.New(ctx, wiring.Params{
+		Client:         mongoClient,
+		DB:             mongoDatabase,
+		Events:         publisher.NewPublisher(outboxStore),
+		Feed:           cfg.Feed,
+		Recommendation: cfg.Recommendation,
+		Logger:         slog.Default(),
+	})
+	if err != nil {
+		// The relay already runs: stop it before the deferred publisher close and
+		// Mongo disconnect, so they never race a batch in flight.
+		stop()
+		<-outboxDone
+		return err
+	}
+	defer func() {
+		if closeErr := feed.Close(); closeErr != nil {
+			slog.Error("feed close failed", "error", closeErr)
+		}
+	}()
+	sweeperDone := feed.StartSweeper(ctx)
+
+	// RunWithRetry rebuilds the router and subscribers from scratch on
 	// every AMQP connection loss, with linear backoff, instead of letting a
 	// single bootstrap.Bootstrap failure silently stop event consumption for
 	// good while the HTTP server keeps reporting healthy.
-	rabbitmqDone := bootstrap.RunWithRetry(ctx, cfg.RabbitMQ.AMQPURI(), mongoDatabase, outboxStore, slog.Default())
+	rabbitmqDone := bootstrap.RunWithRetry(ctx, cfg.RabbitMQ.AMQPURI(), mongoDatabase, feed.Dependencies, slog.Default())
 
 	slog.Info("consuming rabbitmq events")
 
 	mux := http.NewServeMux()
 	health.Register(mux, mongoClient)
-	feedpresentation.RegisterRoutes(mux, auth.Authenticate(keyCache, cfg.Auth.Issuer, cfg.Auth.Audience), feedRoutes)
+	feedpresentation.RegisterRoutes(mux, auth.Authenticate(keyCache, cfg.Auth.Issuer, cfg.Auth.Audience), feed.Routes)
 
 	handler := otelhttp.NewHandler(mux, "http.server",
 		otelhttp.WithFilter(func(r *http.Request) bool {
@@ -150,46 +167,25 @@ func run() error {
 	slog.Info(fmt.Sprintf("started %s in %.3f seconds", serviceName, startupSeconds),
 		"startup_seconds", startupSeconds)
 
-	if err := server.StartServer(ctx, serverCfg.Port, handler); err != nil {
-		// Stop the RabbitMQ loop and wait for it before returning, so the
-		// deferred Mongo disconnect (and telemetry shutdown) never run while
-		// consumers are still in flight.
-		stop()
-		<-rabbitmqDone
-		return err
-	}
+	serverErr := server.StartServer(ctx, serverCfg.Port, handler)
+
+	// A shutdown past its budget and a failed listener both return an error, and the waits
+	// below still have to run. Only a signal has cancelled ctx so far: without this, a
+	// failed listener would leave the background work running and the waits hanging.
+	stop()
+
+	// Everything that stores outbox events stops first, and the relay's immediate sends
+	// are waited for last, before the deferred publisher close, Mongo disconnect and
+	// telemetry shutdown.
+	<-sweeperDone
+	feed.WaitLowWatermark()
 
 	// Block until the retry loop has torn down its current RabbitMQ
 	// resources and exited, so run() does not disconnect Mongo (via its own
 	// deferred call above) while RabbitMQ cleanup is still in flight.
 	<-rabbitmqDone
 	<-outboxDone
+	outboxRelay.Wait()
 
-	return nil
-}
-
-// newFeedRoutes ensures the feed's indexes and wires its usecases and handlers.
-func newFeedRoutes(ctx context.Context, db *mongo.Database, cfg config.FeedConfig) (feedpresentation.Routes, error) {
-	sessions := feedmongo.NewSessionRepository(db)
-	if err := sessions.EnsureIndexes(ctx); err != nil {
-		return feedpresentation.Routes{}, err
-	}
-	units := feedmongo.NewFeedUnitRepository(db)
-	if err := units.EnsureIndexes(ctx, cfg.Retention); err != nil {
-		return feedpresentation.Routes{}, err
-	}
-	hydration := feedmongo.NewHydrationRepository(db)
-
-	logger := slog.Default()
-	claimConfig := feedusecase.ClaimFeedConfig{
-		DefaultPageSize: cfg.DefaultPageSize,
-		MaxPageSize:     cfg.MaxPageSize,
-		MaxReads:        cfg.MaxReadsPerClaim,
-	}
-
-	return feedpresentation.Routes{
-		Heartbeat:  feedpresentation.NewHeartbeatHandler(feedusecase.NewRegisterHeartbeat(sessions, logger), logger),
-		Disconnect: feedpresentation.NewDisconnectHandler(feedusecase.NewRegisterUserDisconnected(sessions, cfg.DisconnectWriteTimeout, logger), logger),
-		ClaimFeed:  feedpresentation.NewClaimFeedHandler(feedusecase.NewClaimFeed(units, hydration, claimConfig, logger), logger),
-	}, nil
+	return serverErr
 }

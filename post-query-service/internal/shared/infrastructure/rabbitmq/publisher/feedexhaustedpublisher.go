@@ -1,9 +1,8 @@
-// Package publisher enqueues UserFeedExhaustedEvent in the transactional
-// outbox; outbox.Relay delivers it to the feed events exchange. There is no
-// existing trigger (HTTP endpoint or use case) that deletes a feed yet; this
-// package only provides the publisher component so a future use case can
-// call it once that trigger exists (feature_list.json task 41 scope is the
-// publisher itself, not its caller).
+// Package publisher enqueues UserFeedExhaustedEvent in the transactional outbox;
+// outbox.Relay delivers it to the feed events exchange, where recommendation-service
+// answers with RecommendedPostSent. One Publisher is created in main from the shared
+// outbox store: it is called from feed.RequestFeedPrefetchUsecase, inside the
+// transaction that takes the user's prefetch lease.
 package publisher
 
 import (
@@ -22,12 +21,18 @@ const EventType = "UserFeedExhaustedEvent"
 
 // Event is the UserFeedExhaustedEvent payload published to
 // topology.ExchangeFeedEvents with routing key topology.RKFeedExhausted.
-// JSON field names follow the camelCase contract shared by every service.
+// JSON field names follow the camelCase contract shared by every service, and
+// recommendation-service reads exactly these. CorrelationID is the prefetch lease
+// token: the response echoes it, and only a matching response releases the lease.
+// Reason is disconnect, stale_heartbeat, user_registered or low_watermark.
 type Event struct {
-	ID            uuid.UUID `json:"id"`
-	CorrelationID uuid.UUID `json:"correlationId"`
-	OccurredAt    time.Time `json:"occurredAt"`
-	UserID        uuid.UUID `json:"userId"`
+	ID              uuid.UUID   `json:"id"`
+	CorrelationID   uuid.UUID   `json:"correlationId"`
+	OccurredAt      time.Time   `json:"occurredAt"`
+	UserID          uuid.UUID   `json:"userId"`
+	Reason          string      `json:"reason"`
+	CurrentFeedSize int64       `json:"currentFeedSize"`
+	ExcludedPostIDs []uuid.UUID `json:"excludedPostIds"`
 }
 
 // OutboxWriter stores outbox events (implemented by outbox.Store).
@@ -52,8 +57,20 @@ func (p *Publisher) Publish(ctx context.Context, event Event) error {
 	if event.ID == uuid.Nil {
 		return fmt.Errorf("publish user feed exhausted event: id is required")
 	}
+	if event.CorrelationID == uuid.Nil {
+		return fmt.Errorf("publish user feed exhausted event: correlationId is required")
+	}
 	if event.UserID == uuid.Nil {
 		return fmt.Errorf("publish user feed exhausted event: userId is required")
+	}
+	if event.Reason == "" {
+		return fmt.Errorf("publish user feed exhausted event: reason is required")
+	}
+	if event.CurrentFeedSize < 0 {
+		return fmt.Errorf("publish user feed exhausted event: currentFeedSize %d is negative", event.CurrentFeedSize)
+	}
+	if event.ExcludedPostIDs == nil {
+		event.ExcludedPostIDs = []uuid.UUID{}
 	}
 
 	outboxEvent, err := outbox.NewPendingEvent(

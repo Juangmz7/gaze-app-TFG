@@ -82,6 +82,9 @@ func TestUserRegisteredHandler_Handle_DecodesTheLiteralJavaPayloadAndProjectsIt(
 	if got.Email != "ana@example.test" || got.BioDescription != "Photographer" || got.BioSocialMedia["instagram"] != "ana.rivera" {
 		t.Fatalf("Execute() Email/Bio = %q/%q/%v", got.Email, got.BioDescription, got.BioSocialMedia)
 	}
+	if got.CorrelationID != "22222222-2222-4222-8222-222222222222" {
+		t.Fatalf("Execute() CorrelationID = %q, want the event's, for the prefetch logs", got.CorrelationID)
+	}
 	wantCreatedAt := time.Date(2026, 3, 1, 10, 15, 30, 123456000, time.UTC)
 	if !got.CreatedAt.Equal(wantCreatedAt) {
 		t.Fatalf("Execute() CreatedAt = %v, want occurredAt %v because the event has no createdAt", got.CreatedAt, wantCreatedAt)

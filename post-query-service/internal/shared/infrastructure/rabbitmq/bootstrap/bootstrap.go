@@ -1,7 +1,6 @@
 // Package bootstrap assembles the Watermill router, AMQP subscribers for
-// every queue post-query-service consumes, the feed-events publisher, and
-// every bounded-context handler, wiring them together the way cmd/api/main.go
-// expects.
+// every queue post-query-service consumes, and every bounded-context handler,
+// wiring them together the way cmd/api/main.go expects.
 package bootstrap
 
 import (
@@ -23,7 +22,9 @@ import (
 	commentusecase "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/comment/application/usecase"
 	commentmongo "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/comment/infrastructure/mongo"
 	commentrabbitmq "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/comment/infrastructure/rabbitmq"
+	feedusecase "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/feed/application/usecase"
 	feedmongo "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/feed/infrastructure/mongo"
+	feedrabbitmq "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/feed/infrastructure/rabbitmq"
 	followusecase "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/follow/application/usecase"
 	followmongo "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/follow/infrastructure/mongo"
 	followrabbitmq "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/follow/infrastructure/rabbitmq"
@@ -39,7 +40,6 @@ import (
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/database"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/dispatch"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/idempotency"
-	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/publisher"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/router"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/topology"
 	userusecase "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/user/application/usecase"
@@ -53,14 +53,11 @@ type Result struct {
 	// Router is the Watermill router. Call Run(ctx) to start consuming and
 	// Close() on shutdown.
 	Router *message.Router
-	// FeedExhaustedPublisher stores UserFeedExhaustedEvent in the outbox; the
-	// outbox relay (started by main) delivers it to x.feed.events.
-	FeedExhaustedPublisher *publisher.Publisher
 	// closers are closed, in order, when the caller is done with Result.
 	closers []func() error
 }
 
-// Close closes every subscriber/publisher connection opened by Bootstrap, in
+// Close closes every subscriber connection opened by Bootstrap, in
 // addition to the Router itself.
 func (r Result) Close() error {
 	var firstErr error
@@ -72,11 +69,25 @@ func (r Result) Close() error {
 	return firstErr
 }
 
+// Dependencies are what main creates once and every Bootstrap attempt shares. They
+// come from outside because Bootstrap is rebuilt on every AMQP reconnect and the HTTP
+// usecases and the sweeper need the same ones: Prefetch holds the one publisher.Publisher,
+// created from the outbox store the relay uses.
+type Dependencies struct {
+	// Prefetch requests a registered user's first feed.
+	Prefetch userusecase.RegisterUserFeedPrefetcher
+	// Lease releases a prefetch lease when its response arrives.
+	Lease feedusecase.BuildUserFeedLease
+}
+
 // Bootstrap builds the Watermill router with one consumer handler per queue
-// (user fast, user slow, post, feed), the idempotency repository, every
-// bounded-context handler, and the feed-events publisher, which writes to
-// outboxWriter (the store shared with the outbox relay started by main).
-func Bootstrap(ctx context.Context, amqpURI string, db *mongo.Database, outboxWriter publisher.OutboxWriter, logger *slog.Logger) (Result, error) {
+// (user fast, user slow, post, feed), the idempotency repository, and every
+// bounded-context handler.
+func Bootstrap(ctx context.Context, amqpURI string, db *mongo.Database, dependencies Dependencies, logger *slog.Logger) (Result, error) {
+	if dependencies.Prefetch == nil || dependencies.Lease == nil {
+		return Result{}, fmt.Errorf("bootstrap rabbitmq: prefetch and lease are required")
+	}
+
 	wmLogger := watermill.NewSlogLogger(logger)
 
 	wmRouter, err := message.NewRouter(message.RouterConfig{}, wmLogger)
@@ -99,7 +110,7 @@ func Bootstrap(ctx context.Context, amqpURI string, db *mongo.Database, outboxWr
 		return Result{}, fmt.Errorf("bootstrap rabbitmq: %w", err)
 	}
 
-	if err := addUserFastConsumer(ctx, wmRouter, amqpURI, db, idempotencyRepo, logger, &result); err != nil {
+	if err := addUserFastConsumer(ctx, wmRouter, amqpURI, db, idempotencyRepo, dependencies.Prefetch, logger, &result); err != nil {
 		return Result{}, err
 	}
 	if err := addUserSlowConsumer(wmRouter, amqpURI, db, idempotencyRepo, logger, &result); err != nil {
@@ -108,17 +119,15 @@ func Bootstrap(ctx context.Context, amqpURI string, db *mongo.Database, outboxWr
 	if err := addPostConsumer(ctx, wmRouter, amqpURI, db, idempotencyRepo, logger, &result); err != nil {
 		return Result{}, err
 	}
-	if err := addFeedConsumer(wmRouter, amqpURI, db, idempotencyRepo, logger, &result); err != nil {
+	if err := addFeedConsumer(wmRouter, amqpURI, db, idempotencyRepo, dependencies.Lease, logger, &result); err != nil {
 		return Result{}, err
 	}
-
-	result.FeedExhaustedPublisher = publisher.NewPublisher(outboxWriter)
 
 	ok = true
 	return result, nil
 }
 
-func addUserFastConsumer(ctx context.Context, wmRouter *message.Router, amqpURI string, db *mongo.Database, idempotencyRepo *idempotency.Repository, logger *slog.Logger, result *Result) error {
+func addUserFastConsumer(ctx context.Context, wmRouter *message.Router, amqpURI string, db *mongo.Database, idempotencyRepo *idempotency.Repository, prefetcher userusecase.RegisterUserFeedPrefetcher, logger *slog.Logger, result *Result) error {
 	spec := topology.UserFastSpec()
 
 	subscriber, err := newSubscriber(amqpURI, spec, watermill.NewSlogLogger(logger))
@@ -140,7 +149,7 @@ func addUserFastConsumer(ctx context.Context, wmRouter *message.Router, amqpURI 
 		}
 	}
 
-	registerUserHandler := userrabbitmq.NewUserRegisteredHandler(idempotencyRepo, userusecase.NewRegisterUser(userRepository), logger)
+	registerUserHandler := userrabbitmq.NewUserRegisteredHandler(idempotencyRepo, userusecase.NewRegisterUser(userRepository, prefetcher), logger)
 	updateUserHandler := userrabbitmq.NewUserUpdatedHandler(idempotencyRepo, userusecase.NewUpdateUser(userRepository), logger)
 	createBlockHandler := blockrabbitmq.NewUserBlockCreatedHandler(idempotencyRepo, blockusecase.NewCreateBlock(blockRepository), logger)
 	createFollowHandler := followrabbitmq.NewUserFollowCreatedHandler(idempotencyRepo, followusecase.NewCreateFollow(followRepository), logger)
@@ -260,7 +269,7 @@ func addPostConsumer(ctx context.Context, wmRouter *message.Router, amqpURI stri
 	return nil
 }
 
-func addFeedConsumer(wmRouter *message.Router, amqpURI string, db *mongo.Database, idempotencyRepo *idempotency.Repository, logger *slog.Logger, result *Result) error {
+func addFeedConsumer(wmRouter *message.Router, amqpURI string, db *mongo.Database, idempotencyRepo *idempotency.Repository, lease feedusecase.BuildUserFeedLease, logger *slog.Logger, result *Result) error {
 	spec := topology.FeedSpec()
 
 	subscriber, err := newSubscriber(amqpURI, spec, watermill.NewSlogLogger(logger))
@@ -269,12 +278,19 @@ func addFeedConsumer(wmRouter *message.Router, amqpURI string, db *mongo.Databas
 	}
 	result.closers = append(result.closers, subscriber.Close)
 
-	// Every routing key listed in topology.FeedRoutingKeys is bound to this
-	// queue at the AMQP level (see topology.Builder). Neither
-	// "rk.post.feed.recommended.sent" nor "rk.post.trending.sent" has a concrete
-	// use case yet; both are valid, bound deliveries that dispatch.Dispatcher
-	// logs and acknowledges until their own use case is implemented.
-	handlers := map[string]dispatch.EventHandlerFunc{}
+	sessions := feedmongo.NewSessionRepository(db)
+	units := feedmongo.NewFeedUnitRepository(db)
+	hydration := feedmongo.NewHydrationRepository(db)
+	buildUnits := feedusecase.NewBuildFeedUnits(hydration, sessions, units, logger)
+	buildUserFeed := feedusecase.NewBuildUserFeed(hydration, buildUnits, sessions, lease, logger)
+	recommendedPostSentHandler := feedrabbitmq.NewRecommendedPostSentHandler(idempotencyRepo, buildUserFeed, logger)
+
+	// Every routing key listed in topology.FeedRoutingKeys is bound to this queue at the
+	// AMQP level (see topology.Builder). Trending is out of scope for the feed: its
+	// deliveries are logged and acknowledged by dispatch.Dispatcher.
+	handlers := map[string]dispatch.EventHandlerFunc{
+		topology.RKPostRecommendedSent: recommendedPostSentHandler.Handle,
+	}
 	dispatcher := dispatch.New(spec.Queue, handlers, logger)
 
 	wmRouter.AddConsumerHandler("feed-consumer", spec.Queue, subscriber, dispatcher.Handle)

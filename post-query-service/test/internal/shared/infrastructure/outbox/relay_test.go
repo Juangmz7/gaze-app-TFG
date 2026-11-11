@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -87,6 +88,13 @@ func (p *fakePublisher) Publish(_ context.Context, event outbox.Event) error {
 func newTestRelay(store outbox.RelayStore, publisher outbox.Publisher) *outbox.Relay {
 	cfg := outbox.DefaultRelayConfig()
 	return outbox.NewRelay(store, publisher, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+}
+
+// relayImmediatelyAndWait runs one immediate send to its end.
+func relayImmediatelyAndWait(store *fakeStore, publisher outbox.Publisher, id uuid.UUID) {
+	relay := newTestRelay(store, publisher)
+	relay.RelayImmediately(context.Background(), id)
+	relay.Wait()
 }
 
 func pendingEvent(attempts int) outbox.Event {
@@ -197,7 +205,7 @@ func TestRelay_RelayImmediately_PublishesOnlyTheCommittedEventAndMarksItProcesse
 	store := &fakeStore{queue: []outbox.Event{older, committed}}
 	publisher := &fakePublisher{}
 
-	newTestRelay(store, publisher).RelayImmediately(context.Background(), committed.ID)
+	relayImmediatelyAndWait(store, publisher, committed.ID)
 
 	if len(publisher.published) != 1 || publisher.published[0] != committed.ID {
 		t.Fatalf("published = %v, want only [%v]", publisher.published, committed.ID)
@@ -214,7 +222,7 @@ func TestRelay_RelayImmediately_DoesNothingWhenABatchAlreadyClaimedTheEvent(t *t
 	store := &fakeStore{}
 	publisher := &fakePublisher{}
 
-	newTestRelay(store, publisher).RelayImmediately(context.Background(), uuid.New())
+	relayImmediatelyAndWait(store, publisher, uuid.New())
 
 	if len(publisher.published) != 0 || len(store.processed) != 0 || len(store.failed) != 0 {
 		t.Fatalf("published=%v processed=%v failed=%v, want nothing", publisher.published, store.processed, store.failed)
@@ -226,7 +234,7 @@ func TestRelay_RelayImmediately_ReleasesAFailedPublishAsPendingForTheBatch(t *te
 	store := &fakeStore{queue: []outbox.Event{event}}
 	publisher := &fakePublisher{failFor: map[uuid.UUID]error{event.ID: errors.New("broker nacked")}}
 
-	newTestRelay(store, publisher).RelayImmediately(context.Background(), event.ID)
+	relayImmediatelyAndWait(store, publisher, event.ID)
 
 	want := failedAttempt{id: event.ID, attempts: 1, status: outbox.StatusPending, lastError: "broker nacked"}
 	if len(store.failed) != 1 || store.failed[0] != want {
@@ -239,9 +247,156 @@ func TestRelay_RelayImmediately_ClaimsNothingWhileTheBrokerIsUnreachable(t *test
 	store := &fakeStore{queue: []outbox.Event{event}}
 	publisher := &fakePublisher{unavailable: errors.New("connection refused")}
 
-	newTestRelay(store, publisher).RelayImmediately(context.Background(), event.ID)
+	relayImmediatelyAndWait(store, publisher, event.ID)
 
 	if len(store.queue) != 1 || store.queue[0].Attempts != 0 {
 		t.Fatalf("queue = %+v, want the event untouched for the batch", store.queue)
+	}
+}
+
+// blockingPublisher holds every Publish until release is closed, and reports each one
+// that started on started.
+type blockingPublisher struct {
+	started chan uuid.UUID
+	release chan struct{}
+	mu      sync.Mutex
+	gotErrs []error
+}
+
+func newBlockingPublisher() *blockingPublisher {
+	return &blockingPublisher{started: make(chan uuid.UUID, 64), release: make(chan struct{})}
+}
+
+func (p *blockingPublisher) Ready(context.Context) error { return nil }
+
+func (p *blockingPublisher) Publish(ctx context.Context, event outbox.Event) error {
+	p.started <- event.ID
+	<-p.release
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.gotErrs = append(p.gotErrs, ctx.Err())
+	return nil
+}
+
+func TestRelay_RelayImmediately_ReturnsWithoutWaitingForASlowBroker(t *testing.T) {
+	event := pendingEvent(0)
+	store := &fakeStore{queue: []outbox.Event{event}}
+	publisher := newBlockingPublisher()
+	relay := newTestRelay(store, publisher)
+
+	// It would hang here if the send ran in the caller: the broker never answers yet.
+	relay.RelayImmediately(context.Background(), event.ID)
+
+	select {
+	case got := <-publisher.started:
+		if got != event.ID {
+			t.Fatalf("published %v, want %v", got, event.ID)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the background send never started")
+	}
+
+	close(publisher.release)
+	relay.Wait()
+	if len(store.processed) != 1 {
+		t.Fatalf("processed = %v, want the event", store.processed)
+	}
+}
+
+func TestRelay_RelayImmediately_OutlivesTheCancellationOfItsCaller(t *testing.T) {
+	event := pendingEvent(0)
+	store := &fakeStore{queue: []outbox.Event{event}}
+	publisher := newBlockingPublisher()
+	relay := newTestRelay(store, publisher)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	relay.RelayImmediately(ctx, event.ID)
+	<-publisher.started
+	cancel()
+	close(publisher.release)
+	relay.Wait()
+
+	if len(publisher.gotErrs) != 1 || publisher.gotErrs[0] != nil {
+		t.Fatalf("context errors seen by Publish = %v, want a live context", publisher.gotErrs)
+	}
+	if len(store.processed) != 1 {
+		t.Fatalf("processed = %v, want the event", store.processed)
+	}
+}
+
+func TestRelay_RelayImmediately_LeavesEventsToTheBatchAboveTheConcurrencyBound(t *testing.T) {
+	inFlight, leftOver := pendingEvent(0), pendingEvent(0)
+	store := &fakeStore{queue: []outbox.Event{inFlight, leftOver}}
+	publisher := newBlockingPublisher()
+	cfg := outbox.DefaultRelayConfig()
+	cfg.ImmediateConcurrency = 1
+	relay := outbox.NewRelay(store, publisher, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	relay.RelayImmediately(context.Background(), inFlight.ID)
+	<-publisher.started
+	relay.RelayImmediately(context.Background(), leftOver.ID)
+
+	close(publisher.release)
+	relay.Wait()
+
+	if len(store.queue) != 1 || store.queue[0].ID != leftOver.ID || store.queue[0].Attempts != 0 {
+		t.Fatalf("queue = %+v, want the second event untouched for the batch", store.queue)
+	}
+}
+
+func TestRelay_Wait_WaitsForTheSendsInFlightAndStopsNewOnes(t *testing.T) {
+	event, late := pendingEvent(0), pendingEvent(0)
+	store := &fakeStore{queue: []outbox.Event{event, late}}
+	publisher := newBlockingPublisher()
+	relay := newTestRelay(store, publisher)
+
+	relay.RelayImmediately(context.Background(), event.ID)
+	<-publisher.started
+
+	waited := make(chan struct{})
+	go func() {
+		relay.Wait()
+		close(waited)
+	}()
+	select {
+	case <-waited:
+		t.Fatal("Wait() returned with a send in flight")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(publisher.release)
+	select {
+	case <-waited:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Wait() did not return once the send finished")
+	}
+
+	relay.RelayImmediately(context.Background(), late.ID)
+	relay.Wait()
+	if len(store.processed) != 1 || store.processed[0] != event.ID {
+		t.Fatalf("processed = %v, want only %v", store.processed, event.ID)
+	}
+}
+
+func TestRelay_Wait_GivesUpAfterTheShutdownWait(t *testing.T) {
+	event := pendingEvent(0)
+	publisher := newBlockingPublisher()
+	t.Cleanup(func() { close(publisher.release) })
+	cfg := outbox.DefaultRelayConfig()
+	cfg.ShutdownWait = 10 * time.Millisecond
+	relay := outbox.NewRelay(&fakeStore{queue: []outbox.Event{event}}, publisher, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	relay.RelayImmediately(context.Background(), event.ID)
+	<-publisher.started
+
+	waited := make(chan struct{})
+	go func() {
+		relay.Wait()
+		close(waited)
+	}()
+	select {
+	case <-waited:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Wait() did not give up after ShutdownWait")
 	}
 }

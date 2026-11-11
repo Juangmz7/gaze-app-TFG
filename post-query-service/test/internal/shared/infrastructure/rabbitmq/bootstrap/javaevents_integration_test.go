@@ -16,7 +16,13 @@ import (
 	mongodriver "go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
+	feedusecase "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/feed/application/usecase"
+	feedmongo "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/feed/infrastructure/mongo"
+	feedrabbitmq "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/feed/infrastructure/rabbitmq"
+	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/database"
+	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/outbox"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/bootstrap"
+	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/publisher"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/topology"
 )
 
@@ -25,8 +31,52 @@ const testInstant = "2026-03-01T10:15:30.123456Z"
 // javaEventsApp is the real consumer stack from bootstrap.Bootstrap against a real
 // broker and a real replica set, fed with the exact JSON the Java publishers emit.
 type javaEventsApp struct {
-	amqpURI string
-	db      *mongodriver.Database
+	amqpURI  string
+	db       *mongodriver.Database
+	store    *outbox.Store
+	relay    *outbox.Relay
+	prefetch *feedusecase.RequestFeedPrefetchUsecase
+	backlog  *feedusecase.FeedBacklog
+	lease    *feedusecase.FeedLeaseManager
+}
+
+// Prefetch limits of the test stack, the production defaults.
+const (
+	testMaxUnserved = 60
+	testExcludedCap = 200
+)
+
+// newPrefetchStack wires one publisher and the usecases around it the way main does,
+// with the real outbox relay sending right after each commit. No batch runs: tests that
+// need one call RelayBatch themselves.
+func newPrefetchStack(t *testing.T, ctx context.Context, amqpURI string, db *mongodriver.Database, logger *slog.Logger) *javaEventsApp {
+	t.Helper()
+
+	store := outbox.NewStore(db)
+	if err := store.EnsureIndexes(ctx); err != nil {
+		t.Fatalf("EnsureIndexes() error = %v", err)
+	}
+	sessions := feedmongo.NewSessionRepository(db)
+	if err := sessions.EnsureIndexes(ctx); err != nil {
+		t.Fatalf("EnsureIndexes() error = %v", err)
+	}
+	units := feedmongo.NewFeedUnitRepository(db)
+	if err := units.EnsureIndexes(ctx, time.Hour); err != nil {
+		t.Fatalf("EnsureIndexes() error = %v", err)
+	}
+
+	amqpPublisher := outbox.NewAMQPPublisher(amqpURI, logger)
+	t.Cleanup(func() { amqpPublisher.Close() })
+	relay := outbox.NewRelay(store, amqpPublisher, outbox.DefaultRelayConfig(), logger)
+	t.Cleanup(relay.Wait)
+	store.SendImmediatelyWith(relay)
+
+	lease := feedusecase.NewFeedLeaseManager(sessions, feedusecase.FeedLeaseConfig{Owner: "test-replica", TTL: time.Minute, ReleaseTimeout: 5 * time.Second}, logger)
+	backlog := feedusecase.NewFeedBacklog(units, feedusecase.FeedBacklogConfig{MaxUnserved: testMaxUnserved, ExcludedIDsCap: testExcludedCap}, logger)
+	prefetch := feedusecase.NewRequestFeedPrefetch(database.NewTransactor(db.Client()), backlog, lease, sessions,
+		feedrabbitmq.NewFeedPrefetchPublisher(publisher.NewPublisher(store)), 10*time.Second, logger)
+
+	return &javaEventsApp{amqpURI: amqpURI, db: db, store: store, relay: relay, prefetch: prefetch, backlog: backlog, lease: lease}
 }
 
 func startJavaEventsApp(t *testing.T, ctx context.Context) *javaEventsApp {
@@ -36,7 +86,9 @@ func startJavaEventsApp(t *testing.T, ctx context.Context) *javaEventsApp {
 	amqpURI := startBroker(t, ctx)
 	db := startReplicaSet(t, ctx)
 
-	result, err := bootstrap.Bootstrap(ctx, amqpURI, db, nil, logger)
+	app := newPrefetchStack(t, ctx, amqpURI, db, logger)
+
+	result, err := bootstrap.Bootstrap(ctx, amqpURI, db, bootstrap.Dependencies{Prefetch: app.prefetch, Lease: app.lease}, logger)
 	if err != nil {
 		t.Fatalf("Bootstrap() error = %v", err)
 	}
@@ -60,7 +112,7 @@ func startJavaEventsApp(t *testing.T, ctx context.Context) *javaEventsApp {
 		t.Fatal("timed out waiting for the router to start running")
 	}
 
-	return &javaEventsApp{amqpURI: amqpURI, db: db}
+	return app
 }
 
 func (a *javaEventsApp) publish(t *testing.T, ctx context.Context, exchange, routingKey, body string) {
