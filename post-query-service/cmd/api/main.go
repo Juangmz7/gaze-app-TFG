@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -45,6 +46,8 @@ func main() {
 }
 
 func run() error {
+	startedAt := time.Now()
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -52,7 +55,9 @@ func run() error {
 	// (endpoint, OTEL_RESOURCE_ATTRIBUTES, OTEL_TRACES_SAMPLER_ARG). It also
 	// installs the default slog logger (JSON stdout + OTLP, with trace_id).
 	telemetryCfg := telemetry.Config{}
-	if strings.TrimSpace(os.Getenv(telemetry.EnvServiceName)) == "" {
+	serviceName := strings.TrimSpace(os.Getenv(telemetry.EnvServiceName))
+	if serviceName == "" {
+		serviceName = defaultServiceName
 		telemetryCfg.ServiceName = defaultServiceName
 	}
 	shutdownTelemetry, err := telemetry.Init(ctx, telemetryCfg)
@@ -138,6 +143,12 @@ func run() error {
 			return r.Method
 		}),
 	)
+
+	// Startup setup time, like Spring Boot's "Started ... in N seconds": from
+	// the start of run() to every dependency wired, right before serving.
+	startupSeconds := time.Since(startedAt).Seconds()
+	slog.Info(fmt.Sprintf("started %s in %.3f seconds", serviceName, startupSeconds),
+		"startup_seconds", startupSeconds)
 
 	if err := server.StartServer(ctx, serverCfg.Port, handler); err != nil {
 		// Stop the RabbitMQ loop and wait for it before returning, so the

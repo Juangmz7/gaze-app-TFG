@@ -1,4 +1,9 @@
-from observability.logging_config import configure_log_context, configure_logging
+from observability.startup_timing import StartupTimer
+
+# First of all, so the startup time covers the imports below (the Container, the model)
+startup_timer = StartupTimer()
+
+from observability.logging_config import configure_log_context, configure_logging  # noqa: E402
 
 # Before the other imports: building the Container already logs
 configure_logging()
@@ -17,6 +22,8 @@ from shared.config.database import SQLAlchemySessionProvider  # noqa: E402
 from shared.repository.impl.sql_alchemy_outbox_event_repository import SqlAlchemyOutboxEventRepository  # noqa: E402
 
 configure_log_context()
+
+SERVICE_NAME = "recommendation-service"
 
 
 @get
@@ -49,6 +56,7 @@ async def configure_rabbitmq() -> None:
 async def start_background_services() -> None:
     relay_worker.start()
     await container.recommendation_grpc_server.start()
+    startup_timer.log_started(SERVICE_NAME)
 
 
 @app.on_shutdown
