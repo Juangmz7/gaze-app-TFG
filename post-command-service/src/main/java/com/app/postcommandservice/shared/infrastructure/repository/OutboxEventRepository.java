@@ -30,37 +30,34 @@ public interface OutboxEventRepository extends JpaRepository<OutboxEvent, UUID> 
      * claim concurrently without ever getting the same row.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    @Query(value = """
-            UPDATE outbox_event
-               SET status = 'PROCESSING', locked_at = now(), attempts = attempts + 1
-             WHERE id = (
-                   SELECT id FROM outbox_event
-                    WHERE status = 'PENDING'
-                       OR (status = 'PROCESSING' AND locked_at < :lockedBefore)
-                    ORDER BY created_at
-                    LIMIT 1
-                    FOR UPDATE SKIP LOCKED)
-            RETURNING *
-            """, nativeQuery = true)
+    @Query(value = "UPDATE outbox_event "
+            + "SET status = 'PROCESSING', locked_at = now(), attempts = attempts + 1 "
+            + "WHERE id = ( "
+            + "SELECT id FROM outbox_event "
+            + "WHERE status = 'PENDING' "
+            + "OR (status = 'PROCESSING' AND locked_at < :lockedBefore) "
+            + "ORDER BY created_at "
+            + "LIMIT 1 "
+            + "FOR UPDATE SKIP LOCKED) "
+            + "RETURNING *",
+            nativeQuery = true)
     Optional<OutboxEvent> claimNext(@Param("lockedBefore") Instant lockedBefore);
 
     /** Claims one specific row, only if it is still PENDING (immediate send after commit). */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    @Query(value = """
-            UPDATE outbox_event
-               SET status = 'PROCESSING', locked_at = now(), attempts = attempts + 1
-             WHERE id = :id AND status = 'PENDING'
-            RETURNING *
-            """, nativeQuery = true)
+    @Query(value = "UPDATE outbox_event "
+            + "SET status = 'PROCESSING', locked_at = now(), attempts = attempts + 1 "
+            + "WHERE id = :id AND status = 'PENDING' "
+            + "RETURNING *",
+            nativeQuery = true)
     Optional<OutboxEvent> claimIfPending(@Param("id") UUID id);
 
     @Modifying
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    @Query(value = """
-            UPDATE outbox_event
-               SET status = 'PROCESSED', processed_at = now(), locked_at = NULL, last_error = NULL
-             WHERE id = :id
-            """, nativeQuery = true)
+    @Query(value = "UPDATE outbox_event "
+            + "SET status = 'PROCESSED', processed_at = now(), locked_at = NULL, last_error = NULL "
+            + "WHERE id = :id",
+            nativeQuery = true)
     int markProcessed(@Param("id") UUID id);
 
     /**
@@ -72,11 +69,10 @@ public interface OutboxEventRepository extends JpaRepository<OutboxEvent, UUID> 
      */
     @Modifying
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    @Query(value = """
-            UPDATE outbox_event
-               SET status = :status, last_error = :lastError, locked_at = NULL
-             WHERE id = :id AND status = 'PROCESSING' AND attempts = :attempts
-            """, nativeQuery = true)
+    @Query(value = "UPDATE outbox_event "
+            + "SET status = :status, last_error = :lastError, locked_at = NULL "
+            + "WHERE id = :id AND status = 'PROCESSING' AND attempts = :attempts",
+            nativeQuery = true)
     int markFailedAttempt(@Param("id") UUID id,
                           @Param("attempts") int attempts,
                           @Param("status") String status,

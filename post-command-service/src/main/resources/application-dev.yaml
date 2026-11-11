@@ -16,10 +16,6 @@ spring:
   jpa:
     hibernate:
       ddl-auto: update
-    show-sql: true
-    properties:
-      hibernate:
-        generate_statistics: true
 
   # --- RabbitMQ ---
   rabbitmq:
@@ -53,7 +49,7 @@ logging:
     com.app.postcommandservice: DEBUG
     org.springframework.web: DEBUG
     org.springframework.security: DEBUG
-    org.springframework.security.oauth2: TRACE
+    org.springframework.security.oauth2: DEBUG
     org.hibernate.SQL: DEBUG
     org.hibernate.orm.jdbc.bind: TRACE
     org.springframework.amqp: DEBUG
