@@ -13,9 +13,7 @@ http:
         "correlationId": "c0a8012e-6f3b-4b7d-8e21-5f4a9d3b7c10",
         "content": "example comment"
       }
-  auth:
-    type: bearer
-    token: ""
+  auth: inherit
 
 settings:
   encodeUrl: true

@@ -1,0 +1,66 @@
+# Creates the blob container post-command-service writes media to in dev, the
+# k8s counterpart of the azurite-init service in infra/local/compose.yaml.
+#
+# Dev only and hardcoded on purpose: this layer is not used in prod (AKS uses
+# a managed storage account, container post-media, see
+# services/post-command-service/values-prod.yaml). The account key is
+# Azurite's public emulator key, not a secret.
+#
+# PostSync hook: it must run after the azurite Service/EndpointSlice exist.
+# Idempotent: `container create` succeeds when the container already exists.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: azurite-init
+  namespace: external-databases
+  labels:
+    app.kubernetes.io/name: azurite-init
+    app.kubernetes.io/part-of: gaze
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: azurite-init
+        app.kubernetes.io/part-of: gaze
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: azure-cli
+          image: mcr.microsoft.com/azure-cli:2.92.0
+          env:
+            - name: HOME
+              value: /tmp
+            - name: AZURE_CONFIG_DIR
+              value: /tmp/.azure
+            - name: AZURE_STORAGE_CONNECTION_STRING
+              value: DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite.external-databases.svc.cluster.local:10000/devstoreaccount1;
+          command:
+            - bash
+            - -c
+            - |
+              for attempt in $(seq 1 30); do
+                az storage container create --name post-media-dev && exit 0
+                echo "azurite not ready (attempt ${attempt}/30), retrying in 5s"
+                sleep 5
+              done
+              exit 1
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 512Mi

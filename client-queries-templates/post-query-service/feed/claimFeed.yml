@@ -6,9 +6,7 @@ info:
 http:
   method: GET
   url: https://api.dev.gaze.localhost/api/feed?limit=15
-  auth:
-    type: bearer
-    token: ""
+  auth: inherit
 
 settings:
   encodeUrl: true

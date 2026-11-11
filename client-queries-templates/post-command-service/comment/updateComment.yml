@@ -12,9 +12,7 @@ http:
       {
         "content": "example updated comment"
       }
-  auth:
-    type: bearer
-    token: ""
+  auth: inherit
 
 settings:
   encodeUrl: true

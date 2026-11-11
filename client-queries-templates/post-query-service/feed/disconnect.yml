@@ -6,9 +6,7 @@ info:
 http:
   method: POST
   url: https://api.dev.gaze.localhost/api/feed/disconnect
-  auth:
-    type: bearer
-    token: ""
+  auth: inherit
 
 settings:
   encodeUrl: true

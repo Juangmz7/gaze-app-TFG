@@ -1,0 +1,27 @@
+info:
+  name: uploadMediaToSas
+  type: http
+  seq: 1
+
+http:
+  method: PUT
+  url: http://127.0.0.1:10000/devstoreaccount1/post-media-dev/4b6907d3-a45f-4632-b2bd-0a0d847fe646?sv=2024-11-04&se=2030-01-01T00%3A00%3A00Z&sr=b&sp=cw&sig=example-signature
+  headers:
+    - name: x-ms-blob-type
+      value: BlockBlob
+    - name: Content-Type
+      value: image/jpeg
+  body:
+    type: file
+    data:
+      - filePath: example-photo.jpg
+        contentType: image/jpeg
+        selected: true
+  auth: none
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false

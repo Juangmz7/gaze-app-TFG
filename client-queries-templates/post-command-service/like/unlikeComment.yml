@@ -15,9 +15,7 @@ http:
           "feedPosition": 0
         }
       }
-  auth:
-    type: bearer
-    token: ""
+  auth: inherit
 
 settings:
   encodeUrl: true

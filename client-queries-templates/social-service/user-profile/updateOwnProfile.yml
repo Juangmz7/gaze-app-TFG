@@ -17,9 +17,7 @@ http:
           "x": "example-username"
         }
       }
-  auth:
-    type: bearer
-    token: ""
+  auth: inherit
 
 settings:
   encodeUrl: true

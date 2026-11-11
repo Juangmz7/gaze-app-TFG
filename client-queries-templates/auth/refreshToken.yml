@@ -1,0 +1,25 @@
+info:
+  name: refreshToken
+  type: http
+  seq: 2
+
+http:
+  method: POST
+  url: https://auth.dev.gaze.localhost/realms/auth-service/protocol/openid-connect/token
+  body:
+    type: form-urlencoded
+    data:
+      - name: grant_type
+        value: refresh_token
+      - name: client_id
+        value: mobile-app
+      - name: refresh_token
+        value: ""
+  auth: none
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: false
