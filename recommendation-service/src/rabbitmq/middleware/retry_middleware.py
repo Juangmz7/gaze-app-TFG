@@ -52,6 +52,12 @@ class RabbitRetryMiddleware(BaseMiddleware):
                     max=self.MAX_INTERVAL_SECONDS,
                 ),
                 retry=retry_if_not_exception_type(self.NON_RETRYABLE_ERRORS),
+                before_sleep=lambda state: logger.warning(
+                    "Event failed, retrying: routing_key=%s attempt=%d error=%r",
+                    routing_key_of(msg),
+                    state.attempt_number,
+                    state.outcome.exception() if state.outcome else None,
+                ),
                 reraise=True,
             ):
                 with attempt:
@@ -60,17 +66,25 @@ class RabbitRetryMiddleware(BaseMiddleware):
         except ValidationError as exc:
             # Every error's location and type, not the raw input: it may be large or not even text
             logger.error(
-                "Malformed event, rejecting message to DLQ: errors=%s",
+                "Malformed event, rejecting message to DLQ: routing_key=%s errors=%s",
+                routing_key_of(msg),
                 [(e["loc"], e["type"]) for e in exc.errors()],
             )
             raise RejectMessage() from exc
 
         except (RejectAndDontRequeueError, json.JSONDecodeError) as exc:
-            logger.error("Non-retryable error, rejecting message to DLQ", exc_info=exc)
+            logger.error("Non-retryable error, rejecting message to DLQ: routing_key=%s",
+                         routing_key_of(msg), exc_info=exc)
             raise RejectMessage() from exc
 
         except Exception as exc:
             # Retries exhausted
-            logger.exception("Retries exhausted after %d attempts, rejecting message to DLQ",
-                              self.MAX_RETRIES + 1)
+            logger.exception("Retries exhausted after %d attempts, rejecting message to DLQ: routing_key=%s",
+                             self.MAX_RETRIES + 1, routing_key_of(msg))
             raise RejectMessage() from exc
+
+
+## The routing key says which event a line is about; event_id and correlation_id are
+## already on every line through LoggingContextMiddleware.
+def routing_key_of(msg: StreamMessage[Any]) -> str:
+    return getattr(msg.raw_message, "routing_key", None) or "-"

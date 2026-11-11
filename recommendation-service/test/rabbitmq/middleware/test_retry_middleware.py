@@ -126,3 +126,19 @@ async def test_a_failure_that_recovers_is_processed_on_a_retry(attempts):
     # Assert
     assert len(attempts) == 2
     assert len(calls) == 2
+
+
+async def test_every_retry_and_the_dlq_line_name_the_routing_key(attempts, caplog):
+    # Arrange
+    async def fail(event: EventMessage, message: RabbitMessage) -> None:
+        raise RuntimeError("temporary")
+
+    # Act
+    with caplog.at_level(logging.WARNING):
+        await consume(valid_body(), fail)
+
+    # Assert: without it, a line does not say which event failed
+    retries = [r for r in caplog.records if r.getMessage().startswith("Event failed, retrying")]
+    assert len(retries) == 2
+    assert all(f"routing_key={QUEUE}" in r.getMessage() for r in retries)
+    assert f"rejecting message to DLQ: routing_key={QUEUE}" in caplog.text

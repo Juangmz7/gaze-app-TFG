@@ -10,6 +10,7 @@ import (
 
 	"github.com/ThreeDotsLabs/watermill/message"
 
+	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/eventlog"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/topology"
 )
 
@@ -44,7 +45,7 @@ func (d *Dispatcher) Handle(msg *message.Message) error {
 	handler, ok := d.handlers[routingKey]
 	if !ok {
 		d.logger.WarnContext(ctx, "discarding event: no handler registered for routing key",
-			"queue", d.queue, "routing_key", routingKey)
+			append([]any{"queue", d.queue}, eventlog.MessageAttributes(msg)...)...)
 		return nil
 	}
 
