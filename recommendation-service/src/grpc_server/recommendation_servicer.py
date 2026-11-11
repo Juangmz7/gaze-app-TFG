@@ -6,7 +6,7 @@ from functools import partial
 from uuid import UUID, uuid4
 
 import grpc
-from opentelemetry import context as otel_context, propagate
+from opentelemetry import context as otel_context, propagate, trace
 
 from observability.log_context import correlation_id_ctx
 from pipeline.usecase.recommended_feed_use_case import RecommendedFeedUseCase
@@ -132,11 +132,17 @@ def _reason_name(reason: int) -> str:
 @contextmanager
 def _request_context(metadata: dict[str, str], correlation_id: str) -> Iterator[None]:
     """Correlation id and trace context of the caller, visible in the logs and in
-    the pipeline worker, which runs with a copy of this context."""
+    the pipeline worker, which runs with a copy of this context. Under
+    opentelemetry-instrument the gRPC instrumentation has already started a server
+    span that continues the caller's trace: it stays the parent. Without it (tests,
+    a plain `python -m`), the caller's context is extracted here instead."""
     correlation_token = correlation_id_ctx.set(correlation_id)
-    trace_token = otel_context.attach(propagate.extract(metadata))
+    trace_token = None
+    if not trace.get_current_span().get_span_context().is_valid:
+        trace_token = otel_context.attach(propagate.extract(metadata))
     try:
         yield
     finally:
-        otel_context.detach(trace_token)
+        if trace_token is not None:
+            otel_context.detach(trace_token)
         correlation_id_ctx.reset(correlation_token)

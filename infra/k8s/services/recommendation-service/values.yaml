@@ -56,6 +56,12 @@ env:
   OTEL_EXPORTER_OTLP_PROTOCOL: grpc
   # Export Python logs over OTLP and inject trace/span IDs into the records.
   OTEL_PYTHON_LOG_CORRELATION: "true"
+  # Process CPU, memory, threads and GC only: the host-wide system.* series repeat
+  # what Kubernetes reports per container, and process.runtime.* are the old
+  # names of process.*.
+  OTEL_PYTHON_SYSTEM_METRICS_EXCLUDED_METRICS: "system.*,process.runtime.*"
+  # A trace per gRPC health check would bury the real calls.
+  OTEL_PYTHON_GRPC_EXCLUDED_SERVICES: grpc.health.v1.Health
   # Root log level, read at startup (src/observability/logging_config.py).
   LOG_LEVEL: INFO
   # The model is baked into the image (HF_HOME): never call the Hub at runtime.

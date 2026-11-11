@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"sync"
 
+	"go.opentelemetry.io/contrib/instrumentation/runtime"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
@@ -107,6 +108,12 @@ func Init(ctx context.Context, cfg Config) (ShutdownFunc, error) {
 	}
 	mp := sdkmetric.NewMeterProvider(metricOpts...)
 	shutdowns = append(shutdowns, mp.Shutdown)
+	if metricsOn {
+		// Go runtime metrics: heap and total memory, goroutines, GC goal, allocations
+		if err := runtime.Start(runtime.WithMeterProvider(mp)); err != nil {
+			return fail(fmt.Errorf("telemetry: start runtime metrics: %w", err))
+		}
+	}
 
 	// Logs.
 	var lp *sdklog.LoggerProvider
