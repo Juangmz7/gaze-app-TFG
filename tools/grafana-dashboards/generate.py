@@ -748,7 +748,7 @@ def java_services():
                          desc="Rejected messages went to their DLQ. Failed or nacked publishes stay in the outbox and are retried."), 8, 8)
         L.add(timeseries("Connections and channels", [prom(f"sum(rabbitmq_connections{{{SVC}}})", "connections"),
                                                       prom(f"sum(rabbitmq_channels{{{SVC}}})", "channels", ref="B")]), 8, 8)
-        consumers_row(L, "spring_rabbit_listener_milliseconds", "messaging_destination_name", 'error!="none"', unit="ms")
+        consumers_row(L, "spring_rabbitmq_listener_milliseconds", "queue", 'result="failure"', unit="ms")
         logs_row(L)
 
     return service_dashboard("gaze-services-java", "Services: Java",

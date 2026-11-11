@@ -82,20 +82,20 @@ management:
         http.server.requests: true
         hikaricp.connections.acquire: true
         hikaricp.connections.usage: true
-        spring.rabbit.listener: true
+        spring.rabbitmq.listener: true
         spring.data.repository.invocations: true
         jvm.gc.pause: true
       minimum-expected-value:
         http.server.requests: 1ms
         hikaricp.connections.acquire: 1ms
         hikaricp.connections.usage: 1ms
-        spring.rabbit.listener: 1ms
+        spring.rabbitmq.listener: 1ms
         spring.data.repository.invocations: 1ms
         jvm.gc.pause: 1ms
       maximum-expected-value:
         http.server.requests: 30s
         hikaricp.connections.acquire: 30s
         hikaricp.connections.usage: 60s
-        spring.rabbit.listener: 120s
+        spring.rabbitmq.listener: 120s
         spring.data.repository.invocations: 30s
         jvm.gc.pause: 10s
