@@ -60,6 +60,9 @@ class UserProfileControllerIntegrationTest {
     @Autowired
     private StringRedisTemplate stringRedisTemplate;
 
+    @Autowired
+    private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+
     @MockitoBean
     private JwtDecoder jwtDecoder;
 
@@ -259,7 +262,7 @@ class UserProfileControllerIntegrationTest {
 
     private void seedUserStats(UUID userId, long followerCount, long followingCount, long postCount) {
         SocialIntegrationSeeder.seedUserStats(
-                stringRedisTemplate,
+                jdbcTemplate,
                 userId,
                 followerCount,
                 followingCount,

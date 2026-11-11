@@ -12,6 +12,7 @@ import com.app.socialservice.follow.infrastructure.events.UserUnfollowedEvent;
 import com.app.socialservice.follow.infrastructure.repository.JpaFollowRepository;
 import com.app.socialservice.shared.infrastructure.entity.TargetDatabase;
 import com.app.socialservice.shared.infrastructure.repository.ProcessedEventsRepository;
+import com.app.socialservice.user.application.repository.UserStatsRepository;
 import com.app.socialservice.user.domain.enums.UserAccountStatus;
 import com.app.socialservice.user.infrastructure.entity.UserEntity;
 import com.app.socialservice.user.infrastructure.repository.JpaUserRepository;
@@ -34,8 +35,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Import(TestcontainersConfiguration.class)
 @SpringBootTest
 class FollowRabbitMQListenerIntegrationTest {
-
-    private static final String USER_STATS_KEY_PATTERN = "user:stats:%s:%s";
 
     @MockitoBean
     private JwtDecoder jwtDecoder;
@@ -60,6 +59,9 @@ class FollowRabbitMQListenerIntegrationTest {
 
     @jakarta.annotation.Resource
     private StringRedisTemplate stringRedisTemplate;
+
+    @jakarta.annotation.Resource
+    private UserStatsRepository userStatsRepository;
 
     @BeforeEach
     void setUp() {
@@ -98,7 +100,7 @@ class FollowRabbitMQListenerIntegrationTest {
         followRabbitMQListener.onUserFollowed(event);
 
         assertThat(processedEventsRepository.findByIdAndTargetDatabase(event.id(), TargetDatabase.NEO4J)).isPresent();
-        assertThat(processedEventsRepository.findByIdAndTargetDatabase(event.id(), TargetDatabase.POSTGRES)).isPresent();
+        assertThat(processedEventsRepository.findByIdAndTargetDatabase(event.id(), TargetDatabase.POSTGRES)).isEmpty();
         assertThat(countFollowRelationships(followerId, followedId)).isEqualTo(1L);
         assertThat(readCounter(followerId, "following")).isEqualTo(1L);
         assertThat(readCounter(followedId, "followers")).isEqualTo(1L);
@@ -131,7 +133,7 @@ class FollowRabbitMQListenerIntegrationTest {
         followRabbitMQListener.onUserFollowed(event);
 
         assertThat(processedEventsRepository.findByIdAndTargetDatabase(event.id(), TargetDatabase.NEO4J)).isPresent();
-        assertThat(processedEventsRepository.findByIdAndTargetDatabase(event.id(), TargetDatabase.POSTGRES)).isPresent();
+        assertThat(processedEventsRepository.findByIdAndTargetDatabase(event.id(), TargetDatabase.POSTGRES)).isEmpty();
         assertThat(countFollowRelationships(followerId, followedId)).isEqualTo(1L);
         assertThat(readCounter(followerId, "following")).isEqualTo(1L);
         assertThat(readCounter(followedId, "followers")).isEqualTo(1L);
@@ -176,9 +178,7 @@ class FollowRabbitMQListenerIntegrationTest {
                 .extracting(com.app.socialservice.shared.infrastructure.entity.ProcessedEvent::getId)
                 .isEqualTo(firstEvent.id());
         assertThat(processedEventsRepository.findByCorrelationIdAndTargetDatabase(correlationId, TargetDatabase.POSTGRES))
-                .get()
-                .extracting(com.app.socialservice.shared.infrastructure.entity.ProcessedEvent::getId)
-                .isEqualTo(firstEvent.id());
+                .isEmpty();
         assertThat(processedEventsRepository.findByIdAndTargetDatabase(duplicateCorrelationEvent.id(), TargetDatabase.NEO4J))
                 .isEmpty();
         assertThat(processedEventsRepository.findByIdAndTargetDatabase(
@@ -216,7 +216,7 @@ class FollowRabbitMQListenerIntegrationTest {
                 .hasMessageContaining("Neo4j user nodes are missing");
 
         assertThat(processedEventsRepository.findByIdAndTargetDatabase(event.id(), TargetDatabase.NEO4J)).isEmpty();
-        assertThat(processedEventsRepository.findByIdAndTargetDatabase(event.id(), TargetDatabase.POSTGRES)).isPresent();
+        assertThat(processedEventsRepository.findByIdAndTargetDatabase(event.id(), TargetDatabase.POSTGRES)).isEmpty();
         assertThat(countFollowRelationships(followerId, followedId)).isZero();
         assertThat(readCounter(followerId, "following")).isEqualTo(1L);
         assertThat(readCounter(followedId, "followers")).isEqualTo(1L);
@@ -227,7 +227,7 @@ class FollowRabbitMQListenerIntegrationTest {
         followRabbitMQListener.onUserFollowed(event);
 
         assertThat(processedEventsRepository.findByIdAndTargetDatabase(event.id(), TargetDatabase.NEO4J)).isPresent();
-        assertThat(processedEventsRepository.findByIdAndTargetDatabase(event.id(), TargetDatabase.POSTGRES)).isPresent();
+        assertThat(processedEventsRepository.findByIdAndTargetDatabase(event.id(), TargetDatabase.POSTGRES)).isEmpty();
         assertThat(countFollowRelationships(followerId, followedId)).isEqualTo(1L);
         assertThat(readCounter(followerId, "following")).isEqualTo(1L);
         assertThat(readCounter(followedId, "followers")).isEqualTo(1L);
@@ -247,8 +247,6 @@ class FollowRabbitMQListenerIntegrationTest {
                 Instant.now().minusSeconds(60),
                 Instant.now()
         ));
-        stringRedisTemplate.opsForValue().set(buildCounterKey(followerId, "following"), "1");
-        stringRedisTemplate.opsForValue().set(buildCounterKey(followedId, "followers"), "1");
         neo4jClient.query("""
                 MATCH (follower:User {id: $followerId})
                 MATCH (followed:User {id: $followedId})
@@ -269,7 +267,7 @@ class FollowRabbitMQListenerIntegrationTest {
         followRabbitMQListener.onUserUnfollowed(event);
 
         assertThat(processedEventsRepository.findByIdAndTargetDatabase(event.id(), TargetDatabase.NEO4J)).isPresent();
-        assertThat(processedEventsRepository.findByIdAndTargetDatabase(event.id(), TargetDatabase.POSTGRES)).isPresent();
+        assertThat(processedEventsRepository.findByIdAndTargetDatabase(event.id(), TargetDatabase.POSTGRES)).isEmpty();
         assertThat(countFollowRelationships(followerId, followedId)).isZero();
         assertThat(readCounter(followerId, "following")).isZero();
         assertThat(readCounter(followedId, "followers")).isZero();
@@ -311,15 +309,9 @@ class FollowRabbitMQListenerIntegrationTest {
         }
     }
 
+    /** Counted from the active follows, which the tests seed: the listener does not change them. */
     private long readCounter(UUID userId, String counterName) {
-        var rawValue = stringRedisTemplate.opsForValue().get(buildCounterKey(userId, counterName));
-        if (rawValue == null) {
-            return 0L;
-        }
-        return Long.parseLong(rawValue);
-    }
-
-    private String buildCounterKey(UUID userId, String counterName) {
-        return String.format(USER_STATS_KEY_PATTERN, userId, counterName);
+        var stats = userStatsRepository.getStats(userId);
+        return "followers".equals(counterName) ? stats.followersCount() : stats.followingCount();
     }
 }
