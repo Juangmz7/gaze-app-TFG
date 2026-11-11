@@ -116,3 +116,11 @@ spec:
       kind: ScaledObject
     - group: keda.sh
       kind: TriggerAuthentication
+    # Never rendered by the chart: the Deployment's and Job's children. Argo CD
+    # leaves kinds the project does not permit out of the resource tree, so
+    # without these an Application lists no Pods, and so no images, and Argo CD
+    # Image Updater skips it: the Deployment stays on a cached :latest forever.
+    - group: apps
+      kind: ReplicaSet
+    - group: ""
+      kind: Pod
