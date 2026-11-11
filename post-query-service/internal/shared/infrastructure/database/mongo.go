@@ -12,7 +12,12 @@ import (
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.opentelemetry.io/otel/metric"
 )
+
+// poolRegistrations holds, per client, the registration of its pool metrics, which
+// Disconnect removes.
+var poolRegistrations sync.Map
 
 // connectTimeout bounds how long the initial connection ping may take.
 const connectTimeout = 10 * time.Second
@@ -32,10 +37,23 @@ func Connect(ctx context.Context, uri, databaseName string) (*mongo.Client, *mon
 		return nil, nil, fmt.Errorf("connect mongo: database name is required")
 	}
 
-	client, err := mongo.Connect(options.Client().ApplyURI(uri))
+	clientOptions := options.Client().ApplyURI(uri)
+	maxPoolSize := uint64(driverDefaultMaxPoolSize)
+	if clientOptions.MaxPoolSize != nil {
+		maxPoolSize = *clientOptions.MaxPoolSize
+	}
+	poolMonitor, poolRegistration, err := newPoolMonitor(maxPoolSize)
 	if err != nil {
+		return nil, nil, fmt.Errorf("connect mongo: pool metrics: %w", err)
+	}
+
+	client, err := mongo.Connect(clientOptions.SetPoolMonitor(poolMonitor))
+	if err != nil {
+		_ = poolRegistration.Unregister()
 		return nil, nil, fmt.Errorf("connect mongo: %w", err)
 	}
+
+	poolRegistrations.Store(client, poolRegistration)
 
 	pingCtx, cancel := context.WithTimeout(ctx, connectTimeout)
 	defer cancel()
@@ -147,6 +165,11 @@ func AfterCommit(ctx context.Context, callback func(ctx context.Context)) {
 func Disconnect(client *mongo.Client) error {
 	if client == nil {
 		return nil
+	}
+
+	if registration, ok := poolRegistrations.LoadAndDelete(client); ok {
+		// The pool is going away: stop reporting it, whatever the disconnect returns
+		_ = registration.(metric.Registration).Unregister()
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), disconnectTimeout)

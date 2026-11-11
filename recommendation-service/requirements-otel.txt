@@ -6,6 +6,9 @@
 # instrumentation for every library it detects. Only these are wanted:
 # - logging (in requirements.txt: src/observability imports it)
 # - psycopg: one span per SQL statement, at the driver SQLAlchemy runs on
+# - system-metrics: CPU, memory, threads, GC and open files of the process
+# - grpc: a server span per GetRecommendedFeed call, continuing the caller's
+#   trace (the health service is excluded with OTEL_PYTHON_GRPC_EXCLUDED_SERVICES)
 # Left out on purpose:
 # - aio-pika: FastStream's RabbitTelemetryMiddleware already creates the
 #   publish/consume spans; the aio-pika instrumentation would duplicate them.
@@ -18,3 +21,5 @@ opentelemetry-distro>=0.66b0,<0.67
 # OTLP over gRPC (OTEL_EXPORTER_OTLP_PROTOCOL=grpc) for traces, metrics and logs
 opentelemetry-exporter-otlp-proto-grpc>=1.45.0,<1.46
 opentelemetry-instrumentation-psycopg>=0.66b0,<0.67
+opentelemetry-instrumentation-system-metrics>=0.66b0,<0.67
+opentelemetry-instrumentation-grpc>=0.66b0,<0.67

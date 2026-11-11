@@ -191,6 +191,12 @@ services:
       OTEL_RESOURCE_ATTRIBUTES: deployment.environment.name=local
       # Export Python logs over OTLP and inject trace/span ids into log records
       OTEL_PYTHON_LOG_CORRELATION: "true"
+      # Process CPU, memory, threads and GC only: the host-wide system.* series repeat
+      # what Kubernetes reports per container, and process.runtime.* are the old
+      # names of process.*.
+      OTEL_PYTHON_SYSTEM_METRICS_EXCLUDED_METRICS: "system.*,process.runtime.*"
+      # No span for every health check
+      OTEL_PYTHON_GRPC_EXCLUDED_SERVICES: grpc.health.v1.Health
       LOG_LEVEL: INFO
       GRPC_PORT: "50051"
       PIPELINE_WORKER_POOL_SIZE: "2"

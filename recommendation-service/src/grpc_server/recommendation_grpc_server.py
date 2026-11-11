@@ -3,6 +3,7 @@ import logging
 import grpc
 from grpc_health.v1 import health, health_pb2, health_pb2_grpc
 
+from grpc_server.metrics_interceptor import ServerMetricsInterceptor
 from grpc_server.recommendation_servicer import RecommendationServicer
 from recommendation.v1 import recommendation_pb2, recommendation_pb2_grpc
 from shared.config.env import positive_int_env
@@ -35,7 +36,10 @@ class RecommendationGrpcServer:
 
     async def start(self) -> None:
         # Without reuseport a taken port fails here instead of silently sharing traffic
-        self._server = grpc.aio.server(options=(("grpc.so_reuseport", 0),))
+        self._server = grpc.aio.server(
+            interceptors=(ServerMetricsInterceptor(),),
+            options=(("grpc.so_reuseport", 0),),
+        )
         recommendation_pb2_grpc.add_RecommendationServiceServicer_to_server(self._servicer, self._server)
 
         self._health = health.aio.HealthServicer()

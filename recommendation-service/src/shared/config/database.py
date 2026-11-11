@@ -6,6 +6,7 @@ from contextvars import ContextVar
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from observability.pool_metrics import register_pool_metrics
 from shared.transaction.transaction_manager import TransactionManager, after_commit_scope
 
 
@@ -15,6 +16,7 @@ engine = create_engine(
     DATABASE_URL,
     pool_pre_ping=True,
 )
+register_pool_metrics(engine)
 
 SessionFactory = sessionmaker(
     bind=engine,

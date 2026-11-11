@@ -2106,7 +2106,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (k8s_pod_name) (rabbitmq_process_open_fds{k8s_namespace_name=~\"$namespace\"}) / sum by (k8s_pod_name) (rabbitmq_process_max_fds{k8s_namespace_name=~\"$namespace\"})",
+          "expr": "100 * (sum by (k8s_pod_name) (rabbitmq_process_open_fds{k8s_namespace_name=~\"$namespace\"}) / sum by (k8s_pod_name) (rabbitmq_process_max_fds{k8s_namespace_name=~\"$namespace\"}))",
           "refId": "A",
           "legendFormat": "{{k8s_pod_name}} fds"
         },
@@ -2115,14 +2115,14 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (k8s_pod_name) (rabbitmq_erlang_processes_used{k8s_namespace_name=~\"$namespace\"}) / sum by (k8s_pod_name) (rabbitmq_erlang_processes_limit{k8s_namespace_name=~\"$namespace\"})",
+          "expr": "100 * (sum by (k8s_pod_name) (rabbitmq_erlang_processes_used{k8s_namespace_name=~\"$namespace\"}) / sum by (k8s_pod_name) (rabbitmq_erlang_processes_limit{k8s_namespace_name=~\"$namespace\"}))",
           "refId": "B",
           "legendFormat": "{{k8s_pod_name}} processes"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "percentunit",
+          "unit": "percent",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 1,
@@ -2137,7 +2137,9 @@
           },
           "color": {
             "mode": "palette-classic"
-          }
+          },
+          "min": 0,
+          "softMax": 100
         },
         "overrides": []
       },
