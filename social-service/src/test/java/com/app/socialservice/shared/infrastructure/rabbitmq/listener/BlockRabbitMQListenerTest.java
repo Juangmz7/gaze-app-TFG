@@ -3,6 +3,7 @@ package com.app.socialservice.shared.infrastructure.rabbitmq.listener;
 import java.time.Instant;
 import java.util.UUID;
 
+import com.app.socialservice.user.application.service.UserCacheEvictor;
 import com.app.socialservice.block.application.service.BlockNodeService;
 import com.app.socialservice.block.infrastructure.events.UserBlockedEvent;
 import com.app.socialservice.shared.infrastructure.entity.TargetDatabase;
@@ -34,6 +35,9 @@ class BlockRabbitMQListenerTest {
 
     @Spy
     private RabbitMQProperties rabbitMQProperties = new RabbitMQProperties();
+
+    @Mock
+    private UserCacheEvictor userCacheEvictor;
 
     @InjectMocks
     private BlockRabbitMQListener blockRabbitMQListener;

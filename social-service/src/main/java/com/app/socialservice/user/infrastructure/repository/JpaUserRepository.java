@@ -8,7 +8,7 @@ import java.util.UUID;
 
 import com.app.socialservice.block.infrastructure.entity.BlockEntity;
 import com.app.socialservice.follow.infrastructure.entity.FollowEntity;
-import com.app.socialservice.user.application.dto.UserProfileDetails;
+import com.app.socialservice.user.application.dto.PublicUserProfileData;
 
 import com.app.socialservice.user.domain.enums.UserAccountStatus;
 import com.app.socialservice.user.infrastructure.entity.UserEntity;
@@ -40,41 +40,55 @@ public interface JpaUserRepository extends JpaRepository<UserEntity, UUID> {
     Optional<UserEntity> findByIdAndAccountStatus(UUID id, UserAccountStatus accountStatus);
 
     @Query("""
-            select new com.app.socialservice.user.application.dto.UserProfileDetails(
+            select new com.app.socialservice.user.application.dto.PublicUserProfileData(
                 user.id,
                 user.username,
                 user.bio.description,
                 user.bio.socialMedia,
                 user.pictureUrl,
-                case when activeFollow.id.followerId is not null then true else false end,
-                case when followsBack.id.followerId is not null then true else false end,
-                case when requesterBlock.id.blockerId is not null or targetBlock.id.blockerId is not null
-                    then true else false end,
                 case when user.accountStatus = com.app.socialservice.user.domain.enums.UserAccountStatus.BANNED
                     then true else false end
             )
             from UserEntity user
-            left join BlockEntity requesterBlock
-                on requesterBlock.id.blockerId = :requesterUserId
-                and requesterBlock.id.blockedId = :targetUserId
-            left join BlockEntity targetBlock
-                on targetBlock.id.blockerId = :targetUserId
-                and targetBlock.id.blockedId = :requesterUserId
-            left join FollowEntity activeFollow
-                on activeFollow.id.followerId = :requesterUserId
-                and activeFollow.id.followedId = :targetUserId
-                and activeFollow.status = com.app.socialservice.follow.infrastructure.enums.FollowStatus.ACTIVE
-            left join FollowEntity followsBack
-                on followsBack.id.followerId = :targetUserId
-                and followsBack.id.followedId = :requesterUserId
-                and followsBack.status = com.app.socialservice.follow.infrastructure.enums.FollowStatus.ACTIVE
             where user.id = :targetUserId
                 and user.accountStatus <> com.app.socialservice.user.domain.enums.UserAccountStatus.DELETED
             """)
-    Optional<UserProfileDetails> findProfileDetails(
+    Optional<PublicUserProfileData> findPublicProfileData(@Param("targetUserId") UUID targetUserId);
+
+    @Query(
+            value = """
+                    SELECT EXISTS (SELECT 1 FROM follows f
+                                    WHERE f.follower_id = :requesterUserId AND f.followed_id = :targetUserId
+                                      AND f.status = 'ACTIVE') AS following,
+                           EXISTS (SELECT 1 FROM follows f
+                                    WHERE f.follower_id = :targetUserId AND f.followed_id = :requesterUserId
+                                      AND f.status = 'ACTIVE') AS "followsMe",
+                           EXISTS (SELECT 1 FROM blocks b
+                                    WHERE (b.blocker_id = :requesterUserId AND b.blocked_id = :targetUserId)
+                                       OR (b.blocker_id = :targetUserId AND b.blocked_id = :requesterUserId)) AS blocked,
+                           EXISTS (SELECT 1 FROM users u
+                                    WHERE u.id = :targetUserId
+                                      AND u.account_status NOT IN ('DELETED', 'BANNED')) AS "targetVisible"
+                    """,
+            nativeQuery = true
+    )
+    ProfileRelationshipProjection findProfileRelationship(
             @Param("requesterUserId") UUID requesterUserId,
             @Param("targetUserId") UUID targetUserId
     );
+
+    interface ProfileRelationshipProjection {
+        boolean getFollowing();
+
+        boolean getFollowsMe();
+
+        boolean getBlocked();
+
+        boolean getTargetVisible();
+    }
+
+    @Query("select user.accountStatus from UserEntity user where user.id = :id")
+    Optional<UserAccountStatus> findAccountStatusById(@Param("id") UUID id);
            
     Optional<UserEntity> findByIdAndAccountStatusIn(UUID id, Collection<UserAccountStatus> accountStatuses);
            

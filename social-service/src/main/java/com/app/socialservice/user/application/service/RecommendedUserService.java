@@ -10,12 +10,14 @@ import java.util.UUID;
 import com.app.socialservice.block.application.repository.BlockRepository;
 import com.app.socialservice.follow.application.dto.RecommendedFollowCandidate;
 import com.app.socialservice.follow.application.repository.FollowGraphRepository;
+import com.app.socialservice.user.application.cache.CacheNames;
 import com.app.socialservice.user.application.dto.RecommendedUserDetails;
 import com.app.socialservice.user.application.dto.RecommendedUserResponse;
 import com.app.socialservice.user.application.repository.UserRepository;
 import com.app.socialservice.shared.domain.exception.UserNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,6 +33,12 @@ public class RecommendedUserService {
     private final FollowGraphRepository followGraphRepository;
     private final UserRepository userRepository;
 
+    /**
+     * Cached per requester for a few minutes: the graph query is the expensive part, and
+     * the requester's own follows and blocks evict the entry (UserCacheEvictor). Changes
+     * two hops away, which only shift the ranking, wait for the TTL.
+     */
+    @Cacheable(cacheNames = CacheNames.RECOMMENDED_USERS, key = CacheNames.KEY_BY_REQUESTER_USER_ID)
     @Transactional(readOnly = true)
     public List<RecommendedUserResponse> getRecommendedUsers(UUID requesterUserId) {
         assertRequesterExists(requesterUserId);

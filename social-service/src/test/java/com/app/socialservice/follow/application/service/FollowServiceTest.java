@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.app.socialservice.user.application.service.UserCacheEvictor;
 import com.app.socialservice.block.application.repository.BlockRepository;
 import com.app.socialservice.follow.application.commands.FollowUserCommand;
 import com.app.socialservice.follow.application.commands.UnfollowUserCommand;
@@ -67,6 +68,9 @@ class FollowServiceTest {
     @Mock
     private JsonMapper jsonMapper;
 
+    @Mock
+    private UserCacheEvictor userCacheEvictor;
+
     @InjectMocks
     private FollowService followService;
 
@@ -98,6 +102,8 @@ class FollowServiceTest {
 
         assertThat(response.followerId()).isEqualTo(followerId);
         assertThat(response.followedId()).isEqualTo(followedId);
+        // Their following and follower counts changed
+        verify(userCacheEvictor).evictProfiles(followerId, followedId);
 
         var outboxCaptor = ArgumentCaptor.forClass(OutboxEvent.class);
         verify(outboxEventRepository).save(outboxCaptor.capture());

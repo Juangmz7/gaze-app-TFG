@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.app.socialservice.user.application.service.UserCacheEvictor;
 import com.app.socialservice.block.application.commands.BlockUserCommand;
 import com.app.socialservice.block.application.commands.UnblockUserCommand;
 import com.app.socialservice.block.application.dto.BlockedUserDetails;
@@ -71,6 +72,9 @@ class BlockServiceTest {
     @Mock
     private JsonMapper jsonMapper;
 
+    @Mock
+    private UserCacheEvictor userCacheEvictor;
+
     @InjectMocks
     private BlockService blockService;
 
@@ -100,6 +104,8 @@ class BlockServiceTest {
         assertThat(response.blockerId()).isEqualTo(blockerId);
         assertThat(response.blockedId()).isEqualTo(blockedId);
         assertThat(response.createdAt()).isEqualTo(savedBlock.getCreatedAt());
+        // Neither may be recommended to the other any more
+        verify(userCacheEvictor).evictRecommendations(blockerId, blockedId);
 
         var outboxCaptor = ArgumentCaptor.forClass(OutboxEvent.class);
         verify(outboxEventRepository).save(outboxCaptor.capture());

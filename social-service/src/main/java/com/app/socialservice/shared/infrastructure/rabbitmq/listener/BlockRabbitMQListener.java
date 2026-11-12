@@ -9,6 +9,7 @@ import com.app.socialservice.shared.domain.exception.UserNotFoundException;
 import com.app.socialservice.shared.infrastructure.entity.TargetDatabase;
 import com.app.socialservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 import com.app.socialservice.shared.infrastructure.repository.ProcessedEventsRepository;
+import com.app.socialservice.user.application.service.UserCacheEvictor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.stereotype.Component;
@@ -18,13 +19,16 @@ import org.springframework.stereotype.Component;
 public class BlockRabbitMQListener extends AbstractRabbitMQListenerSupport {
 
     private final BlockNodeService blockNodeService;
+    private final UserCacheEvictor userCacheEvictor;
 
     public BlockRabbitMQListener(
             BlockNodeService blockNodeService,
+            UserCacheEvictor userCacheEvictor,
             ProcessedEventsRepository processedEventsRepository,
             RabbitMQProperties rabbitMQProperties) {
         super(processedEventsRepository, rabbitMQProperties);
         this.blockNodeService = blockNodeService;
+        this.userCacheEvictor = userCacheEvictor;
     }
 
     @RabbitListener(queues = "${rabbitmq.queue.user.block.created}")
@@ -50,6 +54,8 @@ public class BlockRabbitMQListener extends AbstractRabbitMQListenerSupport {
                     event.getClass().getSimpleName(),
                     TargetDatabase.NEO4J
             );
+            // The graph the recommendations are computed from changed
+            userCacheEvictor.evictRecommendations(event.blockerUserId(), event.blockedUserId());
         } catch (IllegalArgumentException exception) {
             log.error("Invalid user blocked event", exception);
             throw exception;

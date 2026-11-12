@@ -26,6 +26,7 @@ import com.app.socialservice.shared.infrastructure.enums.EventStatus;
 import com.app.socialservice.shared.infrastructure.mapper.JsonMapper;
 import com.app.socialservice.shared.infrastructure.repository.OutboxEventRepository;
 import com.app.socialservice.user.application.repository.UserRepository;
+import com.app.socialservice.user.application.service.UserCacheEvictor;
 import com.app.socialservice.user.domain.model.valueobj.UserId;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -47,6 +48,7 @@ public class BlockService {
     private final OutboxEventRepository outboxEventRepository;
     private final BlockEventMapper blockEventMapper;
     private final JsonMapper jsonMapper;
+    private final UserCacheEvictor userCacheEvictor;
 
     @Transactional(readOnly = true)
     public List<BlockedUserResponse> getBlockedUsers(UUID requesterUserId, int page) {
@@ -90,7 +92,14 @@ public class BlockService {
         var savedBlock = blockRepository.findByUsers(command.blockerUserId(), command.blockedUserId())
                 .orElse(block);
 
-        followRepository.markBidirectionalRelationshipsAsBlocked(command.blockerUserId(), command.blockedUserId());
+        var followsEnded = followRepository.markBidirectionalRelationshipsAsBlocked(
+                command.blockerUserId(), command.blockedUserId());
+        if (followsEnded) {
+            // An active follow between them ended: their counts changed
+            userCacheEvictor.evictProfiles(command.blockerUserId(), command.blockedUserId());
+        }
+        // Neither may be recommended to the other any more
+        userCacheEvictor.evictRecommendations(command.blockerUserId(), command.blockedUserId());
 
         var occurredOn = Instant.now();
         var outboxEvent = createAndSaveOutboxEvent(savedBlock, occurredOn);
@@ -124,6 +133,8 @@ public class BlockService {
         }
 
         followRepository.markBidirectionalRelationshipsAsRemoved(command.unblockerUserId(), command.unblockedUserId());
+        // They may be recommended to each other again
+        userCacheEvictor.evictRecommendations(command.unblockerUserId(), command.unblockedUserId());
 
         var occurredOn = Instant.now();
         var outboxEvent = createAndSaveUnblockOutboxEvent(block, occurredOn);

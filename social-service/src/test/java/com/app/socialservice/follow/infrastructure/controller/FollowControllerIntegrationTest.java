@@ -91,6 +91,9 @@ class FollowControllerIntegrationTest {
     @Autowired
     private StringRedisTemplate stringRedisTemplate;
 
+    @Autowired
+    private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+
     @MockitoBean
     private JwtDecoder jwtDecoder;
 
@@ -492,7 +495,7 @@ class FollowControllerIntegrationTest {
     }
 
     private void seedUserStats(UUID userId, long followingCount, long followerCount) {
-        SocialIntegrationSeeder.seedUserStats(stringRedisTemplate, userId, followerCount, followingCount, 0L);
+        SocialIntegrationSeeder.seedUserStats(jdbcTemplate, userId, followerCount, followingCount, 0L);
     }
 
     private long countFollowRelationships(UUID followerId, UUID followedId) {
@@ -555,7 +558,7 @@ class FollowControllerIntegrationTest {
     }
 
     private long readCounter(UUID userId, String counterName) {
-        return SocialIntegrationSeeder.readCounter(stringRedisTemplate, userId, counterName);
+        return SocialIntegrationSeeder.readCounter(jdbcTemplate, userId, counterName);
     }
 
     private void flushRedis() {
