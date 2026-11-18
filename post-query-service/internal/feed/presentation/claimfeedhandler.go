@@ -28,12 +28,14 @@ type ClaimFeedUsecase interface {
 // ClaimFeedHandler serves GET /api/feed?lastSeenId=<postId|omitted>&limit=<n>.
 type ClaimFeedHandler struct {
 	usecase ClaimFeedUsecase
+	signer  usecase.MediaURLSigner
 	logger  *slog.Logger
 }
 
-// NewClaimFeedHandler creates a ClaimFeedHandler.
-func NewClaimFeedHandler(uc ClaimFeedUsecase, logger *slog.Logger) *ClaimFeedHandler {
-	return &ClaimFeedHandler{usecase: uc, logger: logger}
+// NewClaimFeedHandler creates a ClaimFeedHandler. signer is handed to the response
+// mapper, which signs the page's blob URLs; the handler never builds a SAS itself.
+func NewClaimFeedHandler(uc ClaimFeedUsecase, signer usecase.MediaURLSigner, logger *slog.Logger) *ClaimFeedHandler {
+	return &ClaimFeedHandler{usecase: uc, signer: signer, logger: logger}
 }
 
 // ServeHTTP answers 200 with a page, which can be short or empty, 400 for a malformed
@@ -75,9 +77,15 @@ func (h *ClaimFeedHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	page, err := usecase.FeedPageToResponse(r.Context(), output, h.signer)
+	if err != nil {
+		respondWithFailure(w, r, h.logger, userID, "signing the feed page's media urls failed", err)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(usecase.FeedPageToResponse(output)); err != nil {
+	if err := json.NewEncoder(w).Encode(page); err != nil {
 		h.logger.WarnContext(r.Context(), "writing the feed page failed", "correlation_id", correlationIDFrom(r.Context()), "userId", userID, "error", err)
 	}
 }

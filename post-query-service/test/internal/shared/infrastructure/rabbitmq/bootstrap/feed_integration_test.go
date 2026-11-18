@@ -70,7 +70,7 @@ func startFeedOnBroker(t *testing.T, ctx context.Context) *feedOnBroker {
 	presentation.RegisterRoutes(mux, authenticate, presentation.Routes{
 		Heartbeat:  presentation.NewHeartbeatHandler(usecase.NewRegisterHeartbeat(sessions, logger), logger),
 		Disconnect: presentation.NewDisconnectHandler(usecase.NewRegisterUserDisconnected(sessions, app.prefetch, 5*time.Second, logger), logger),
-		ClaimFeed:  presentation.NewClaimFeedHandler(claim, logger),
+		ClaimFeed:  presentation.NewClaimFeedHandler(claim, unsignedURLs{}, logger),
 	})
 
 	return &feedOnBroker{
@@ -299,4 +299,12 @@ func TestFeedOnBroker_DeletingAUserOrAPostCleansUpTheFeed(t *testing.T) {
 	if len(cards) != 1 || cards[0]["postId"] != keptPost {
 		t.Fatalf("cards = %v, want only the kept post", cards)
 	}
+}
+
+// unsignedURLs stands in for the media signer, which has its own tests: it returns every
+// URL as it is.
+type unsignedURLs struct{}
+
+func (unsignedURLs) SignReadURL(_ context.Context, rawURL string) (string, error) {
+	return rawURL, nil
 }

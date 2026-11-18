@@ -103,6 +103,13 @@ func (noPrefetch) Execute(context.Context, usecase.RequestFeedPrefetchInput) (us
 
 func newFeedApp(t *testing.T, ctx context.Context) *feedApp {
 	t.Helper()
+	return newFeedAppSigning(t, ctx, unsignedURLs{})
+}
+
+// newFeedAppSigning is newFeedApp with the media signer the claim handler hands to the
+// response mapper.
+func newFeedAppSigning(t *testing.T, ctx context.Context, signer usecase.MediaURLSigner) *feedApp {
+	t.Helper()
 
 	db := testDatabase(t, ctx)
 	sessions := feedmongo.NewSessionRepository(db)
@@ -133,7 +140,7 @@ func newFeedApp(t *testing.T, ctx context.Context) *feedApp {
 	presentation.RegisterRoutes(mux, withSubject(t, viewerID.String()), presentation.Routes{
 		Heartbeat:  presentation.NewHeartbeatHandler(usecase.NewRegisterHeartbeat(sessions, logger), logger),
 		Disconnect: presentation.NewDisconnectHandler(usecase.NewRegisterUserDisconnected(sessions, noPrefetch{}, 5*time.Second, logger), logger),
-		ClaimFeed:  presentation.NewClaimFeedHandler(usecase.NewClaimFeed(units, hydration, config, logger), logger),
+		ClaimFeed:  presentation.NewClaimFeedHandler(usecase.NewClaimFeed(units, hydration, config, logger), signer, logger),
 	})
 
 	return &feedApp{

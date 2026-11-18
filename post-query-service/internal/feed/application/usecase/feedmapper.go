@@ -2,6 +2,9 @@ package usecase
 
 import (
 	"cmp"
+	"context"
+	"errors"
+	"fmt"
 	"slices"
 	"time"
 )
@@ -28,6 +31,18 @@ import (
 //     stored value already holds milliseconds rounded to the second
 //     (post-command-service stores seconds * 1000), so it is summed but never
 //     re-scaled or re-rounded.
+//
+// Blob URLs are stored bare and leave only signed: FeedPageToResponse passes
+// media[].url, media[].thumbnailUrl, coverThumbnailUrl and creator.pictureUrl through a
+// MediaURLSigner, which adds a short-lived read-only SAS. A signed URL is never stored,
+// since it expires, and null stays null.
+
+// MediaURLSigner adds a read-only SAS to a blob URL of the media container and returns
+// any other URL unchanged. Within one signing window it returns the same URL for the
+// same blob.
+type MediaURLSigner interface {
+	SignReadURL(ctx context.Context, rawURL string) (string, error)
+}
 
 // FeedMediaDocument is one media element as posts and feed_units store it.
 type FeedMediaDocument struct {
@@ -336,28 +351,52 @@ func FeedCardFromUnit(unit FeedUnitRef, post FeedPost, creator FeedCreator, coll
 }
 
 // FeedPageToResponse maps a claim's result to its API shape, with lists that are
-// never null.
-func FeedPageToResponse(output ClaimFeedOutput) FeedPageResponse {
-	items := make([]FeedCardResponse, 0, len(output.Items))
-	for _, card := range output.Items {
-		items = append(items, feedCardToResponse(card))
+// never null and every blob URL signed by signer.
+func FeedPageToResponse(ctx context.Context, output ClaimFeedOutput, signer MediaURLSigner) (FeedPageResponse, error) {
+	if signer == nil {
+		return FeedPageResponse{}, errors.New("map feed page: a media url signer is required")
 	}
 
-	return FeedPageResponse{Items: items, LastSeenID: output.LastSeenID, HasMore: output.HasMore}
+	items := make([]FeedCardResponse, 0, len(output.Items))
+	for _, card := range output.Items {
+		item, err := feedCardToResponse(ctx, card, signer)
+		if err != nil {
+			return FeedPageResponse{}, fmt.Errorf("map feed card %s: %w", card.PostID, err)
+		}
+		items = append(items, item)
+	}
+
+	return FeedPageResponse{Items: items, LastSeenID: output.LastSeenID, HasMore: output.HasMore}, nil
 }
 
-func feedCardToResponse(card FeedCard) FeedCardResponse {
+func feedCardToResponse(ctx context.Context, card FeedCard, signer MediaURLSigner) (FeedCardResponse, error) {
 	media := make([]FeedMediaResponse, 0, len(card.Media))
 	for _, element := range card.Media {
+		url, err := signer.SignReadURL(ctx, element.URL)
+		if err != nil {
+			return FeedCardResponse{}, err
+		}
+		thumbnailURL, err := signOptionalURL(ctx, signer, element.ThumbnailURL)
+		if err != nil {
+			return FeedCardResponse{}, err
+		}
 		media = append(media, FeedMediaResponse{
 			ID:           element.ID,
-			URL:          element.URL,
-			ThumbnailURL: element.ThumbnailURL,
+			URL:          url,
+			ThumbnailURL: thumbnailURL,
 			MediaType:    element.MediaType,
 			Order:        element.Order,
 			DurationMS:   element.DurationMS,
 			TaggedUsers:  emptyIfNull(element.TaggedUsers),
 		})
+	}
+	coverThumbnailURL, err := signOptionalURL(ctx, signer, card.CoverThumbnailURL)
+	if err != nil {
+		return FeedCardResponse{}, err
+	}
+	pictureURL, err := signOptionalURL(ctx, signer, card.Creator.PictureURL)
+	if err != nil {
+		return FeedCardResponse{}, err
 	}
 
 	return FeedCardResponse{
@@ -366,7 +405,7 @@ func feedCardToResponse(card FeedCard) FeedCardResponse {
 		Creator: FeedCreatorResponse{
 			UserID:     card.Creator.UserID,
 			Username:   card.Creator.Username,
-			PictureURL: card.Creator.PictureURL,
+			PictureURL: pictureURL,
 		},
 		Description:       card.Description,
 		PostType:          card.PostType,
@@ -375,7 +414,7 @@ func feedCardToResponse(card FeedCard) FeedCardResponse {
 		Collab:            FeedCollabResponse{Title: card.CollabTitle, Status: card.CollabStatus},
 		CreatedAt:         card.CreatedAt,
 		Media:             media,
-		CoverThumbnailURL: card.CoverThumbnailURL,
+		CoverThumbnailURL: coverThumbnailURL,
 		DurationMS:        card.DurationMS,
 		Stats: FeedStatsResponse{
 			LikeCount:    card.Stats.LikeCount,
@@ -387,7 +426,20 @@ func feedCardToResponse(card FeedCard) FeedCardResponse {
 			Shared:           card.Viewer.Shared,
 			FollowingCreator: card.Viewer.FollowingCreator,
 		},
+	}, nil
+}
+
+// signOptionalURL signs a nullable URL; null stays null.
+func signOptionalURL(ctx context.Context, signer MediaURLSigner, rawURL *string) (*string, error) {
+	if rawURL == nil {
+		return nil, nil
 	}
+	signed, err := signer.SignReadURL(ctx, *rawURL)
+	if err != nil {
+		return nil, err
+	}
+
+	return &signed, nil
 }
 
 func feedMediaFromDocuments(documents []FeedMediaDocument) []FeedMedia {
