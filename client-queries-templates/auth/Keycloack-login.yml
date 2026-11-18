@@ -5,7 +5,7 @@ info:
 
 http:
   method: GET
-  url: ""
+  url: https://auth.dev.192-168-1-135.sslip.io/realms/auth-service/protocol/openid-connect/userinfo
   auth:
     type: oauth2
     flow: authorization_code
