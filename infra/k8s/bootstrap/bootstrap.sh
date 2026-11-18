@@ -93,8 +93,8 @@ cat <<EOF
 
 Next steps
   Windows and LAN access to the Gateway (WSL does not forward ports 80/443
-  that k3s exposes through iptables), from an elevated PowerShell, after every
-  WSL restart:
+  that k3s exposes through iptables) and LAN access to Azurite (10000), from an
+  elevated PowerShell, after every WSL restart:
     infra\\k8s\\bootstrap\\windows-portproxy.ps1 -Lan
   From this shell:  curl --resolve api.dev.192-168-1-135.sslip.io:443:${node_ip} -k https://api.dev.192-168-1-135.sslip.io/
   Argo CD UI:       kubectl -n argocd port-forward svc/argocd-server 8080:443   (https://localhost:8080)

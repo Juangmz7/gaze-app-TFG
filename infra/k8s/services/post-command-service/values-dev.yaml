@@ -20,9 +20,13 @@ env:
   SPRING_DATA_REDIS_PORT: "6379"
   # --- Azure Blob Storage (external: compose azurite) ---
   # The account key is Azurite's well-known key from application-dev.yaml.
-  # SAS URLs handed to clients point at this in-cluster name, which only
-  # resolves inside the cluster.
-  AZURE_STORAGE_ACCOUNT_URL: http://azurite.external-databases.svc.cluster.local:10000/devstoreaccount1
+  # The blob and upload SAS URLs handed to clients are built from this URL, so
+  # it is a name other devices resolve too: sslip.io gives them this PC's LAN
+  # IP (port 10000 opened by windows-portproxy.ps1 -Lan), and inside the
+  # cluster CoreDNS rewrites it to the azurite Service
+  # (platform/external-databases/coredns-custom.yaml), so the egress below
+  # still goes to 10.42.0.1:10000.
+  AZURE_STORAGE_ACCOUNT_URL: http://azurite.dev.192-168-1-135.sslip.io:10000/devstoreaccount1
   # --- Keycloak: tokens carry the public issuer; keys are fetched in-cluster ---
   SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: https://auth.dev.192-168-1-135.sslip.io/realms/auth-service
   SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak-service.keycloak-dev.svc.cluster.local:8080/realms/auth-service/protocol/openid-connect/certs
