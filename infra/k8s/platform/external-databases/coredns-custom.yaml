@@ -1,0 +1,23 @@
+# Split-horizon name for Azurite. post-command-service builds the blob and
+# upload SAS URLs it hands to clients from AZURE_STORAGE_ACCOUNT_URL, so that
+# URL has to work both from other devices and from the pod itself.
+#
+# azurite.dev.192-168-1-135.sslip.io resolves (sslip.io public DNS) to this
+# PC's LAN IP, where windows-portproxy.ps1 -Lan opens port 10000. Pods can't
+# use that IP: in WSL2 NAT mode Windows drops traffic that enters through the
+# WSL switch addressed to its LAN interface's IP (strong host model). So inside
+# the cluster CoreDNS answers the same name with the azurite Service of
+# services.yaml, which ends at the same Azurite on the k3s host.
+#
+# k3s' CoreDNS imports the *.override keys of this ConfigMap into its main
+# server block. If the LAN IP changes, change it here too (docs/k8s.md).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coredns-custom
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/part-of: gaze
+data:
+  azurite.override: |
+    rewrite name exact azurite.dev.192-168-1-135.sslip.io azurite.external-databases.svc.cluster.local
