@@ -5,7 +5,7 @@ info:
 
 http:
   method: GET
-  url: https://api.dev.gaze.localhost/api/feed?limit=15
+  url: https://api.dev.192-168-1-135.sslip.io/api/feed?limit=15
   auth: inherit
 
 settings:

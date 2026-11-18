@@ -2,7 +2,10 @@
 
 environment: dev
 
-hostname: auth.dev.gaze.localhost
+# = hostnames.auth of environments/dev/gateway.yaml. The token issuer
+# (https://<hostname>/realms/auth-service) is what the services' values-dev
+# check.
+hostname: auth.dev.192-168-1-135.sslip.io
 exposeAdminConsole: true
 
 # External PostgreSQL: compose postgres-keycloak on the k3s host, published on

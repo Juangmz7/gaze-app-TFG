@@ -24,7 +24,7 @@ env:
   # resolves inside the cluster.
   AZURE_STORAGE_ACCOUNT_URL: http://azurite.external-databases.svc.cluster.local:10000/devstoreaccount1
   # --- Keycloak: tokens carry the public issuer; keys are fetched in-cluster ---
-  SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: https://auth.dev.gaze.localhost/realms/auth-service
+  SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: https://auth.dev.192-168-1-135.sslip.io/realms/auth-service
   SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak-service.keycloak-dev.svc.cluster.local:8080/realms/auth-service/protocol/openid-connect/certs
   # --- OpenTelemetry (cluster collector, OTLP HTTP) ---
   MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://gaze-collector.observability.svc.cluster.local:4318/v1/traces
@@ -44,7 +44,7 @@ httpRoute:
   parentRef:
     namespace: gateway-dev
   hostnames:
-    - api.dev.gaze.localhost
+    - api.dev.192-168-1-135.sslip.io
 
 autoscaling:
   minReplicas: 1
