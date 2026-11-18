@@ -1,7 +1,7 @@
 # post-query-service
 
 ## What it does
-Read side of the platform, written in Go. It consumes the events of `post-command-service` and `social-service` from RabbitMQ, keeps its own read models in MongoDB, and serves the home feed over HTTP.
+Read side of the platform, written in Go. It consumes the events of `post-command-service` and `social-service` from RabbitMQ, keeps its own read models in MongoDB, and serves the home feed (`/api/feed`) and post reads (`/api/content`) over HTTP.
 
 ## Packages used
 - **`net/http`:** `ServeMux` with method patterns.
@@ -62,6 +62,19 @@ The media container is private, so every blob URL in a response carries a read-o
 - **Stable within a day.** Time is cut into fixed windows of `MEDIA_READ_SAS_WINDOW` (24 h), counted from the Unix epoch, so UTC days by default. Every URL signed in one window is byte-identical for the same blob, so an image cache keyed on the URL keeps working, and it stays valid until the end of the next window: `st` = window start minus 5 minutes, `se` = window start plus two windows (48 h). A URL is valid between 24 h and 48 h after it was received.
 - **Stored bare.** MongoDB only ever holds the bare URL; a URL is signed when the response is built, by the response mapper (`feedmapper.go`) through the shared signer in `internal/shared/infrastructure/mediasas`.
 - **Keys.** Signing is a local HMAC, with no call per URL or per request. Azurite (dev, compose) signs with its well-known account key. Production holds no account key: it fetches a user delegation key through AKS Workload Identity once per window, valid exactly as long as that window's SAS, and keeps the previous one, which it signs with (still valid for the whole current window) if a fetch fails. A failed fetch is retried at most every 30 s. With neither key, the claim answers 500.
+
+## Content API
+Every read that is not the feed lives under `/api/content`, routed by the gateway to this service with the same token rules as the feed (valid `Authorization: Bearer`, user from the subject, `X-Correlation-Id` handled the same way).
+
+| Endpoint | Answer |
+| --- | --- |
+| `GET /api/content/posts/{postId}` | 200 `PostView`, 400 `invalid_post_id`, 404 `post_not_found` |
+
+`PostView` is a feed item without `position`, plus two fields that stay null until collab requests are projected: `collab.pendingRequestCount` and `viewer.collabRequestStatus`. Its values come from the same read models and the same mapper as the feed, with `viewer` holding the caller's state and every media URL signed (see "Media URLs").
+
+- `postId` must be a canonical UUID; anything else is a 400.
+- A post that was never projected, was deleted or banned, whose creator is gone, or whose creator has a block with the caller in either direction, is the same 404 `post_not_found`, so a block is never revealed.
+- Reading a post does not touch the feed: nothing is marked served.
 
 ## How the feed gets filled
 The feed is prepared ahead of time over RabbitMQ, through the transactional outbox:
@@ -138,4 +151,4 @@ A retry on a timeout runs the pipeline again, so the limit per attempt (10 s) is
 | `MEDIA_READ_SAS_WINDOW` | `24h` | Length of a signing window, a Go duration from `1m` to `72h`. A SAS lasts two windows. |
 
 ## Tests
-`./test.sh` from `post-query-service/`. It needs Docker: integration tests use Testcontainers for MongoDB, RabbitMQ and Azurite (`mcr.microsoft.com/azure-storage/azurite:3.35.0`, where `GET /api/feed` is checked to return media URLs that download). The gRPC tests run a real server on localhost.
+`./test.sh` from `post-query-service/`. It needs Docker: integration tests use Testcontainers for MongoDB, RabbitMQ and Azurite (`mcr.microsoft.com/azure-storage/azurite:3.35.0`, where `GET /api/feed` and `GET /api/content/posts/{postId}` are checked to return media URLs that download). The gRPC tests run a real server on localhost.
