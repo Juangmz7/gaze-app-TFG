@@ -1,5 +1,6 @@
-// Package presentation exposes the feed over HTTP. Handlers parse the request,
-// delegate to one usecase and encode the answer; they hold no business logic.
+// Package presentation exposes the feed (/api/feed) and the post reads built from the
+// same read models (/api/content) over HTTP. Handlers parse the request, delegate to
+// one usecase and encode the answer; they hold no business logic.
 package presentation
 
 import (
@@ -24,6 +25,11 @@ const (
 	ClaimFeedRoute  = "GET /api/feed"
 )
 
+// Content routes: every read that is not the feed, behind the same authentication.
+const (
+	GetPostRoute = "GET /api/content/posts/{" + postIDPathValue + "}"
+)
+
 // CorrelationIDHeader carries the correlation id of a request.
 const CorrelationIDHeader = "X-Correlation-Id"
 
@@ -35,14 +41,15 @@ const maxCorrelationIDLength = 128
 // logs and traces are.
 const statusClientClosedRequest = 499
 
-// Routes holds the feed's HTTP handlers.
+// Routes holds the feed's and the content's HTTP handlers.
 type Routes struct {
 	Heartbeat  *HeartbeatHandler
 	Disconnect *DisconnectHandler
 	ClaimFeed  *ClaimFeedHandler
+	GetPost    *GetPostHandler
 }
 
-// RegisterRoutes adds the three feed endpoints to mux behind authenticate
+// RegisterRoutes adds the feed and content endpoints to mux behind authenticate
 // (auth.Authenticate in production). Only these routes are wrapped, so the health
 // endpoints stay unauthenticated.
 func RegisterRoutes(mux *http.ServeMux, authenticate func(http.Handler) http.Handler, routes Routes) {
@@ -53,6 +60,7 @@ func RegisterRoutes(mux *http.ServeMux, authenticate func(http.Handler) http.Han
 	register(HeartbeatRoute, routes.Heartbeat)
 	register(DisconnectRoute, routes.Disconnect)
 	register(ClaimFeedRoute, routes.ClaimFeed)
+	register(GetPostRoute, routes.GetPost)
 }
 
 // withTraceContext continues the caller's W3C trace, so a call to another service
@@ -107,14 +115,14 @@ func correlationIDFrom(ctx context.Context) string {
 func requireUserID(w http.ResponseWriter, r *http.Request, logger *slog.Logger) (uuid.UUID, bool) {
 	subject, found := auth.SubjectFromContext(r.Context())
 	if !found {
-		logger.WarnContext(r.Context(), "discarding a feed request without a token subject", "correlation_id", correlationIDFrom(r.Context()))
+		logger.WarnContext(r.Context(), "discarding a request without a token subject", "correlation_id", correlationIDFrom(r.Context()))
 		common.RespondWithError(w, r, http.StatusUnauthorized, "invalid_token", "Invalid token", nil)
 		return uuid.Nil, false
 	}
 
 	userID, err := uuid.Parse(subject)
 	if err != nil || userID == uuid.Nil || len(subject) != len(userID.String()) {
-		logger.WarnContext(r.Context(), "discarding a feed request whose token subject is not a UUID", "correlation_id", correlationIDFrom(r.Context()))
+		logger.WarnContext(r.Context(), "discarding a request whose token subject is not a UUID", "correlation_id", correlationIDFrom(r.Context()))
 		common.RespondWithError(w, r, http.StatusUnauthorized, "invalid_token", "Invalid token", nil)
 		return uuid.Nil, false
 	}

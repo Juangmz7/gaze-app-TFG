@@ -39,7 +39,7 @@ type Params struct {
 	Feed config.FeedConfig
 	// Recommendation holds the settings of the recommendation-service client.
 	Recommendation config.RecommendationConfig
-	// MediaSigner signs the blob URLs of every feed page. main builds the one signer the
+	// MediaSigner signs the blob URLs of every feed page and post view. main builds the one signer the
 	// whole service shares, so every context reuses one delegation key per window.
 	MediaSigner *mediasas.Signer
 	// Logger is shared by every feed component.
@@ -49,7 +49,7 @@ type Params struct {
 // Feed is what main shares between the HTTP routes, the sweeper and the RabbitMQ
 // bootstrap, which is rebuilt on every reconnect.
 type Feed struct {
-	// Routes are the feed's HTTP handlers, for feedpresentation.RegisterRoutes.
+	// Routes are the feed's and the content's HTTP handlers, for feedpresentation.RegisterRoutes.
 	Routes feedpresentation.Routes
 	// Dependencies are the feed components every RabbitMQ bootstrap attempt shares.
 	Dependencies bootstrap.Dependencies
@@ -121,6 +121,7 @@ func New(ctx context.Context, params Params) (*Feed, error) {
 			Heartbeat:  feedpresentation.NewHeartbeatHandler(feedusecase.NewRegisterHeartbeat(sessions, logger), logger),
 			Disconnect: feedpresentation.NewDisconnectHandler(feedusecase.NewRegisterUserDisconnected(sessions, prefetch, cfg.DisconnectWriteTimeout, logger), logger),
 			ClaimFeed:  feedpresentation.NewClaimFeedHandler(claim, params.MediaSigner, logger),
+			GetPost:    feedpresentation.NewGetPostHandler(feedusecase.NewGetPost(hydration, logger), params.MediaSigner, logger),
 		},
 		Dependencies:    bootstrap.Dependencies{Prefetch: prefetch, Lease: lease},
 		sweeper:         feedsweeper.NewPrefetchSweeper(sweep, cfg.SweepInterval, logger),
