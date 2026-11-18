@@ -13,6 +13,8 @@ docker compose -f infra/local/compose.yaml --env-file infra/local/.env up -d   #
 
 Then, from an elevated PowerShell on Windows: `infra/k8s/bootstrap/windows-portproxy.ps1`.
 
+To delete the cluster (stops using resources, doesn't start on reboot): `./infra/k8s/bootstrap/teardown.sh`, then `windows-portproxy.ps1 -Remove` on Windows.
+
 | Want to... | Edit |
 |---|---|
 | Change a service's config | `services/<service>/values.yaml` / `values-<env>.yaml` |

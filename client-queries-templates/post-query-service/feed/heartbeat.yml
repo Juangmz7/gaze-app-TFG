@@ -5,7 +5,7 @@ info:
 
 http:
   method: POST
-  url: https://api.dev.gaze.localhost/api/feed/heartbeat
+  url: https://api.dev.192-168-1-135.sslip.io/api/feed/heartbeat
   auth: inherit
 
 settings:

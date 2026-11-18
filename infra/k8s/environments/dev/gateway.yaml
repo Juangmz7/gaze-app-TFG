@@ -2,9 +2,13 @@
 
 environment: dev
 
+# sslip.io names resolve to the IP they embed (192.168.1.135, this PC's LAN
+# IP, reserved in the router's DHCP), so other devices on the LAN reach the
+# Gateway too (bootstrap/windows-portproxy.ps1 -Lan). If the IP changes,
+# change it everywhere at once: docs/k8s.md, "Access from the LAN".
 hostnames:
-  api: api.dev.gaze.localhost
-  auth: auth.dev.gaze.localhost
+  api: api.dev.192-168-1-135.sslip.io
+  auth: auth.dev.192-168-1-135.sslip.io
 
 tls:
   # Self-signed CA (platform/cert-manager). Trust gaze-local-ca in your

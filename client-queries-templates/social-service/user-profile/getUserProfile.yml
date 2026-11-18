@@ -5,7 +5,7 @@ info:
 
 http:
   method: GET
-  url: https://api.dev.gaze.localhost/api/social/profile/3fa85f64-5717-4562-b3fc-2c963f66afa6
+  url: https://api.dev.192-168-1-135.sslip.io/api/social/profile/3fa85f64-5717-4562-b3fc-2c963f66afa6
   auth: inherit
 
 settings:

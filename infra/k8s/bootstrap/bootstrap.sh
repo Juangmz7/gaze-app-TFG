@@ -92,10 +92,11 @@ node_ip="$(hostname -I | awk '{print $1}')"
 cat <<EOF
 
 Next steps
-  Windows access to the Gateway (WSL does not forward ports 80/443 that k3s
-  exposes through iptables), from an elevated PowerShell, after every WSL restart:
-    infra\\k8s\\bootstrap\\windows-portproxy.ps1
-  From this shell:  curl --resolve api.dev.gaze.localhost:443:${node_ip} -k https://api.dev.gaze.localhost/
+  Windows and LAN access to the Gateway (WSL does not forward ports 80/443
+  that k3s exposes through iptables), from an elevated PowerShell, after every
+  WSL restart:
+    infra\\k8s\\bootstrap\\windows-portproxy.ps1 -Lan
+  From this shell:  curl --resolve api.dev.192-168-1-135.sslip.io:443:${node_ip} -k https://api.dev.192-168-1-135.sslip.io/
   Argo CD UI:       kubectl -n argocd port-forward svc/argocd-server 8080:443   (https://localhost:8080)
   Admin password:   kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d
   Trust the local CA:

@@ -5,7 +5,7 @@ info:
 
 http:
   method: POST
-  url: https://auth.dev.gaze.localhost/realms/auth-service/protocol/openid-connect/token
+  url: https://auth.dev.192-168-1-135.sslip.io/realms/auth-service/protocol/openid-connect/token
   body:
     type: form-urlencoded
     data:

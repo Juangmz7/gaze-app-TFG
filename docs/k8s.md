@@ -5,7 +5,7 @@
 
 ```
 infra/k8s/
-├── bootstrap/            # one-off: k3s install + config, Argo CD install, root app, Windows port proxy
+├── bootstrap/            # one-off: k3s install + config, Argo CD install, root app, Windows port proxy, teardown
 ├── argocd/               # everything Argo CD manages (app of apps)
 │   ├── projects.yaml     #   AppProjects: platform / env-infra / apps
 │   ├── platform/         #   Applications for cluster-wide controllers + config
@@ -102,7 +102,19 @@ The compose stack runs with Docker Engine on the same WSL2 Ubuntu as k3s. Pods c
 2. Start the databases with `DB_BIND_IP=0.0.0.0` in `infra/local/.env`: `docker compose -f infra/local/compose.yaml --env-file infra/local/.env up -d`.
 3. The dev database passwords in the values files must stay equal to `infra/local/.env`: the `SPRING_DATASOURCE_PASSWORD` / Neo4j values of each service, the password in `DATABASE_URL` of `services/recommendation-service/values-dev.yaml` (= `RECOMMENDATION_POSTGRES_PASSWORD`) and `database.password` in `environments/dev/keycloak.yaml` (= `POSTGRES_PASSWORD`).
 4. `./infra/k8s/bootstrap/bootstrap.sh`: installs k3s `v1.35.2+k3s1` with `bootstrap/k3s-config.yaml` (Traefik off, fixed CIDRs, Secrets encrypted at rest), checks the pod CIDR, installs Argo CD and applies the root app. Argo CD then syncs from `main`.
-5. From Windows, an elevated PowerShell: `infra/k8s/bootstrap/windows-portproxy.ps1` (again after each WSL restart). It forwards `127.0.0.1:80/443` to the WSL IP, because k3s exposes the Gateway through iptables, which WSL's localhost forwarding doesn't see. `kubectl` from Windows works with the kubeconfig at `~/.kube/config` in Ubuntu (API on `127.0.0.1:6443`).
+5. From Windows, an elevated PowerShell: `infra/k8s/bootstrap/windows-portproxy.ps1 -Lan` (again after each WSL restart; see [Access from the LAN](#access-from-the-lan)). It forwards Windows' ports 80/443 to the WSL IP, because k3s exposes the Gateway through iptables, which WSL's localhost forwarding doesn't see. `kubectl` from Windows works with the kubeconfig at `~/.kube/config` in Ubuntu (API on `127.0.0.1:6443`).
+
+To remove the cluster so it stops using resources and doesn't start again on reboot: `./infra/k8s/bootstrap/teardown.sh`. It runs k3s' `k3s-uninstall.sh`, which stops and disables the systemd unit and deletes every workload, PersistentVolume, image and the cluster state, then removes `~/.kube/config` if it is still the copy `bootstrap.sh` made. Afterwards, from an elevated PowerShell, `infra/k8s/bootstrap/windows-portproxy.ps1 -Remove` deletes the port proxy. `bootstrap.sh` recreates everything from scratch.
+
+## Access from the LAN
+The dev hostnames are `api.dev.192-168-1-135.sslip.io` and `auth.dev.192-168-1-135.sslip.io`: sslip.io (public wildcard DNS) resolves them to the IP they embed, this PC's LAN IP, so other devices on the same network (phone, laptop) reach the Gateway, and so does this PC. No router port forwarding is involved.
+
+1. Windows, elevated PowerShell: `infra/k8s/bootstrap/windows-portproxy.ps1 -Lan` (again after each WSL restart). Needed on this PC too, since the hostnames resolve to the LAN IP, not to 127.0.0.1. The port proxy listens on `0.0.0.0:80/443` instead of `127.0.0.1` and an inbound firewall rule allows TCP 80/443 from the local subnet on Private/Domain networks. The network must be **Private**: the script warns when it is Public. Running it without `-Lan` (or with `-Remove`) deletes the rule.
+2. Router: reserve this PC's IP in DHCP so it doesn't change.
+3. Each device trusts `gaze-local-ca` (or skips TLS verification).
+4. If a device can't resolve the names, its router drops DNS answers that point at private IPs ("DNS rebinding protection"): use another DNS server on that device (e.g. 1.1.1.1). sslip.io needs internet access.
+
+Why not `*.localhost` or the bare IP: `*.localhost` always resolves to the device itself, and the Gateway routes by hostname (listeners, HTTPRoutes, certificate SANs). If the LAN IP changes, replace `192-168-1-135` everywhere at once, because Keycloak issues tokens for a single hostname and the services check that exact issuer: `environments/dev/gateway.yaml` and `keycloak.yaml`, the HTTPRoute hostnames and issuer in `services/*/values-dev.yaml`, `bootstrap/bootstrap.sh` and `client-queries-templates/`. cert-manager reissues the certificate on its own; tokens issued before stop being valid.
 
 ## Pending (TODO markers in the files)
 - Prod: enable it in both ApplicationSets (`enabled: "true"`), real domain, managed DB hosts, Vault/External Secrets, Workload Identity client id, narrower egress CIDRs (`TODO(aks)`, `TODO(vault)`).
