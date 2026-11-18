@@ -14,11 +14,11 @@ Spring Boot service for social user data, profiles, follow relationships, block 
 
 ## Main Capabilities
 - Maintains user records from auth-service register, update, and delete events.
-- Stores user profile data and caches own/public profile reads.
+- Stores user profile data and caches own profiles, public profiles and recommended users in Redis.
 - Stores follow relationships in PostgreSQL and projects active graph edges to Neo4j.
 - Stores block relationships and removes affected follow relationships.
 - Generates user recommendations from Neo4j candidates, excluding blocked users and ranking by common connections.
-- Maintains follower, following, and post counters in Redis from follow and post events.
+- Counts followers and following from the follows table and keeps the post count in PostgreSQL from post events, once per event.
 
 ## HTTP API
 All endpoints use the authenticated JWT user id from `SecurityUtils`.

@@ -11,26 +11,32 @@ import com.app.socialservice.shared.domain.exception.UserNotFoundException;
 import com.app.socialservice.shared.infrastructure.entity.TargetDatabase;
 import com.app.socialservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
 import com.app.socialservice.shared.infrastructure.repository.ProcessedEventsRepository;
-import com.app.socialservice.user.application.service.UserStatsService;
+import com.app.socialservice.user.application.service.UserCacheEvictor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.stereotype.Component;
 
+/**
+ * Projects follows into the Neo4j graph. The follower and following counts need no
+ * event: they are counted from the follows table, which FollowService changes in its
+ * own transaction. Once the graph changed, the follower's recommendations are evicted,
+ * since they are computed from it.
+ */
 @Slf4j
 @Component
 public class FollowRabbitMQListener extends AbstractRabbitMQListenerSupport {
 
     private final FollowNodeService followNodeService;
-    private final UserStatsService userStatsService;
+    private final UserCacheEvictor userCacheEvictor;
 
     public FollowRabbitMQListener(
             FollowNodeService followNodeService,
-            UserStatsService userStatsService,
+            UserCacheEvictor userCacheEvictor,
             ProcessedEventsRepository processedEventsRepository,
             RabbitMQProperties rabbitMQProperties) {
         super(processedEventsRepository, rabbitMQProperties);
         this.followNodeService = followNodeService;
-        this.userStatsService = userStatsService;
+        this.userCacheEvictor = userCacheEvictor;
     }
 
     @RabbitListener(queues = "${rabbitmq.queue.user.follow.created}")
@@ -40,18 +46,15 @@ public class FollowRabbitMQListener extends AbstractRabbitMQListenerSupport {
             log.info("UserFollowed event: {} with correlationId: {} received from {}",
                     event.id(), event.correlationId(), rabbitMQProperties.getQueue().getUser().getFollow().getCreated());
 
-            var neo4jProcessed = isEventAlreadyProcessed(event.id(), event.correlationId(), TargetDatabase.NEO4J);
-            var postgresProcessed = isEventAlreadyProcessed(event.id(), event.correlationId(), TargetDatabase.POSTGRES);
-            if (neo4jProcessed && postgresProcessed) {
-                log.warn("Detected follow event {} with correlationId {} duplication for every target, discarding message...",
+            if (isEventAlreadyProcessed(event.id(), event.correlationId(), TargetDatabase.NEO4J)) {
+                log.warn("Detected follow event {} with correlationId {} duplication, discarding message...",
                         event.id(), event.correlationId());
                 return;
             }
 
-            var deferredFailure = syncFollowTargets(event, neo4jProcessed, postgresProcessed);
-            if (deferredFailure != null) {
-                throw deferredFailure;
-            }
+            followNodeService.createFollowRelationship(event.followerUserId(), event.followedUserId());
+            setEventAsProcessed(event.id(), event.correlationId(), event.getClass().getSimpleName(), TargetDatabase.NEO4J);
+            userCacheEvictor.evictRecommendations(event.followerUserId());
         } catch (IllegalArgumentException exception) {
             log.error("Invalid user followed event", exception);
             throw exception;
@@ -75,18 +78,15 @@ public class FollowRabbitMQListener extends AbstractRabbitMQListenerSupport {
             log.info("UserUnfollowed event: {} with correlationId: {} received from {}",
                     event.id(), event.correlationId(), rabbitMQProperties.getQueue().getUser().getFollow().getDeleted());
 
-            var neo4jProcessed = isEventAlreadyProcessed(event.id(), event.correlationId(), TargetDatabase.NEO4J);
-            var postgresProcessed = isEventAlreadyProcessed(event.id(), event.correlationId(), TargetDatabase.POSTGRES);
-            if (neo4jProcessed && postgresProcessed) {
-                log.warn("Detected unfollow event {} with correlationId {} duplication for every target, discarding message...",
+            if (isEventAlreadyProcessed(event.id(), event.correlationId(), TargetDatabase.NEO4J)) {
+                log.warn("Detected unfollow event {} with correlationId {} duplication, discarding message...",
                         event.id(), event.correlationId());
                 return;
             }
 
-            var deferredFailure = unsyncFollowTargets(event, neo4jProcessed, postgresProcessed);
-            if (deferredFailure != null) {
-                throw deferredFailure;
-            }
+            followNodeService.deleteFollowRelationship(event.followerUserId(), event.followedUserId());
+            setEventAsProcessed(event.id(), event.correlationId(), event.getClass().getSimpleName(), TargetDatabase.NEO4J);
+            userCacheEvictor.evictRecommendations(event.followerUserId());
         } catch (IllegalArgumentException exception) {
             log.error("Invalid user unfollowed event", exception);
             throw exception;
@@ -101,106 +101,5 @@ public class FollowRabbitMQListener extends AbstractRabbitMQListenerSupport {
                     event.id(), event.correlationId(), exception);
             throw exception;
         }
-    }
-
-    private RuntimeException syncFollowTargets(
-            UserFollowedEvent event,
-            boolean neo4jProcessed,
-            boolean postgresProcessed) {
-        RuntimeException deferredFailure = null;
-
-        if (!neo4jProcessed) {
-            deferredFailure = trySyncNeo4jFollow(event, deferredFailure);
-        }
-        if (!postgresProcessed) {
-            deferredFailure = trySyncPostgresFollow(event, deferredFailure);
-        }
-
-        return deferredFailure;
-    }
-
-    private RuntimeException unsyncFollowTargets(
-            UserUnfollowedEvent event,
-            boolean neo4jProcessed,
-            boolean postgresProcessed) {
-        RuntimeException deferredFailure = null;
-
-        if (!neo4jProcessed) {
-            deferredFailure = tryUnsyncNeo4jFollow(event, deferredFailure);
-        }
-        if (!postgresProcessed) {
-            deferredFailure = tryUnsyncPostgresFollow(event, deferredFailure);
-        }
-
-        return deferredFailure;
-    }
-
-    private RuntimeException trySyncNeo4jFollow(UserFollowedEvent event, RuntimeException deferredFailure) {
-        try {
-            followNodeService.createFollowRelationship(event.followerUserId(), event.followedUserId());
-            setEventAsProcessed(
-                    event.id(),
-                    event.correlationId(),
-                    event.getClass().getSimpleName(),
-                    TargetDatabase.NEO4J
-            );
-            return deferredFailure;
-        } catch (RuntimeException exception) {
-            return retainFirstFailure(deferredFailure, exception);
-        }
-    }
-
-    private RuntimeException trySyncPostgresFollow(UserFollowedEvent event, RuntimeException deferredFailure) {
-        try {
-            userStatsService.incrementFollowCounters(event.followerUserId(), event.followedUserId());
-            setEventAsProcessed(
-                    event.id(),
-                    event.correlationId(),
-                    event.getClass().getSimpleName(),
-                    TargetDatabase.POSTGRES
-            );
-            return deferredFailure;
-        } catch (RuntimeException exception) {
-            return retainFirstFailure(deferredFailure, exception);
-        }
-    }
-
-    private RuntimeException tryUnsyncNeo4jFollow(UserUnfollowedEvent event, RuntimeException deferredFailure) {
-        try {
-            followNodeService.deleteFollowRelationship(event.followerUserId(), event.followedUserId());
-            setEventAsProcessed(
-                    event.id(),
-                    event.correlationId(),
-                    event.getClass().getSimpleName(),
-                    TargetDatabase.NEO4J
-            );
-            return deferredFailure;
-        } catch (RuntimeException exception) {
-            return retainFirstFailure(deferredFailure, exception);
-        }
-    }
-
-    private RuntimeException tryUnsyncPostgresFollow(UserUnfollowedEvent event, RuntimeException deferredFailure) {
-        try {
-            userStatsService.decrementFollowCounters(event.followerUserId(), event.followedUserId());
-            setEventAsProcessed(
-                    event.id(),
-                    event.correlationId(),
-                    event.getClass().getSimpleName(),
-                    TargetDatabase.POSTGRES
-            );
-            return deferredFailure;
-        } catch (RuntimeException exception) {
-            return retainFirstFailure(deferredFailure, exception);
-        }
-    }
-
-    private RuntimeException retainFirstFailure(RuntimeException deferredFailure, RuntimeException exception) {
-        if (deferredFailure == null) {
-            return exception;
-        }
-
-        deferredFailure.addSuppressed(exception);
-        return deferredFailure;
     }
 }

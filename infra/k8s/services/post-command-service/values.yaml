@@ -24,7 +24,8 @@ resources:
 
 env:
   SPRING_APPLICATION_NAME: post-command-service
-  JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError"
+  # A native executable (see the Dockerfile): JAVA_TOOL_OPTIONS has no effect. Its
+  # heap is sized from the container's memory limit by itself.
 
 httpRoute:
   enabled: true

@@ -23,6 +23,7 @@ import com.azure.storage.blob.models.BlobStorageException;
 import org.mp4parser.IsoFile;
 import org.mp4parser.boxes.iso14496.part12.MovieBox;
 import org.mp4parser.boxes.iso14496.part12.MovieHeaderBox;
+import org.springframework.context.annotation.ImportRuntimeHints;
 import org.springframework.stereotype.Component;
 
 /**
@@ -44,6 +45,7 @@ import org.springframework.stereotype.Component;
  * transactional.</p>
  */
 @Component
+@ImportRuntimeHints(IsoParserRuntimeHints.class)
 public class AzureMediaVerifier implements MediaVerifier {
 
     /**

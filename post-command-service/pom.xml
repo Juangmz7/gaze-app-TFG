@@ -205,6 +205,21 @@
             <plugin>
                 <groupId>org.graalvm.buildtools</groupId>
                 <artifactId>native-maven-plugin</artifactId>
+                <configuration>
+                    <buildArgs>
+                        <!-- azure-core's native-image.properties initializes Logback, SLF4J
+                             and its environment configuration while the image is built: meant
+                             for apps of the SDK alone, it breaks Spring Boot's logging (SLF4J
+                             would keep the provider found at build time) and would bake the
+                             build machine's environment into the image. Only that file is
+                             excluded: azure-core's reflection, resource and proxy configs stay. -->
+                        <buildArg>--exclude-config</buildArg>
+                        <buildArg>.*/azure-core-[^/]*\.jar</buildArg>
+                        <buildArg>^/META-INF/native-image/com\.azure/azure-core/native-image\.properties$</buildArg>
+                        <!-- The one option of that file the SDK needs at run time -->
+                        <buildArg>-H:+AddAllCharsets</buildArg>
+                    </buildArgs>
+                </configuration>
             </plugin>
             <plugin>
                 <groupId>org.springframework.boot</groupId>

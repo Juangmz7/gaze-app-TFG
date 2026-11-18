@@ -14,7 +14,7 @@ import com.app.socialservice.user.infrastructure.entity.UserNode;
 import com.app.socialservice.user.infrastructure.repository.JpaUserRepository;
 import com.app.socialservice.user.infrastructure.repository.UserNodeRepository;
 import org.springframework.data.neo4j.core.Neo4jClient;
-import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 public final class SocialIntegrationSeeder {
 
@@ -74,41 +74,54 @@ public final class SocialIntegrationSeeder {
                 .run();
     }
 
+    /**
+     * Followers and following are counted from the active follows: this adds active follows
+     * from or to new users until the totals are the given ones, counting those the test
+     * already seeded. The post count is the user_stats row.
+     */
     public static void seedUserStats(
-            StringRedisTemplate stringRedisTemplate,
+            JdbcTemplate jdbcTemplate,
             UUID userId,
             long followersCount,
             long followingCount,
             long postCount
     ) {
-        Objects.requireNonNull(stringRedisTemplate, "stringRedisTemplate must not be null");
+        Objects.requireNonNull(jdbcTemplate, "jdbcTemplate must not be null");
         Objects.requireNonNull(userId, "userId must not be null");
 
-        stringRedisTemplate.opsForValue().set(buildCounterKey(userId, UserStatsTestConstants.FOLLOWERS_COUNTER),
-                String.valueOf(followersCount));
-        stringRedisTemplate.opsForValue().set(buildCounterKey(userId, UserStatsTestConstants.FOLLOWING_COUNTER),
-                String.valueOf(followingCount));
-        stringRedisTemplate.opsForValue().set(buildCounterKey(userId, UserStatsTestConstants.POST_COUNT_COUNTER),
-                String.valueOf(postCount));
-    }
-
-    public static long readCounter(StringRedisTemplate stringRedisTemplate, UUID userId, String counterName) {
-        Objects.requireNonNull(stringRedisTemplate, "stringRedisTemplate must not be null");
-        Objects.requireNonNull(userId, "userId must not be null");
-        Objects.requireNonNull(counterName, "counterName must not be null");
-
-        var rawValue = stringRedisTemplate.opsForValue().get(buildCounterKey(userId, counterName));
-        if (rawValue == null) {
-            return 0L;
+        for (long i = readCounter(jdbcTemplate, userId, UserStatsTestConstants.FOLLOWERS_COUNTER); i < followersCount; i++) {
+            insertActiveFollow(jdbcTemplate, UUID.randomUUID(), userId);
         }
-
-        return Long.parseLong(rawValue);
+        for (long i = readCounter(jdbcTemplate, userId, UserStatsTestConstants.FOLLOWING_COUNTER); i < followingCount; i++) {
+            insertActiveFollow(jdbcTemplate, userId, UUID.randomUUID());
+        }
+        jdbcTemplate.update("""
+                INSERT INTO user_stats (user_id, post_count) VALUES (?, ?)
+                ON CONFLICT (user_id) DO UPDATE SET post_count = EXCLUDED.post_count
+                """, userId, postCount);
     }
 
-    public static String buildCounterKey(UUID userId, String counterName) {
+    public static long readCounter(JdbcTemplate jdbcTemplate, UUID userId, String counterName) {
+        Objects.requireNonNull(jdbcTemplate, "jdbcTemplate must not be null");
         Objects.requireNonNull(userId, "userId must not be null");
         Objects.requireNonNull(counterName, "counterName must not be null");
 
-        return String.format(UserStatsTestConstants.USER_STATS_KEY_PATTERN, userId, counterName);
+        var sql = switch (counterName) {
+            case UserStatsTestConstants.FOLLOWERS_COUNTER ->
+                    "SELECT count(*) FROM follows WHERE followed_id = ? AND status = 'ACTIVE'";
+            case UserStatsTestConstants.FOLLOWING_COUNTER ->
+                    "SELECT count(*) FROM follows WHERE follower_id = ? AND status = 'ACTIVE'";
+            case UserStatsTestConstants.POST_COUNT_COUNTER ->
+                    "SELECT COALESCE((SELECT post_count FROM user_stats WHERE user_id = ?), 0)";
+            default -> throw new IllegalArgumentException("Unknown counter " + counterName);
+        };
+        var value = jdbcTemplate.queryForObject(sql, Long.class, userId);
+        return value == null ? 0L : value;
+    }
+
+    private static void insertActiveFollow(JdbcTemplate jdbcTemplate, UUID followerId, UUID followedId) {
+        jdbcTemplate.update(
+                "INSERT INTO follows (follower_id, followed_id, status, created_at) VALUES (?, ?, 'ACTIVE', ?)",
+                followerId, followedId, java.sql.Timestamp.from(Instant.now()));
     }
 }

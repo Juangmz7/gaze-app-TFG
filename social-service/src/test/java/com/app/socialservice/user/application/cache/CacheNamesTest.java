@@ -12,29 +12,22 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class CacheNamesTest {
 
     @Test
-    void shouldBuildExpectedCacheKeys() {
-        var requesterUserId = UUID.randomUUID();
-        var targetUserId = UUID.randomUUID();
-        var command = new UpdateOwnUserProfileCommand(targetUserId, "bio", null, Map.of());
+    void shouldKeyEveryCacheByTheUserIdAlone() {
+        var userId = UUID.randomUUID();
+        var command = new UpdateOwnUserProfileCommand(userId, "bio", null, Map.of());
 
-        assertThat(CacheNames.ownProfileKey(targetUserId)).isEqualTo(targetUserId.toString());
-        assertThat(CacheNames.ownProfileKey(command)).isEqualTo(targetUserId.toString());
-        assertThat(CacheNames.publicProfileKey(requesterUserId, targetUserId))
-                .isEqualTo(requesterUserId + ":" + targetUserId);
+        assertThat(CacheNames.userKey(userId)).isEqualTo(userId.toString());
+        assertThat(CacheNames.userKey(command)).isEqualTo(userId.toString());
     }
 
     @Test
     void shouldRejectNullArgumentsWhenBuildingCacheKeys() {
-        assertThatThrownBy(() -> CacheNames.ownProfileKey((UUID) null))
+        assertThatThrownBy(() -> CacheNames.userKey((UUID) null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("userId must not be null");
 
-        assertThatThrownBy(() -> CacheNames.ownProfileKey((UpdateOwnUserProfileCommand) null))
+        assertThatThrownBy(() -> CacheNames.userKey((UpdateOwnUserProfileCommand) null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("command must not be null");
-
-        assertThatThrownBy(() -> CacheNames.publicProfileKey(null, UUID.randomUUID()))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("requesterUserId must not be null");
     }
 }

@@ -60,6 +60,9 @@ class UserServiceTest {
     @Mock
     private JsonMapper jsonMapper;
 
+    @Mock
+    private UserCacheEvictor userCacheEvictor;
+
     @InjectMocks
     private UserService userService;
 

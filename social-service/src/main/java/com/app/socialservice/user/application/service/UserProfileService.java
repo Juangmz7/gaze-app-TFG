@@ -6,12 +6,12 @@ import java.util.UUID;
 
 import com.app.socialservice.user.application.cache.CacheNames;
 import com.app.socialservice.user.application.commands.UpdateOwnUserProfileCommand;
-import com.app.socialservice.user.application.dto.OwnUserProfileData;
 import com.app.socialservice.user.application.dto.OwnUserProfileResponse;
 import com.app.socialservice.user.application.dto.UserProfileResponse;
 import com.app.socialservice.user.application.repository.UserRepository;
 import com.app.socialservice.user.domain.exception.SelfProfileRequestNotAllowedException;
 import com.app.socialservice.user.domain.exception.UserBannedException;
+import com.app.socialservice.user.domain.enums.UserAccountStatus;
 import com.app.socialservice.user.domain.exception.UserProfileBlockedException;
 import com.app.socialservice.user.domain.exception.UserProfileNotFoundException;
 import com.app.socialservice.shared.domain.exception.UserNotFoundException;
@@ -20,9 +20,7 @@ import com.app.socialservice.user.domain.model.valueobj.ProfilePictureUrl;
 import com.app.socialservice.user.domain.model.valueobj.UserBio;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.CachePut;
-import org.springframework.cache.annotation.Caching;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,28 +30,29 @@ import org.springframework.transaction.annotation.Transactional;
 public class UserProfileService {
 
     private final UserRepository userRepository;
-    private final UserStatsService userStatsService;
+    private final PublicUserProfileReader publicUserProfileReader;
+    private final OwnUserProfileReader ownUserProfileReader;
+    private final UserCacheEvictor userCacheEvictor;
 
+    /**
+     * The account status is checked live on every request, so a ban applies at once; the
+     * profile itself comes from the cache (OwnUserProfileReader).
+     */
     @Transactional(readOnly = true)
     public OwnUserProfileResponse getOwnProfile(UUID userId) {
         log.info("Retrieving own profile for user {}", userId);
 
-        var ownProfile = userRepository.findOwnProfileById(userId)
+        var status = userRepository.findAccountStatus(userId)
+                .filter(accountStatus -> accountStatus != UserAccountStatus.DELETED)
                 .orElseThrow(() -> new UserNotFoundException(userId));
-        ensureUserIsNotBanned(userId, ownProfile.banned());
-        var response = toOwnProfileResponse(userId, ownProfile);
+        ensureUserIsNotBanned(userId, status == UserAccountStatus.BANNED);
+        var response = ownUserProfileReader.read(userId);
 
         log.info("Own profile retrieved for user {}", userId);
         return response;
     }
 
-    @Caching(
-            put = @CachePut(
-                    cacheNames = CacheNames.OWN_PROFILE,
-                    key = CacheNames.OWN_PROFILE_KEY_BY_COMMAND
-            ),
-            evict = @CacheEvict(cacheNames = CacheNames.PUBLIC_PROFILE, allEntries = true)
-    )
+    @CachePut(cacheNames = CacheNames.OWN_PROFILE, key = CacheNames.KEY_BY_COMMAND)
     @Transactional
     public OwnUserProfileResponse updateOwnUserProfile(UpdateOwnUserProfileCommand command) {
         validateUpdateOwnProfileCommand(command);
@@ -70,12 +69,18 @@ public class UserProfileService {
         user.updateProfile(requestedPictureUrl, requestedBio);
 
         userRepository.updateProfile(user);
+        // The own profile is replaced by @CachePut with the result
+        userCacheEvictor.evictPublicProfiles(command.userId());
 
         log.info("Updated profile for user {}", command.userId());
 
         return getOwnProfile(command.userId());
     }
 
+    /**
+     * The profile part is cached per user (PublicUserProfileReader); following, follows
+     * me and blocked depend on the requester and are read on every request.
+     */
     @Transactional(readOnly = true)
     public UserProfileResponse getUserProfile(UUID requesterUserId, UUID targetUserId) {
 
@@ -83,14 +88,14 @@ public class UserProfileService {
             throw new SelfProfileRequestNotAllowedException("A user cannot request their own public profile");
         }
 
-        var profileDetails = userRepository.findProfileDetails(requesterUserId, targetUserId)
-                .orElseThrow(() -> new UserProfileNotFoundException(targetUserId));
+        var profile = publicUserProfileReader.read(targetUserId);
+        var relationship = userRepository.findProfileRelationship(requesterUserId, targetUserId);
 
-        if (profileDetails.banned()) {
+        // Live, unlike the cached profile: deleted or banned since it was cached
+        if (!relationship.targetVisible()) {
             throw new UserProfileNotFoundException(targetUserId);
         }
-
-        if (profileDetails.blocked()) {
+        if (relationship.blocked()) {
             throw new UserProfileBlockedException(String.format(
                     "Profile access is blocked between %s and %s",
                     requesterUserId,
@@ -101,34 +106,21 @@ public class UserProfileService {
         log.info("Retrieving user {} profile requested from user {}", targetUserId, requesterUserId);
 
         return new UserProfileResponse(
-                profileDetails.userId(),
-                profileDetails.username(),
-                profileDetails.description(),
-                profileDetails.socialMedia(),
-                userStatsService.getFollowersCount(profileDetails.userId()),
-                userStatsService.getFollowingCount(profileDetails.userId()),
-                userStatsService.getPostCount(profileDetails.userId()),
-                profileDetails.profilePic(),
-                profileDetails.following(),
-                profileDetails.followsMe()
+                profile.userId(),
+                profile.username(),
+                profile.description(),
+                profile.socialMedia(),
+                profile.followersCount(),
+                profile.followingCount(),
+                profile.postCount(),
+                profile.profilePic(),
+                relationship.following(),
+                relationship.followsMe()
         );
-    }
-    
-    private Optional<User> getUserById(UUID id) {
-        return userRepository.findById(id);
     }
 
-    private OwnUserProfileResponse toOwnProfileResponse(UUID userId, OwnUserProfileData userProfile) {
-        return new OwnUserProfileResponse(
-                userId,
-                userProfile.username(),
-                userProfile.description(),
-                userProfile.socialMedia(),
-                userStatsService.getFollowersCount(userId),
-                userStatsService.getFollowingCount(userId),
-                userStatsService.getPostCount(userId),
-                userProfile.profilePic()
-        );
+    private Optional<User> getUserById(UUID id) {
+        return userRepository.findById(id);
     }
 
     private void ensureUserIsNotBanned(UUID userId, boolean banned) {

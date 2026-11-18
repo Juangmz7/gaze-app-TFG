@@ -25,6 +25,19 @@ CREATE TABLE IF NOT EXISTS follows (
     CONSTRAINT pk_follows PRIMARY KEY (followed_id, follower_id)
 );
 
+-- The primary key starts with followed_id, which counts followers; this counts following
+CREATE INDEX IF NOT EXISTS idx_follows_follower_id_status
+    ON follows (follower_id, status);
+
+-- Post count per user: the posts live in post-command-service, only their events arrive.
+-- Changed by atomic upserts in the transaction that records the event as processed.
+-- Followers and following are counted from follows.
+CREATE TABLE IF NOT EXISTS user_stats (
+    user_id UUID NOT NULL,
+    post_count BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT pk_user_stats PRIMARY KEY (user_id)
+);
+
 CREATE TABLE IF NOT EXISTS blocks (
     blocker_id UUID NOT NULL,
     blocked_id UUID NOT NULL,

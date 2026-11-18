@@ -6,6 +6,7 @@ import jakarta.persistence.EmbeddedId;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.Index;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
@@ -19,7 +20,8 @@ import java.time.Instant;
 @Getter
 @Setter
 @Entity
-@Table(name = "follows")
+// The primary key starts with followed_id, which counts followers; this counts following
+@Table(name = "follows", indexes = @Index(name = "idx_follows_follower_id_status", columnList = "follower_id, status"))
 @NoArgsConstructor
 @AllArgsConstructor
 public class FollowEntity {
