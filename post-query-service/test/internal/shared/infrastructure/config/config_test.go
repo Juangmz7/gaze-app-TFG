@@ -20,6 +20,7 @@ func TestLoad_ParsesValidEnvironmentVariablesIntoConfig(t *testing.T) {
 	unsetFeedEnv(t)
 	setEnv(t, "FEED_INSTANCE_ID", "post-query-service-7d9f")
 	setEnv(t, "RECOMMENDATION_GRPC_ADDR", "dns:///recommendation-service:50051")
+	setMediaEnv(t)
 
 	got, err := config.Load()
 	if err != nil {
@@ -73,6 +74,12 @@ func TestLoad_ParsesValidEnvironmentVariablesIntoConfig(t *testing.T) {
 			BackoffMax:           time.Second,
 			BackoffJitterPercent: 20,
 		},
+		Media: config.MediaStorageConfig{
+			AccountURL:    azuriteAccountURL,
+			Container:     "post-media-dev",
+			AccountKey:    azuriteAccountKey,
+			ReadSASWindow: 24 * time.Hour,
+		},
 	}
 
 	if got != want {
@@ -90,6 +97,7 @@ func TestLoad_AppliesDefaultsWhenOptionalVariablesAreMissing(t *testing.T) {
 	setAuthEnv(t)
 	unsetFeedEnv(t)
 	setEnv(t, "RECOMMENDATION_GRPC_ADDR", "dns:///recommendation-service:50051")
+	setMediaEnv(t)
 
 	got, err := config.Load()
 	if err != nil {
@@ -295,6 +303,22 @@ func setRequiredEnv(t *testing.T) {
 	setAuthEnv(t)
 	setEnv(t, "RECOMMENDATION_GRPC_ADDR", "dns:///recommendation-service:50051")
 	unsetFeedEnv(t)
+	setMediaEnv(t)
+}
+
+// Azurite's well-known development account, which is public and no secret.
+const (
+	azuriteAccountURL = "http://azurite:10000/devstoreaccount1"
+	azuriteAccountKey = "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw=="
+)
+
+// setMediaEnv points the media settings at Azurite, with the default window.
+func setMediaEnv(t *testing.T) {
+	t.Helper()
+	setEnv(t, "AZURE_STORAGE_ACCOUNT_URL", azuriteAccountURL)
+	setEnv(t, "AZURE_STORAGE_CONTAINER", "post-media-dev")
+	setEnv(t, "AZURE_STORAGE_ACCOUNT_KEY", azuriteAccountKey)
+	unsetEnv(t, "MEDIA_READ_SAS_WINDOW")
 }
 
 func setAuthEnv(t *testing.T) {
@@ -442,5 +466,56 @@ func TestLoad_DefaultsToFourAttemptsWithABackoffCappedAtOneSecond(t *testing.T) 
 	}
 	if got.Recommendation.OverallTimeout <= got.Recommendation.PerRetryTimeout || got.Feed.RefillLeaseTTL <= got.Recommendation.OverallTimeout || got.Feed.RefillLeaseTTL > got.Feed.LeaseTTL {
 		t.Fatalf("Recommendation = %+v, RefillLeaseTTL = %s, LeaseTTL = %s, want consistent defaults", got.Recommendation, got.Feed.RefillLeaseTTL, got.Feed.LeaseTTL)
+	}
+}
+
+func TestLoad_ReadsTheMediaSettings(t *testing.T) {
+	setRequiredEnv(t)
+	setEnv(t, "AZURE_STORAGE_ACCOUNT_URL", "https://gazemedia.blob.core.windows.net/")
+	setEnv(t, "AZURE_STORAGE_CONTAINER", "post-media")
+	unsetEnv(t, "AZURE_STORAGE_ACCOUNT_KEY")
+	setEnv(t, "MEDIA_READ_SAS_WINDOW", "12h")
+
+	got, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+
+	want := config.MediaStorageConfig{
+		AccountURL:    "https://gazemedia.blob.core.windows.net",
+		Container:     "post-media",
+		ReadSASWindow: 12 * time.Hour,
+	}
+	if got.Media != want {
+		t.Fatalf("Load() Media = %+v, want %+v", got.Media, want)
+	}
+}
+
+func TestLoad_RejectsMediaSettingsThatMakeNoSense(t *testing.T) {
+	tests := []struct {
+		name string
+		env  map[string]string
+	}{
+		{"account url is missing", map[string]string{"AZURE_STORAGE_ACCOUNT_URL": ""}},
+		{"container is missing", map[string]string{"AZURE_STORAGE_CONTAINER": " "}},
+		{"account url is not http or https", map[string]string{"AZURE_STORAGE_ACCOUNT_URL": "ftp://azurite:10000/devstoreaccount1"}},
+		{"account url holds a container", map[string]string{"AZURE_STORAGE_ACCOUNT_URL": "http://azurite:10000/devstoreaccount1/post-media-dev"}},
+		{"account key with an https account", map[string]string{"AZURE_STORAGE_ACCOUNT_URL": "https://gazemedia.blob.core.windows.net"}},
+		{"window is not a duration", map[string]string{"MEDIA_READ_SAS_WINDOW": "24"}},
+		{"window is below a minute", map[string]string{"MEDIA_READ_SAS_WINDOW": "30s"}},
+		{"window outlives a user delegation key", map[string]string{"MEDIA_READ_SAS_WINDOW": "96h"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setRequiredEnv(t)
+			for name, value := range tt.env {
+				setEnv(t, name, value)
+			}
+
+			if _, err := config.Load(); err == nil {
+				t.Fatalf("Load() error = nil, want an error when the %s", tt.name)
+			}
+		})
 	}
 }

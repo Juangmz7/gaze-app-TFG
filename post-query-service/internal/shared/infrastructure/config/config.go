@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/Juangmz7/TFG/common-packages/go-utils/auth"
+	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/mediasas"
 )
 
 // defaultMongoDatabase is used when POST_QUERY_MONGO_DATABASE is not set.
@@ -75,6 +76,10 @@ const (
 	defaultRecommendationBackoffJitter = 20
 	maxPercent                         = 100
 )
+
+// defaultMediaReadSASWindow is used when MEDIA_READ_SAS_WINDOW is not set: a SAS is
+// shared by every URL signed in one day and lasts two (see mediasas).
+const defaultMediaReadSASWindow = 24 * time.Hour
 
 // MongoConfig holds the settings required to connect to MongoDB.
 type MongoConfig struct {
@@ -187,6 +192,23 @@ type RecommendationConfig struct {
 	BackoffJitterPercent int
 }
 
+// MediaStorageConfig holds the settings of the read SAS signed on every blob URL the
+// service returns. The names match post-command-service, which writes those URLs.
+type MediaStorageConfig struct {
+	// AccountURL is the storage account's blob endpoint (AZURE_STORAGE_ACCOUNT_URL), the
+	// same value post-command-service builds the blob URLs from.
+	AccountURL string
+	// Container is the media container (AZURE_STORAGE_CONTAINER). Only its blobs are
+	// signed.
+	Container string
+	// AccountKey (AZURE_STORAGE_ACCOUNT_KEY) signs with the account key, which only
+	// Azurite uses: it is refused unless AccountURL is plain HTTP. Empty means a user
+	// delegation key obtained through Workload Identity.
+	AccountKey string
+	// ReadSASWindow is the length of a signing window (MEDIA_READ_SAS_WINDOW).
+	ReadSASWindow time.Duration
+}
+
 // AppConfig holds the post-query-service-specific configuration. The HTTP
 // port is intentionally not duplicated here: it is already loaded by
 // common-packages/go-utils/server.LoadServer, which callers should use
@@ -209,14 +231,18 @@ type AppConfig struct {
 	Feed FeedConfig
 	// Recommendation holds the settings of the gRPC client of recommendation-service.
 	Recommendation RecommendationConfig
+	// Media holds the settings of the media read SAS.
+	Media MediaStorageConfig
 }
 
 // Load reads AppConfig from environment variables. It returns an error when
 // a required variable is missing or blank; POST_QUERY_MONGO_URI, RABBITMQ_USER,
-// RABBITMQ_PASSWORD, JWKS_URL, JWT_ISSUER, JWT_AUDIENCE and RECOMMENDATION_GRPC_ADDR are
-// required. POST_QUERY_MONGO_DATABASE, RABBITMQ_HOST, RABBITMQ_PORT, the FEED_* variables
-// and the other RECOMMENDATION_GRPC_* variables fall back to sensible defaults; a value
-// among them that makes no sense is an error.
+// RABBITMQ_PASSWORD, JWKS_URL, JWT_ISSUER, JWT_AUDIENCE, RECOMMENDATION_GRPC_ADDR,
+// AZURE_STORAGE_ACCOUNT_URL and AZURE_STORAGE_CONTAINER are required.
+// POST_QUERY_MONGO_DATABASE, RABBITMQ_HOST, RABBITMQ_PORT, the FEED_* variables, the other
+// RECOMMENDATION_GRPC_* variables and MEDIA_READ_SAS_WINDOW fall back to sensible
+// defaults; a value among them that makes no sense is an error. AZURE_STORAGE_ACCOUNT_KEY
+// is optional.
 func Load() (AppConfig, error) {
 	uri := strings.TrimSpace(os.Getenv("POST_QUERY_MONGO_URI"))
 	if uri == "" {
@@ -248,6 +274,11 @@ func Load() (AppConfig, error) {
 		return AppConfig{}, err
 	}
 
+	media, err := loadMediaStorageConfig()
+	if err != nil {
+		return AppConfig{}, err
+	}
+
 	return AppConfig{
 		Mongo: MongoConfig{
 			URI:      uri,
@@ -257,7 +288,46 @@ func Load() (AppConfig, error) {
 		Auth:           authConfig,
 		Feed:           feed,
 		Recommendation: recommendation,
+		Media:          media,
 	}, nil
+}
+
+// loadMediaStorageConfig reads MediaStorageConfig from environment variables.
+func loadMediaStorageConfig() (MediaStorageConfig, error) {
+	media := MediaStorageConfig{
+		AccountURL:    strings.TrimRight(strings.TrimSpace(os.Getenv("AZURE_STORAGE_ACCOUNT_URL")), "/"),
+		Container:     strings.TrimSpace(os.Getenv("AZURE_STORAGE_CONTAINER")),
+		AccountKey:    strings.TrimSpace(os.Getenv("AZURE_STORAGE_ACCOUNT_KEY")),
+		ReadSASWindow: defaultMediaReadSASWindow,
+	}
+	for name, value := range map[string]string{
+		"AZURE_STORAGE_ACCOUNT_URL": media.AccountURL,
+		"AZURE_STORAGE_CONTAINER":   media.Container,
+	} {
+		if value == "" {
+			return MediaStorageConfig{}, fmt.Errorf("load config: required environment variable %s is missing", name)
+		}
+	}
+
+	account, err := mediasas.ParseAccountURL(media.AccountURL)
+	if err != nil {
+		return MediaStorageConfig{}, fmt.Errorf("load config: AZURE_STORAGE_ACCOUNT_URL: %w", err)
+	}
+	// An account key only ever signs for Azurite: production signs with a user
+	// delegation key and must hold no account key.
+	if media.AccountKey != "" && account.Scheme != "http" {
+		return MediaStorageConfig{}, fmt.Errorf("load config: AZURE_STORAGE_ACCOUNT_KEY is only accepted with a plain HTTP AZURE_STORAGE_ACCOUNT_URL (Azurite); an HTTPS account signs with a user delegation key")
+	}
+
+	if raw := strings.TrimSpace(os.Getenv("MEDIA_READ_SAS_WINDOW")); raw != "" {
+		window, err := time.ParseDuration(raw)
+		if err != nil || window < mediasas.MinWindow || window > mediasas.MaxWindow {
+			return MediaStorageConfig{}, fmt.Errorf("load config: MEDIA_READ_SAS_WINDOW must be a duration between %s and %s, got %q", mediasas.MinWindow, mediasas.MaxWindow, raw)
+		}
+		media.ReadSASWindow = window
+	}
+
+	return media, nil
 }
 
 // loadAuthConfig reads the JWT settings. All three are required: without them the
