@@ -7,12 +7,24 @@
 # on every WSL restart: run this again after `wsl --shutdown` or a reboot.
 #
 # Run from an elevated PowerShell:  .\infra\k8s\bootstrap\windows-portproxy.ps1
+# After teardown.sh, remove the rules with:  ...\windows-portproxy.ps1 -Remove
 #Requires -RunAsAdministrator
 param(
-    [string]$Distro = "Ubuntu"
+    [string]$Distro = "Ubuntu",
+    [switch]$Remove
 )
 
 $ErrorActionPreference = "Stop"
+
+if ($Remove) {
+    foreach ($port in 80, 443) {
+        # Fails harmlessly when the rule does not exist.
+        netsh interface portproxy delete v4tov4 listenaddress=127.0.0.1 listenport=$port | Out-Null
+    }
+    Write-Host "Port proxy 127.0.0.1:80/443 removed"
+    netsh interface portproxy show v4tov4
+    exit 0
+}
 
 $wslIp = ((wsl.exe -d $Distro -- hostname -I) -split '\s+' | Where-Object { $_ })[0]
 if (-not $wslIp) {

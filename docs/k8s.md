@@ -5,7 +5,7 @@
 
 ```
 infra/k8s/
-├── bootstrap/            # one-off: k3s install + config, Argo CD install, root app, Windows port proxy
+├── bootstrap/            # one-off: k3s install + config, Argo CD install, root app, Windows port proxy, teardown
 ├── argocd/               # everything Argo CD manages (app of apps)
 │   ├── projects.yaml     #   AppProjects: platform / env-infra / apps
 │   ├── platform/         #   Applications for cluster-wide controllers + config
@@ -103,6 +103,8 @@ The compose stack runs with Docker Engine on the same WSL2 Ubuntu as k3s. Pods c
 3. The dev database passwords in the values files must stay equal to `infra/local/.env`: the `SPRING_DATASOURCE_PASSWORD` / Neo4j values of each service, the password in `DATABASE_URL` of `services/recommendation-service/values-dev.yaml` (= `RECOMMENDATION_POSTGRES_PASSWORD`) and `database.password` in `environments/dev/keycloak.yaml` (= `POSTGRES_PASSWORD`).
 4. `./infra/k8s/bootstrap/bootstrap.sh`: installs k3s `v1.35.2+k3s1` with `bootstrap/k3s-config.yaml` (Traefik off, fixed CIDRs, Secrets encrypted at rest), checks the pod CIDR, installs Argo CD and applies the root app. Argo CD then syncs from `main`.
 5. From Windows, an elevated PowerShell: `infra/k8s/bootstrap/windows-portproxy.ps1` (again after each WSL restart). It forwards `127.0.0.1:80/443` to the WSL IP, because k3s exposes the Gateway through iptables, which WSL's localhost forwarding doesn't see. `kubectl` from Windows works with the kubeconfig at `~/.kube/config` in Ubuntu (API on `127.0.0.1:6443`).
+
+To remove the cluster so it stops using resources and doesn't start again on reboot: `./infra/k8s/bootstrap/teardown.sh`. It runs k3s' `k3s-uninstall.sh`, which stops and disables the systemd unit and deletes every workload, PersistentVolume, image and the cluster state, then removes `~/.kube/config` if it is still the copy `bootstrap.sh` made. Afterwards, from an elevated PowerShell, `infra/k8s/bootstrap/windows-portproxy.ps1 -Remove` deletes the port proxy. `bootstrap.sh` recreates everything from scratch.
 
 ## Pending (TODO markers in the files)
 - Prod: enable it in both ApplicationSets (`enabled: "true"`), real domain, managed DB hosts, Vault/External Secrets, Workload Identity client id, narrower egress CIDRs (`TODO(aks)`, `TODO(vault)`).
