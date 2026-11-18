@@ -9,6 +9,7 @@ Read side of the platform, written in Go. It consumes the events of `post-comman
 - **`ThreeDotsLabs/watermill` and `watermill-amqp`:** RabbitMQ consumers, with a dead-letter queue per queue.
 - **`common-packages/go-utils`:** JWT validation (`auth`), error bodies (`common`), HTTP lifecycle (`server`). Resolved through `go.work`.
 - **`google.golang.org/grpc` and `grpc-ecosystem/go-grpc-middleware/v2`:** the client of recommendation-service, with its retry interceptor.
+- **`Azure/azure-sdk-for-go/sdk/storage/azblob` (`sas`, `service`) and `azidentity`:** the read SAS on media URLs, and the user delegation key in production. azblob is pinned at v1.8.0: v1.8.2 and later pull a newer gRPC than the workspace uses.
 
 ## Feed API
 Every endpoint needs a valid `Authorization: Bearer` token. The user always comes from the token's subject, which must be a UUID; otherwise the answer is 401. The `X-Correlation-Id` request header is used when present, generated otherwise, and returned in the response.
@@ -52,6 +53,15 @@ Each item has:
 | `durationMs` | Sum of the `VIDEO` durations. Null when there is no video. |
 | `stats.likeCount`, `stats.commentCount`, `stats.shareCount` | Current values. |
 | `viewer.liked`, `viewer.shared`, `viewer.followingCreator` | The caller's state. |
+
+### Media URLs
+The media container is private, so every blob URL in a response carries a read-only SAS: `media[].url`, `media[].thumbnailUrl`, `coverThumbnailUrl` and `creator.pictureUrl`. Download them as they are, with no header. The shape does not change (`string | null`, null stays null).
+
+- **Only the configured container is signed.** A URL of another host, account or container, or one that already has a query string, is returned unchanged.
+- **Read only:** `sp=r`, `sr=b` (one blob), HTTPS only (`spr=https`), except against Azurite over plain HTTP (`spr=https,http`).
+- **Stable within a day.** Time is cut into fixed windows of `MEDIA_READ_SAS_WINDOW` (24 h), counted from the Unix epoch, so UTC days by default. Every URL signed in one window is byte-identical for the same blob, so an image cache keyed on the URL keeps working, and it stays valid until the end of the next window: `st` = window start minus 5 minutes, `se` = window start plus two windows (48 h). A URL is valid between 24 h and 48 h after it was received.
+- **Stored bare.** MongoDB only ever holds the bare URL; a URL is signed when the response is built, by the response mapper (`feedmapper.go`) through the shared signer in `internal/shared/infrastructure/mediasas`.
+- **Keys.** Signing is a local HMAC, with no call per URL or per request. Azurite (dev, compose) signs with its well-known account key. Production holds no account key: it fetches a user delegation key through AKS Workload Identity once per window, valid exactly as long as that window's SAS, and keeps the previous one, which it signs with (still valid for the whole current window) if a fetch fails. A failed fetch is retried at most every 30 s. With neither key, the claim answers 500.
 
 ## How the feed gets filled
 The feed is prepared ahead of time over RabbitMQ, through the transactional outbox:
@@ -122,6 +132,10 @@ A retry on a timeout runs the pipeline again, so the limit per attempt (10 s) is
 | `RECOMMENDATION_GRPC_BACKOFF_BASE_MS` | `250` | Wait before the first retry; it doubles each time. Not above the cap. |
 | `RECOMMENDATION_GRPC_BACKOFF_MAX_MS` | `1000` | Longest wait between attempts. |
 | `RECOMMENDATION_GRPC_BACKOFF_JITTER_PERCENT` | `20` | How much each wait varies, up or down. |
+| `AZURE_STORAGE_ACCOUNT_URL` | required | Blob endpoint of the media account, the same value post-command-service builds the blob URLs from: `https://<account>.blob.core.windows.net`, or `http://<host>:10000/devstoreaccount1` for Azurite. |
+| `AZURE_STORAGE_CONTAINER` | required | Media container (`post-media-dev` locally, `post-media` in prod). Only its blobs are signed. |
+| `AZURE_STORAGE_ACCOUNT_KEY` | none | Account key, for Azurite only: refused unless the account URL is plain HTTP. Without it the service signs with a user delegation key, through Workload Identity (`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_FEDERATED_TOKEN_FILE`, injected by the webhook). The identity needs Storage Blob Delegator on the account and Storage Blob Data Reader on the container. |
+| `MEDIA_READ_SAS_WINDOW` | `24h` | Length of a signing window, a Go duration from `1m` to `72h`. A SAS lasts two windows. |
 
 ## Tests
-`./test.sh` from `post-query-service/`. It needs Docker: integration tests use Testcontainers for MongoDB and RabbitMQ. The gRPC tests run a real server on localhost.
+`./test.sh` from `post-query-service/`. It needs Docker: integration tests use Testcontainers for MongoDB, RabbitMQ and Azurite (`mcr.microsoft.com/azure-storage/azurite:3.35.0`, where `GET /api/feed` is checked to return media URLs that download). The gRPC tests run a real server on localhost.
