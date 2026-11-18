@@ -106,8 +106,8 @@ func newFeedApp(t *testing.T, ctx context.Context) *feedApp {
 	return newFeedAppSigning(t, ctx, unsignedURLs{})
 }
 
-// newFeedAppSigning is newFeedApp with the media signer the claim handler hands to the
-// response mapper.
+// newFeedAppSigning is newFeedApp with the media signer the claim and post handlers hand
+// to the response mapper.
 func newFeedAppSigning(t *testing.T, ctx context.Context, signer usecase.MediaURLSigner) *feedApp {
 	t.Helper()
 
@@ -141,6 +141,7 @@ func newFeedAppSigning(t *testing.T, ctx context.Context, signer usecase.MediaUR
 		Heartbeat:  presentation.NewHeartbeatHandler(usecase.NewRegisterHeartbeat(sessions, logger), logger),
 		Disconnect: presentation.NewDisconnectHandler(usecase.NewRegisterUserDisconnected(sessions, noPrefetch{}, 5*time.Second, logger), logger),
 		ClaimFeed:  presentation.NewClaimFeedHandler(usecase.NewClaimFeed(units, hydration, config, logger), signer, logger),
+		GetPost:    presentation.NewGetPostHandler(usecase.NewGetPost(hydration, logger), signer, logger),
 	})
 
 	return &feedApp{
