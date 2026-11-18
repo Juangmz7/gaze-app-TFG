@@ -77,8 +77,11 @@ env:
 
 httpRoute:
   enabled: true
+  # /api/content: every read that is not the feed (GET /api/content/posts/{postId}, ...),
+  # same JWT validation as the feed.
   pathPrefixes:
     - /api/feed
+    - /api/content
 
 autoscaling:
   enabled: true
