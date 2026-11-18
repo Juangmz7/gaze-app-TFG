@@ -190,6 +190,12 @@ services:
       RECOMMENDATION_GRPC_BACKOFF_BASE_MS: ${RECOMMENDATION_GRPC_BACKOFF_BASE_MS:-250}
       RECOMMENDATION_GRPC_BACKOFF_MAX_MS: ${RECOMMENDATION_GRPC_BACKOFF_MAX_MS:-1000}
       RECOMMENDATION_GRPC_BACKOFF_JITTER_PERCENT: ${RECOMMENDATION_GRPC_BACKOFF_JITTER_PERCENT:-20}
+      # Media read SAS: the same Azurite account and container as post-command-service
+      # (application-dev.yaml), signed with Azurite's well-known devstoreaccount1 key.
+      AZURE_STORAGE_ACCOUNT_URL: http://azurite:10000/devstoreaccount1
+      AZURE_STORAGE_CONTAINER: post-media-dev
+      AZURE_STORAGE_ACCOUNT_KEY: Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==
+      MEDIA_READ_SAS_WINDOW: ${MEDIA_READ_SAS_WINDOW:-24h}
     ports:
       - "127.0.0.1:${POST_QUERY_SERVICE_PORT:-8083}:8080"
     networks:

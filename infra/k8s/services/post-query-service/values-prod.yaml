@@ -16,12 +16,25 @@ env:
   OTEL_TRACES_SAMPLER_ARG: "0.1"
   # Headless Service: one address per pod, balanced per call with round_robin.
   RECOMMENDATION_GRPC_ADDR: dns:///recommendation-service.recommendation-service-prod.svc.cluster.local:50051
+  # Same account and container as post-command-service. No account key: media read SAS
+  # are signed with a user delegation key fetched through Workload Identity (below), once
+  # per MEDIA_READ_SAS_WINDOW. The identity needs Storage Blob Delegator on the account
+  # and Storage Blob Data Reader on the container.
+  AZURE_STORAGE_ACCOUNT_URL: https://CHANGE_ME.blob.core.windows.net
+  AZURE_STORAGE_CONTAINER: post-media
 
 # Created by External Secrets from Vault. Required keys:
 #   POST_QUERY_MONGO_URI (mongodb+srv://user:pass@CHANGE_ME/post_query?...),
 #   RABBITMQ_USER, RABBITMQ_PASSWORD,
 #   RABBITMQ_AMQP_URI (amqp://user:pass@rabbitmq.rabbitmq-prod.svc.cluster.local:5672/, for KEDA)
 existingSecret: post-query-service
+
+# azidentity WorkloadIdentityCredential through AKS Workload Identity (no storage keys).
+serviceAccount:
+  annotations:
+    azure.workload.identity/client-id: CHANGE_ME
+podLabels:
+  azure.workload.identity/use: "true"
 
 resources:
   requests:
@@ -68,3 +81,9 @@ networkPolicy:
     - name: mongodb
       cidr: 10.0.0.0/8
       ports: [27017]
+    # Azure Blob Storage + Entra ID token endpoint (public, HTTPS only): the user
+    # delegation key for media read SAS.
+    - name: azure (blob, entra id)
+      cidr: 0.0.0.0/0
+      except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16]
+      ports: [443]
