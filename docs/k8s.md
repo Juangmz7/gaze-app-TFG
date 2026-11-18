@@ -5,7 +5,7 @@
 
 ```
 infra/k8s/
-├── bootstrap/            # one-off: k3s install + config, Argo CD install, root app, Windows port proxy, teardown
+├── bootstrap/            # one-off: k3s install + config, Argo CD install, root app, Windows port proxy, stop / start, teardown
 ├── argocd/               # everything Argo CD manages (app of apps)
 │   ├── projects.yaml     #   AppProjects: platform / env-infra / apps
 │   ├── platform/         #   Applications for cluster-wide controllers + config
@@ -103,6 +103,8 @@ The compose stack runs with Docker Engine on the same WSL2 Ubuntu as k3s. Pods c
 3. The dev database passwords in the values files must stay equal to `infra/local/.env`: the `SPRING_DATASOURCE_PASSWORD` / Neo4j values of each service, the password in `DATABASE_URL` of `services/recommendation-service/values-dev.yaml` (= `RECOMMENDATION_POSTGRES_PASSWORD`) and `database.password` in `environments/dev/keycloak.yaml` (= `POSTGRES_PASSWORD`).
 4. `./infra/k8s/bootstrap/bootstrap.sh`: installs k3s `v1.35.2+k3s1` with `bootstrap/k3s-config.yaml` (Traefik off, fixed CIDRs, Secrets encrypted at rest), checks the pod CIDR, installs Argo CD and applies the root app. Argo CD then syncs from `main`.
 5. From Windows, an elevated PowerShell: `infra/k8s/bootstrap/windows-portproxy.ps1 -Lan` (again after each WSL restart; see [Access from the LAN](#access-from-the-lan)). It forwards Windows' ports 80/443 to the WSL IP, because k3s exposes the Gateway through iptables, which WSL's localhost forwarding doesn't see. `kubectl` from Windows works with the kubeconfig at `~/.kube/config` in Ubuntu (API on `127.0.0.1:6443`).
+
+To stop the cluster **without deleting it**: `./infra/k8s/bootstrap/stop.sh`. It stops the k3s unit and runs k3s' `k3s-killall.sh` (every pod stops; the cluster state, PersistentVolumes, images and `gaze-local-ca` stay, so devices keep trusting the CA). `--no-autostart` also disables the unit so k3s doesn't come back with the next WSL start, and `--with-dbs` also stops the compose databases. `wsl --shutdown` stops the cluster too without losing anything, but k3s starts again with WSL unless its unit is disabled. `./infra/k8s/bootstrap/start.sh` brings it back: it starts the compose databases, enables and starts k3s (`--no-autostart` starts it without enabling it) and waits for the node; the pods come back on their own. After a WSL restart, run `windows-portproxy.ps1 -Lan` again.
 
 To remove the cluster so it stops using resources and doesn't start again on reboot: `./infra/k8s/bootstrap/teardown.sh`. It runs k3s' `k3s-uninstall.sh`, which stops and disables the systemd unit and deletes every workload, PersistentVolume, image and the cluster state, then removes `~/.kube/config` if it is still the copy `bootstrap.sh` made. Afterwards, from an elevated PowerShell, `infra/k8s/bootstrap/windows-portproxy.ps1 -Remove` deletes the port proxy. `bootstrap.sh` recreates everything from scratch.
 
