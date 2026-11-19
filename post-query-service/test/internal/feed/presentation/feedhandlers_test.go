@@ -32,12 +32,15 @@ type fakeUsecases struct {
 	replyList   []usecase.ListRepliesInput
 	postGrids   []usecase.UserGridInput
 	repostGrids []usecase.UserGridInput
+	likedLists  []usecase.OwnListInput
+	historyList []usecase.OwnListInput
 	gotCtx      context.Context
 	err         error
 	output      usecase.ClaimFeedOutput
 	post        usecase.FeedCard
 	comments    usecase.CommentPage
 	grid        usecase.GridPage
+	ownPage     usecase.TimedGridPage
 }
 
 type fakeHeartbeat struct{ *fakeUsecases }
@@ -104,6 +107,22 @@ func (f fakeListUserReposts) Execute(ctx context.Context, input usecase.UserGrid
 	return f.grid, f.err
 }
 
+type fakeListMyLiked struct{ *fakeUsecases }
+
+func (f fakeListMyLiked) Execute(ctx context.Context, input usecase.OwnListInput) (usecase.TimedGridPage, error) {
+	f.likedLists = append(f.likedLists, input)
+	f.gotCtx = ctx
+	return f.ownPage, f.err
+}
+
+type fakeListMyHistory struct{ *fakeUsecases }
+
+func (f fakeListMyHistory) Execute(ctx context.Context, input usecase.OwnListInput) (usecase.TimedGridPage, error) {
+	f.historyList = append(f.historyList, input)
+	f.gotCtx = ctx
+	return f.ownPage, f.err
+}
+
 func newMux(authenticate func(http.Handler) http.Handler) (*http.ServeMux, *fakeUsecases) {
 	usecases := &fakeUsecases{}
 	mux := http.NewServeMux()
@@ -117,6 +136,8 @@ func newMux(authenticate func(http.Handler) http.Handler) (*http.ServeMux, *fake
 		ListReplies:     presentation.NewListRepliesHandler(fakeListReplies{usecases}, unsignedURLs{}, discardLogger()),
 		ListUserPosts:   presentation.NewListUserPostsHandler(fakeListUserPosts{usecases}, unsignedURLs{}, discardLogger()),
 		ListUserReposts: presentation.NewListUserRepostsHandler(fakeListUserReposts{usecases}, unsignedURLs{}, discardLogger()),
+		ListMyLiked:     presentation.NewListMyLikedHandler(fakeListMyLiked{usecases}, unsignedURLs{}, discardLogger()),
+		ListMyHistory:   presentation.NewListMyHistoryHandler(fakeListMyHistory{usecases}, unsignedURLs{}, discardLogger()),
 	})
 	return mux, usecases
 }
@@ -134,6 +155,8 @@ var feedEndpoints = []struct {
 	{http.MethodGet, "/api/content/posts/" + uuid.NewString() + "/comments/" + uuid.NewString() + "/replies", http.StatusOK},
 	{http.MethodGet, "/api/content/users/" + uuid.NewString() + "/posts", http.StatusOK},
 	{http.MethodGet, "/api/content/users/" + uuid.NewString() + "/reposts", http.StatusOK},
+	{http.MethodGet, "/api/content/me/liked", http.StatusOK},
+	{http.MethodGet, "/api/content/me/history", http.StatusOK},
 }
 
 func TestFeedEndpoints_RespondWithTheirStatusForAValidToken(t *testing.T) {
@@ -168,6 +191,9 @@ func TestFeedEndpoints_RespondWithTheirStatusForAValidToken(t *testing.T) {
 	}
 	if len(usecases.postGrids) != 1 || usecases.postGrids[0].UserID != userID || len(usecases.repostGrids) != 1 || usecases.repostGrids[0].UserID != userID {
 		t.Fatalf("post grids = %+v, repost grids = %+v", usecases.postGrids, usecases.repostGrids)
+	}
+	if len(usecases.likedLists) != 1 || usecases.likedLists[0].UserID != userID || len(usecases.historyList) != 1 || usecases.historyList[0].UserID != userID {
+		t.Fatalf("liked lists = %+v, history lists = %+v", usecases.likedLists, usecases.historyList)
 	}
 }
 
@@ -209,7 +235,7 @@ func TestFeedEndpoints_ReturnUnauthorizedWithoutAValidToken(t *testing.T) {
 		}
 	}
 
-	if len(usecases.heartbeats)+len(usecases.disconnects)+len(usecases.claims)+len(usecases.postReads)+len(usecases.commentList)+len(usecases.replyList)+len(usecases.postGrids)+len(usecases.repostGrids) != 0 {
+	if len(usecases.heartbeats)+len(usecases.disconnects)+len(usecases.claims)+len(usecases.postReads)+len(usecases.commentList)+len(usecases.replyList)+len(usecases.postGrids)+len(usecases.repostGrids)+len(usecases.likedLists)+len(usecases.historyList) != 0 {
 		t.Fatal("a usecase ran without a valid token")
 	}
 }
@@ -232,7 +258,8 @@ func TestFeedEndpoints_IgnoreAUserIDSuppliedInTheRequest(t *testing.T) {
 	}
 
 	if usecases.heartbeats[0].UserID != userID || usecases.disconnects[0].UserID != userID || usecases.claims[0].UserID != userID || usecases.postReads[0].UserID != userID ||
-		usecases.commentList[0].UserID != userID || usecases.replyList[0].UserID != userID || usecases.postGrids[0].UserID != userID || usecases.repostGrids[0].UserID != userID {
+		usecases.commentList[0].UserID != userID || usecases.replyList[0].UserID != userID || usecases.postGrids[0].UserID != userID || usecases.repostGrids[0].UserID != userID ||
+		usecases.likedLists[0].UserID != userID || usecases.historyList[0].UserID != userID {
 		t.Fatalf("usecases ran for another user: %+v %+v %+v %+v %+v %+v", usecases.heartbeats, usecases.disconnects, usecases.claims, usecases.postReads, usecases.commentList, usecases.replyList)
 	}
 }

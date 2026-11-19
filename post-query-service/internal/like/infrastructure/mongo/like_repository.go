@@ -51,11 +51,17 @@ func NewRepository(db *mongo.Database) *Repository {
 	return &Repository{collection: db.Collection(collectionName)}
 }
 
+// UserLikesIndex is the name of the post_likes index that serves GET
+// /api/content/me/liked (task 50): the caller's likes most recent first, whose sort it
+// matches exactly, so every keyset page is an index seek.
+const UserLikesIndex = "user_id_1_created_at_-1_post_id_-1"
+
 // EnsureIndexes creates the unique index on (post_id, user_id), the like's
 // identity, and drops the like_id index earlier versions created: like_id no
 // longer exists, so that unique index would treat every new document as a
 // duplicate of the first one (all missing values index as null). The
-// (user_id, post_id) index serves the feed claim's lookup of a viewer's likes.
+// (user_id, post_id) index serves the feed claim's lookup of a viewer's likes, and
+// UserLikesIndex the liked tab.
 func (r *Repository) EnsureIndexes(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
@@ -70,6 +76,10 @@ func (r *Repository) EnsureIndexes(ctx context.Context) error {
 			Options: options.Index().SetUnique(true),
 		},
 		{Keys: bson.D{{Key: "user_id", Value: 1}, {Key: "post_id", Value: 1}}},
+		{
+			Keys:    bson.D{{Key: "user_id", Value: 1}, {Key: "created_at", Value: -1}, {Key: "post_id", Value: -1}},
+			Options: options.Index().SetName(UserLikesIndex),
+		},
 	}
 
 	if _, err := r.collection.Indexes().CreateMany(ctx, indexModels); err != nil {

@@ -105,8 +105,14 @@ type gridDrops map[string]int
 // gridItems summarizes posts in order, resolving their collabs with one FindCollabs, so
 // a page never costs a query per post. A post without media is counted in drops.
 func gridItems(ctx context.Context, reader gridReader, posts []FeedPost, drops gridDrops) ([]GridItem, error) {
+	return mapGridItems(ctx, reader, posts, drops, func(_ int, item GridItem) GridItem { return item })
+}
+
+// mapGridItems is gridItems with each kept item passed to build with the index of its
+// post, for the lists whose items carry more than the summary.
+func mapGridItems[T any](ctx context.Context, reader gridReader, posts []FeedPost, drops gridDrops, build func(index int, item GridItem) T) ([]T, error) {
 	if len(posts) == 0 {
-		return []GridItem{}, nil
+		return []T{}, nil
 	}
 
 	postIDs := make([]string, 0, len(posts))
@@ -123,14 +129,14 @@ func gridItems(ctx context.Context, reader gridReader, posts []FeedPost, drops g
 	}
 	index := indexCollabs(collabs)
 
-	items := make([]GridItem, 0, len(posts))
-	for _, post := range posts {
+	items := make([]T, 0, len(posts))
+	for position, post := range posts {
 		item, ok := GridItemFromPost(post, index.collabFor(post))
 		if !ok {
 			drops[gridDropReasonNoMedia]++
 			continue
 		}
-		items = append(items, item)
+		items = append(items, build(position, item))
 	}
 
 	return items, nil
@@ -152,13 +158,18 @@ func logGridNotFound(ctx context.Context, logger *slog.Logger, grid string, inpu
 // the read model, so it is a warning; the other reasons (a reposted post deleted since,
 // or hidden by a block) are expected.
 func logGridDrops(ctx context.Context, logger *slog.Logger, grid string, input UserGridInput, drops gridDrops) {
+	logDrops(ctx, logger, grid+" grid rows left out of a page", drops,
+		"correlation_id", input.CorrelationID, "userId", input.UserID, "targetUserId", input.TargetUserID)
+}
+
+// logDrops logs each drop reason of a page once, with its count, after attributes.
+func logDrops(ctx context.Context, logger *slog.Logger, message string, drops gridDrops, attributes ...any) {
 	for reason, count := range drops {
-		attributes := []any{"correlation_id", input.CorrelationID, "userId", input.UserID, "targetUserId", input.TargetUserID,
-			"reason", reason, "count", count}
+		line := append(append([]any{}, attributes...), "reason", reason, "count", count)
 		if reason == gridDropReasonNoMedia {
-			logger.WarnContext(ctx, grid+" grid rows left out of a page", attributes...)
+			logger.WarnContext(ctx, message, line...)
 			continue
 		}
-		logger.InfoContext(ctx, grid+" grid rows left out of a page", attributes...)
+		logger.InfoContext(ctx, message, line...)
 	}
 }

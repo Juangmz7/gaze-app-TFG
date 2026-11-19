@@ -22,7 +22,7 @@ type fakeGridStore struct {
 	blocked []string
 	posts   map[string]usecase.FeedPost
 	rows    []usecase.FeedPost
-	shares  []usecase.UserShare
+	shares  []usecase.PostRef
 	collabs []usecase.FeedCollab
 	err     error
 
@@ -80,12 +80,12 @@ func (f *fakeGridStore) FindUserPosts(_ context.Context, query usecase.UserGridQ
 	return f.rows[start:min(len(f.rows), start+query.Limit)], nil
 }
 
-func (f *fakeGridStore) FindUserShares(_ context.Context, query usecase.UserGridQuery) ([]usecase.UserShare, error) {
+func (f *fakeGridStore) FindUserShares(_ context.Context, query usecase.UserGridQuery) ([]usecase.PostRef, error) {
 	f.calls["page"]++
 	f.queries = append(f.queries, query)
 	start := 0
 	if query.After != nil {
-		start = slices.IndexFunc(f.shares, func(share usecase.UserShare) bool { return share.PostID == query.After.PostID }) + 1
+		start = slices.IndexFunc(f.shares, func(share usecase.PostRef) bool { return share.PostID == query.After.PostID }) + 1
 	}
 	return f.shares[start:min(len(f.shares), start+query.Limit)], nil
 }
@@ -298,7 +298,7 @@ func seedShares(store *fakeGridStore, input usecase.UserGridInput, count int) []
 	for index := range count {
 		post := gridPostOf("creator-1", index)
 		store.posts[post.PostID] = post
-		store.shares = append(store.shares, usecase.UserShare{PostID: post.PostID, CreatedAt: gridEpoch.Add(-time.Duration(index) * time.Second)})
+		store.shares = append(store.shares, usecase.PostRef{PostID: post.PostID, At: gridEpoch.Add(-time.Duration(index) * time.Second)})
 		posts = append(posts, post)
 	}
 	return posts
@@ -319,7 +319,7 @@ func TestListUserRepostsUsecase_Execute_ServesSharedPostsInShareOrderBatchingThe
 		t.Fatalf("page = %v (next %v), want the 5 most recent shares and a next page", gridPostIDs(page), page.NextCursor)
 	}
 	after, _ := usecase.DecodeGridCursor(*page.NextCursor)
-	if after.PostID != posts[4].PostID || !after.CreatedAt.Equal(store.shares[4].CreatedAt) {
+	if after.PostID != posts[4].PostID || !after.CreatedAt.Equal(store.shares[4].At) {
 		t.Fatalf("cursor = %+v, want the last share's (createdAt, postId)", after)
 	}
 	if len(store.postLookups) != 1 || len(store.postLookups[0]) != 5 {
@@ -376,11 +376,11 @@ func TestListUserRepostsUsecase_Execute_AnswersAShortPageAfterTheMaximumReads(t 
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
-	if len(page.Items) != 0 || page.NextCursor == nil || store.calls["page"] != usecase.UserRepostsMaxReads {
-		t.Fatalf("items = %d, next %v, reads %d: want an empty page after %d reads with a cursor to go on", len(page.Items), page.NextCursor, store.calls["page"], usecase.UserRepostsMaxReads)
+	if len(page.Items) != 0 || page.NextCursor == nil || store.calls["page"] != usecase.RefListMaxReads {
+		t.Fatalf("items = %d, next %v, reads %d: want an empty page after %d reads with a cursor to go on", len(page.Items), page.NextCursor, store.calls["page"], usecase.RefListMaxReads)
 	}
 	after, _ := usecase.DecodeGridCursor(*page.NextCursor)
-	if lastRead := store.shares[2*usecase.UserRepostsMaxReads-1]; after.PostID != lastRead.PostID {
+	if lastRead := store.shares[2*usecase.RefListMaxReads-1]; after.PostID != lastRead.PostID {
 		t.Fatalf("cursor = %+v, want the last share read (%s), so the next page resumes after it", after, lastRead.PostID)
 	}
 
