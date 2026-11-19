@@ -16,6 +16,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
 import com.app.socialservice.follow.infrastructure.repository.JpaFollowRepository;
+import com.app.socialservice.report.infrastructure.repository.JpaUserReportRepository;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -31,6 +32,8 @@ class SocialProductionSchemaIntegrationTest {
     private static final String USERNAME_INDEX = "uk_users_username_lower";
     private static final String FOLLOWERS_PAGE_INDEX = "idx_follows_followers_page";
     private static final String FOLLOWING_PAGE_INDEX = "idx_follows_following_page";
+    private static final String USER_REPORTS_PAGE_INDEX = "idx_user_reports_status_created_at_id";
+    private static final String USER_REPORTS_OPEN_INDEX = "uk_user_reports_open_reporter_reported";
 
     @Container
     static PostgreSQLContainer POSTGRES = new PostgreSQLContainer(DockerImageName.parse("postgres:latest"));
@@ -54,6 +57,70 @@ class SocialProductionSchemaIntegrationTest {
                 .contains("(followed_id, created_at DESC, follower_id DESC)");
         assertThat(indexDefinition(FOLLOWING_PAGE_INDEX))
                 .contains("(follower_id, created_at DESC, followed_id DESC)");
+        assertThat(indexDefinition(USER_REPORTS_PAGE_INDEX)).contains("(status, created_at DESC, id DESC)");
+        assertThat(indexDefinition(USER_REPORTS_OPEN_INDEX))
+                .contains("UNIQUE", "(reporter_user_id, reported_user_id)", "WHERE", "'OPEN'");
+    }
+
+    @Test
+    void shouldInsertOnlyOneOpenReportPerReporterAndReportedUser() throws Exception {
+        applySchemaScript();
+        var reporterId = UUID.randomUUID();
+        var reportedId = UUID.randomUUID();
+
+        var first = insertUserReport(reporterId, reportedId, "OPEN");
+        var duplicate = insertUserReport(reporterId, reportedId, "OPEN");
+        markReportsResolved(reporterId, reportedId);
+        var afterResolution = insertUserReport(reporterId, reportedId, "OPEN");
+        var otherReporter = insertUserReport(UUID.randomUUID(), reportedId, "OPEN");
+
+        assertThat(first).isEqualTo(1);
+        assertThat(duplicate).isZero();
+        assertThat(afterResolution).isEqualTo(1);
+        assertThat(otherReporter).isEqualTo(1);
+    }
+
+    @Test
+    void shouldRejectAnUnknownReportStatus() throws Exception {
+        applySchemaScript();
+
+        assertThatThrownBy(() -> insertUserReport(UUID.randomUUID(), UUID.randomUUID(), "CLOSED"))
+                .isInstanceOf(SQLException.class)
+                .hasMessageContaining("ck_user_reports_status");
+    }
+
+    @Test
+    void shouldServeEveryUserReportsPageFromAnIndexSeekInTheListOrder() throws Exception {
+        applySchemaScript();
+        var reportedId = insertUser("reported");
+        for (int i = 0; i < 30; i++) {
+            insertUserReport(UUID.randomUUID(), reportedId, i % 3 == 0 ? "RESOLVED" : "OPEN");
+        }
+
+        var firstPage = explainUserReports(JpaUserReportRepository.PAGE_SELECT + JpaUserReportRepository.PAGE_ORDER);
+        var nextPage = explainUserReports(JpaUserReportRepository.PAGE_SELECT
+                + JpaUserReportRepository.PAGE_AFTER_CURSOR
+                + JpaUserReportRepository.PAGE_ORDER);
+
+        assertUserReportsIndexSeekWithoutSort(firstPage);
+        assertUserReportsIndexSeekWithoutSort(nextPage);
+        assertThat(indexCondition(nextPage, USER_REPORTS_PAGE_INDEX))
+                .as("plan:%n%s", nextPage)
+                .contains("ROW(created_at, id) < ROW(");
+    }
+
+    @Test
+    void shouldFindTheOpenReportOfAReporterThroughThePartialIndex() throws Exception {
+        applySchemaScript();
+        for (int i = 0; i < 30; i++) {
+            insertUserReport(UUID.randomUUID(), UUID.randomUUID(), "OPEN");
+        }
+
+        var plan = explainQuery(JpaUserReportRepository.FIND_OPEN_RECEIPT
+                .replace(":reporterUserId", "'" + UUID.randomUUID() + "'::uuid")
+                .replace(":reportedUserId", "'" + UUID.randomUUID() + "'::uuid"));
+
+        assertThat(plan).as("plan:%n%s", plan).contains(USER_REPORTS_OPEN_INDEX);
     }
 
     @Test
@@ -151,6 +218,63 @@ class SocialProductionSchemaIntegrationTest {
                 }
             }
             return plan.toString();
+        }
+    }
+
+    private String explainUserReports(String query) throws SQLException {
+        return explainQuery(query
+                .replace(":status", "'OPEN'")
+                .replace(":afterCreatedAt", "'2026-11-19T10:00:00Z'::timestamptz")
+                .replace(":afterReportId", "'" + UUID.randomUUID() + "'::uuid")
+                .replace(":fetchSize", "21"));
+    }
+
+    private String explainQuery(String sql) throws SQLException {
+        try (var connection = connect(); var statement = connection.createStatement()) {
+            statement.execute("ANALYZE");
+            statement.execute("SET enable_seqscan = off");
+            var plan = new StringBuilder();
+            try (var resultSet = statement.executeQuery("EXPLAIN " + sql)) {
+                while (resultSet.next()) {
+                    plan.append(resultSet.getString(1)).append('\n');
+                }
+            }
+            return plan.toString();
+        }
+    }
+
+    private void assertUserReportsIndexSeekWithoutSort(String plan) {
+        assertThat(plan).as("plan:%n%s", plan)
+                .contains("Index Scan using " + USER_REPORTS_PAGE_INDEX + " on user_reports");
+        assertThat(plan).as("plan:%n%s", plan).doesNotContainPattern("(?m)^\\s*(->\\s*)?(Incremental )?Sort\\b");
+        assertThat(indexCondition(plan, USER_REPORTS_PAGE_INDEX)).as("plan:%n%s", plan)
+                .contains("status)::text = 'OPEN'");
+    }
+
+    /**
+     * The repository's own insert, with literals for its parameters: the number of rows inserted.
+     */
+    private int insertUserReport(UUID reporterId, UUID reportedId, String status) throws SQLException {
+        var sql = JpaUserReportRepository.INSERT_IF_NO_OPEN_REPORT
+                .replace(":id", "'" + UUID.randomUUID() + "'::uuid")
+                .replace(":reportedUserId", "'" + reportedId + "'::uuid")
+                .replace(":reporterUserId", "'" + reporterId + "'::uuid")
+                .replace(":reason", "'SPAM'")
+                .replace(":details", "NULL")
+                .replace(":snapshot", "'{\"username\":\"reported\"}'")
+                .replace(":status", "'" + status + "'")
+                .replace(":createdAt", "clock_timestamp()");
+        try (var connection = connect(); var statement = connection.createStatement()) {
+            return statement.executeUpdate(sql);
+        }
+    }
+
+    private void markReportsResolved(UUID reporterId, UUID reportedId) throws SQLException {
+        try (var connection = connect(); var statement = connection.prepareStatement(
+                "UPDATE user_reports SET status = 'RESOLVED' WHERE reporter_user_id = ? AND reported_user_id = ?")) {
+            statement.setObject(1, reporterId);
+            statement.setObject(2, reportedId);
+            statement.executeUpdate();
         }
     }
 
