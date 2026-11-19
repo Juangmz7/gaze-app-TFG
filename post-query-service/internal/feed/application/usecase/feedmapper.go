@@ -124,7 +124,8 @@ type FeedCollabDocument struct {
 	CreatedAt time.Time `bson:"created_at"`
 }
 
-// FeedCreatorResponse is the API shape of a card's creator.
+// FeedCreatorResponse is the API shape of a card's creator and of a comment's author:
+// the API's UserSummary.
 type FeedCreatorResponse struct {
 	UserID     string  `json:"userId"`
 	Username   string  `json:"username"`
@@ -471,19 +472,15 @@ func feedCardToResponse(ctx context.Context, card FeedCard, signer MediaURLSigne
 	if err != nil {
 		return FeedCardResponse{}, err
 	}
-	pictureURL, err := signOptionalURL(ctx, signer, card.Creator.PictureURL)
+	creator, err := userSummaryToResponse(ctx, card.Creator, signer)
 	if err != nil {
 		return FeedCardResponse{}, err
 	}
 
 	return FeedCardResponse{
-		PostID:   card.PostID,
-		Position: card.Position,
-		Creator: FeedCreatorResponse{
-			UserID:     card.Creator.UserID,
-			Username:   card.Creator.Username,
-			PictureURL: pictureURL,
-		},
+		PostID:            card.PostID,
+		Position:          card.Position,
+		Creator:           creator,
 		Description:       card.Description,
 		PostType:          card.PostType,
 		PostTags:          emptyIfNull(card.Tags),
@@ -504,6 +501,18 @@ func feedCardToResponse(ctx context.Context, card FeedCard, signer MediaURLSigne
 			FollowingCreator: card.Viewer.FollowingCreator,
 		},
 	}, nil
+}
+
+// userSummaryToResponse maps a user to the API's UserSummary { userId, username,
+// pictureUrl }, with the picture signed: a feed card's creator and a comment's author
+// (commentmapper.go) are both built here.
+func userSummaryToResponse(ctx context.Context, user FeedCreator, signer MediaURLSigner) (FeedCreatorResponse, error) {
+	pictureURL, err := signOptionalURL(ctx, signer, user.PictureURL)
+	if err != nil {
+		return FeedCreatorResponse{}, err
+	}
+
+	return FeedCreatorResponse{UserID: user.UserID, Username: user.Username, PictureURL: pictureURL}, nil
 }
 
 // signOptionalURL signs a nullable URL; null stays null.

@@ -23,8 +23,9 @@ const (
 	blocksCollectionName  = "user_blocks"
 )
 
-// HydrationRepository reads the current read models for a batch of feed units: one
-// projected $in query per method, so a page never costs one query per item.
+// HydrationRepository reads the current read models for a batch of feed units, a post
+// view or a comment page (comment_hydration.go): one projected query per method, so a
+// page never costs one query per item.
 type HydrationRepository struct {
 	db *mongo.Database
 }
