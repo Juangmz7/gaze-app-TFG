@@ -42,7 +42,7 @@ type Params struct {
 	// ViewHistory holds the retention of the viewing history the RabbitMQ bootstrap
 	// projects and the history tab reads.
 	ViewHistory config.ViewHistoryConfig
-	// MediaSigner signs the blob URLs of every feed page, following feed page, post view, comment page, grid page and own tab page. main builds the one signer the
+	// MediaSigner signs the blob URLs of every feed page, following feed page, post view, comment page, grid page, own tab page and collab requests page. main builds the one signer the
 	// whole service shares, so every context reuses one delegation key per window.
 	MediaSigner *mediasas.Signer
 	// Logger is shared by every feed component.
@@ -136,6 +136,8 @@ func New(ctx context.Context, params Params) (*Feed, error) {
 			ListUserReposts: feedpresentation.NewListUserRepostsHandler(feedusecase.NewListUserReposts(hydration, logger), params.MediaSigner, logger),
 			ListMyLiked:     feedpresentation.NewListMyLikedHandler(feedusecase.NewListMyLiked(hydration, logger), params.MediaSigner, logger),
 			ListMyHistory:   feedpresentation.NewListMyHistoryHandler(feedusecase.NewListMyHistory(hydration, logger), params.MediaSigner, logger),
+			ListCollabRequests: feedpresentation.NewListCollabRequestsHandler(feedusecase.NewListCollabRequests(hydration, logger),
+				params.MediaSigner, logger),
 		},
 		Dependencies:    bootstrap.Dependencies{Prefetch: prefetch, Lease: lease, ViewHistoryRetention: params.ViewHistory.Retention},
 		sweeper:         feedsweeper.NewPrefetchSweeper(sweep, cfg.SweepInterval, logger),
