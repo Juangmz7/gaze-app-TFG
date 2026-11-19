@@ -28,10 +28,13 @@ import (
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/feed/presentation"
 	followusecase "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/follow/application/usecase"
 	followmongo "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/follow/infrastructure/mongo"
+	likemongo "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/like/infrastructure/mongo"
 	postusecase "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/post/application/usecase"
 	postmongo "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/post/infrastructure/mongo"
+	sharemongo "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/share/infrastructure/mongo"
 	userusecase "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/user/application/usecase"
 	usermongo "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/user/infrastructure/mongo"
+	viewmongo "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/view/infrastructure/mongo"
 )
 
 var (
@@ -94,6 +97,20 @@ type feedApp struct {
 	posts    *postmongo.Repository
 	users    *usermongo.Repository
 	comments *commentmongo.Repository
+	shares   *sharemongo.Repository
+	likes    *likemongo.Repository
+	history  *viewmongo.HistoryRepository
+	// routes are the handlers behind mux, for muxFor.
+	routes presentation.Routes
+}
+
+// muxFor serves the app's routes to another caller, subject of its token.
+func (a *feedApp) muxFor(t *testing.T, subject uuid.UUID) *http.ServeMux {
+	t.Helper()
+
+	mux := http.NewServeMux()
+	presentation.RegisterRoutes(mux, withSubject(t, subject.String()), a.routes)
+	return mux
 }
 
 // noPrefetch stands in for the prefetch, which has its own tests against a broker.
@@ -126,10 +143,14 @@ func newFeedAppSigning(t *testing.T, ctx context.Context, signer usecase.MediaUR
 
 	posts, users := postmongo.NewRepository(db), usermongo.NewRepository(db)
 	comments, commentLikes := commentmongo.NewRepository(db), commentmongo.NewCommentLikeRepository(db)
-	for _, ensure := range []func(context.Context) error{posts.EnsureIndexes, users.EnsureIndexes, comments.EnsureIndexes, commentLikes.EnsureIndexes} {
+	shares, likes, history := sharemongo.NewRepository(db), likemongo.NewRepository(db), viewmongo.NewHistoryRepository(db)
+	for _, ensure := range []func(context.Context) error{posts.EnsureIndexes, users.EnsureIndexes, comments.EnsureIndexes, commentLikes.EnsureIndexes, shares.EnsureIndexes, likes.EnsureIndexes} {
 		if err := ensure(ctx); err != nil {
 			t.Fatalf("EnsureIndexes() error = %v", err)
 		}
+	}
+	if err := history.EnsureIndexes(ctx, 90*24*time.Hour); err != nil {
+		t.Fatalf("EnsureIndexes() error = %v", err)
 	}
 
 	viewerID, creator := uuid.New(), uuid.New()
@@ -139,15 +160,21 @@ func newFeedAppSigning(t *testing.T, ctx context.Context, signer usecase.MediaUR
 
 	logger := discardLogger()
 	config := usecase.ClaimFeedConfig{DefaultPageSize: 15, MaxPageSize: 20, MaxReads: 3}
+	routes := presentation.Routes{
+		Heartbeat:       presentation.NewHeartbeatHandler(usecase.NewRegisterHeartbeat(sessions, logger), logger),
+		Disconnect:      presentation.NewDisconnectHandler(usecase.NewRegisterUserDisconnected(sessions, noPrefetch{}, 5*time.Second, logger), logger),
+		ClaimFeed:       presentation.NewClaimFeedHandler(usecase.NewClaimFeed(units, hydration, config, logger), signer, logger),
+		FollowingFeed:   presentation.NewFollowingFeedHandler(usecase.NewFollowingFeed(hydration, usecase.FollowingFeedConfig{MaxFollows: 2000}, logger), signer, logger),
+		GetPost:         presentation.NewGetPostHandler(usecase.NewGetPost(hydration, logger), signer, logger),
+		ListComments:    presentation.NewListCommentsHandler(usecase.NewListComments(hydration, logger), signer, logger),
+		ListReplies:     presentation.NewListRepliesHandler(usecase.NewListReplies(hydration, logger), signer, logger),
+		ListUserPosts:   presentation.NewListUserPostsHandler(usecase.NewListUserPosts(hydration, logger), signer, logger),
+		ListUserReposts: presentation.NewListUserRepostsHandler(usecase.NewListUserReposts(hydration, logger), signer, logger),
+		ListMyLiked:     presentation.NewListMyLikedHandler(usecase.NewListMyLiked(hydration, logger), signer, logger),
+		ListMyHistory:   presentation.NewListMyHistoryHandler(usecase.NewListMyHistory(hydration, logger), signer, logger),
+	}
 	mux := http.NewServeMux()
-	presentation.RegisterRoutes(mux, withSubject(t, viewerID.String()), presentation.Routes{
-		Heartbeat:    presentation.NewHeartbeatHandler(usecase.NewRegisterHeartbeat(sessions, logger), logger),
-		Disconnect:   presentation.NewDisconnectHandler(usecase.NewRegisterUserDisconnected(sessions, noPrefetch{}, 5*time.Second, logger), logger),
-		ClaimFeed:    presentation.NewClaimFeedHandler(usecase.NewClaimFeed(units, hydration, config, logger), signer, logger),
-		GetPost:      presentation.NewGetPostHandler(usecase.NewGetPost(hydration, logger), signer, logger),
-		ListComments: presentation.NewListCommentsHandler(usecase.NewListComments(hydration, logger), signer, logger),
-		ListReplies:  presentation.NewListRepliesHandler(usecase.NewListReplies(hydration, logger), signer, logger),
-	})
+	presentation.RegisterRoutes(mux, withSubject(t, viewerID.String()), routes)
 
 	return &feedApp{
 		db:       db,
@@ -158,6 +185,10 @@ func newFeedAppSigning(t *testing.T, ctx context.Context, signer usecase.MediaUR
 		posts:    posts,
 		users:    users,
 		comments: comments,
+		shares:   shares,
+		likes:    likes,
+		history:  history,
+		routes:   routes,
 	}
 }
 

@@ -80,8 +80,8 @@ func TestDecodeCommentsCursor_RejectsGarbage(t *testing.T) {
 
 	for name, raw := range cases {
 		t.Run(name, func(t *testing.T) {
-			if _, err := usecase.DecodeCommentsCursor(raw); !errors.Is(err, usecase.ErrInvalidCommentCursor) {
-				t.Fatalf("DecodeCommentsCursor(%q) error = %v, want ErrInvalidCommentCursor", raw, err)
+			if _, err := usecase.DecodeCommentsCursor(raw); !errors.Is(err, usecase.ErrInvalidCursor) {
+				t.Fatalf("DecodeCommentsCursor(%q) error = %v, want ErrInvalidCursor", raw, err)
 			}
 		})
 	}
@@ -98,8 +98,8 @@ func TestDecodeRepliesCursor_RejectsACommentsCursorAndGarbage(t *testing.T) {
 
 	for name, raw := range cases {
 		t.Run(name, func(t *testing.T) {
-			if _, err := usecase.DecodeRepliesCursor(raw); !errors.Is(err, usecase.ErrInvalidCommentCursor) {
-				t.Fatalf("DecodeRepliesCursor(%q) error = %v, want ErrInvalidCommentCursor", raw, err)
+			if _, err := usecase.DecodeRepliesCursor(raw); !errors.Is(err, usecase.ErrInvalidCursor) {
+				t.Fatalf("DecodeRepliesCursor(%q) error = %v, want ErrInvalidCursor", raw, err)
 			}
 		})
 	}

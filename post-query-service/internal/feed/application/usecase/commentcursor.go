@@ -1,27 +1,9 @@
 package usecase
 
 import (
-	"bytes"
-	"encoding/base64"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
-
-	"github.com/google/uuid"
 )
-
-// ErrInvalidCommentCursor is returned for a cursor that was not produced by this
-// service for that list: not base64url, not the expected JSON, a missing or unknown
-// field, or a value out of range.
-var ErrInvalidCommentCursor = errors.New("invalid comment cursor")
-
-// maxCommentCursorLength bounds what a client can make the service decode. A real
-// cursor is about 120 characters.
-const maxCommentCursorLength = 256
-
-// canonicalCommentIDLength is the length of the only form a comment id is accepted in.
-const canonicalCommentIDLength = 36
 
 // CommentsCursor is the full sort key of the last top-level comment of a page: like
 // count, reply count, creation date and comment id, the order of the list. The next
@@ -90,14 +72,14 @@ func EncodeCommentsCursor(cursor CommentsCursor) string {
 }
 
 // DecodeCommentsCursor reads a cursor made by EncodeCommentsCursor, or returns
-// ErrInvalidCommentCursor.
+// ErrInvalidCursor.
 func DecodeCommentsCursor(raw string) (CommentsCursor, error) {
 	var wire commentsCursorWire
 	if err := decodeCursor(raw, &wire); err != nil {
 		return CommentsCursor{}, err
 	}
 	if wire.LikeCount == nil || wire.ReplyCount == nil || *wire.LikeCount < 0 || *wire.ReplyCount < 0 {
-		return CommentsCursor{}, fmt.Errorf("%w: counters must be present and not negative", ErrInvalidCommentCursor)
+		return CommentsCursor{}, fmt.Errorf("%w: counters must be present and not negative", ErrInvalidCursor)
 	}
 	createdAt, commentID, err := validCursorKey(wire.CreatedAt, wire.CommentID)
 	if err != nil {
@@ -114,7 +96,7 @@ func EncodeRepliesCursor(cursor RepliesCursor) string {
 }
 
 // DecodeRepliesCursor reads a cursor made by EncodeRepliesCursor, or returns
-// ErrInvalidCommentCursor.
+// ErrInvalidCursor.
 func DecodeRepliesCursor(raw string) (RepliesCursor, error) {
 	var wire repliesCursorWire
 	if err := decodeCursor(raw, &wire); err != nil {
@@ -126,49 +108,4 @@ func DecodeRepliesCursor(raw string) (RepliesCursor, error) {
 	}
 
 	return RepliesCursor{CreatedAt: createdAt, CommentID: commentID}, nil
-}
-
-func encodeCursor(wire any) string {
-	// Marshalling a struct of pointers to numbers and strings cannot fail.
-	payload, _ := json.Marshal(wire)
-	return base64.RawURLEncoding.EncodeToString(payload)
-}
-
-// decodeCursor decodes base64url without padding into exactly one JSON object with
-// no unknown field.
-func decodeCursor(raw string, wire any) error {
-	if raw == "" || len(raw) > maxCommentCursorLength {
-		return fmt.Errorf("%w: empty or longer than %d characters", ErrInvalidCommentCursor, maxCommentCursorLength)
-	}
-	payload, err := base64.RawURLEncoding.Strict().DecodeString(raw)
-	if err != nil {
-		return fmt.Errorf("%w: not base64url: %v", ErrInvalidCommentCursor, err)
-	}
-
-	decoder := json.NewDecoder(bytes.NewReader(payload))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(wire); err != nil {
-		return fmt.Errorf("%w: not the expected JSON: %v", ErrInvalidCommentCursor, err)
-	}
-	if decoder.More() {
-		return fmt.Errorf("%w: trailing data", ErrInvalidCommentCursor)
-	}
-
-	return nil
-}
-
-// validCursorKey checks the date and comment id every cursor ends with.
-func validCursorKey(createdAt *int64, commentID *string) (time.Time, string, error) {
-	if createdAt == nil || *createdAt <= 0 {
-		return time.Time{}, "", fmt.Errorf("%w: creation date must be present and positive", ErrInvalidCommentCursor)
-	}
-	if commentID == nil || len(*commentID) != canonicalCommentIDLength {
-		return time.Time{}, "", fmt.Errorf("%w: comment id must be a canonical uuid", ErrInvalidCommentCursor)
-	}
-	parsed, err := uuid.Parse(*commentID)
-	if err != nil || parsed == uuid.Nil || parsed.String() != *commentID {
-		return time.Time{}, "", fmt.Errorf("%w: comment id must be a canonical uuid", ErrInvalidCommentCursor)
-	}
-
-	return time.UnixMilli(*createdAt).UTC(), *commentID, nil
 }

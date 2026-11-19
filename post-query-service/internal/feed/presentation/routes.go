@@ -23,13 +23,20 @@ const (
 	HeartbeatRoute  = "POST /api/feed/heartbeat"
 	DisconnectRoute = "POST /api/feed/disconnect"
 	ClaimFeedRoute  = "GET /api/feed"
+	// FollowingFeedRoute is the Home "Following" tab: under /api/feed so it shares the
+	// route, but it never touches the recommended feed's units, position or prefetch.
+	FollowingFeedRoute = "GET /api/feed/following"
 )
 
 // Content routes: every read that is not the feed, behind the same authentication.
 const (
-	GetPostRoute      = "GET /api/content/posts/{" + postIDPathValue + "}"
-	ListCommentsRoute = "GET /api/content/posts/{" + postIDPathValue + "}/comments"
-	ListRepliesRoute  = "GET /api/content/posts/{" + postIDPathValue + "}/comments/{" + commentIDPathValue + "}/replies"
+	GetPostRoute         = "GET /api/content/posts/{" + postIDPathValue + "}"
+	ListCommentsRoute    = "GET /api/content/posts/{" + postIDPathValue + "}/comments"
+	ListRepliesRoute     = "GET /api/content/posts/{" + postIDPathValue + "}/comments/{" + commentIDPathValue + "}/replies"
+	ListUserPostsRoute   = "GET /api/content/users/{" + userIDPathValue + "}/posts"
+	ListUserRepostsRoute = "GET /api/content/users/{" + userIDPathValue + "}/reposts"
+	ListMyLikedRoute     = "GET /api/content/me/liked"
+	ListMyHistoryRoute   = "GET /api/content/me/history"
 )
 
 // CorrelationIDHeader carries the correlation id of a request.
@@ -45,12 +52,17 @@ const statusClientClosedRequest = 499
 
 // Routes holds the feed's and the content's HTTP handlers.
 type Routes struct {
-	Heartbeat    *HeartbeatHandler
-	Disconnect   *DisconnectHandler
-	ClaimFeed    *ClaimFeedHandler
-	GetPost      *GetPostHandler
-	ListComments *ListCommentsHandler
-	ListReplies  *ListRepliesHandler
+	Heartbeat       *HeartbeatHandler
+	Disconnect      *DisconnectHandler
+	ClaimFeed       *ClaimFeedHandler
+	FollowingFeed   *FollowingFeedHandler
+	GetPost         *GetPostHandler
+	ListComments    *ListCommentsHandler
+	ListReplies     *ListRepliesHandler
+	ListUserPosts   *UserGridHandler
+	ListUserReposts *UserGridHandler
+	ListMyLiked     *OwnListHandler
+	ListMyHistory   *OwnListHandler
 }
 
 // RegisterRoutes adds the feed and content endpoints to mux behind authenticate
@@ -64,9 +76,14 @@ func RegisterRoutes(mux *http.ServeMux, authenticate func(http.Handler) http.Han
 	register(HeartbeatRoute, routes.Heartbeat)
 	register(DisconnectRoute, routes.Disconnect)
 	register(ClaimFeedRoute, routes.ClaimFeed)
+	register(FollowingFeedRoute, routes.FollowingFeed)
 	register(GetPostRoute, routes.GetPost)
 	register(ListCommentsRoute, routes.ListComments)
 	register(ListRepliesRoute, routes.ListReplies)
+	register(ListUserPostsRoute, routes.ListUserPosts)
+	register(ListUserRepostsRoute, routes.ListUserReposts)
+	register(ListMyLikedRoute, routes.ListMyLiked)
+	register(ListMyHistoryRoute, routes.ListMyHistory)
 }
 
 // withTraceContext continues the caller's W3C trace, so a call to another service
