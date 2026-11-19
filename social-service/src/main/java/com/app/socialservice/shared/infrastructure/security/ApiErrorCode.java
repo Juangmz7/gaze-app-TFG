@@ -19,5 +19,7 @@ public enum ApiErrorCode {
     @JsonProperty("invalid_profile_picture")
     INVALID_PROFILE_PICTURE,
     @JsonProperty("profile_picture_not_uploaded")
-    PROFILE_PICTURE_NOT_UPLOADED
+    PROFILE_PICTURE_NOT_UPLOADED,
+    @JsonProperty("invalid_username")
+    INVALID_USERNAME
 }

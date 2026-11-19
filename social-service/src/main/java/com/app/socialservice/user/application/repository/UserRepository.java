@@ -10,12 +10,14 @@ import com.app.socialservice.user.application.dto.PublicUserProfileData;
 import com.app.socialservice.user.domain.enums.UserAccountStatus;
 import com.app.socialservice.user.application.dto.RecommendedUserDetails;
 import com.app.socialservice.user.domain.model.User;
+import com.app.socialservice.user.domain.model.valueobj.UsernameLookup;
 import com.app.socialservice.user.application.dto.OwnUserProfileData;
 
 public interface UserRepository {
     User updateProfile(User user);
     Optional<User> findById(UUID id);
     Optional<PublicUserProfileData> findPublicProfileData(UUID targetUserId);
+    Optional<UUID> findUserIdByUsername(UsernameLookup username);
     ProfileRelationship findProfileRelationship(UUID requesterUserId, UUID targetUserId);
     Optional<UserAccountStatus> findAccountStatus(UUID id);
     Optional<OwnUserProfileData> findOwnProfileById(UUID id);

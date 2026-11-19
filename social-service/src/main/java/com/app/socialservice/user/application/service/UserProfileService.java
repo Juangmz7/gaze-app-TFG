@@ -7,6 +7,8 @@ import java.util.UUID;
 import com.app.socialservice.user.application.cache.CacheNames;
 import com.app.socialservice.user.application.commands.UpdateOwnUserProfileCommand;
 import com.app.socialservice.user.application.dto.OwnUserProfileResponse;
+import com.app.socialservice.user.application.dto.ProfileRelationship;
+import com.app.socialservice.user.application.dto.PublicUserProfile;
 import com.app.socialservice.user.application.dto.UserProfileResponse;
 import com.app.socialservice.user.application.port.ProfilePictureStorage;
 import com.app.socialservice.user.application.repository.UserRepository;
@@ -21,6 +23,7 @@ import com.app.socialservice.user.domain.model.User;
 import com.app.socialservice.user.domain.model.valueobj.ProfilePictureBlobName;
 import com.app.socialservice.user.domain.model.valueobj.ProfilePictureUrl;
 import com.app.socialservice.user.domain.model.valueobj.UserBio;
+import com.app.socialservice.user.domain.model.valueobj.UsernameLookup;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CachePut;
@@ -93,10 +96,7 @@ public class UserProfileService {
      */
     @Transactional(readOnly = true)
     public UserProfileResponse getUserProfile(UUID requesterUserId, UUID targetUserId) {
-
-        if (requesterUserId.equals(targetUserId)) {
-            throw new SelfProfileRequestNotAllowedException("A user cannot request their own public profile");
-        }
+        ensureNotOwnProfile(requesterUserId, targetUserId);
 
         var profile = publicUserProfileReader.read(targetUserId);
         var relationship = userRepository.findProfileRelationship(requesterUserId, targetUserId);
@@ -115,6 +115,42 @@ public class UserProfileService {
 
         log.info("Retrieving user {} profile requested from user {}", targetUserId, requesterUserId);
 
+        return toUserProfileResponse(profile, relationship);
+    }
+
+    /**
+     * The same profile as getUserProfile, found by username (mentions and tagged users carry
+     * only the username), case-insensitively. Unknown, deleted, banned and blocked (either
+     * direction) all answer the same 404, so a lookup by name never tells them apart. The
+     * relationship is checked first, so a hidden profile is never read.
+     */
+    @Transactional(readOnly = true)
+    public UserProfileResponse getUserProfileByUsername(UUID requesterUserId, String username) {
+        var lookup = new UsernameLookup(username);
+        var targetUserId = userRepository.findUserIdByUsername(lookup)
+                .orElseThrow(() -> UserProfileNotFoundException.forUsername(lookup.value()));
+        ensureNotOwnProfile(requesterUserId, targetUserId);
+
+        var relationship = userRepository.findProfileRelationship(requesterUserId, targetUserId);
+        if (!relationship.targetVisible() || relationship.blocked()) {
+            log.info("Profile lookup of username {} by user {} hidden: visible={}, blocked={}",
+                    lookup.value(), requesterUserId, relationship.targetVisible(), relationship.blocked());
+            throw UserProfileNotFoundException.forUsername(lookup.value());
+        }
+        var profile = publicUserProfileReader.read(targetUserId);
+
+        log.info("Retrieving user {} profile by username requested from user {}", targetUserId, requesterUserId);
+
+        return toUserProfileResponse(profile, relationship);
+    }
+
+    private void ensureNotOwnProfile(UUID requesterUserId, UUID targetUserId) {
+        if (requesterUserId.equals(targetUserId)) {
+            throw new SelfProfileRequestNotAllowedException("A user cannot request their own public profile");
+        }
+    }
+
+    private UserProfileResponse toUserProfileResponse(PublicUserProfile profile, ProfileRelationship relationship) {
         return new UserProfileResponse(
                 profile.userId(),
                 profile.username(),
