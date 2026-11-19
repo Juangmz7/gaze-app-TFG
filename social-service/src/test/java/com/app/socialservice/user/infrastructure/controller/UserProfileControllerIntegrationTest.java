@@ -28,6 +28,8 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
@@ -41,6 +43,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 class UserProfileControllerIntegrationTest {
+
+    private static final String BY_USERNAME_PATH = "/api/social/profile/by-username/{username}";
+
+    private final JsonMapper jsonMapper = JsonMapper.builder().build();
 
     @Autowired
     private MockMvc mockMvc;
@@ -233,6 +239,119 @@ class UserProfileControllerIntegrationTest {
         mockMvc.perform(get("/api/social/profile/{userId}", requesterUserId)
                         .with(jwt().jwt(jwt -> jwt.subject(requesterUserId.toString()))))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void getProfileByUsernameReturnsTheSameJsonAsTheProfileByIdInAnyLetterCase() throws Exception {
+        var requesterUserId = UUID.randomUUID();
+        var targetUserId = UUID.randomUUID();
+
+        seedUser(requesterUserId, "requester.user", UserAccountStatus.ACCEPTED, null, null, null);
+        seedUser(
+                targetUserId,
+                "target.user_1",
+                UserAccountStatus.ACCEPTED,
+                "Target description",
+                Map.of("github", "target-user"),
+                "https://cdn.example.com/target.png"
+        );
+        seedFollow(targetUserId, requesterUserId, FollowStatus.ACTIVE);
+        seedUserStats(targetUserId, 4L, 2L, 9L);
+
+        var byId = getProfileJson("/api/social/profile/{userId}", targetUserId, requesterUserId);
+        var byLowercase = getProfileJson(BY_USERNAME_PATH, "target.user_1", requesterUserId);
+        var byMixedCase = getProfileJson(BY_USERNAME_PATH, "Target.USER_1", requesterUserId);
+
+        assertThat(byLowercase).isEqualTo(byId);
+        assertThat(byMixedCase).isEqualTo(byId);
+        assertThat(byMixedCase.get("id").asString()).isEqualTo(targetUserId.toString());
+        assertThat(byMixedCase.get("username").asString()).isEqualTo("target.user_1");
+        assertThat(byMixedCase.get("followerCount").asLong()).isEqualTo(4L);
+        assertThat(byMixedCase.get("followsMe").asBoolean()).isTrue();
+        assertThat(byMixedCase.get("following").asBoolean()).isFalse();
+    }
+
+    @Test
+    void getProfileByUsernameReturns404WhenTheUsernameIsUnknown() throws Exception {
+        var requesterUserId = UUID.randomUUID();
+
+        seedUser(requesterUserId, "requester.user", UserAccountStatus.ACCEPTED, null, null, null);
+
+        mockMvc.perform(get(BY_USERNAME_PATH, "nobody")
+                        .with(jwt().jwt(jwt -> jwt.subject(requesterUserId.toString()))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("NOT_FOUND"));
+    }
+
+    @Test
+    void getProfileByUsernameReturns404WhenEitherUserBlockedTheOther() throws Exception {
+        var requesterUserId = UUID.randomUUID();
+        var blockedTargetUserId = UUID.randomUUID();
+        var blockerTargetUserId = UUID.randomUUID();
+
+        seedUser(requesterUserId, "requester.user", UserAccountStatus.ACCEPTED, null, null, null);
+        seedUser(blockedTargetUserId, "blocked.target", UserAccountStatus.ACCEPTED, null, null, null);
+        seedUser(blockerTargetUserId, "blocker.target", UserAccountStatus.ACCEPTED, null, null, null);
+        seedBlock(requesterUserId, blockedTargetUserId);
+        seedBlock(blockerTargetUserId, requesterUserId);
+
+        for (var username : new String[] {"blocked.target", "Blocker.Target"}) {
+            mockMvc.perform(get(BY_USERNAME_PATH, username)
+                            .with(jwt().jwt(jwt -> jwt.subject(requesterUserId.toString()))))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.errorCode").value("NOT_FOUND"));
+        }
+    }
+
+    @Test
+    void getProfileByUsernameReturns404WhenTheUserIsBannedOrDeleted() throws Exception {
+        var requesterUserId = UUID.randomUUID();
+
+        seedUser(requesterUserId, "requester.user", UserAccountStatus.ACCEPTED, null, null, null);
+        seedUser(UUID.randomUUID(), "banned.target", UserAccountStatus.BANNED, null, null, null);
+        seedUser(UUID.randomUUID(), "deleted.target", UserAccountStatus.DELETED, null, null, null);
+
+        for (var username : new String[] {"banned.target", "deleted.target"}) {
+            mockMvc.perform(get(BY_USERNAME_PATH, username)
+                            .with(jwt().jwt(jwt -> jwt.subject(requesterUserId.toString()))))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.errorCode").value("NOT_FOUND"));
+        }
+    }
+
+    @Test
+    void getProfileByUsernameReturns400InvalidUsernameForAMalformedUsername() throws Exception {
+        var requesterUserId = UUID.randomUUID();
+
+        seedUser(requesterUserId, "requester.user", UserAccountStatus.ACCEPTED, null, null, null);
+
+        for (var username : new String[] {"jane-doe", "jane doe", "@jane", "a".repeat(65)}) {
+            mockMvc.perform(get(BY_USERNAME_PATH, username)
+                            .with(jwt().jwt(jwt -> jwt.subject(requesterUserId.toString()))))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errorCode").value("invalid_username"));
+        }
+    }
+
+    @Test
+    void getProfileByUsernameReturns400WhenTheUsernameIsTheRequesters() throws Exception {
+        var requesterUserId = UUID.randomUUID();
+
+        seedUser(requesterUserId, "self.user", UserAccountStatus.ACCEPTED, null, null, null);
+
+        mockMvc.perform(get(BY_USERNAME_PATH, "SELF.user")
+                        .with(jwt().jwt(jwt -> jwt.subject(requesterUserId.toString()))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("BAD_REQUEST"));
+    }
+
+    private JsonNode getProfileJson(String pathTemplate, Object pathVariable, UUID requesterUserId)
+            throws Exception {
+        var content = mockMvc.perform(get(pathTemplate, pathVariable)
+                        .with(jwt().jwt(jwt -> jwt.subject(requesterUserId.toString()))))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return jsonMapper.readTree(content);
     }
 
     private void seedUser(

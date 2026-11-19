@@ -9,11 +9,17 @@ import com.app.socialservice.follow.domain.exception.FollowBlockedException;
 import com.app.socialservice.follow.domain.exception.SelfFollowNotAllowedException;
 import com.app.socialservice.follow.domain.exception.SelfUnfollowNotAllowedException;
 import com.app.socialservice.shared.domain.exception.UserNotFoundException;
+import com.app.socialservice.shared.domain.exception.DomainException;
 import com.app.socialservice.user.domain.exception.InvalidEmailException;
+import com.app.socialservice.user.domain.exception.InvalidProfilePictureException;
+import com.app.socialservice.user.domain.exception.InvalidProfilePictureSizeException;
 import com.app.socialservice.user.domain.exception.InvalidProfilePictureUrlException;
 import com.app.socialservice.user.domain.exception.InvalidUserIdException;
 import com.app.socialservice.user.domain.exception.InvalidUsernameException;
+import com.app.socialservice.user.domain.exception.InvalidUsernameLookupException;
+import com.app.socialservice.user.domain.exception.ProfilePictureNotUploadedException;
 import com.app.socialservice.user.domain.exception.SelfProfileRequestNotAllowedException;
+import com.app.socialservice.user.domain.exception.UnsupportedProfilePictureContentTypeException;
 import com.app.socialservice.user.domain.exception.UserBannedException;
 import com.app.socialservice.user.domain.exception.UserProfileBlockedException;
 import com.app.socialservice.user.domain.exception.UserProfileNotFoundException;
@@ -65,6 +71,41 @@ public class ApiExceptionHandler {
             HttpServletRequest request) {
 
         return buildErrorResponse(HttpStatus.BAD_REQUEST, ApiErrorCode.BAD_REQUEST, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler({
+            UnsupportedProfilePictureContentTypeException.class,
+            InvalidProfilePictureSizeException.class,
+            InvalidProfilePictureException.class,
+            ProfilePictureNotUploadedException.class
+    })
+    public ResponseEntity<ApiErrorResponse> handleProfilePictureException(
+            DomainException exception,
+            HttpServletRequest request) {
+
+        var errorCode = switch (exception) {
+            case UnsupportedProfilePictureContentTypeException ignored -> ApiErrorCode.UNSUPPORTED_CONTENT_TYPE;
+            case InvalidProfilePictureSizeException ignored -> ApiErrorCode.INVALID_SIZE;
+            case ProfilePictureNotUploadedException ignored -> ApiErrorCode.PROFILE_PICTURE_NOT_UPLOADED;
+            default -> ApiErrorCode.INVALID_PROFILE_PICTURE;
+        };
+        log.warn("Profile picture request rejected on {}: errorCode={}, reason={}",
+                request.getRequestURI(), errorCode, exception.getMessage());
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, errorCode, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(InvalidUsernameLookupException.class)
+    public ResponseEntity<ApiErrorResponse> handleInvalidUsernameLookupException(
+            InvalidUsernameLookupException exception,
+            HttpServletRequest request) {
+
+        log.warn("Username lookup rejected on {}: {}", request.getRequestURI(), exception.getMessage());
+        return buildErrorResponse(
+                HttpStatus.BAD_REQUEST,
+                ApiErrorCode.INVALID_USERNAME,
+                exception.getMessage(),
+                request
+        );
     }
 
     @ExceptionHandler({

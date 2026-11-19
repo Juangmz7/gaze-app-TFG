@@ -16,6 +16,11 @@ CREATE TABLE IF NOT EXISTS users (
     CONSTRAINT pk_users PRIMARY KEY (id)
 );
 
+-- Profile lookup by username (mentions, tagged users) is case-insensitive. Keycloak usernames
+-- are unique and lowercase; deleted users get a unique "_deleted_<id>" suffix.
+CREATE UNIQUE INDEX IF NOT EXISTS uk_users_username_lower
+    ON users (lower(username));
+
 CREATE TABLE IF NOT EXISTS follows (
     follower_id UUID NOT NULL,
     followed_id UUID NOT NULL,

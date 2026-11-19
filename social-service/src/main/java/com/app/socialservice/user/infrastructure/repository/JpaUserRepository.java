@@ -55,6 +55,15 @@ public interface JpaUserRepository extends JpaRepository<UserEntity, UUID> {
             """)
     Optional<PublicUserProfileData> findPublicProfileData(@Param("targetUserId") UUID targetUserId);
 
+    /** Served by the unique index on lower(username) (db/schema/social-service-prod.sql). */
+    @Query("""
+            select user.id
+            from UserEntity user
+            where lower(user.username) = :lowercaseUsername
+                and user.accountStatus <> com.app.socialservice.user.domain.enums.UserAccountStatus.DELETED
+            """)
+    Optional<UUID> findIdByLowercaseUsername(@Param("lowercaseUsername") String lowercaseUsername);
+
     @Query(
             value = """
                     SELECT EXISTS (SELECT 1 FROM follows f

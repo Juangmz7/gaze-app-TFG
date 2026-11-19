@@ -30,3 +30,17 @@ management:
   tracing:
     export:
       enabled: false
+
+# --- Azure Blob Storage ---
+# account-url is overridden by the Azurite container of TestcontainersConfiguration. This
+# fallback lets contexts without Azurite (e.g. RabbitTracePropagationIntegrationTest) start:
+# building the Blob beans makes no network call.
+azure:
+  storage:
+    account-url: http://127.0.0.1:10000/devstoreaccount1
+    container: post-media-test
+    upload-sas-ttl: PT15M
+    read-sas-window: PT24H
+    use-account-key: true
+    # Azurite's well-known default emulator key (local emulator only, never a real secret).
+    account-key: Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==

@@ -9,15 +9,20 @@ import org.springframework.boot.testcontainers.service.connection.ServiceConnect
 import org.springframework.context.annotation.Bean;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.test.context.DynamicPropertyRegistrar;
 import org.testcontainers.grafana.LgtmStackContainer;
 import org.testcontainers.neo4j.Neo4jContainer;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.rabbitmq.RabbitMQContainer;
 import org.testcontainers.utility.DockerImageName;
 import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.containers.wait.strategy.Wait;
 
 @TestConfiguration(proxyBeanMethods = false)
 public class TestcontainersConfiguration {
+
+    public static final String AZURITE_ACCOUNT_NAME = "devstoreaccount1";
+    private static final int AZURITE_BLOB_PORT = 10000;
 
     @Bean
     @ServiceConnection
@@ -47,6 +52,27 @@ public class TestcontainersConfiguration {
     @ServiceConnection(name = "redis")
     GenericContainer<?> redisContainer() {
         return new GenericContainer<>(DockerImageName.parse("redis:latest")).withExposedPorts(6379);
+    }
+
+    /**
+     * The media container of the Azure Blob tests (profile pictures). No Testcontainers module
+     * exists for Azurite, so it is a generic container on the image post-query-service pins.
+     */
+    @Bean
+    GenericContainer<?> azuriteContainer() {
+        return new GenericContainer<>(DockerImageName.parse("mcr.microsoft.com/azure-storage/azurite:3.35.0"))
+                .withCommand("azurite-blob", "--blobHost", "0.0.0.0", "--skipApiVersionCheck")
+                .withExposedPorts(AZURITE_BLOB_PORT)
+                .waitingFor(Wait.forListeningPort());
+    }
+
+    @Bean
+    DynamicPropertyRegistrar azuriteProperties(GenericContainer<?> azuriteContainer) {
+        return registry -> registry.add("azure.storage.account-url", () -> String.format(
+                "http://%s:%d/%s",
+                azuriteContainer.getHost(),
+                azuriteContainer.getMappedPort(AZURITE_BLOB_PORT),
+                AZURITE_ACCOUNT_NAME));
     }
 
     @Bean

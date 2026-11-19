@@ -7,8 +7,12 @@ import java.util.UUID;
 import com.app.socialservice.user.application.cache.CacheNames;
 import com.app.socialservice.user.application.commands.UpdateOwnUserProfileCommand;
 import com.app.socialservice.user.application.dto.OwnUserProfileResponse;
+import com.app.socialservice.user.application.dto.ProfileRelationship;
+import com.app.socialservice.user.application.dto.PublicUserProfile;
 import com.app.socialservice.user.application.dto.UserProfileResponse;
+import com.app.socialservice.user.application.port.ProfilePictureStorage;
 import com.app.socialservice.user.application.repository.UserRepository;
+import com.app.socialservice.user.domain.exception.ProfilePictureNotUploadedException;
 import com.app.socialservice.user.domain.exception.SelfProfileRequestNotAllowedException;
 import com.app.socialservice.user.domain.exception.UserBannedException;
 import com.app.socialservice.user.domain.enums.UserAccountStatus;
@@ -16,8 +20,10 @@ import com.app.socialservice.user.domain.exception.UserProfileBlockedException;
 import com.app.socialservice.user.domain.exception.UserProfileNotFoundException;
 import com.app.socialservice.shared.domain.exception.UserNotFoundException;
 import com.app.socialservice.user.domain.model.User;
+import com.app.socialservice.user.domain.model.valueobj.ProfilePictureBlobName;
 import com.app.socialservice.user.domain.model.valueobj.ProfilePictureUrl;
 import com.app.socialservice.user.domain.model.valueobj.UserBio;
+import com.app.socialservice.user.domain.model.valueobj.UsernameLookup;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CachePut;
@@ -33,6 +39,7 @@ public class UserProfileService {
     private final PublicUserProfileReader publicUserProfileReader;
     private final OwnUserProfileReader ownUserProfileReader;
     private final UserCacheEvictor userCacheEvictor;
+    private final ProfilePictureStorage profilePictureStorage;
 
     /**
      * The account status is checked live on every request, so a ban applies at once; the
@@ -52,14 +59,19 @@ public class UserProfileService {
         return response;
     }
 
+    /**
+     * Not one transaction on purpose: a new avatar is checked in Blob Storage (a network call)
+     * between the read and the write, and no database connection must be held meanwhile. The
+     * write itself is transactional (UserRepository.updateProfile) and, like before, the last
+     * full replacement wins.
+     */
     @CachePut(cacheNames = CacheNames.OWN_PROFILE, key = CacheNames.KEY_BY_COMMAND)
-    @Transactional
     public OwnUserProfileResponse updateOwnUserProfile(UpdateOwnUserProfileCommand command) {
         validateUpdateOwnProfileCommand(command);
 
         var user = getUserById(command.userId())
                 .orElseThrow(() -> new UserNotFoundException(command.userId()));
-        var requestedPictureUrl = toProfilePictureUrl(command.profilePicture());
+        var requestedPictureUrl = resolveRequestedPicture(user, command.profilePicture());
         var requestedBio = toUserBio(command.description(), command.socialMedia());
 
         if (!user.hasProfileChanges(requestedPictureUrl, requestedBio)) {
@@ -69,8 +81,9 @@ public class UserProfileService {
         user.updateProfile(requestedPictureUrl, requestedBio);
 
         userRepository.updateProfile(user);
-        // The own profile is replaced by @CachePut with the result
-        userCacheEvictor.evictPublicProfiles(command.userId());
+        // Evicted at once (no transaction is open here) so the read below does not return the
+        // cached old profile; @CachePut then stores the fresh one
+        userCacheEvictor.evictProfiles(command.userId());
 
         log.info("Updated profile for user {}", command.userId());
 
@@ -83,10 +96,7 @@ public class UserProfileService {
      */
     @Transactional(readOnly = true)
     public UserProfileResponse getUserProfile(UUID requesterUserId, UUID targetUserId) {
-
-        if (requesterUserId.equals(targetUserId)) {
-            throw new SelfProfileRequestNotAllowedException("A user cannot request their own public profile");
-        }
+        ensureNotOwnProfile(requesterUserId, targetUserId);
 
         var profile = publicUserProfileReader.read(targetUserId);
         var relationship = userRepository.findProfileRelationship(requesterUserId, targetUserId);
@@ -105,6 +115,42 @@ public class UserProfileService {
 
         log.info("Retrieving user {} profile requested from user {}", targetUserId, requesterUserId);
 
+        return toUserProfileResponse(profile, relationship);
+    }
+
+    /**
+     * The same profile as getUserProfile, found by username (mentions and tagged users carry
+     * only the username), case-insensitively. Unknown, deleted, banned and blocked (either
+     * direction) all answer the same 404, so a lookup by name never tells them apart. The
+     * relationship is checked first, so a hidden profile is never read.
+     */
+    @Transactional(readOnly = true)
+    public UserProfileResponse getUserProfileByUsername(UUID requesterUserId, String username) {
+        var lookup = new UsernameLookup(username);
+        var targetUserId = userRepository.findUserIdByUsername(lookup)
+                .orElseThrow(() -> UserProfileNotFoundException.forUsername(lookup.value()));
+        ensureNotOwnProfile(requesterUserId, targetUserId);
+
+        var relationship = userRepository.findProfileRelationship(requesterUserId, targetUserId);
+        if (!relationship.targetVisible() || relationship.blocked()) {
+            log.info("Profile lookup of username {} by user {} hidden: visible={}, blocked={}",
+                    lookup.value(), requesterUserId, relationship.targetVisible(), relationship.blocked());
+            throw UserProfileNotFoundException.forUsername(lookup.value());
+        }
+        var profile = publicUserProfileReader.read(targetUserId);
+
+        log.info("Retrieving user {} profile by username requested from user {}", targetUserId, requesterUserId);
+
+        return toUserProfileResponse(profile, relationship);
+    }
+
+    private void ensureNotOwnProfile(UUID requesterUserId, UUID targetUserId) {
+        if (requesterUserId.equals(targetUserId)) {
+            throw new SelfProfileRequestNotAllowedException("A user cannot request their own public profile");
+        }
+    }
+
+    private UserProfileResponse toUserProfileResponse(PublicUserProfile profile, ProfileRelationship relationship) {
         return new UserProfileResponse(
                 profile.userId(),
                 profile.username(),
@@ -129,11 +175,36 @@ public class UserProfileService {
         }
     }
 
-    private ProfilePictureUrl toProfilePictureUrl(String profilePicture) {
+    /**
+     * A URL of another host is kept as sent. A URL of the media container is reduced to its
+     * bare blob URL (the app sends back the read-signed URL it got, and a SAS is never stored);
+     * unless it is the current picture, it must be an uploaded avatar in the caller's folder.
+     */
+    private ProfilePictureUrl resolveRequestedPicture(User user, String profilePicture) {
         if (profilePicture == null) {
             return null;
         }
-        return new ProfilePictureUrl(profilePicture);
+        var containerBlobName = profilePictureStorage.findContainerBlobName(profilePicture);
+        if (containerBlobName.isEmpty()) {
+            return new ProfilePictureUrl(profilePicture);
+        }
+        if (isCurrentPicture(user, containerBlobName.get())) {
+            return user.getPictureUrl();
+        }
+
+        var blobName = ProfilePictureBlobName.ownedBy(user.getId(), containerBlobName.get());
+        if (!profilePictureStorage.exists(blobName)) {
+            log.warn("User {} set a profile picture that was never uploaded: blob={}",
+                    user.getId().value(), blobName.value());
+            throw new ProfilePictureNotUploadedException("The profile picture has not been uploaded yet");
+        }
+        return new ProfilePictureUrl(profilePictureStorage.blobUrl(blobName));
+    }
+
+    private boolean isCurrentPicture(User user, String requestedBlobName) {
+        return user.getPictureUrl() != null && profilePictureStorage.findContainerBlobName(user.getPictureUrl().value())
+                .filter(requestedBlobName::equals)
+                .isPresent();
     }
 
     private UserBio toUserBio(String description, Map<String, String> socialMedia) {
@@ -151,11 +222,6 @@ public class UserProfileService {
         if (command.description() != null && command.description().length() > UserBio.MAX_DESCRIPTION_LENGTH) {
             throw new IllegalArgumentException(
                     "command.description must not exceed %d characters".formatted(UserBio.MAX_DESCRIPTION_LENGTH)
-            );
-        }
-        if (command.profilePicture() != null && command.profilePicture().length() > ProfilePictureUrl.MAX_LENGTH) {
-            throw new IllegalArgumentException(
-                    "command.profilePicture must not exceed %d characters".formatted(ProfilePictureUrl.MAX_LENGTH)
             );
         }
         if (command.socialMedia() != null) {

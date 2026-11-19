@@ -8,6 +8,7 @@ import com.app.socialservice.block.application.service.BlockService;
 import com.app.socialservice.block.infrastructure.request.BlockUserRequest;
 import jakarta.validation.constraints.Min;
 import java.util.List;
+import com.app.socialservice.shared.application.media.PictureUrlResponseSigner;
 import com.app.socialservice.shared.infrastructure.security.SecurityUtils;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -29,6 +30,7 @@ import org.springframework.validation.annotation.Validated;
 public class BlockController {
 
     private final BlockService blockService;
+    private final PictureUrlResponseSigner pictureUrlResponseSigner;
     private final SecurityUtils securityUtils;
 
     @PostMapping
@@ -61,6 +63,6 @@ public class BlockController {
             throw new AuthenticationCredentialsNotFoundException("User authentication failed");
         }
 
-        return ResponseEntity.ok(blockService.getBlockedUsers(requesterUserId, page));
+        return ResponseEntity.ok(pictureUrlResponseSigner.signAll(blockService.getBlockedUsers(requesterUserId, page)));
     }
 }

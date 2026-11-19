@@ -27,6 +27,12 @@ env:
   # Heap sized from the container memory limit; crash fast on OOM so the
   # pod restarts instead of limping.
   JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError"
+  # Read SAS on every profile picture returned (azure.storage.read-sas-window), same
+  # rules as post-query-service: every URL signed in one window is byte-identical and
+  # stays valid for one more window (st = window start - 5 min, se = start + 2 windows).
+  # AZURE_STORAGE_ACCOUNT_URL and AZURE_STORAGE_CONTAINER are per environment, the same
+  # account and container as post-command-service.
+  MEDIA_READ_SAS_WINDOW: 24h
 
 httpRoute:
   enabled: true

@@ -40,6 +40,17 @@ spring:
         jwt:
           issuer-uri: http://localhost:8080/realms/auth-service
 
+# --- Azure Blob Storage (local Azurite emulator, same account and container as post-command-service) ---
+azure:
+  storage:
+    account-url: http://127.0.0.1:10000/devstoreaccount1
+    container: post-media-dev
+    upload-sas-ttl: PT15M
+    read-sas-window: ${MEDIA_READ_SAS_WINDOW:PT24H}
+    use-account-key: true
+    # Azurite's well-known default emulator key (local emulator only, never a real secret).
+    account-key: ${AZURE_STORAGE_ACCOUNT_KEY:Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==}
+
 # --- Logging (verbose for debugging) ---
 logging:
   level:
