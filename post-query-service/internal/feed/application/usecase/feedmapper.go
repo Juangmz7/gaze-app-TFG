@@ -40,7 +40,8 @@ import (
 // A feed item (FeedCardResponse) and a post view (PostViewResponse, GET
 // /api/content/posts/{postId}) are one shape: the post view is the feed item without
 // position, plus collab.pendingRequestCount and viewer.collabRequestStatus. Both are
-// built by feedCardToResponse, so their field names and signing cannot drift apart.
+// built by feedCardToResponse, so their field names and signing cannot drift apart. A
+// following feed page (FollowingFeedPageResponse) is a list of post views.
 
 // MediaURLSigner adds a read-only SAS to a blob URL of the media container and returns
 // any other URL unchanged. Within one signing window it returns the same URL for the
@@ -213,6 +214,14 @@ type PostViewResponse struct {
 	DurationMS        *int64                 `json:"durationMs"`
 	Stats             FeedStatsResponse      `json:"stats"`
 	Viewer            PostViewViewerResponse `json:"viewer"`
+}
+
+// FollowingFeedPageResponse is the API shape of a following feed page (GET
+// /api/feed/following): post views newest first, and the cursor of the next page, null
+// on the last.
+type FollowingFeedPageResponse struct {
+	Items      []PostViewResponse `json:"items"`
+	NextCursor *string            `json:"nextCursor"`
 }
 
 // FeedPageResponse is the API shape of a claim response.
@@ -445,6 +454,26 @@ func PostViewToResponse(ctx context.Context, card FeedCard, signer MediaURLSigne
 		Stats:             item.Stats,
 		Viewer:            PostViewViewerResponse{FeedViewerResponse: item.Viewer},
 	}, nil
+}
+
+// FollowingFeedPageToResponse maps a following feed page to its API shape: each item
+// through PostViewToResponse, so it is exactly what GET /api/content/posts/{postId}
+// answers for that post, and a list that is never null.
+func FollowingFeedPageToResponse(ctx context.Context, page FollowingFeedPage, signer MediaURLSigner) (FollowingFeedPageResponse, error) {
+	if signer == nil {
+		return FollowingFeedPageResponse{}, errors.New("map following feed page: a media url signer is required")
+	}
+
+	items := make([]PostViewResponse, 0, len(page.Items))
+	for _, card := range page.Items {
+		view, err := PostViewToResponse(ctx, card, signer)
+		if err != nil {
+			return FollowingFeedPageResponse{}, fmt.Errorf("map following feed page: %w", err)
+		}
+		items = append(items, view)
+	}
+
+	return FollowingFeedPageResponse{Items: items, NextCursor: page.NextCursor}, nil
 }
 
 func feedCardToResponse(ctx context.Context, card FeedCard, signer MediaURLSigner) (FeedCardResponse, error) {
