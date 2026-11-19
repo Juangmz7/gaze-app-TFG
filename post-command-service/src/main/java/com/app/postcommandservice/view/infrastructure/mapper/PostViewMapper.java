@@ -10,22 +10,6 @@ import com.app.postcommandservice.view.infrastructure.entity.PostViewEntity;
 @Component
 public class PostViewMapper {
 
-    public PostViewEntity toEntity(PostView postView) {
-        return PostViewEntity.builder()
-                .id(postView.getViewId())
-                .postId(postView.getPostId().value())
-                .userId(postView.getUserId().value())
-                .source(postView.getSource())
-                .feedPosition(postView.getFeedPosition())
-                .durationMs(postView.getDurationMs())
-                .timeWatchedMs(postView.getTimeWatchedMs())
-                .completionPercent(postView.getCompletionPercent())
-                .exitReason(postView.getExitReason())
-                .serverTimestamp(postView.getServerTimestamp())
-                .replayCount(postView.getReplayCount())
-                .build();
-    }
-
     public PostView toDomain(PostViewEntity entity) {
         return new PostView(
                 entity.getId(),

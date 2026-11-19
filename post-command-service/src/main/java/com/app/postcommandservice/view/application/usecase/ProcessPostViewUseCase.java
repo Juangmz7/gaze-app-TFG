@@ -10,6 +10,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.app.postcommandservice.post.domain.model.valueobj.PostId;
 import com.app.postcommandservice.shared.domain.model.user.valueobj.UserId;
 import com.app.postcommandservice.shared.infrastructure.entity.OutboxEvent;
 import com.app.postcommandservice.shared.infrastructure.enums.EventStatus;
@@ -37,6 +38,12 @@ public class ProcessPostViewUseCase {
 
     @Transactional
     public void process(ProcessPostViewCommand command) {
+        var knownView = postViewRepository.findById(command.viewId());
+        if (knownView.isPresent()) {
+            logDuplicateView(command, knownView.get());
+            return;
+        }
+
         var activePost = postViewValidationRepository.findActivePost(command.postId());
         if (activePost.isEmpty()) {
             log.info("Discarding post view command {} because post {} does not exist or is not ACCEPTED",
@@ -54,9 +61,9 @@ public class ProcessPostViewUseCase {
         var replayCount = Math.toIntExact(postViewRepository.countByPostIdAndUserId(command.postId(), command.userId()) + 1);
         var serverTimestamp = Instant.now().truncatedTo(ChronoUnit.MICROS);
 
-        var savedView = postViewRepository.save(new PostView(
+        var view = new PostView(
                 command.viewId(),
-                new com.app.postcommandservice.post.domain.model.valueobj.PostId(command.postId()),
+                new PostId(command.postId()),
                 new UserId(command.userId()),
                 command.source(),
                 command.feedPosition(),
@@ -66,18 +73,42 @@ public class ProcessPostViewUseCase {
                 command.exitReason(),
                 serverTimestamp,
                 replayCount
-        ));
+        );
+
+        if (!postViewRepository.insertIfAbsent(view)) {
+            // Duplicate key: a concurrent delivery of the same viewId committed first.
+            postViewRepository.findById(command.viewId()).ifPresentOrElse(
+                    existing -> logDuplicateView(command, existing),
+                    () -> log.info("Discarding post view command {} because view {} was already processed concurrently",
+                            command.id(), command.viewId())
+            );
+            return;
+        }
 
         var outboxId = UUID.randomUUID();
         var event = postViewEventMapper.toPostViewedEvent(
                 outboxId,
                 command.correlationId(),
-                savedView,
+                view,
                 serverTimestamp
         );
         saveOutboxEvent(outboxId, command.correlationId(), event);
 
         applicationEventPublisher.publishEvent(new PostViewedDomainEvent(outboxId));
+    }
+
+    private void logDuplicateView(ProcessPostViewCommand command, PostView existing) {
+        var samePost = existing.getPostId().value().equals(command.postId());
+        var sameUser = existing.getUserId().value().equals(command.userId());
+        if (samePost && sameUser) {
+            log.info("Discarding post view command {} because view {} was already processed",
+                    command.id(), command.viewId());
+            return;
+        }
+        log.warn("Discarding post view command {} because view {} is already used by user {} on post {} "
+                        + "(command user {} on post {}); clients must not reuse view ids",
+                command.id(), command.viewId(), existing.getUserId().value(), existing.getPostId().value(),
+                command.userId(), command.postId());
     }
 
     private void saveOutboxEvent(UUID outboxId, UUID correlationId, PostViewedEvent event) {

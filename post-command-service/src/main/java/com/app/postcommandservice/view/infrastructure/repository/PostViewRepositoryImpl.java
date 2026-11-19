@@ -1,5 +1,7 @@
 package com.app.postcommandservice.view.infrastructure.repository;
 
+import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 import lombok.RequiredArgsConstructor;
@@ -22,7 +24,27 @@ public class PostViewRepositoryImpl implements PostViewRepository {
     }
 
     @Override
-    public PostView save(PostView postView) {
-        return postViewMapper.toDomain(postViewJpaRepository.save(postViewMapper.toEntity(postView)));
+    public Optional<PostView> findById(UUID viewId) {
+        Objects.requireNonNull(viewId, "viewId must not be null");
+        return postViewJpaRepository.findById(viewId).map(postViewMapper::toDomain);
+    }
+
+    @Override
+    public boolean insertIfAbsent(PostView postView) {
+        Objects.requireNonNull(postView, "postView must not be null");
+        var inserted = postViewJpaRepository.insertIfAbsent(
+                postView.getViewId(),
+                postView.getPostId().value(),
+                postView.getUserId().value(),
+                postView.getSource().name(),
+                postView.getExitReason().name(),
+                postView.getFeedPosition(),
+                postView.getDurationMs(),
+                postView.getTimeWatchedMs(),
+                postView.getCompletionPercent(),
+                postView.getReplayCount(),
+                postView.getServerTimestamp()
+        );
+        return inserted == 1;
     }
 }
