@@ -21,11 +21,19 @@ env:
   OTEL_TRACES_SAMPLER_ARG: "1.0"
   # Headless Service: one address per pod, balanced per call with round_robin.
   RECOMMENDATION_GRPC_ADDR: dns:///recommendation-service.recommendation-service-dev.svc.cluster.local:50051
+  # --- Azure Blob Storage (external: compose azurite) ---
+  # Same account and container as post-command-service, so the blob URLs it stores
+  # match and get a read SAS. Signing is local (account key below): no egress to Azurite.
+  AZURE_STORAGE_ACCOUNT_URL: http://azurite.dev.192-168-1-135.sslip.io:10000/devstoreaccount1
+  AZURE_STORAGE_CONTAINER: post-media-dev
 
 # Local development values only. Moved to Vault together with the prod values.
 secretEnv:
   RABBITMQ_PASSWORD: super_secret_post_query_service_rabbitmq_password_123
   RABBITMQ_AMQP_URI: amqp://post-query-service:super_secret_post_query_service_rabbitmq_password_123@rabbitmq.rabbitmq-dev.svc.cluster.local:5672/
+  # Azurite's well-known devstoreaccount1 key (local emulator only, the same as
+  # post-command-service's application-dev.yaml). Accepted only with an http account URL.
+  AZURE_STORAGE_ACCOUNT_KEY: Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==
 
 httpRoute:
   parentRef:

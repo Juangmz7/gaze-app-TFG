@@ -5,6 +5,7 @@ package wiring
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -18,6 +19,7 @@ import (
 	feedpresentation "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/feed/presentation"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/config"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/database"
+	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/mediasas"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/bootstrap"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/publisher"
 )
@@ -37,6 +39,9 @@ type Params struct {
 	Feed config.FeedConfig
 	// Recommendation holds the settings of the recommendation-service client.
 	Recommendation config.RecommendationConfig
+	// MediaSigner signs the blob URLs of every feed page. main builds the one signer the
+	// whole service shares, so every context reuses one delegation key per window.
+	MediaSigner *mediasas.Signer
 	// Logger is shared by every feed component.
 	Logger *slog.Logger
 }
@@ -59,6 +64,9 @@ type Feed struct {
 func New(ctx context.Context, params Params) (*Feed, error) {
 	cfg := params.Feed
 	logger := params.Logger
+	if params.MediaSigner == nil {
+		return nil, errors.New("wire feed: a media signer is required")
+	}
 
 	sessions := feedmongo.NewSessionRepository(params.DB)
 	if err := sessions.EnsureIndexes(ctx); err != nil {
@@ -112,7 +120,7 @@ func New(ctx context.Context, params Params) (*Feed, error) {
 		Routes: feedpresentation.Routes{
 			Heartbeat:  feedpresentation.NewHeartbeatHandler(feedusecase.NewRegisterHeartbeat(sessions, logger), logger),
 			Disconnect: feedpresentation.NewDisconnectHandler(feedusecase.NewRegisterUserDisconnected(sessions, prefetch, cfg.DisconnectWriteTimeout, logger), logger),
-			ClaimFeed:  feedpresentation.NewClaimFeedHandler(claim, logger),
+			ClaimFeed:  feedpresentation.NewClaimFeedHandler(claim, params.MediaSigner, logger),
 		},
 		Dependencies:    bootstrap.Dependencies{Prefetch: prefetch, Lease: lease},
 		sweeper:         feedsweeper.NewPrefetchSweeper(sweep, cfg.SweepInterval, logger),

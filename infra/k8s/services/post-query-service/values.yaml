@@ -68,6 +68,12 @@ env:
   RECOMMENDATION_GRPC_BACKOFF_BASE_MS: "250"
   RECOMMENDATION_GRPC_BACKOFF_MAX_MS: "1000"
   RECOMMENDATION_GRPC_BACKOFF_JITTER_PERCENT: "20"
+  # Read SAS on every blob URL returned (internal/shared/infrastructure/mediasas).
+  # Every URL signed in one window is byte-identical (the app's image cache keys on it)
+  # and stays valid for one more window: st = window start - 5 min, se = start + 2 windows.
+  # AZURE_STORAGE_ACCOUNT_URL and AZURE_STORAGE_CONTAINER are per environment, the same
+  # values post-command-service builds the blob URLs from.
+  MEDIA_READ_SAS_WINDOW: 24h
 
 httpRoute:
   enabled: true

@@ -22,6 +22,7 @@ import (
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/database"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/health"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/logging"
+	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/mediasas"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/outbox"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/bootstrap"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/publisher"
@@ -102,6 +103,18 @@ func run() error {
 		return err
 	}
 
+	// One read-SAS signer for every blob URL the service returns. It makes no network
+	// call here: a user delegation key is fetched on first use of each window.
+	mediaSigner, err := mediasas.NewFromSettings(mediasas.Settings{
+		AccountURL: cfg.Media.AccountURL,
+		Container:  cfg.Media.Container,
+		AccountKey: cfg.Media.AccountKey,
+		Window:     cfg.Media.ReadSASWindow,
+	}, slog.Default())
+	if err != nil {
+		return err
+	}
+
 	// Transactional outbox relay: publishes events stored by use cases (in the
 	// same Mongo transaction as their state change) with publisher confirms,
 	// in the background right after their commit, with the periodic batch as the
@@ -126,6 +139,7 @@ func run() error {
 		Events:         publisher.NewPublisher(outboxStore),
 		Feed:           cfg.Feed,
 		Recommendation: cfg.Recommendation,
+		MediaSigner:    mediaSigner,
 		Logger:         slog.Default(),
 	})
 	if err != nil {

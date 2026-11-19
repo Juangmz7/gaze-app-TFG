@@ -63,7 +63,7 @@ func newMux(authenticate func(http.Handler) http.Handler) (*http.ServeMux, *fake
 	presentation.RegisterRoutes(mux, authenticate, presentation.Routes{
 		Heartbeat:  presentation.NewHeartbeatHandler(fakeHeartbeat{usecases}, discardLogger()),
 		Disconnect: presentation.NewDisconnectHandler(fakeDisconnect{usecases}, discardLogger()),
-		ClaimFeed:  presentation.NewClaimFeedHandler(fakeClaim{usecases}, discardLogger()),
+		ClaimFeed:  presentation.NewClaimFeedHandler(fakeClaim{usecases}, unsignedURLs{}, discardLogger()),
 	})
 	return mux, usecases
 }
@@ -393,5 +393,33 @@ func TestClaimFeedHandler_WritesThePageAsJSON(t *testing.T) {
 	}
 	if strings.Contains(recorder.Body.String(), "served_at") || strings.Contains(recorder.Body.String(), "ingested_at") {
 		t.Fatalf("body exposes internal fields: %s", recorder.Body)
+	}
+}
+
+// failingSigner fails every signature, as when no user delegation key can be fetched.
+type failingSigner struct{}
+
+func (failingSigner) SignReadURL(context.Context, string) (string, error) {
+	return "", errors.New("user delegation key unavailable")
+}
+
+func TestClaimFeedHandler_AnswersASigningFailureWith500WithoutLeakingIt(t *testing.T) {
+	usecases := &fakeUsecases{output: usecase.ClaimFeedOutput{
+		Items: []usecase.FeedCard{{PostID: "post-1", Media: []usecase.FeedMedia{{ID: "m1", URL: "http://azurite:10000/devstoreaccount1/post-media-dev/m1", MediaType: "IMAGE", Order: 1}}}},
+	}}
+	mux := http.NewServeMux()
+	presentation.RegisterRoutes(mux, withSubject(t, uuid.NewString()), presentation.Routes{
+		Heartbeat:  presentation.NewHeartbeatHandler(fakeHeartbeat{usecases}, discardLogger()),
+		Disconnect: presentation.NewDisconnectHandler(fakeDisconnect{usecases}, discardLogger()),
+		ClaimFeed:  presentation.NewClaimFeedHandler(fakeClaim{usecases}, failingSigner{}, discardLogger()),
+	})
+
+	recorder := serve(mux, http.MethodGet, "/api/feed", "", nil)
+
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", recorder.Code)
+	}
+	if body := recorder.Body.String(); strings.Contains(body, "delegation") || strings.Contains(body, "azurite") {
+		t.Fatalf("body leaks the internal error or an unsigned url: %s", body)
 	}
 }

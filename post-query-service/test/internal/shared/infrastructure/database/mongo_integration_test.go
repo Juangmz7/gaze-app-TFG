@@ -43,6 +43,8 @@ func TestConnect_SucceedsAgainstARealMongoInstanceLoadedFromEnvironment(t *testi
 	t.Setenv("JWT_ISSUER", "http://localhost:8080/realms/auth-service")
 	t.Setenv("JWT_AUDIENCE", "account")
 	t.Setenv("RECOMMENDATION_GRPC_ADDR", "dns:///recommendation-service:50051")
+	t.Setenv("AZURE_STORAGE_ACCOUNT_URL", "http://azurite:10000/devstoreaccount1")
+	t.Setenv("AZURE_STORAGE_CONTAINER", "post-media-dev")
 
 	cfg, err := config.Load()
 	if err != nil {

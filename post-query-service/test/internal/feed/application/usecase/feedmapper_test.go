@@ -1,9 +1,12 @@
 package usecase_test
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -204,7 +207,11 @@ func TestFeedPageToResponse_UsesTheExactAgreedSchema(t *testing.T) {
 		HasMore:    true,
 	}
 
-	raw, err := json.Marshal(usecase.FeedPageToResponse(page))
+	response, err := usecase.FeedPageToResponse(context.Background(), page, unsignedURLs{})
+	if err != nil {
+		t.Fatalf("FeedPageToResponse() error = %v", err)
+	}
+	raw, err := json.Marshal(response)
 	if err != nil {
 		t.Fatalf("Marshal() error = %v", err)
 	}
@@ -243,7 +250,11 @@ func TestFeedPageToResponse_UsesTheExactAgreedSchema(t *testing.T) {
 }
 
 func TestFeedPageToResponse_EmptyPageHasAnEmptyListAndNoCursor(t *testing.T) {
-	raw, err := json.Marshal(usecase.FeedPageToResponse(usecase.ClaimFeedOutput{}))
+	response, err := usecase.FeedPageToResponse(context.Background(), usecase.ClaimFeedOutput{}, unsignedURLs{})
+	if err != nil {
+		t.Fatalf("FeedPageToResponse() error = %v", err)
+	}
+	raw, err := json.Marshal(response)
 	if err != nil {
 		t.Fatalf("Marshal() error = %v", err)
 	}
@@ -258,5 +269,94 @@ func TestFeedCardFromUnit_BasicPostHasNullCollabFields(t *testing.T) {
 
 	if card.PostType != "BASIC" || card.CollabID != nil || card.CollabTitle != nil || card.CollabStatus != nil {
 		t.Fatalf("card = %+v, want BASIC with null collab fields", card)
+	}
+}
+
+// unsignedURLs stands in for the media signer: it returns every URL as it is.
+type unsignedURLs struct{}
+
+func (unsignedURLs) SignReadURL(_ context.Context, rawURL string) (string, error) {
+	return rawURL, nil
+}
+
+// markingSigner marks every URL it signs, so a test can tell which fields went through
+// it.
+type markingSigner struct{ err error }
+
+func (s markingSigner) SignReadURL(_ context.Context, rawURL string) (string, error) {
+	if s.err != nil {
+		return "", s.err
+	}
+	return rawURL + "?sig=signed", nil
+}
+
+func TestFeedPageToResponse_SignsEveryBlobURLAndKeepsNullsNull(t *testing.T) {
+	creator := usecase.FeedCreator{UserID: "creator-1", Username: "ana", PictureURL: pointer("ana.jpg")}
+	ref := usecase.FeedUnitRef{PostID: "post-1"}
+	page := usecase.ClaimFeedOutput{Items: []usecase.FeedCard{
+		usecase.FeedCardFromUnit(ref, samplePost(), creator, nil, usecase.FeedViewerState{}),
+		usecase.FeedCardFromUnit(usecase.FeedUnitRef{PostID: "post-2"}, usecase.FeedPost{PostID: "post-2"}, usecase.FeedCreator{UserID: "creator-2"}, nil, usecase.FeedViewerState{}),
+	}}
+
+	response, err := usecase.FeedPageToResponse(context.Background(), page, markingSigner{})
+	if err != nil {
+		t.Fatalf("FeedPageToResponse() error = %v", err)
+	}
+
+	card := response.Items[0]
+	if card.Media[0].URL != "a.jpg?sig=signed" || card.Media[1].URL != "b.mp4?sig=signed" {
+		t.Fatalf("media urls = %q, %q, want both signed", card.Media[0].URL, card.Media[1].URL)
+	}
+	if card.Media[0].ThumbnailURL != nil {
+		t.Fatalf("image thumbnailUrl = %q, want null to stay null", *card.Media[0].ThumbnailURL)
+	}
+	if card.Media[1].ThumbnailURL == nil || *card.Media[1].ThumbnailURL != "b-thumb.jpg?sig=signed" {
+		t.Fatalf("video thumbnailUrl = %v, want it signed", card.Media[1].ThumbnailURL)
+	}
+	if card.CoverThumbnailURL == nil || *card.CoverThumbnailURL != "a.jpg?sig=signed" {
+		t.Fatalf("coverThumbnailUrl = %v, want the first image signed", card.CoverThumbnailURL)
+	}
+	if card.Creator.PictureURL == nil || *card.Creator.PictureURL != "ana.jpg?sig=signed" {
+		t.Fatalf("creator.pictureUrl = %v, want it signed", card.Creator.PictureURL)
+	}
+
+	empty := response.Items[1]
+	if empty.CoverThumbnailURL != nil || empty.Creator.PictureURL != nil || len(empty.Media) != 0 {
+		t.Fatalf("card without media or picture = %+v, want null urls and no media", empty)
+	}
+}
+
+func TestFeedPageToResponse_DoesNotChangeTheStoredURLs(t *testing.T) {
+	post := samplePost()
+	page := usecase.ClaimFeedOutput{Items: []usecase.FeedCard{
+		usecase.FeedCardFromUnit(usecase.FeedUnitRef{PostID: "post-1"}, post, usecase.FeedCreator{PictureURL: pointer("ana.jpg")}, nil, usecase.FeedViewerState{}),
+	}}
+
+	if _, err := usecase.FeedPageToResponse(context.Background(), page, markingSigner{}); err != nil {
+		t.Fatalf("FeedPageToResponse() error = %v", err)
+	}
+
+	card := page.Items[0]
+	for _, url := range []string{card.Media[0].URL, *card.Media[1].ThumbnailURL, *card.CoverThumbnailURL, *card.Creator.PictureURL} {
+		if strings.Contains(url, "sig=") {
+			t.Fatalf("card url %q was signed in place, want the bare url kept", url)
+		}
+	}
+}
+
+func TestFeedPageToResponse_ReturnsTheSignerError(t *testing.T) {
+	signErr := errors.New("user delegation key unavailable")
+	page := usecase.ClaimFeedOutput{Items: []usecase.FeedCard{
+		usecase.FeedCardFromUnit(usecase.FeedUnitRef{PostID: "post-1"}, samplePost(), usecase.FeedCreator{}, nil, usecase.FeedViewerState{}),
+	}}
+
+	if _, err := usecase.FeedPageToResponse(context.Background(), page, markingSigner{err: signErr}); !errors.Is(err, signErr) {
+		t.Fatalf("FeedPageToResponse() error = %v, want %v", err, signErr)
+	}
+}
+
+func TestFeedPageToResponse_RequiresASigner(t *testing.T) {
+	if _, err := usecase.FeedPageToResponse(context.Background(), usecase.ClaimFeedOutput{}, nil); err == nil {
+		t.Fatal("FeedPageToResponse() with no signer error = nil, want an error")
 	}
 }

@@ -198,7 +198,7 @@ func newRefillApp(t *testing.T, ctx context.Context, answer func(ctx context.Con
 	presentation.RegisterRoutes(app.mux, withSubject(t, app.viewerID.String()), presentation.Routes{
 		Heartbeat:  presentation.NewHeartbeatHandler(usecase.NewRegisterHeartbeat(sessions, logger), logger),
 		Disconnect: presentation.NewDisconnectHandler(usecase.NewRegisterUserDisconnected(sessions, noPrefetch{}, 5*time.Second, logger), logger),
-		ClaimFeed:  presentation.NewClaimFeedHandler(claim, logger),
+		ClaimFeed:  presentation.NewClaimFeedHandler(claim, unsignedURLs{}, logger),
 	})
 
 	return &refillApp{feedApp: app, server: server, lease: lease, prefetch: prefetch, lowWatermark: lowWatermark, leaseDenied: leaseDenied}

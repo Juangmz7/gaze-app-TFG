@@ -160,3 +160,11 @@ func withSubject(t *testing.T, subject string) func(http.Handler) http.Handler {
 		})
 	}
 }
+
+// unsignedURLs stands in for the media signer in tests about something else: it returns
+// every URL as it is. The signer has its own tests, and so does signing on GET /api/feed.
+type unsignedURLs struct{}
+
+func (unsignedURLs) SignReadURL(_ context.Context, rawURL string) (string, error) {
+	return rawURL, nil
+}
