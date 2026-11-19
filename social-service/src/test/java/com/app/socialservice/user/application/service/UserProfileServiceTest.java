@@ -16,6 +16,7 @@ import com.app.socialservice.user.application.repository.UserRepository;
 import com.app.socialservice.user.domain.enums.UserAccountStatus;
 import com.app.socialservice.user.domain.exception.InvalidProfilePictureException;
 import com.app.socialservice.user.domain.exception.InvalidProfilePictureUrlException;
+import com.app.socialservice.user.domain.exception.InvalidUsernameLookupException;
 import com.app.socialservice.user.domain.exception.ProfilePictureNotUploadedException;
 import com.app.socialservice.user.domain.exception.SelfProfileRequestNotAllowedException;
 import com.app.socialservice.user.domain.exception.UserBannedException;
@@ -29,6 +30,7 @@ import com.app.socialservice.user.domain.model.valueobj.ProfilePictureUrl;
 import com.app.socialservice.user.domain.model.valueobj.UserBio;
 import com.app.socialservice.user.domain.model.valueobj.UserId;
 import com.app.socialservice.user.domain.model.valueobj.Username;
+import com.app.socialservice.user.domain.model.valueobj.UsernameLookup;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -424,6 +426,99 @@ class UserProfileServiceTest {
                 0L,
                 0L
         );
+    }
+
+    @Nested
+    class ProfileByUsernameTest {
+
+        private final UUID requesterUserId = UUID.fromString("3f2b8c1e-7d4a-4b6e-9c2f-1a5d8e7b3c90");
+        private final UUID targetUserId = UUID.fromString("8d1e4f7a-2b5c-4e9d-a3f6-7c0b1d2e4f58");
+
+        @Test
+        void shouldLookUpTheUsernameCaseInsensitivelyAndReturnTheSameProfileAsById() {
+            when(userRepository.findUserIdByUsername(new UsernameLookup("target.user")))
+                    .thenReturn(Optional.of(targetUserId));
+            when(publicUserProfileReader.read(targetUserId)).thenReturn(publicProfile(targetUserId));
+            when(userRepository.findProfileRelationship(requesterUserId, targetUserId))
+                    .thenReturn(new ProfileRelationship(true, true, false, true));
+
+            var byUsername = userProfileService.getUserProfileByUsername(requesterUserId, "Target.USER");
+            var byId = userProfileService.getUserProfile(requesterUserId, targetUserId);
+
+            assertThat(byUsername).isEqualTo(byId);
+            assertThat(byUsername.id()).isEqualTo(targetUserId);
+            assertThat(byUsername.following()).isTrue();
+            assertThat(byUsername.followsMe()).isTrue();
+            verify(userRepository).findUserIdByUsername(new UsernameLookup("target.user"));
+        }
+
+        @Test
+        void shouldRejectAnInvalidUsernameWithoutQueryingTheRepository() {
+            assertThatThrownBy(() -> userProfileService.getUserProfileByUsername(requesterUserId, "jane-doe"))
+                    .isInstanceOf(InvalidUsernameLookupException.class);
+            assertThatThrownBy(() -> userProfileService.getUserProfileByUsername(requesterUserId, "a".repeat(65)))
+                    .isInstanceOf(InvalidUsernameLookupException.class);
+
+            verifyNoInteractions(userRepository, publicUserProfileReader);
+        }
+
+        @Test
+        void shouldThrowNotFoundForAnUnknownUsername() {
+            when(userRepository.findUserIdByUsername(new UsernameLookup("ghost"))).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> userProfileService.getUserProfileByUsername(requesterUserId, "ghost"))
+                    .isInstanceOf(UserProfileNotFoundException.class)
+                    .hasMessageContaining("ghost");
+
+            verifyNoInteractions(publicUserProfileReader);
+        }
+
+        @Test
+        void shouldThrowNotFoundInsteadOfForbiddenWhenEitherUserBlockedTheOther() {
+            when(userRepository.findUserIdByUsername(new UsernameLookup("target.user")))
+                    .thenReturn(Optional.of(targetUserId));
+            when(userRepository.findProfileRelationship(requesterUserId, targetUserId))
+                    .thenReturn(new ProfileRelationship(false, false, true, true));
+
+            assertThatThrownBy(() -> userProfileService.getUserProfileByUsername(requesterUserId, "target.user"))
+                    .isInstanceOf(UserProfileNotFoundException.class)
+                    .hasMessageContaining("target.user")
+                    .hasMessageNotContaining(targetUserId.toString());
+
+            verifyNoInteractions(publicUserProfileReader);
+        }
+
+        @Test
+        void shouldThrowNotFoundWhenTheUserIsBannedOrDeleted() {
+            when(userRepository.findUserIdByUsername(new UsernameLookup("target.user")))
+                    .thenReturn(Optional.of(targetUserId));
+            when(userRepository.findProfileRelationship(requesterUserId, targetUserId))
+                    .thenReturn(new ProfileRelationship(false, false, false, false));
+
+            assertThatThrownBy(() -> userProfileService.getUserProfileByUsername(requesterUserId, "target.user"))
+                    .isInstanceOf(UserProfileNotFoundException.class)
+                    .hasMessageContaining("target.user");
+
+            verifyNoInteractions(publicUserProfileReader);
+        }
+
+        @Test
+        void shouldThrowBadRequestWhenTheUsernameIsTheRequesters() {
+            when(userRepository.findUserIdByUsername(new UsernameLookup("self.user")))
+                    .thenReturn(Optional.of(requesterUserId));
+
+            assertThatThrownBy(() -> userProfileService.getUserProfileByUsername(requesterUserId, "Self.User"))
+                    .isInstanceOf(SelfProfileRequestNotAllowedException.class);
+
+            verifyNoInteractions(publicUserProfileReader);
+        }
+
+        @Test
+        void shouldNotCacheTheResponseBecauseItDependsOnTheRequester() throws NoSuchMethodException {
+            var method = UserProfileService.class.getMethod("getUserProfileByUsername", UUID.class, String.class);
+
+            assertThat(method.getAnnotation(Cacheable.class)).isNull();
+        }
     }
 
     @Nested
