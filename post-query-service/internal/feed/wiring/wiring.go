@@ -39,7 +39,10 @@ type Params struct {
 	Feed config.FeedConfig
 	// Recommendation holds the settings of the recommendation-service client.
 	Recommendation config.RecommendationConfig
-	// MediaSigner signs the blob URLs of every feed page, post view, comment page and grid page. main builds the one signer the
+	// ViewHistory holds the retention of the viewing history the RabbitMQ bootstrap
+	// projects and the history tab reads.
+	ViewHistory config.ViewHistoryConfig
+	// MediaSigner signs the blob URLs of every feed page, post view, comment page, grid page and own tab page. main builds the one signer the
 	// whole service shares, so every context reuses one delegation key per window.
 	MediaSigner *mediasas.Signer
 	// Logger is shared by every feed component.
@@ -126,8 +129,10 @@ func New(ctx context.Context, params Params) (*Feed, error) {
 			ListReplies:     feedpresentation.NewListRepliesHandler(feedusecase.NewListReplies(hydration, logger), params.MediaSigner, logger),
 			ListUserPosts:   feedpresentation.NewListUserPostsHandler(feedusecase.NewListUserPosts(hydration, logger), params.MediaSigner, logger),
 			ListUserReposts: feedpresentation.NewListUserRepostsHandler(feedusecase.NewListUserReposts(hydration, logger), params.MediaSigner, logger),
+			ListMyLiked:     feedpresentation.NewListMyLikedHandler(feedusecase.NewListMyLiked(hydration, logger), params.MediaSigner, logger),
+			ListMyHistory:   feedpresentation.NewListMyHistoryHandler(feedusecase.NewListMyHistory(hydration, logger), params.MediaSigner, logger),
 		},
-		Dependencies:    bootstrap.Dependencies{Prefetch: prefetch, Lease: lease},
+		Dependencies:    bootstrap.Dependencies{Prefetch: prefetch, Lease: lease, ViewHistoryRetention: params.ViewHistory.Retention},
 		sweeper:         feedsweeper.NewPrefetchSweeper(sweep, cfg.SweepInterval, logger),
 		lowWatermark:    lowWatermark,
 		recommendations: recommendations,

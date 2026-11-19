@@ -28,6 +28,9 @@ import (
 
 const testInstant = "2026-03-01T10:15:30.123456Z"
 
+// testViewHistoryRetention is the production default of VIEW_HISTORY_RETENTION_DAYS.
+const testViewHistoryRetention = 90 * 24 * time.Hour
+
 // javaEventsApp is the real consumer stack from bootstrap.Bootstrap against a real
 // broker and a real replica set, fed with the exact JSON the Java publishers emit.
 type javaEventsApp struct {
@@ -88,7 +91,7 @@ func startJavaEventsApp(t *testing.T, ctx context.Context) *javaEventsApp {
 
 	app := newPrefetchStack(t, ctx, amqpURI, db, logger)
 
-	result, err := bootstrap.Bootstrap(ctx, amqpURI, db, bootstrap.Dependencies{Prefetch: app.prefetch, Lease: app.lease}, logger)
+	result, err := bootstrap.Bootstrap(ctx, amqpURI, db, bootstrap.Dependencies{Prefetch: app.prefetch, Lease: app.lease, ViewHistoryRetention: testViewHistoryRetention}, logger)
 	if err != nil {
 		t.Fatalf("Bootstrap() error = %v", err)
 	}
@@ -246,6 +249,46 @@ func postCreatedJSON(postID, userID string) string {
 
 func likeCreatedJSON(postID, userID string) string {
 	return fmt.Sprintf(`{%s,"postId":"%s","userId":"%s","source":"HOME_FEED","feedPosition":3,"createdAt":"%s"}`, envelope(), postID, userID, testInstant)
+}
+
+// postViewedJSON is the PostViewedEvent record post-command-service publishes, field for
+// field, viewed by userID at serverTimestamp.
+func postViewedJSON(postID, userID, serverTimestamp string) string {
+	return fmt.Sprintf(`{%s,"viewId":"%s","postId":"%s","userId":"%s","source":"HOME_FEED","feedPosition":2,"durationMs":15000,"timeWatchedMs":9000,"completionPercent":60,"exitReason":"SCROLL_NEXT","serverTimestamp":"%s","replayCount":1}`,
+		envelope(), uuid.NewString(), postID, userID, serverTimestamp)
+}
+
+func TestConsumers_ProjectRealPostViewedEventsIntoOneHistoryRowWithTheLatestView(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	app := startJavaEventsApp(t, ctx)
+
+	postID, viewer := uuid.NewString(), uuid.NewString()
+	base := time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC)
+	latest := base.Add(9 * time.Minute)
+	// Ten views of the same post, the newest published before two older ones that are
+	// delivered late.
+	for _, minute := range []int{0, 1, 2, 3, 4, 5, 6, 9, 7, 8} {
+		at := base.Add(time.Duration(minute) * time.Minute).Format("2006-01-02T15:04:05.000000Z")
+		app.publish(t, ctx, topology.ExchangePostEvents, topology.RKPostViewed, postViewedJSON(postID, viewer, at))
+	}
+	app.waitUntilDrained(t, ctx, topology.QueuePost, 0)
+
+	filter := bson.D{{Key: "user_id", Value: viewer}, {Key: "post_id", Value: postID}}
+	rows, err := app.db.Collection("view_history").CountDocuments(ctx, filter)
+	if err != nil {
+		t.Fatalf("CountDocuments() error = %v", err)
+	}
+	if rows != 1 {
+		t.Fatalf("view_history rows = %d, want 1 for ten views of one post", rows)
+	}
+	var row struct {
+		LastViewedAt time.Time `bson:"last_viewed_at"`
+	}
+	app.waitForDocument(t, ctx, "view_history", filter, &row)
+	if !row.LastViewedAt.Equal(latest) {
+		t.Fatalf("last_viewed_at = %v, want the latest view %v despite the late older ones", row.LastViewedAt, latest)
+	}
 }
 
 func TestConsumers_ProjectARealCamelCasePostCreatedEventWithItsMedia(t *testing.T) {

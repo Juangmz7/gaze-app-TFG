@@ -21,6 +21,7 @@ func TestLoad_ParsesValidEnvironmentVariablesIntoConfig(t *testing.T) {
 	setEnv(t, "FEED_INSTANCE_ID", "post-query-service-7d9f")
 	setEnv(t, "RECOMMENDATION_GRPC_ADDR", "dns:///recommendation-service:50051")
 	setMediaEnv(t)
+	unsetEnv(t, "VIEW_HISTORY_RETENTION_DAYS")
 
 	got, err := config.Load()
 	if err != nil {
@@ -80,6 +81,7 @@ func TestLoad_ParsesValidEnvironmentVariablesIntoConfig(t *testing.T) {
 			AccountKey:    azuriteAccountKey,
 			ReadSASWindow: 24 * time.Hour,
 		},
+		ViewHistory: config.ViewHistoryConfig{Retention: 90 * 24 * time.Hour},
 	}
 
 	if got != want {
@@ -515,6 +517,33 @@ func TestLoad_RejectsMediaSettingsThatMakeNoSense(t *testing.T) {
 
 			if _, err := config.Load(); err == nil {
 				t.Fatalf("Load() error = nil, want an error when the %s", tt.name)
+			}
+		})
+	}
+}
+
+func TestLoad_ReadsTheViewHistoryRetentionInDays(t *testing.T) {
+	setRequiredEnv(t)
+	setEnv(t, "VIEW_HISTORY_RETENTION_DAYS", "30")
+
+	got, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+
+	if got.ViewHistory.Retention != 30*24*time.Hour {
+		t.Fatalf("ViewHistory.Retention = %s, want 30 days", got.ViewHistory.Retention)
+	}
+}
+
+func TestLoad_RejectsAViewHistoryRetentionThatMakesNoSense(t *testing.T) {
+	for _, value := range []string{"0", "-1", "ninety", "90d", "3651"} {
+		t.Run(value, func(t *testing.T) {
+			setRequiredEnv(t)
+			setEnv(t, "VIEW_HISTORY_RETENTION_DAYS", value)
+
+			if _, err := config.Load(); err == nil {
+				t.Fatalf("Load() error = nil, want an error for VIEW_HISTORY_RETENTION_DAYS=%q", value)
 			}
 		})
 	}
