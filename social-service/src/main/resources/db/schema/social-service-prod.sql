@@ -34,6 +34,14 @@ CREATE TABLE IF NOT EXISTS follows (
 CREATE INDEX IF NOT EXISTS idx_follows_follower_id_status
     ON follows (follower_id, status);
 
+-- Followers / following lists: keyset pages ordered by created_at DESC, then the listed user's
+-- id DESC. Each index matches one list's sort exactly, so every page is an index seek.
+CREATE INDEX IF NOT EXISTS idx_follows_followers_page
+    ON follows (followed_id, created_at DESC, follower_id DESC);
+
+CREATE INDEX IF NOT EXISTS idx_follows_following_page
+    ON follows (follower_id, created_at DESC, followed_id DESC);
+
 -- Post count per user: the posts live in post-command-service, only their events arrive.
 -- Changed by atomic upserts in the transaction that records the event as processed.
 -- Followers and following are counted from follows.
