@@ -10,6 +10,8 @@ import com.app.socialservice.follow.domain.exception.SelfFollowNotAllowedExcepti
 import com.app.socialservice.follow.domain.exception.SelfUnfollowNotAllowedException;
 import com.app.socialservice.shared.domain.exception.UserNotFoundException;
 import com.app.socialservice.shared.domain.exception.DomainException;
+import com.app.socialservice.shared.domain.exception.InvalidCursorException;
+import com.app.socialservice.shared.domain.exception.InvalidPageLimitException;
 import com.app.socialservice.user.domain.exception.InvalidEmailException;
 import com.app.socialservice.user.domain.exception.InvalidProfilePictureException;
 import com.app.socialservice.user.domain.exception.InvalidProfilePictureSizeException;
@@ -37,6 +39,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 @Slf4j
 @RestControllerAdvice
@@ -104,6 +107,40 @@ public class ApiExceptionHandler {
                 HttpStatus.BAD_REQUEST,
                 ApiErrorCode.INVALID_USERNAME,
                 exception.getMessage(),
+                request
+        );
+    }
+
+    @ExceptionHandler({
+            InvalidCursorException.class,
+            InvalidPageLimitException.class
+    })
+    public ResponseEntity<ApiErrorResponse> handlePaginationException(
+            DomainException exception,
+            HttpServletRequest request) {
+
+        var errorCode = exception instanceof InvalidCursorException
+                ? ApiErrorCode.INVALID_CURSOR
+                : ApiErrorCode.INVALID_LIMIT;
+        log.warn("Pagination request rejected on {}: errorCode={}, reason={}",
+                request.getRequestURI(), errorCode, exception.getMessage());
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, errorCode, exception.getMessage(), request);
+    }
+
+    /**
+     * A path or query value that does not convert to the declared type (e.g. a malformed UUID in
+     * /follow/{userId}/followers): a client error, not a 500. The message names only the parameter.
+     */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiErrorResponse> handleMethodArgumentTypeMismatchException(
+            MethodArgumentTypeMismatchException exception,
+            HttpServletRequest request) {
+
+        log.warn("Malformed request parameter on {}: name={}", request.getRequestURI(), exception.getName());
+        return buildErrorResponse(
+                HttpStatus.BAD_REQUEST,
+                ApiErrorCode.BAD_REQUEST,
+                String.format("%s is malformed", exception.getName()),
                 request
         );
     }
