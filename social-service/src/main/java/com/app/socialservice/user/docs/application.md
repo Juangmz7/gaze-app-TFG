@@ -19,8 +19,9 @@ The application layer orchestrates user registration, auth-info synchronization,
 
 ## Components
 ### Commands & Services
-- `UserService`, `UserNodeService`, `RecommendedUserService`, `UserProfileService`, `UserStatsService`
+- `UserService`, `UserNodeService`, `RecommendedUserService`, `UserProfileService`, `UserStatsService`, `ProfilePictureUploadService` (avatar upload URL)
 - `UserRegisterCommand`, `UpdateAuthUserInfoCommand`, `DeleteUserCommand`
-- `UpdateOwnUserProfileCommand`, `SynchroniseSecondaryDatabaseCommand`
+- `UpdateOwnUserProfileCommand`, `SynchroniseSecondaryDatabaseCommand`, `RequestProfilePictureUploadCommand`
 ### Interfaces
-- `UserRepository`, `UserStatsRepository`
+- `UserRepository`, `UserStatsRepository`, `ProfilePictureStorage` (port to the media container)
+- Profile update: a media-container picture is stored bare and, when new, must be an uploaded avatar of the caller (see docs/social-service.md). `updateOwnUserProfile` is not one transaction, so the Blob check holds no DB connection; it evicts own + public profiles before reading the fresh one for `@CachePut`.

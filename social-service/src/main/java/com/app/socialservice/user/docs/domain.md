@@ -14,6 +14,8 @@ The domain layer defines the core business model for a **User**. It contains the
 - `User`: Encapsulates user identity and profile data. 
 ### Value Objects
 - `UserId`, `Username`, `Email`, `ProfilePictureUrl`, `UserBio`
+- `ProfilePictureBlobName` (`avatars/{userId}/{uuid}.{ext}`, generated or checked against the caller), `ProfilePictureSize` (1..5 MiB)
 ### Events & Enums
 - `UserRegisteredDomainEvent`, `UserAuthInfoUpdatedDomainEvent`, `UserDeletedDomainEvent`
 - `UserAccountStatus` (ACCEPTED, DELETED, BANNED)
+- `ProfilePictureContentType` (image/jpeg, image/png, image/webp)

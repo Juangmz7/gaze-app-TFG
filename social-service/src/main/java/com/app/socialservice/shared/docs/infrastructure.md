@@ -19,3 +19,5 @@ Contains cross-cutting infrastructure implementations: security, API error handl
 - `OutboxEvent`, `ProcessedEvent`, `OutboxEventRepository`, `ProcessedEventsRepository`
 - `ImmediateOutboxSender`, `OutboxRelay`, `OutboxDestinationResolver`, `OutboxDestination`
 - `EventMessage`, `JsonMapper`
+- `AzureStorageConfig`, `AzureStorageProperties`, `BlobContainerLocation`, `AzureMediaReadUrlSigner` (read SAS, fixed windows), `sas/` (`AccountKeyBlobSasSigner`, `UserDelegationBlobSasSigner` with cached per-window keys)
+- Application side (`shared/application/media`): `MediaReadUrlSigner` port, `PictureUrlResponseSigner`, `SignablePictureUrl`

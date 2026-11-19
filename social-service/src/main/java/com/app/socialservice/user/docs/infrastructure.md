@@ -15,6 +15,9 @@ The infrastructure layer provides concrete implementations for the application's
 ### Persistence
 - `UserEntity` (JPA), `UserNode` (Neo4j)
 - `JpaUserRepository`, `UserRepositoryImpl`, `UserStatsRepositoryImpl`, `UserNodeRepository`
+### Azure Blob
+- `AzureProfilePictureStorage`: write-only upload SAS (`sp=cw`, 15 min), bare blob URLs, blob existence (`getProperties`)
+- `StorableProfilePictureUrl` request constraint: a container URL is measured without its SAS query
 ### Messaging
 - `UserRegisteredEventPublisher`, `UserDeletedEventPublisher`, `UserUpdatedEventPublisher`
 - `UserRabbitMQListener`
@@ -24,5 +27,7 @@ The infrastructure layer provides concrete implementations for the application's
 - `UserProfileController`, `RecommendedUserController`
 - `GET /api/social/profile/me`
 - `GET /api/social/profile/{userId}`
-- `PUT /api/social/profile`
+- `PUT /api/social/profile` and `PUT /api/social/profile/me`
+- `POST /api/social/profile/me/picture/upload-url`
+- Every returned picture is read-signed by `PictureUrlResponseSigner` in the controller (never inside cached services)
 - `GET /api/social/recommended/users`
