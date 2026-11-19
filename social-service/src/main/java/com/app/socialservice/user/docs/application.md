@@ -11,7 +11,7 @@ The application layer orchestrates user registration, auth-info synchronization,
 - **User Stats in PostgreSQL**: followers and following are counted from the active rows of `follows`, which follow, unfollow and block change in their own transaction, so they cannot drift. The post count is the one counter (`user_stats`): its events come from post-command-service, and `PostRabbitMQListener` changes it in the same transaction that records the event as processed, only when that insert happened, so a redelivery counts nothing.
 - **Caching** (Redis, `CacheNames`), every cache keyed by one user id:
   - `user-own-profile` (30 min): `UserProfileService.getOwnProfile`; `updateOwnUserProfile` replaces it.
-  - `user-public-profile` (30 min): `PublicUserProfileReader`, the part of a profile that is the same whoever asks. `getUserProfile` reads following, follows me and blocked on every request.
+  - `user-public-profile` (30 min): `PublicUserProfileReader`, the part of a profile that is the same whoever asks. `getUserProfile` and `getUserProfileByUsername` read following, follows me and blocked on every request.
   - `user-recommended-users` (5 min): `RecommendedUserService`, per requester.
   - `UserCacheEvictor` evicts exactly the users a change touched: follows, blocks, post counts, profile and auth-info updates, deletion. The cache manager is transaction aware, so the eviction runs after the commit.
   - A banned or missing user throws and is never cached. Nothing in this service bans a user: a ban applied elsewhere must evict that user's profiles.
@@ -24,4 +24,5 @@ The application layer orchestrates user registration, auth-info synchronization,
 - `UpdateOwnUserProfileCommand`, `SynchroniseSecondaryDatabaseCommand`, `RequestProfilePictureUploadCommand`
 ### Interfaces
 - `UserRepository`, `UserStatsRepository`, `ProfilePictureStorage` (port to the media container)
+- Profile by username: `getUserProfileByUsername` resolves the id with `UserRepository.findUserIdByUsername` (case-insensitive) and builds the same `UserProfileResponse` as `getUserProfile`; unknown, deleted, banned and blocked all throw `UserProfileNotFoundException`.
 - Profile update: a media-container picture is stored bare and, when new, must be an uploaded avatar of the caller (see docs/social-service.md). `updateOwnUserProfile` is not one transaction, so the Blob check holds no DB connection; it evicts own + public profiles before reading the fresh one for `@CachePut`.
