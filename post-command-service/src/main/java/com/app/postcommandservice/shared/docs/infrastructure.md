@@ -6,14 +6,17 @@ Contains cross-cutting infrastructure implementations: security, API error handl
 ## Key Design Choices
 - **Centralized Outbox Processing**: The outbox relay lives here. `OutboxDestinationResolver` stores each row's exchange and routing key at insert time (from the `EventPublisher` that supports its event type), inside the business transaction. `OutboxRelay` claims rows one at a time (`FOR UPDATE SKIP LOCKED`, safe with several instances), publishes them as persistent JSON with publisher confirms and marks them `PROCESSED` only after the broker ack. Failures go back to `PENDING` with `attempts`/`last_error` and stop the batch to keep ordering; after 10 attempts the row is `FAILED`. A claim left in `PROCESSING` (its relay died) is reclaimed once its 60 s lock expires; a failure is only recorded by the claim that still owns the row (matched by `attempts`), so a relay whose lock expired cannot undo a newer claim or a `PROCESSED` row. Unroutable messages (acked but returned) are logged and marked processed. `ImmediateOutboxSender` publishes each row right after commit through the same path; a daily job deletes processed rows older than 7 days. Delivery is at-least-once, so consumers deduplicate by message id; when a confirmed row cannot be marked `PROCESSED`, the relay logs that it will be republished as a duplicate once its lock expires.
 - **Global Error Handling**: `ApiExceptionHandler` intercepts exceptions and formats standard API error responses, keeping controllers clean.
-- **Security Configuration**: Centralized Spring Security setup for JWT validation.
+- **Security Configuration**: Centralized Spring Security setup for JWT validation. `KeycloakRealmRoleConverter` maps Keycloak `realm_access.roles` to `ROLE_*` authorities (alongside the default `SCOPE_*` ones); `SecurityConfig` restricts the report lists to `ROLE_ADMIN` and `CustomAccessDeniedHandler` answers those 403s with the standard `ApiErrorResponse` body.
+- **Keyset Pagination**: `KeysetCursorCodec` encodes/decodes the opaque `cursor` (unpadded base64url of `<instant>|<uuid>`, the last row's `(created_at, id)`); malformed cursors raise `InvalidCursorException` (`invalid_cursor`). `PageLimit` (shared domain) parses `limit` (1..50, default 20) and raises `InvalidPageLimitException` (`invalid_limit`).
+- **Error Codes**: generic codes are UPPER_CASE; feature-specific codes are snake_case on the wire through `@JsonProperty` (`post_not_found`, `comment_not_found`, `cannot_report_own_content`, `invalid_cursor`, `invalid_limit`). Unreadable bodies (malformed JSON, unknown enum, malformed UUID) answer 400 `VALIDATION_ERROR`.
 - **RabbitMQ Schema Ownership**: `RabbitMQConfig` declares exchanges, queues, dead-letter queues, bindings, JSON conversion, retry advice, and listener container settings from `RabbitMQProperties`.
 - **Idempotent Message Handling**: `AbstractRabbitMQListenerSupport` provides duplicate detection and processed-event recording through `ProcessedEventsRepository`.
 - **Multi-Store Configuration**: JPA/PostgreSQL, and Redis configuration are centralized here so feature modules depend on repository interfaces and Spring beans rather than connection details.
 
 ## Components
 - `DatasourceConfig`, `JpaConfig`, `RedisConfig`
-- `SecurityConfig`, `SecurityUtils`, `CustomAuthenticationEntryPoint`, `ApiExceptionHandler`
+- `SecurityConfig`, `SecurityUtils`, `CustomAuthenticationEntryPoint`, `CustomAccessDeniedHandler`, `KeycloakRealmRoleConverter`, `ApiExceptionHandler`, `ApiErrorCode`
+- `KeysetCursorCodec`
 - `RabbitMQConfig`, `RabbitMQProperties`, `EventPublisher`
 - `AbstractRabbitMQListenerSupport`
 - `OutboxEvent`, `ProcessedEvent`, `OutboxEventRepository`, `ProcessedEventsRepository`
