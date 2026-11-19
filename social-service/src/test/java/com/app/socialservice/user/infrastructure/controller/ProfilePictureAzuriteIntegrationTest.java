@@ -32,6 +32,7 @@ import tools.jackson.databind.json.JsonMapper;
 import com.app.socialservice.TestcontainersConfiguration;
 import com.app.socialservice.block.infrastructure.repository.JpaBlockRepository;
 import com.app.socialservice.follow.infrastructure.repository.JpaFollowRepository;
+import com.app.socialservice.follow.testutil.FollowMother;
 import com.app.socialservice.shared.infrastructure.azure.BlobContainerLocation;
 import com.app.socialservice.shared.testutil.SocialIntegrationSeeder;
 import com.app.socialservice.user.application.cache.CacheNames;
@@ -291,6 +292,29 @@ class ProfilePictureAzuriteIntegrationTest {
 
         assertThat(byUsername).isEqualTo(byId);
         assertDownloadableSignedUrlOf(byUsername.get("profilePic").asString(), targetPicture);
+    }
+
+    @Test
+    void followersAndFollowingListsReturnReadSignedPictures() throws Exception {
+        var requesterId = seedUser("requester", null);
+        var ownerId = seedUser("owner", null);
+        var followerId = UUID.randomUUID();
+        var followerPicture = uploadAvatarOf(followerId);
+        seedUser(followerId, "follower", followerPicture);
+        var followedId = UUID.randomUUID();
+        var followedPicture = uploadAvatarOf(followedId);
+        seedUser(followedId, "followed", followedPicture);
+        SocialIntegrationSeeder.seedFollow(jpaFollowRepository,
+                FollowMother.activeEntity(followerId, ownerId, Instant.now(), Instant.now()));
+        SocialIntegrationSeeder.seedFollow(jpaFollowRepository,
+                FollowMother.activeEntity(ownerId, followedId, Instant.now(), Instant.now()));
+
+        var followers = getJson("/api/social/follow/" + ownerId + "/followers", requesterId);
+        var following = getJson("/api/social/follow/" + ownerId + "/following", requesterId);
+
+        assertDownloadableSignedUrlOf(followers.get("items").get(0).get("profilePic").asString(), followerPicture);
+        assertDownloadableSignedUrlOf(following.get("items").get(0).get("profilePic").asString(), followedPicture);
+        assertThat(jpaUserRepository.findById(followerId).orElseThrow().getPictureUrl()).isEqualTo(followerPicture);
     }
 
     private void assertDownloadableSignedUrlOf(String signedUrl, String bareUrl) throws Exception {
