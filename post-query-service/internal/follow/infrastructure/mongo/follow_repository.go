@@ -41,22 +41,39 @@ func NewRepository(db *mongo.Database) *Repository {
 	return &Repository{collection: db.Collection(collectionName)}
 }
 
+// RecentFollowsIndex is the name of the user_follows index that serves the following
+// feed (GET /api/feed/following, task 51): the users a follower follows, most recent
+// follow first. It holds every field that read returns, so the read is covered (no
+// document is fetched), and its sort is the index order (no SORT stage).
+const RecentFollowsIndex = "follower_user_id_1_created_at_-1_followed_user_id_-1"
+
 // EnsureIndexes creates the unique compound index on
 // (follower_user_id, followed_user_id) required to make Insert idempotent
-// under concurrent or retried deliveries of the same creation event.
+// under concurrent or retried deliveries of the same creation event, and
+// RecentFollowsIndex.
 func (r *Repository) EnsureIndexes(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
 
-	indexModel := mongo.IndexModel{
-		Keys: bson.D{
-			{Key: "follower_user_id", Value: 1},
-			{Key: "followed_user_id", Value: 1},
+	indexModels := []mongo.IndexModel{
+		{
+			Keys: bson.D{
+				{Key: "follower_user_id", Value: 1},
+				{Key: "followed_user_id", Value: 1},
+			},
+			Options: options.Index().SetUnique(true),
 		},
-		Options: options.Index().SetUnique(true),
+		{
+			Keys: bson.D{
+				{Key: "follower_user_id", Value: 1},
+				{Key: "created_at", Value: -1},
+				{Key: "followed_user_id", Value: -1},
+			},
+			Options: options.Index().SetName(RecentFollowsIndex),
+		},
 	}
 
-	if _, err := r.collection.Indexes().CreateOne(ctx, indexModel); err != nil {
+	if _, err := r.collection.Indexes().CreateMany(ctx, indexModels); err != nil {
 		return fmt.Errorf("ensure user_follows indexes: %w", err)
 	}
 
