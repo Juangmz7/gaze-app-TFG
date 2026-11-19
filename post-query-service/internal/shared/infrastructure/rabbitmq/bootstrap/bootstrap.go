@@ -217,6 +217,7 @@ func addPostConsumer(ctx context.Context, wmRouter *message.Router, amqpURI stri
 	commentLikeRepository := commentmongo.NewCommentLikeRepository(db)
 	shareRepository := sharemongo.NewRepository(db)
 	collabRepository := collabmongo.NewRepository(db)
+	collabMemberRepository := collabmongo.NewMemberRepository(db)
 	historyRepository := viewmongo.NewHistoryRepository(db)
 	for _, ensure := range []func(context.Context) error{
 		postRepository.EnsureIndexes,
@@ -226,6 +227,7 @@ func addPostConsumer(ctx context.Context, wmRouter *message.Router, amqpURI stri
 		commentLikeRepository.EnsureIndexes,
 		shareRepository.EnsureIndexes,
 		collabRepository.EnsureIndexes,
+		collabMemberRepository.EnsureIndexes,
 		func(ctx context.Context) error { return historyRepository.EnsureIndexes(ctx, historyRetention) },
 	} {
 		if err := ensure(ctx); err != nil {
@@ -235,7 +237,8 @@ func addPostConsumer(ctx context.Context, wmRouter *message.Router, amqpURI stri
 
 	// The stats-adjusting handlers commit their projection, the post counter and
 	// the idempotency record in one transaction; the view handler its history row and
-	// the idempotency record.
+	// the idempotency record; the collab membership handlers their member row and the
+	// idempotency record.
 	transactor := database.NewTransactor(db.Client())
 
 	postCreatedHandler := postrabbitmq.NewPostCreatedHandler(idempotencyRepo, postusecase.NewCreatePost(postRepository), logger)
@@ -254,6 +257,15 @@ func addPostConsumer(ctx context.Context, wmRouter *message.Router, amqpURI stri
 	collabOpenedHandler := collabrabbitmq.NewPostCollabOpenedHandler(idempotencyRepo, collabusecase.NewRecordCollabOpened(collabRepository), logger)
 	collabClosedHandler := collabrabbitmq.NewPostCollabClosedHandler(idempotencyRepo, collabusecase.NewCloseCollab(collabRepository), logger)
 	collabDeletedHandler := collabrabbitmq.NewCollabDeletedHandler(idempotencyRepo, collabusecase.NewDeleteCollab(collabRepository), logger)
+	// The six membership events carry the whole member row and share one forward-only
+	// usecase: a late event never moves a membership back in time.
+	applyCollabMember := collabusecase.NewApplyCollabMember(collabMemberRepository)
+	collabRequestCreatedHandler := collabrabbitmq.NewCollabJoinRequestCreatedHandler(transactor, idempotencyRepo, applyCollabMember, logger)
+	collabRequestAcceptedHandler := collabrabbitmq.NewCollabJoinRequestAcceptedHandler(transactor, idempotencyRepo, applyCollabMember, logger)
+	collabRequestDeclinedHandler := collabrabbitmq.NewCollabJoinRequestDeclinedHandler(transactor, idempotencyRepo, applyCollabMember, logger)
+	collabRequestDeletedHandler := collabrabbitmq.NewCollabJoinRequestDeletedHandler(transactor, idempotencyRepo, applyCollabMember, logger)
+	collabMemberLeftHandler := collabrabbitmq.NewCollabMemberLeftHandler(transactor, idempotencyRepo, applyCollabMember, logger)
+	collabMemberBannedHandler := collabrabbitmq.NewCollabMemberBannedHandler(transactor, idempotencyRepo, applyCollabMember, logger)
 	postViewedHandler := viewrabbitmq.NewPostViewedHandler(transactor, idempotencyRepo, viewusecase.NewRecordPostView(historyRepository), logger)
 
 	// Every routing key listed in topology.PostRoutingKeys is bound to this
@@ -283,6 +295,12 @@ func addPostConsumer(ctx context.Context, wmRouter *message.Router, amqpURI stri
 		topology.RKPostCollabClosed:             collabClosedHandler.Handle,
 		topology.RKPostCollabDeleted:            collabDeletedHandler.Handle,
 		topology.RKPostCollabLinked:             postCollabLinkedHandler.Handle,
+		topology.RKPostCollabRequestCreated:     collabRequestCreatedHandler.Handle,
+		topology.RKPostCollabRequestAccepted:    collabRequestAcceptedHandler.Handle,
+		topology.RKPostCollabRequestDeclined:    collabRequestDeclinedHandler.Handle,
+		topology.RKPostCollabRequestDeleted:     collabRequestDeletedHandler.Handle,
+		topology.RKPostCollabMemberLeft:         collabMemberLeftHandler.Handle,
+		topology.RKPostCollabMemberBanned:       collabMemberBannedHandler.Handle,
 	}
 	dispatcher := dispatch.New(spec.Queue, handlers, logger)
 
