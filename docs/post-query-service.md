@@ -1,7 +1,7 @@
 # post-query-service
 
 ## What it does
-Read side of the platform, written in Go. It consumes the events of `post-command-service` and `social-service` from RabbitMQ, keeps its own read models in MongoDB, and serves the home feed (`/api/feed`) and post, comment, profile grid and own tab (liked, history) reads (`/api/content`) over HTTP.
+Read side of the platform, written in Go. It consumes the events of `post-command-service` and `social-service` from RabbitMQ, keeps its own read models in MongoDB, and serves the home feed (`/api/feed`), the following feed (`/api/feed/following`) and post, comment, profile grid and own tab (liked, history) reads (`/api/content`) over HTTP.
 
 ## Packages used
 - **`net/http`:** `ServeMux` with method patterns.
@@ -19,6 +19,7 @@ Every endpoint needs a valid `Authorization: Bearer` token. The user always come
 | `POST /api/feed/heartbeat` | 204 | Marks the user present and due a prefetch, in their single `user_feed_sessions` document. |
 | `POST /api/feed/disconnect` | 202 | Records the end of the session on the same document, even if the client closes right away, and asks for the feed to be prepared. Never waits for the broker or recommendation-service. |
 | `GET /api/feed?lastSeenId=<postId>&limit=<n>` | 200, or 503 with `Retry-After` | Returns the next page, building it first when nothing is left. |
+| `GET /api/feed/following?cursor=&limit=` | 200 `{ items: PostView[], nextCursor }`, 400 `invalid_cursor` / `invalid_limit` | The Home "Following" tab (see "Following feed"). Touches nothing of the feed above. |
 
 Both query parameters are optional. A malformed `lastSeenId`, or a `limit` that is not a positive integer up to the maximum, is a 400.
 
@@ -53,6 +54,14 @@ Each item has:
 | `durationMs` | Sum of the `VIDEO` durations. Null when there is no video. |
 | `stats.likeCount`, `stats.commentCount`, `stats.shareCount` | Current values. |
 | `viewer.liked`, `viewer.shared`, `viewer.followingCreator` | The caller's state. |
+
+### Following feed
+`GET /api/feed/following` is the Home "Following" tab: the posts of the users the caller follows, newest first (`createdAt`, then `postId`, both descending). Items are `PostView`s, exactly what `GET /api/content/posts/{postId}` answers for each post (see "Content API").
+
+- **Separate from the recommended feed.** It reads the posts read model directly: no feed unit is read or marked served, no position is involved, the presence document is not touched and no prefetch is triggered. Opening the tab never consumes the recommended feed.
+- **Who.** The caller's follows are read once per request (`user_follows`, most recent first, on `{ follower_user_id: 1, created_at: -1, followed_user_id: -1 }`). Above `FEED_FOLLOWING_MAX_FOLLOWS` (2000 by default) only the most recent follows are used, and that is logged. The caller's own posts, the posts of users in a block relation with the caller (either direction) and of users no longer projected are left out before the page is read, so they never take a place in it.
+- **Empty.** A caller who follows nobody (or only hidden users) gets `{"items": [], "nextCursor": null}`.
+- Keyset pagination as for the grids: `limit` 1 to 50 (default 20), opaque `cursor`, `nextCursor` null on the last page. A page reads the posts index of the profile grids (`{ user_id: 1, created_at: -1, post_id: -1 }`) with `user_id` in the followed ids, in groups of 200 ids: each group is one merge of index seeks that start at the cursor, so page N costs what page 2 costs. Neither key changes, so a post is never served twice, and a post published while the caller pages shows up on the next refresh, not further down.
 
 ### Media URLs
 The media container is private, so every blob URL in a response carries a read-only SAS: `media[].url`, `media[].thumbnailUrl`, `coverThumbnailUrl` and `creator.pictureUrl`. Download them as they are, with no header. The shape does not change (`string | null`, null stays null).
@@ -156,6 +165,7 @@ A retry on a timeout runs the pipeline again, so the limit per attempt (10 s) is
 | `FEED_MAX_READS_PER_CLAIM` | `3` | How many times a claim reads further to replace dropped items. |
 | `FEED_RETENTION_HOURS` | `168` | How long a served feed unit is kept. |
 | `FEED_DISCONNECT_WRITE_TIMEOUT_MS` | `5000` | Time limit of the disconnect write and its prefetch request. |
+| `FEED_FOLLOWING_MAX_FOLLOWS` | `2000` | The following feed reads the posts of at most this many of the caller's follows, the most recent ones, 1 to 5000. |
 | `FEED_INSTANCE_ID` | hostname | Owner recorded on a lease. |
 | `FEED_PREFETCH_MAX_UNSERVED` | `60` | Unserved items at which every trigger skips. Not below `FEED_DEFAULT_PAGE_SIZE`. |
 | `FEED_PREFETCH_EXCLUDED_IDS_CAP` | `200` | Most ids sent as `excludedPostIds`. Not below `FEED_PREFETCH_MAX_UNSERVED`. |
@@ -185,4 +195,4 @@ A retry on a timeout runs the pipeline again, so the limit per attempt (10 s) is
 | `VIEW_HISTORY_RETENTION_DAYS` | `90` | How long a viewing history entry lives after the caller's last view of that post (TTL index), 1 to 3650. |
 
 ## Tests
-`./test.sh` from `post-query-service/`. It needs Docker: integration tests use Testcontainers for MongoDB, RabbitMQ and Azurite (`mcr.microsoft.com/azure-storage/azurite:3.35.0`, where `GET /api/feed` and `GET /api/content/posts/{postId}` are checked to return media URLs that download). The gRPC tests run a real server on localhost. The comment list, profile grid and own tab tests read the queries the service ran from the MongoDB profiler and explain them (one index scan, no in-memory sort, as many keys on a deep page as on page 2).
+`./test.sh` from `post-query-service/`. It needs Docker: integration tests use Testcontainers for MongoDB, RabbitMQ and Azurite (`mcr.microsoft.com/azure-storage/azurite:3.35.0`, where `GET /api/feed` and `GET /api/content/posts/{postId}` are checked to return media URLs that download). The gRPC tests run a real server on localhost. The comment list, profile grid, own tab and following feed tests read the queries the service ran from the MongoDB profiler and explain them (one index scan, or for the following feed a merge of index scans, with no in-memory sort, and as many keys on a deep page as on page 2).
