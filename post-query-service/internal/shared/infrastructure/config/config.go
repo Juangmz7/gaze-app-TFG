@@ -57,6 +57,15 @@ const (
 	defaultFeedRefillLeaseTTL = 30000
 )
 
+// defaultFeedFollowingMaxFollows is used when FEED_FOLLOWING_MAX_FOLLOWS is not set: the
+// following feed (GET /api/feed/following) reads the posts of at most the 2000 most
+// recent follows of the caller.
+const defaultFeedFollowingMaxFollows = 2000
+
+// maxFeedFollowingMaxFollows bounds FEED_FOLLOWING_MAX_FOLLOWS: every followed id is a
+// point of the page query's $in, and each one costs an index seek per page.
+const maxFeedFollowingMaxFollows = 5000
+
 // Recommendation-service gRPC defaults, used when the matching RECOMMENDATION_GRPC_*
 // variable is not set. The timeouts come from a measurement, on CPU in WSL and not in
 // production, with 20000 posts: a user with history takes p50 4.4 s, 5.1 s at most, and
@@ -180,6 +189,9 @@ type FeedConfig struct {
 	// RefillLeaseTTL is the recovery from a holder that died during a synchronous
 	// refill. It must exceed the gRPC call's overall timeout, and not exceed LeaseTTL.
 	RefillLeaseTTL time.Duration
+	// FollowingMaxFollows caps the follows the following feed reads its posts from: only
+	// the most recent ones when the caller follows more (FEED_FOLLOWING_MAX_FOLLOWS).
+	FollowingMaxFollows int
 }
 
 // RecommendationConfig holds the settings of the gRPC client of recommendation-service.
@@ -402,6 +414,13 @@ func loadFeedConfig() (FeedConfig, error) {
 	if err != nil {
 		return FeedConfig{}, err
 	}
+	followingMaxFollows, err := positiveIntEnv("FEED_FOLLOWING_MAX_FOLLOWS", defaultFeedFollowingMaxFollows)
+	if err != nil {
+		return FeedConfig{}, err
+	}
+	if followingMaxFollows > maxFeedFollowingMaxFollows {
+		return FeedConfig{}, fmt.Errorf("load config: FEED_FOLLOWING_MAX_FOLLOWS %d is above %d", followingMaxFollows, maxFeedFollowingMaxFollows)
+	}
 
 	feed := FeedConfig{
 		DefaultPageSize:        defaultPageSize,
@@ -409,6 +428,7 @@ func loadFeedConfig() (FeedConfig, error) {
 		MaxReadsPerClaim:       maxReads,
 		Retention:              time.Duration(retentionHours) * time.Hour,
 		DisconnectWriteTimeout: time.Duration(disconnectTimeoutMs) * time.Millisecond,
+		FollowingMaxFollows:    followingMaxFollows,
 	}
 	if err := loadFeedPrefetchConfig(&feed); err != nil {
 		return FeedConfig{}, err

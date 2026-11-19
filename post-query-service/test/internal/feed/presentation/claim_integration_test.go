@@ -164,6 +164,7 @@ func newFeedAppSigning(t *testing.T, ctx context.Context, signer usecase.MediaUR
 		Heartbeat:       presentation.NewHeartbeatHandler(usecase.NewRegisterHeartbeat(sessions, logger), logger),
 		Disconnect:      presentation.NewDisconnectHandler(usecase.NewRegisterUserDisconnected(sessions, noPrefetch{}, 5*time.Second, logger), logger),
 		ClaimFeed:       presentation.NewClaimFeedHandler(usecase.NewClaimFeed(units, hydration, config, logger), signer, logger),
+		FollowingFeed:   presentation.NewFollowingFeedHandler(usecase.NewFollowingFeed(hydration, usecase.FollowingFeedConfig{MaxFollows: 2000}, logger), signer, logger),
 		GetPost:         presentation.NewGetPostHandler(usecase.NewGetPost(hydration, logger), signer, logger),
 		ListComments:    presentation.NewListCommentsHandler(usecase.NewListComments(hydration, logger), signer, logger),
 		ListReplies:     presentation.NewListRepliesHandler(usecase.NewListReplies(hydration, logger), signer, logger),
