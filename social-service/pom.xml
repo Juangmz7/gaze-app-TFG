@@ -104,6 +104,16 @@
             <artifactId>spring-boot-starter-oauth2-client</artifactId>
         </dependency>
         <dependency>
+            <groupId>com.azure</groupId>
+            <artifactId>azure-storage-blob</artifactId>
+            <version>12.30.0</version>
+        </dependency>
+        <dependency>
+            <groupId>com.azure</groupId>
+            <artifactId>azure-identity</artifactId>
+            <version>1.16.2</version>
+        </dependency>
+        <dependency>
             <groupId>org.mapstruct</groupId>
             <artifactId>mapstruct</artifactId>
             <version>${mapstruct.version}</version>
@@ -215,6 +225,19 @@
             <plugin>
                 <groupId>org.graalvm.buildtools</groupId>
                 <artifactId>native-maven-plugin</artifactId>
+                <configuration>
+                    <buildArgs>
+                        <!-- Same as post-command-service: azure-core's native-image.properties
+                             initializes Logback, SLF4J and its environment configuration while
+                             the image is built, which breaks Spring Boot's logging. Only that
+                             file is excluded: azure-core's reflection, resource and proxy configs stay. -->
+                        <buildArg>--exclude-config</buildArg>
+                        <buildArg>.*/azure-core-[^/]*\.jar</buildArg>
+                        <buildArg>^/META-INF/native-image/com\.azure/azure-core/native-image\.properties$</buildArg>
+                        <!-- The one option of that file the SDK needs at run time -->
+                        <buildArg>-H:+AddAllCharsets</buildArg>
+                    </buildArgs>
+                </configuration>
             </plugin>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
