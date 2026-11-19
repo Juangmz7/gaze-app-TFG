@@ -58,6 +58,31 @@ CREATE TABLE IF NOT EXISTS blocks (
     CONSTRAINT pk_blocks PRIMARY KEY (blocked_id, blocker_id)
 );
 
+-- User reports (App Store guideline 1.2). snapshot keeps the reported profile as it was at
+-- report time (username, description, socialMedia, bare profilePic): it can be edited or deleted
+-- later. The partial unique index makes a repeated report of the same user by the same reporter
+-- idempotent while it is OPEN (INSERT ... ON CONFLICT DO NOTHING) and serves that lookup; the
+-- (status, created_at DESC, id DESC) index matches the admin list's keyset sort exactly.
+CREATE TABLE IF NOT EXISTS user_reports (
+    id UUID NOT NULL,
+    reported_user_id UUID NOT NULL,
+    reporter_user_id UUID NOT NULL,
+    reason VARCHAR(255) NOT NULL,
+    details VARCHAR(1000),
+    snapshot JSONB NOT NULL,
+    status VARCHAR(255) NOT NULL DEFAULT 'OPEN',
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    CONSTRAINT pk_user_reports PRIMARY KEY (id),
+    CONSTRAINT ck_user_reports_status CHECK (status IN ('OPEN', 'RESOLVED', 'DISMISSED'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_reports_status_created_at_id
+    ON user_reports (status, created_at DESC, id DESC);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uk_user_reports_open_reporter_reported
+    ON user_reports (reporter_user_id, reported_user_id)
+    WHERE status = 'OPEN';
+
 CREATE TABLE IF NOT EXISTS processed_events (
     id UUID NOT NULL,
     correlation_id UUID NOT NULL,

@@ -21,6 +21,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.data.neo4j.core.Neo4jClient;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -33,6 +34,7 @@ import com.app.socialservice.TestcontainersConfiguration;
 import com.app.socialservice.block.infrastructure.repository.JpaBlockRepository;
 import com.app.socialservice.follow.infrastructure.repository.JpaFollowRepository;
 import com.app.socialservice.follow.testutil.FollowMother;
+import com.app.socialservice.report.infrastructure.repository.JpaUserReportRepository;
 import com.app.socialservice.shared.infrastructure.azure.BlobContainerLocation;
 import com.app.socialservice.shared.testutil.SocialIntegrationSeeder;
 import com.app.socialservice.user.application.cache.CacheNames;
@@ -93,6 +95,9 @@ class ProfilePictureAzuriteIntegrationTest {
 
     @Autowired
     private UserNodeRepository userNodeRepository;
+
+    @Autowired
+    private JpaUserReportRepository jpaUserReportRepository;
 
     @Autowired
     private Neo4jClient neo4jClient;
@@ -315,6 +320,33 @@ class ProfilePictureAzuriteIntegrationTest {
         assertDownloadableSignedUrlOf(followers.get("items").get(0).get("profilePic").asString(), followerPicture);
         assertDownloadableSignedUrlOf(following.get("items").get(0).get("profilePic").asString(), followedPicture);
         assertThat(jpaUserRepository.findById(followerId).orElseThrow().getPictureUrl()).isEqualTo(followerPicture);
+    }
+
+    @Test
+    void theAdminListOfUserReportsReturnsTheReadSignedCurrentPictureAndTheBareSnapshot() throws Exception {
+        jpaUserReportRepository.deleteAll();
+        var reporterId = seedUser("reporter", null);
+        var adminId = seedUser("admin", null);
+        var reportedId = UUID.randomUUID();
+        var picture = uploadAvatarOf(reportedId);
+        seedUser(reportedId, "reported", picture);
+        mockMvc.perform(authenticated(post("/api/social/reports/users"), reporterId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(jsonMapper.writeValueAsString(Map.of(
+                                "reportedUserId", reportedId.toString(),
+                                "reason", "INAPPROPRIATE_PROFILE"))))
+                .andExpect(status().isCreated());
+
+        var page = readJson(mockMvc.perform(get("/api/social/reports/users")
+                        .with(jwt().jwt(token -> token.subject(adminId.toString()))
+                                .authorities(new SimpleGrantedAuthority("ROLE_ADMIN"))))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString());
+
+        var item = page.get("items").get(0);
+        assertDownloadableSignedUrlOf(item.get("reportedUser").get("profilePic").asString(), picture);
+        assertThat(item.get("snapshot").get("profilePic").asString()).isEqualTo(picture);
+        assertThat(jpaUserReportRepository.findAll().getFirst().getSnapshot()).doesNotContain("?");
     }
 
     private void assertDownloadableSignedUrlOf(String signedUrl, String bareUrl) throws Exception {

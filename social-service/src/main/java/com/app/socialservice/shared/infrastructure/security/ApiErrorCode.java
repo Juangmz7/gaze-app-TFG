@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 
 public enum ApiErrorCode {
     NOT_FOUND,
+    FORBIDDEN,
     BAD_REQUEST,
     BLOCKED,
     USER_BANNED,
@@ -25,5 +26,9 @@ public enum ApiErrorCode {
     @JsonProperty("invalid_cursor")
     INVALID_CURSOR,
     @JsonProperty("invalid_limit")
-    INVALID_LIMIT
+    INVALID_LIMIT,
+    @JsonProperty("user_not_found")
+    USER_NOT_FOUND,
+    @JsonProperty("cannot_report_self")
+    CANNOT_REPORT_SELF
 }
