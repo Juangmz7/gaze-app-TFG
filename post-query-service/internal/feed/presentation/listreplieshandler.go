@@ -51,7 +51,7 @@ func (h *ListRepliesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	limit, ok := parseCommentLimit(w, r, h.logger, userID, query)
+	limit, ok := parseLimit(w, r, h.logger, userID, query)
 	if !ok {
 		return
 	}

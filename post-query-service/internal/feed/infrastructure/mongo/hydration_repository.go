@@ -24,8 +24,9 @@ const (
 )
 
 // HydrationRepository reads the current read models for a batch of feed units, a post
-// view or a comment page (comment_hydration.go): one projected query per method, so a
-// page never costs one query per item.
+// view, a comment page (comment_hydration.go) or a profile grid page
+// (grid_hydration.go): one projected query per method, so a page never costs one query
+// per item.
 type HydrationRepository struct {
 	db *mongo.Database
 }
@@ -42,27 +43,33 @@ func (r *HydrationRepository) FindPosts(ctx context.Context, postIDs []string) (
 	}
 
 	var documents []usecase.FeedPostDocument
-	err := r.find(ctx, postsCollectionName, bson.D{{Key: "post_id", Value: in(postIDs)}}, bson.D{
-		{Key: "post_id", Value: 1},
-		{Key: "user_id", Value: 1},
-		{Key: "collab_id", Value: 1},
-		{Key: "post_type", Value: 1},
-		{Key: "description", Value: 1},
-		{Key: "tags", Value: 1},
-		{Key: "media", Value: 1},
-		{Key: "stats", Value: 1},
-		{Key: "created_at", Value: 1},
-	}, &documents)
-	if err != nil {
+	if err := r.find(ctx, postsCollectionName, bson.D{{Key: "post_id", Value: in(postIDs)}}, postProjection, &documents); err != nil {
 		return nil, err
 	}
 
+	return feedPostsFromDocuments(documents), nil
+}
+
+// postProjection is every posts field a feed card, a post view or a grid item reads.
+var postProjection = bson.D{
+	{Key: "post_id", Value: 1},
+	{Key: "user_id", Value: 1},
+	{Key: "collab_id", Value: 1},
+	{Key: "post_type", Value: 1},
+	{Key: "description", Value: 1},
+	{Key: "tags", Value: 1},
+	{Key: "media", Value: 1},
+	{Key: "stats", Value: 1},
+	{Key: "created_at", Value: 1},
+}
+
+func feedPostsFromDocuments(documents []usecase.FeedPostDocument) []usecase.FeedPost {
 	posts := make([]usecase.FeedPost, 0, len(documents))
 	for _, document := range documents {
 		posts = append(posts, usecase.FeedPostFromDocument(document))
 	}
 
-	return posts, nil
+	return posts
 }
 
 // FindCreators reads the named users. Users not projected are absent from the result.

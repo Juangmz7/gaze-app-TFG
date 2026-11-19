@@ -3,18 +3,9 @@ package usecase
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 
 	"github.com/google/uuid"
-)
-
-// Page sizes of the comment lists: part of the API contract (task 48), not a setting.
-const (
-	// CommentsDefaultLimit is the page size when the client sends none.
-	CommentsDefaultLimit = 20
-	// CommentsMaxLimit is the largest page a client may ask for.
-	CommentsMaxLimit = 50
 )
 
 // ErrCommentsPostNotFound is returned when the post whose comments are asked for
@@ -65,11 +56,8 @@ func (r commentListRequest) validate() error {
 	if r.postID == uuid.Nil {
 		return errors.New("post id is required")
 	}
-	if r.limit < 1 || r.limit > CommentsMaxLimit {
-		return fmt.Errorf("limit %d is outside 1..%d", r.limit, CommentsMaxLimit)
-	}
 
-	return nil
+	return validLimit(r.limit)
 }
 
 // visiblePost is a post the caller may read the comments of, with the users that

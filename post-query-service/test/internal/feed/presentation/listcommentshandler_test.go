@@ -53,7 +53,7 @@ func TestListCommentsHandler_PassesTheCallerPathAndDefaultLimitAndAnswersThePage
 		t.Fatalf("status = %d, content type %q: %s", recorder.Code, recorder.Header().Get("Content-Type"), recorder.Body)
 	}
 	input := usecases.commentList[0]
-	if input.UserID != userID || input.PostID != postID || input.Limit != usecase.CommentsDefaultLimit || input.After != nil || input.CorrelationID != "corr-1" {
+	if input.UserID != userID || input.PostID != postID || input.Limit != usecase.KeysetDefaultLimit || input.After != nil || input.CorrelationID != "corr-1" {
 		t.Fatalf("input = %+v, want the caller, the path post, limit 20 and no cursor", input)
 	}
 	var body map[string]any

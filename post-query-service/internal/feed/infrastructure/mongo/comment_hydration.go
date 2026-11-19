@@ -208,30 +208,11 @@ func (r *HydrationRepository) FindAllBlockRelatedUserIDs(ctx context.Context, vi
 }
 
 // findKeysetPage reads up to limit comments matching base, taking the ranges in order
-// until the page is full. The ranges are disjoint and follow the sort, so their
-// concatenation is the sorted list after the cursor. Each one is an equality prefix
-// plus one range on the hinted index: a single bounded IXSCAN that starts at the
-// cursor, with no SORT stage, so at most len(ranges) seeks of limit keys each.
-//
-// One $or of the same ranges would be a single query, but the planner may answer it
-// with one IXSCAN over the union of the bounds (from the first key equal to the
-// cursor's first value) plus a filter, walking every earlier comment with as many
-// likes: O(page) again on a post where most comments have none.
+// until the page is full (see readKeysetRanges).
 func (r *HydrationRepository) findKeysetPage(ctx context.Context, base bson.D, ranges []bson.D, sort, hint bson.D, limit int) ([]usecase.ContentComment, error) {
-	comments := make([]usecase.ContentComment, 0, limit)
-	for _, keyset := range ranges {
-		filter := append(append(bson.D{}, base...), keyset...)
-		page, err := r.findComments(ctx, filter, sort, hint, limit-len(comments))
-		if err != nil {
-			return nil, err
-		}
-		comments = append(comments, page...)
-		if len(comments) == limit {
-			break
-		}
-	}
-
-	return comments, nil
+	return readKeysetRanges(base, ranges, limit, func(filter bson.D, remaining int) ([]usecase.ContentComment, error) {
+		return r.findComments(ctx, filter, sort, hint, remaining)
+	})
 }
 
 // findComments runs one page query: projected, sorted along the hinted index, limited.

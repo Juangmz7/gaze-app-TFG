@@ -539,7 +539,7 @@ func assertIndexSeeks(t *testing.T, ctx context.Context, db *mongodriver.Databas
 	return keys
 }
 
-// profiledQuery is what the profiler recorded about one find on post_comments.
+// profiledQuery is what the profiler recorded about one find.
 type profiledQuery struct {
 	Command      bson.Raw `bson:"command"`
 	PlanSummary  string   `bson:"planSummary"`
@@ -567,9 +567,16 @@ func restartProfiler(t *testing.T, ctx context.Context, db *mongodriver.Database
 // finds with a sort, which the parent lookup (FindComment) never has.
 func commentPageQueries(t *testing.T, ctx context.Context, db *mongodriver.Database) []profiledQuery {
 	t.Helper()
+	return pageQueries(t, ctx, db, "post_comments")
+}
+
+// pageQueries reads the sorted finds the profiler recorded on collection: the page
+// queries of a keyset list.
+func pageQueries(t *testing.T, ctx context.Context, db *mongodriver.Database, collection string) []profiledQuery {
+	t.Helper()
 
 	filter := bson.D{
-		{Key: "ns", Value: db.Name() + ".post_comments"},
+		{Key: "ns", Value: db.Name() + "." + collection},
 		{Key: "op", Value: "query"},
 		{Key: "command.sort", Value: bson.D{{Key: "$exists", Value: true}}},
 	}
