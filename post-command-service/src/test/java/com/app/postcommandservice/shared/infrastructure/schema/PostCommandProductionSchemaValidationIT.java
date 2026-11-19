@@ -294,6 +294,33 @@ class PostCommandProductionSchemaValidationIT {
         assertIndexExists("comment_reports", "idx_comment_reports_status_created_at_id");
     }
 
+    @Test
+    void shouldAddTheMediaCleanupColumnIndexAndShedlockTableToALegacyDatabase() {
+        bootstrapSchema("create");
+        execute("ALTER TABLE posts DROP COLUMN media_purged_at");
+        execute("DROP TABLE IF EXISTS shedlock");
+
+        assertThatThrownBy(() -> bootstrapSchema("validate"))
+                .hasRootCauseInstanceOf(Exception.class);
+
+        applySchemaPatch("db/schema/post-command-service-prod.sql");
+
+        assertThatNoException().isThrownBy(() -> bootstrapSchema("validate"));
+        try (Connection connection = DriverManager.getConnection(
+                POSTGRES.getJdbcUrl(),
+                POSTGRES.getUsername(),
+                POSTGRES.getPassword());
+             Statement statement = connection.createStatement();
+             ResultSet resultSet = statement.executeQuery(
+                     "SELECT indexdef FROM pg_indexes WHERE tablename = 'posts' AND indexname = 'idx_posts_media_cleanup'")) {
+            assertThat(resultSet.next()).as("idx_posts_media_cleanup on posts").isTrue();
+            assertThat(resultSet.getString("indexdef"))
+                    .contains("(status, created_at, id)", "WHERE (media_purged_at IS NULL)");
+        } catch (java.sql.SQLException exception) {
+            throw new IllegalStateException("Failed to inspect idx_posts_media_cleanup", exception);
+        }
+    }
+
     private int insertPostReport(UUID reporterId, UUID postId) {
         return executeUpdate("""
                 INSERT INTO post_reports (id, post_id, reporter_user_id, reason, details, snapshot, created_at)
