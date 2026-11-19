@@ -225,9 +225,9 @@ func TestFeedPageToResponse_UsesTheExactAgreedSchema(t *testing.T) {
 	assertKeys(t, "card", card, "postId", "position", "creator", "description", "postType", "postTags", "collabId", "collab",
 		"createdAt", "media", "coverThumbnailUrl", "durationMs", "stats", "viewer")
 	assertKeys(t, "creator", card["creator"].(map[string]any), "userId", "username", "pictureUrl")
-	assertKeys(t, "collab", card["collab"].(map[string]any), "title", "status")
+	assertKeys(t, "collab", card["collab"].(map[string]any), "title", "status", "pendingRequestCount")
 	assertKeys(t, "stats", card["stats"].(map[string]any), "likeCount", "commentCount", "shareCount")
-	assertKeys(t, "viewer", card["viewer"].(map[string]any), "liked", "shared", "followingCreator")
+	assertKeys(t, "viewer", card["viewer"].(map[string]any), "liked", "shared", "followingCreator", "collabRequestStatus")
 
 	media := card["media"].([]any)
 	assertKeys(t, "media element", media[0].(map[string]any), "id", "url", "thumbnailUrl", "mediaType", "order", "durationMs", "taggedUsers")

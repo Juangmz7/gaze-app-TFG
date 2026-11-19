@@ -113,6 +113,7 @@ func (r *HydrationRepository) FindCollabs(ctx context.Context, collabIDs, postID
 	err := r.find(ctx, collabsCollectionName, filter, bson.D{
 		{Key: "collab_id", Value: 1},
 		{Key: "post_id", Value: 1},
+		{Key: "owner_user_id", Value: 1},
 		{Key: "title", Value: 1},
 		{Key: "status", Value: 1},
 		{Key: "created_at", Value: 1},

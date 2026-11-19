@@ -25,10 +25,16 @@ type fakeFeedStore struct {
 	shared   []string
 	followed []string
 	blocked  []string
-	calls    map[string]int
-	ctxs     []context.Context
-	failOn   string
-	failErr  error
+	// memberships are the collab_members rows by viewer id.
+	memberships map[string][]usecase.FeedCollabMembership
+	// pending is the PENDING requests count by collab id; pendingAsked records the
+	// collab ids each CountPendingCollabRequests call asked for.
+	pending      map[string]int64
+	pendingAsked [][]string
+	calls        map[string]int
+	ctxs         []context.Context
+	failOn       string
+	failErr      error
 }
 
 type fakeUnit struct {
@@ -178,6 +184,33 @@ func (s *fakeFeedStore) FindFollowedUserIDs(ctx context.Context, viewerID string
 
 func (s *fakeFeedStore) FindBlockRelatedUserIDs(ctx context.Context, viewerID string, userIDs []string) ([]string, error) {
 	return s.blocked, s.track(ctx, "FindBlockRelatedUserIDs")
+}
+
+func (s *fakeFeedStore) FindCollabMemberships(ctx context.Context, viewerID string, collabIDs []string) ([]usecase.FeedCollabMembership, error) {
+	if err := s.track(ctx, "FindCollabMemberships"); err != nil {
+		return nil, err
+	}
+	var found []usecase.FeedCollabMembership
+	for _, membership := range s.memberships[viewerID] {
+		if slices.Contains(collabIDs, membership.CollabID) {
+			found = append(found, membership)
+		}
+	}
+	return found, nil
+}
+
+func (s *fakeFeedStore) CountPendingCollabRequests(ctx context.Context, collabIDs []string) (map[string]int64, error) {
+	if err := s.track(ctx, "CountPendingCollabRequests"); err != nil {
+		return nil, err
+	}
+	s.pendingAsked = append(s.pendingAsked, slices.Clone(collabIDs))
+	counts := map[string]int64{}
+	for _, collabID := range collabIDs {
+		if count, found := s.pending[collabID]; found {
+			counts[collabID] = count
+		}
+	}
+	return counts, nil
 }
 
 var defaultClaimConfig = usecase.ClaimFeedConfig{DefaultPageSize: 15, MaxPageSize: 30, MaxReads: 3}

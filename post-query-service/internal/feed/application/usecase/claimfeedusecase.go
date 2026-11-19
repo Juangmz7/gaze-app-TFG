@@ -60,6 +60,8 @@ type ClaimFeedHydrationRepository interface {
 	FindSharedPostIDs(ctx context.Context, viewerID string, postIDs []string) ([]string, error)
 	FindFollowedUserIDs(ctx context.Context, viewerID string, userIDs []string) ([]string, error)
 	FindBlockRelatedUserIDs(ctx context.Context, viewerID string, userIDs []string) ([]string, error)
+	FindCollabMemberships(ctx context.Context, viewerID string, collabIDs []string) ([]FeedCollabMembership, error)
+	CountPendingCollabRequests(ctx context.Context, collabIDs []string) (map[string]int64, error)
 }
 
 // ClaimFeedLowWatermark is told about every served claim, must not block, and decides

@@ -19,16 +19,21 @@ import (
 // (most recent first), blocks, users, posts and the viewer state, with every query
 // recorded.
 type fakeFollowingStore struct {
-	follows  map[string][]string
-	blocks   map[string][]string
-	users    map[string]usecase.FeedCreator
-	posts    []usecase.FeedPost
-	liked    map[string]bool
-	calls    map[string]int
-	queries  []usecase.FollowingPostsQuery
-	limits   []int
-	checked  [][]string
-	failWith map[string]error
+	follows map[string][]string
+	blocks  map[string][]string
+	users   map[string]usecase.FeedCreator
+	posts   []usecase.FeedPost
+	liked   map[string]bool
+	// collabs, memberships (by viewer) and pending (by collab) are the collab read
+	// models; empty unless a test sets them.
+	collabs     []usecase.FeedCollab
+	memberships map[string][]usecase.FeedCollabMembership
+	pending     map[string]int64
+	calls       map[string]int
+	queries     []usecase.FollowingPostsQuery
+	limits      []int
+	checked     [][]string
+	failWith    map[string]error
 }
 
 func newFakeFollowingStore() *fakeFollowingStore {
@@ -113,8 +118,34 @@ func (f *fakeFollowingStore) FindCreators(_ context.Context, userIDs []string) (
 	return creators, nil
 }
 
-func (f *fakeFollowingStore) FindCollabs(context.Context, []string, []string) ([]usecase.FeedCollab, error) {
-	return nil, f.track("collabs")
+func (f *fakeFollowingStore) FindCollabs(_ context.Context, collabIDs, postIDs []string) ([]usecase.FeedCollab, error) {
+	var found []usecase.FeedCollab
+	for _, collab := range f.collabs {
+		if slices.Contains(collabIDs, collab.CollabID) || slices.Contains(postIDs, collab.PostID) {
+			found = append(found, collab)
+		}
+	}
+	return found, f.track("collabs")
+}
+
+func (f *fakeFollowingStore) FindCollabMemberships(_ context.Context, viewerID string, collabIDs []string) ([]usecase.FeedCollabMembership, error) {
+	var found []usecase.FeedCollabMembership
+	for _, membership := range f.memberships[viewerID] {
+		if slices.Contains(collabIDs, membership.CollabID) {
+			found = append(found, membership)
+		}
+	}
+	return found, f.track("memberships")
+}
+
+func (f *fakeFollowingStore) CountPendingCollabRequests(_ context.Context, collabIDs []string) (map[string]int64, error) {
+	counts := map[string]int64{}
+	for _, collabID := range collabIDs {
+		if count, found := f.pending[collabID]; found {
+			counts[collabID] = count
+		}
+	}
+	return counts, f.track("pending")
 }
 
 func (f *fakeFollowingStore) FindLikedPostIDs(_ context.Context, _ string, postIDs []string) ([]string, error) {
