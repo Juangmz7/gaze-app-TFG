@@ -4,7 +4,9 @@ package com.app.postcommandservice.post.application.port;
  * Business reason a {@link MediaVerifier} rejected a media item. These are never thrown as
  * exceptions: they are carried inside a {@link MediaVerificationResult.Failure}.
  *
- * <p>Task 39 will add {@code UPLOAD_EXPIRED}; out of scope for this enum today.</p>
+ * <p>{@link #UPLOAD_EXPIRED} is never produced by a {@code MediaVerifier}: it is the reason code
+ * the media cleanup job (task 58) publishes when a post's media was not confirmed within the
+ * upload window.</p>
  */
 public enum MediaVerificationFailureReason {
     BLOB_NOT_FOUND,
@@ -16,5 +18,7 @@ public enum MediaVerificationFailureReason {
     TYPE_MISMATCH,
     CORRUPT_FILE,
     DURATION_UNREADABLE,
-    DURATION_TOO_LONG
+    DURATION_TOO_LONG,
+    /** The media was not confirmed within {@code posts.media.upload-window} of the post's creation. */
+    UPLOAD_EXPIRED
 }

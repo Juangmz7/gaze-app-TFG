@@ -23,6 +23,15 @@ posts:
     upload-window: PT48H
     max-image-bytes: 10485760
     max-video-bytes: 209715200
+  # --- Scheduled cleanup of expired uploads (task 58) ---
+  # Hourly at minute 15, away from the top of the hour. lock-at-most-for must stay
+  # shorter than the interval; each run handles at most batch-size * max-batches-per-run posts.
+  media-cleanup:
+    cron: "0 15 * * * *"
+    lock-at-most-for: PT55M
+    lock-at-least-for: PT5M
+    batch-size: 200
+    max-batches-per-run: 10
 
 # --- RabbitMQ Bindings ---
 rabbitmq:

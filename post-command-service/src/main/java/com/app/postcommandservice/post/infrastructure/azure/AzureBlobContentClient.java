@@ -3,7 +3,8 @@ package com.app.postcommandservice.post.infrastructure.azure;
 import java.nio.file.Path;
 
 /**
- * Thin seam over the exact Azure Blob Storage SDK operations {@link AzureMediaVerifier} needs.
+ * Thin seam over the exact Azure Blob Storage SDK operations {@link AzureMediaVerifier} and
+ * {@link AzureMediaBlobDeleter} need.
  * Mirrors the precedent set by {@link AzureBlobSasClient} (task 32): the Azure SDK client types
  * are final and cannot be mocked under this project's Mockito configuration, so this interface
  * exists purely to keep the verifier unit-testable.
@@ -46,6 +47,14 @@ interface AzureBlobContentClient {
      *         longer exists, 412 if its ETag no longer matches, or any other Azure API error
      */
     void downloadToFile(String blobUrl, String eTag, Path destination);
+
+    /**
+     * Deletes the blob if it exists (blob and its snapshots).
+     *
+     * @return {@code true} if the blob existed and was deleted, {@code false} if it did not exist
+     * @throws com.azure.storage.blob.models.BlobStorageException on any other Azure API error
+     */
+    boolean deleteIfExists(String blobUrl);
 
     /** The subset of a blob's properties the verifier needs. */
     record BlobSnapshot(long contentLength, String eTag) {

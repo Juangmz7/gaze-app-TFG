@@ -11,6 +11,7 @@ import com.azure.storage.blob.models.BlobDownloadContentResponse;
 import com.azure.storage.blob.models.BlobProperties;
 import com.azure.storage.blob.models.BlobRange;
 import com.azure.storage.blob.models.BlobRequestConditions;
+import com.azure.storage.blob.models.DeleteSnapshotsOptionType;
 import com.azure.storage.blob.options.BlobDownloadToFileOptions;
 
 import lombok.RequiredArgsConstructor;
@@ -41,6 +42,13 @@ class AzureBlobContentClientImpl implements AzureBlobContentClient {
         BlobDownloadToFileOptions options = new BlobDownloadToFileOptions(destination.toString())
                 .setRequestConditions(ifMatch(eTag));
         blobClient(blobUrl).downloadToFileWithResponse(options, null, Context.NONE);
+    }
+
+    @Override
+    public boolean deleteIfExists(String blobUrl) {
+        return blobClient(blobUrl)
+                .deleteIfExistsWithResponse(DeleteSnapshotsOptionType.INCLUDE, null, null, Context.NONE)
+                .getValue();
     }
 
     private static BlobRequestConditions ifMatch(String eTag) {
