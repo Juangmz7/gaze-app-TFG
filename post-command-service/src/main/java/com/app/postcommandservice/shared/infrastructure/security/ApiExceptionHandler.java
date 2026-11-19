@@ -9,6 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.validation.BindException;
 import org.springframework.validation.BindingResult;
@@ -40,8 +41,14 @@ import com.app.postcommandservice.post.domain.exception.PostNotAcceptedException
 import com.app.postcommandservice.post.domain.exception.PostNotFoundException;
 import com.app.postcommandservice.post.domain.exception.PostNotPendingException;
 import com.app.postcommandservice.post.domain.exception.PostOwnershipException;
+import com.app.postcommandservice.report.domain.exception.CannotReportOwnContentException;
+import com.app.postcommandservice.report.domain.exception.InvalidReportDetailsException;
+import com.app.postcommandservice.report.domain.exception.ReportedCommentNotFoundException;
+import com.app.postcommandservice.report.domain.exception.ReportedPostNotFoundException;
 import com.app.postcommandservice.share.domain.exception.PostShareBlockedException;
 import com.app.postcommandservice.shared.domain.exception.DomainException;
+import com.app.postcommandservice.shared.domain.exception.InvalidCursorException;
+import com.app.postcommandservice.shared.domain.exception.InvalidPageLimitException;
 
 @Slf4j
 @RestControllerAdvice
@@ -239,6 +246,72 @@ public class ApiExceptionHandler {
             HttpServletRequest request) {
 
         return buildErrorResponse(HttpStatus.CONFLICT, ApiErrorCode.CONFLICT, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(ReportedPostNotFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handleReportedPostNotFoundException(
+            ReportedPostNotFoundException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(HttpStatus.NOT_FOUND, ApiErrorCode.POST_NOT_FOUND, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(ReportedCommentNotFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handleReportedCommentNotFoundException(
+            ReportedCommentNotFoundException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(HttpStatus.NOT_FOUND, ApiErrorCode.COMMENT_NOT_FOUND, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(CannotReportOwnContentException.class)
+    public ResponseEntity<ApiErrorResponse> handleCannotReportOwnContentException(
+            CannotReportOwnContentException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(
+                HttpStatus.BAD_REQUEST, ApiErrorCode.CANNOT_REPORT_OWN_CONTENT, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(InvalidReportDetailsException.class)
+    public ResponseEntity<ApiErrorResponse> handleInvalidReportDetailsException(
+            InvalidReportDetailsException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, ApiErrorCode.VALIDATION_ERROR, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(InvalidCursorException.class)
+    public ResponseEntity<ApiErrorResponse> handleInvalidCursorException(
+            InvalidCursorException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, ApiErrorCode.INVALID_CURSOR, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(InvalidPageLimitException.class)
+    public ResponseEntity<ApiErrorResponse> handleInvalidPageLimitException(
+            InvalidPageLimitException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, ApiErrorCode.INVALID_LIMIT, exception.getMessage(), request);
+    }
+
+    /*
+     * Malformed JSON, an unknown enum constant or a malformed UUID inside the body: a client
+     * error, never a 500. The parser message is not echoed because it can leak internal types.
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiErrorResponse> handleHttpMessageNotReadableException(
+            HttpMessageNotReadableException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(
+                HttpStatus.BAD_REQUEST,
+                ApiErrorCode.VALIDATION_ERROR,
+                "Request body is malformed or contains invalid values",
+                request
+        );
     }
 
     @ExceptionHandler(DomainException.class)
