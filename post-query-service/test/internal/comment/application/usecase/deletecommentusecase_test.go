@@ -14,15 +14,27 @@ import (
 
 type fakeDeleteCommentRepository struct {
 	removed      bool
+	replyTo      uuid.UUID
 	err          error
 	calls        int
 	gotCommentID uuid.UUID
+	// parentNotFound and adjustErr drive AdjustReplyCount, which records its calls.
+	parentNotFound bool
+	adjustErr      error
+	replyDeltas    []int64
+	parentIDs      []uuid.UUID
 }
 
-func (f *fakeDeleteCommentRepository) Delete(ctx context.Context, commentID uuid.UUID) (bool, error) {
+func (f *fakeDeleteCommentRepository) Delete(ctx context.Context, commentID uuid.UUID) (bool, uuid.UUID, error) {
 	f.calls++
 	f.gotCommentID = commentID
-	return f.removed, f.err
+	return f.removed, f.replyTo, f.err
+}
+
+func (f *fakeDeleteCommentRepository) AdjustReplyCount(ctx context.Context, commentID uuid.UUID, delta int64) (bool, error) {
+	f.replyDeltas = append(f.replyDeltas, delta)
+	f.parentIDs = append(f.parentIDs, commentID)
+	return !f.parentNotFound, f.adjustErr
 }
 
 type fakeDeleteCommentPostStats struct {

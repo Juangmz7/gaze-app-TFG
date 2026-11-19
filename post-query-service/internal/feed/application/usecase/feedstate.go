@@ -19,13 +19,12 @@ type feedStateReader interface {
 
 // feedState is the read-model state around a batch of posts, as one viewer sees it.
 type feedState struct {
-	creators      map[string]FeedCreator
-	collabsByID   map[string]FeedCollab
-	collabsByPost map[string]FeedCollab
-	liked         map[string]struct{}
-	shared        map[string]struct{}
-	followed      map[string]struct{}
-	blocked       map[string]struct{}
+	collabIndex
+	creators map[string]FeedCreator
+	liked    map[string]struct{}
+	shared   map[string]struct{}
+	followed map[string]struct{}
+	blocked  map[string]struct{}
 }
 
 // readFeedState reads the creators, collabs, viewer state and blocks of a batch of
@@ -57,32 +56,49 @@ func readFeedState(ctx context.Context, reader feedStateReader, viewerID string,
 	}
 
 	state := feedState{
-		creators:      make(map[string]FeedCreator, len(creators)),
-		collabsByID:   make(map[string]FeedCollab, len(collabs)),
-		collabsByPost: make(map[string]FeedCollab, len(collabs)),
-		liked:         idSet(liked),
-		shared:        idSet(shared),
-		followed:      idSet(followed),
-		blocked:       idSet(blocked),
+		collabIndex: indexCollabs(collabs),
+		creators:    make(map[string]FeedCreator, len(creators)),
+		liked:       idSet(liked),
+		shared:      idSet(shared),
+		followed:    idSet(followed),
+		blocked:     idSet(blocked),
 	}
 	for _, creator := range creators {
 		state.creators[creator.UserID] = creator
 	}
+
+	return state, nil
+}
+
+// collabIndex holds the collabs read for a batch of posts (FindCollabs), indexed for
+// collabFor: a feed card, a post view and a grid item resolve a post's collab the same
+// way.
+type collabIndex struct {
+	collabsByID   map[string]FeedCollab
+	collabsByPost map[string]FeedCollab
+}
+
+// indexCollabs indexes collabs by id, and by post keeping the most recently opened.
+func indexCollabs(collabs []FeedCollab) collabIndex {
+	index := collabIndex{
+		collabsByID:   make(map[string]FeedCollab, len(collabs)),
+		collabsByPost: make(map[string]FeedCollab, len(collabs)),
+	}
 	for _, collab := range collabs {
-		state.collabsByID[collab.CollabID] = collab
-		if current, found := state.collabsByPost[collab.PostID]; !found || collab.openedAfter(current) {
-			state.collabsByPost[collab.PostID] = collab
+		index.collabsByID[collab.CollabID] = collab
+		if current, found := index.collabsByPost[collab.PostID]; !found || collab.openedAfter(current) {
+			index.collabsByPost[collab.PostID] = collab
 		}
 	}
 
-	return state, nil
+	return index
 }
 
 // collabFor picks the most recently opened of the collabs attached to the post and
 // the one the post names, because that is the one post-command-service holds: opening
 // a collab on a post overwrites its collabId, without any event reaching
 // posts.collab_id, so posts.collab_id can name an older collab or one that is gone.
-func (s feedState) collabFor(post FeedPost) *FeedCollab {
+func (s collabIndex) collabFor(post FeedPost) *FeedCollab {
 	collab, found := s.collabsByPost[post.PostID]
 	if post.CollabID != nil {
 		named, namedFound := s.collabsByID[*post.CollabID]

@@ -3,6 +3,8 @@ package usecase_test
 import (
 	"context"
 	"errors"
+	"io"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -15,11 +17,26 @@ type fakeRecordCommentRepository struct {
 	inserted  bool
 	err       error
 	insertLog []usecase.RecordCommentInput
+	// parentNotFound and adjustErr drive AdjustReplyCount, which records its calls.
+	parentNotFound bool
+	adjustErr      error
+	replyDeltas    []int64
+	parentIDs      []uuid.UUID
 }
 
 func (f *fakeRecordCommentRepository) Insert(ctx context.Context, input usecase.RecordCommentInput) (bool, error) {
 	f.insertLog = append(f.insertLog, input)
 	return f.inserted, f.err
+}
+
+func (f *fakeRecordCommentRepository) AdjustReplyCount(ctx context.Context, commentID uuid.UUID, delta int64) (bool, error) {
+	f.replyDeltas = append(f.replyDeltas, delta)
+	f.parentIDs = append(f.parentIDs, commentID)
+	return !f.parentNotFound, f.adjustErr
+}
+
+func testRecordCommentLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
 type fakeRecordCommentPostStats struct {
@@ -48,7 +65,7 @@ func validRecordCommentInput() usecase.RecordCommentInput {
 func TestRecordCommentUsecase_Execute_IncrementsTheCounterWhenADocumentWasReallyInserted(t *testing.T) {
 	repository := &fakeRecordCommentRepository{inserted: true}
 	stats := &fakeRecordCommentPostStats{}
-	uc := usecase.NewRecordComment(repository, stats)
+	uc := usecase.NewRecordComment(repository, stats, testRecordCommentLogger())
 	input := validRecordCommentInput()
 
 	if err := uc.Execute(context.Background(), input); err != nil {
@@ -65,7 +82,7 @@ func TestRecordCommentUsecase_Execute_IncrementsTheCounterWhenADocumentWasReally
 
 func TestRecordCommentUsecase_Execute_LeavesTheCounterAloneWhenTheDocumentAlreadyExisted(t *testing.T) {
 	stats := &fakeRecordCommentPostStats{}
-	uc := usecase.NewRecordComment(&fakeRecordCommentRepository{inserted: false}, stats)
+	uc := usecase.NewRecordComment(&fakeRecordCommentRepository{inserted: false}, stats, testRecordCommentLogger())
 
 	if err := uc.Execute(context.Background(), validRecordCommentInput()); err != nil {
 		t.Fatalf("Execute() error = %v, want nil", err)
@@ -77,7 +94,7 @@ func TestRecordCommentUsecase_Execute_LeavesTheCounterAloneWhenTheDocumentAlread
 }
 
 func TestRecordCommentUsecase_Execute_ReturnsARetryableErrorWhenThePostIsNotProjectedYet(t *testing.T) {
-	uc := usecase.NewRecordComment(&fakeRecordCommentRepository{inserted: true}, &fakeRecordCommentPostStats{notFound: true})
+	uc := usecase.NewRecordComment(&fakeRecordCommentRepository{inserted: true}, &fakeRecordCommentPostStats{notFound: true}, testRecordCommentLogger())
 
 	err := uc.Execute(context.Background(), validRecordCommentInput())
 	if err == nil {
@@ -89,13 +106,13 @@ func TestRecordCommentUsecase_Execute_PropagatesDependencyErrors(t *testing.T) {
 	wantErr := errors.New("mongo write failed")
 
 	t.Run("repository", func(t *testing.T) {
-		uc := usecase.NewRecordComment(&fakeRecordCommentRepository{err: wantErr}, &fakeRecordCommentPostStats{})
+		uc := usecase.NewRecordComment(&fakeRecordCommentRepository{err: wantErr}, &fakeRecordCommentPostStats{}, testRecordCommentLogger())
 		if err := uc.Execute(context.Background(), validRecordCommentInput()); !errors.Is(err, wantErr) {
 			t.Fatalf("Execute() error = %v, want it to wrap %v", err, wantErr)
 		}
 	})
 	t.Run("post stats", func(t *testing.T) {
-		uc := usecase.NewRecordComment(&fakeRecordCommentRepository{inserted: true}, &fakeRecordCommentPostStats{err: wantErr})
+		uc := usecase.NewRecordComment(&fakeRecordCommentRepository{inserted: true}, &fakeRecordCommentPostStats{err: wantErr}, testRecordCommentLogger())
 		if err := uc.Execute(context.Background(), validRecordCommentInput()); !errors.Is(err, wantErr) {
 			t.Fatalf("Execute() error = %v, want it to wrap %v", err, wantErr)
 		}
@@ -115,7 +132,7 @@ func TestRecordCommentUsecase_Execute_ReturnsAnErrorWhenARequiredIDIsMissing(t *
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repository := &fakeRecordCommentRepository{inserted: true}
-			uc := usecase.NewRecordComment(repository, &fakeRecordCommentPostStats{})
+			uc := usecase.NewRecordComment(repository, &fakeRecordCommentPostStats{}, testRecordCommentLogger())
 			input := validRecordCommentInput()
 			tt.clear(&input)
 
