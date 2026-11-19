@@ -173,6 +173,52 @@ CREATE TABLE IF NOT EXISTS post_views (
 CREATE INDEX IF NOT EXISTS idx_post_views_post_user
     ON post_views (post_id, user_id);
 
+-- --- Content reports (task 55) ---
+-- snapshot keeps the reported content as it was at report time (it can be edited or
+-- deleted later). The partial unique index makes a repeated report of the same target by
+-- the same reporter idempotent while it is OPEN (INSERT ... ON CONFLICT DO NOTHING); the
+-- (status, created_at DESC, id DESC) index serves the keyset-paged admin lists.
+CREATE TABLE IF NOT EXISTS post_reports (
+    id UUID NOT NULL,
+    post_id UUID NOT NULL,
+    reporter_user_id UUID NOT NULL,
+    reason VARCHAR(255) NOT NULL,
+    details VARCHAR(1000),
+    snapshot JSONB NOT NULL,
+    status VARCHAR(255) NOT NULL DEFAULT 'OPEN',
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    CONSTRAINT pk_post_reports PRIMARY KEY (id),
+    CONSTRAINT ck_post_reports_status CHECK (status IN ('OPEN', 'RESOLVED', 'DISMISSED'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_post_reports_status_created_at_id
+    ON post_reports (status, created_at DESC, id DESC);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uk_post_reports_open_reporter_post
+    ON post_reports (reporter_user_id, post_id)
+    WHERE status = 'OPEN';
+
+CREATE TABLE IF NOT EXISTS comment_reports (
+    id UUID NOT NULL,
+    post_id UUID NOT NULL,
+    comment_id UUID NOT NULL,
+    reporter_user_id UUID NOT NULL,
+    reason VARCHAR(255) NOT NULL,
+    details VARCHAR(1000),
+    snapshot JSONB NOT NULL,
+    status VARCHAR(255) NOT NULL DEFAULT 'OPEN',
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    CONSTRAINT pk_comment_reports PRIMARY KEY (id),
+    CONSTRAINT ck_comment_reports_status CHECK (status IN ('OPEN', 'RESOLVED', 'DISMISSED'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_comment_reports_status_created_at_id
+    ON comment_reports (status, created_at DESC, id DESC);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uk_comment_reports_open_reporter_comment
+    ON comment_reports (reporter_user_id, comment_id)
+    WHERE status = 'OPEN';
+
 -- --- User read models (projected from social-service events) ---
 CREATE TABLE IF NOT EXISTS users (
     id UUID NOT NULL,
