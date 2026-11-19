@@ -11,8 +11,12 @@ import com.app.socialservice.user.application.dto.OwnUserProfileResponse;
 import com.app.socialservice.user.application.dto.ProfileRelationship;
 import com.app.socialservice.user.application.dto.PublicUserProfile;
 import com.app.socialservice.user.application.dto.UserStats;
+import com.app.socialservice.user.application.port.ProfilePictureStorage;
 import com.app.socialservice.user.application.repository.UserRepository;
 import com.app.socialservice.user.domain.enums.UserAccountStatus;
+import com.app.socialservice.user.domain.exception.InvalidProfilePictureException;
+import com.app.socialservice.user.domain.exception.InvalidProfilePictureUrlException;
+import com.app.socialservice.user.domain.exception.ProfilePictureNotUploadedException;
 import com.app.socialservice.user.domain.exception.SelfProfileRequestNotAllowedException;
 import com.app.socialservice.user.domain.exception.UserBannedException;
 import com.app.socialservice.user.domain.exception.UserProfileBlockedException;
@@ -20,6 +24,7 @@ import com.app.socialservice.user.domain.exception.UserProfileNotFoundException;
 import com.app.socialservice.shared.domain.exception.UserNotFoundException;
 import com.app.socialservice.user.domain.model.User;
 import com.app.socialservice.user.domain.model.valueobj.Email;
+import com.app.socialservice.user.domain.model.valueobj.ProfilePictureBlobName;
 import com.app.socialservice.user.domain.model.valueobj.ProfilePictureUrl;
 import com.app.socialservice.user.domain.model.valueobj.UserBio;
 import com.app.socialservice.user.domain.model.valueobj.UserId;
@@ -57,6 +62,9 @@ class UserProfileServiceTest {
     @Mock
     private UserCacheEvictor userCacheEvictor;
 
+    @Mock
+    private ProfilePictureStorage profilePictureStorage;
+
     private UserProfileService userProfileService;
 
     // A real reader over the mocks: the own profile tests read through it
@@ -66,7 +74,8 @@ class UserProfileServiceTest {
                 userRepository,
                 publicUserProfileReader,
                 new OwnUserProfileReader(userRepository, userStatsService),
-                userCacheEvictor
+                userCacheEvictor,
+                profilePictureStorage
         );
     }
 
@@ -284,8 +293,8 @@ class UserProfileServiceTest {
         var response = userProfileService.updateOwnUserProfile(command);
 
         verify(userRepository).updateProfile(existingUser);
-        // The own profile is replaced by @CachePut; the public one must go
-        verify(userCacheEvictor).evictPublicProfiles(userId);
+        // Both go before the profile is read back, or the cached old own profile would be returned
+        verify(userCacheEvictor).evictProfiles(userId);
         assertThat(response).isEqualTo(new OwnUserProfileResponse(
                 userId,
                 "profile-user",
@@ -378,9 +387,16 @@ class UserProfileServiceTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("command.description must not exceed 255 characters");
 
+        when(userRepository.findById(overlongProfilePictureCommand.userId()))
+                .thenReturn(Optional.of(buildUser(
+                        overlongProfilePictureCommand.userId(),
+                        "valid-user",
+                        "valid@example.com",
+                        UserAccountStatus.ACCEPTED
+                )));
         assertThatThrownBy(() -> userProfileService.updateOwnUserProfile(overlongProfilePictureCommand))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("command.profilePicture must not exceed 255 characters");
+                .isInstanceOf(InvalidProfilePictureUrlException.class)
+                .hasMessage("Profile picture URL must not exceed 255 characters");
 
         when(userRepository.findById(invalidUrlCommand.userId()))
                 .thenReturn(Optional.of(buildUser(
@@ -408,6 +424,92 @@ class UserProfileServiceTest {
                 0L,
                 0L
         );
+    }
+
+    @Nested
+    class ProfilePictureValidationTest {
+
+        private static final String CONTAINER_URL = "https://account.blob.core.windows.net/post-media/";
+        private static final String PICTURE = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
+
+        private final UUID userId = UUID.fromString("0b6e7b52-1f0e-4a43-9a52-7d4b1b0d3c11");
+        private final String ownBlob = "avatars/" + userId + "/" + PICTURE + ".jpg";
+        private User existingUser;
+
+        @BeforeEach
+        void setUpUser() {
+            existingUser = buildUser(userId, "avatar-user", "avatar@example.com", UserAccountStatus.ACCEPTED);
+            existingUser.setPictureUrl(new ProfilePictureUrl("https://cdn.example.com/old.png"));
+            when(userRepository.findById(userId)).thenReturn(Optional.of(existingUser));
+            when(profilePictureStorage.findContainerBlobName(any())).thenAnswer(invocation -> {
+                String url = invocation.getArgument(0);
+                return url.startsWith(CONTAINER_URL)
+                        ? Optional.of(url.substring(CONTAINER_URL.length()).split("\\?", 2)[0])
+                        : Optional.empty();
+            });
+        }
+
+        @Test
+        void shouldRejectAProfilePictureOutsideTheCallersFolder() {
+            var otherUsersBlob = "avatars/" + UUID.randomUUID() + "/" + PICTURE + ".jpg";
+
+            assertThatThrownBy(() -> userProfileService.updateOwnUserProfile(
+                    pictureCommand(CONTAINER_URL + otherUsersBlob)))
+                    .isInstanceOf(InvalidProfilePictureException.class);
+            assertThatThrownBy(() -> userProfileService.updateOwnUserProfile(
+                    pictureCommand(CONTAINER_URL + "post-image.jpg")))
+                    .isInstanceOf(InvalidProfilePictureException.class);
+
+            verify(profilePictureStorage, never()).exists(any());
+            verify(userRepository, never()).updateProfile(any(User.class));
+        }
+
+        @Test
+        void shouldRejectAnAvatarThatWasNeverUploaded() {
+            when(profilePictureStorage.exists(new ProfilePictureBlobName(ownBlob))).thenReturn(false);
+
+            assertThatThrownBy(() -> userProfileService.updateOwnUserProfile(pictureCommand(CONTAINER_URL + ownBlob)))
+                    .isInstanceOf(ProfilePictureNotUploadedException.class);
+
+            verify(userRepository, never()).updateProfile(any(User.class));
+        }
+
+        @Test
+        void shouldStoreTheBareUrlOfAnUploadedAvatarEvenWhenSentWithASas() {
+            var blobName = new ProfilePictureBlobName(ownBlob);
+            when(profilePictureStorage.exists(blobName)).thenReturn(true);
+            when(profilePictureStorage.blobUrl(blobName)).thenReturn(CONTAINER_URL + ownBlob);
+            when(userRepository.updateProfile(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            givenOwnProfileReadable(CONTAINER_URL + ownBlob);
+
+            userProfileService.updateOwnUserProfile(pictureCommand(CONTAINER_URL + ownBlob + "?sp=cw&sig=abc"));
+
+            verify(userRepository).updateProfile(existingUser);
+            assertThat(existingUser.getPictureUrl()).isEqualTo(new ProfilePictureUrl(CONTAINER_URL + ownBlob));
+        }
+
+        @Test
+        void shouldKeepTheCurrentAvatarWithoutCallingStorageWhenTheAppSendsItBackSigned() {
+            existingUser.setPictureUrl(new ProfilePictureUrl(CONTAINER_URL + ownBlob));
+            givenOwnProfileReadable(CONTAINER_URL + ownBlob);
+
+            userProfileService.updateOwnUserProfile(pictureCommand(CONTAINER_URL + ownBlob + "?sp=r&sig=abc"));
+
+            verify(profilePictureStorage, never()).exists(any());
+            verify(userRepository, never()).updateProfile(any(User.class));
+        }
+
+        private UpdateOwnUserProfileCommand pictureCommand(String profilePicture) {
+            return new UpdateOwnUserProfileCommand(userId, "Persisted bio", profilePicture,
+                    Map.of("github", "avatar-user"));
+        }
+
+        private void givenOwnProfileReadable(String pictureUrl) {
+            when(userRepository.findAccountStatus(userId)).thenReturn(Optional.of(UserAccountStatus.ACCEPTED));
+            when(userRepository.findOwnProfileById(userId)).thenReturn(Optional.of(new OwnUserProfileData(
+                    "avatar-user", "Persisted bio", Map.of("github", "avatar-user"), 0L, pictureUrl, false)));
+            when(userStatsService.getStats(userId)).thenReturn(UserStats.EMPTY);
+        }
     }
 
     private User buildUser(UUID userId, String username, String email, UserAccountStatus status) {
