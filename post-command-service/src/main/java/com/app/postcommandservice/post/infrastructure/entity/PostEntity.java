@@ -83,6 +83,13 @@ public class PostEntity {
     @Column(nullable = false)
     private Instant updatedAt;
 
+    /**
+     * When the media cleanup job (task 58) deleted the blobs of this expired or failed upload.
+     * {@code null} while the post still owns its blobs.
+     */
+    @Column(name = "media_purged_at")
+    private Instant mediaPurgedAt;
+
     @Version
     private Long version;
 
