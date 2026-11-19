@@ -1,7 +1,7 @@
 # post-query-service
 
 ## What it does
-Read side of the platform, written in Go. It consumes the events of `post-command-service` and `social-service` from RabbitMQ, keeps its own read models in MongoDB, and serves the home feed (`/api/feed`) and post and comment reads (`/api/content`) over HTTP.
+Read side of the platform, written in Go. It consumes the events of `post-command-service` and `social-service` from RabbitMQ, keeps its own read models in MongoDB, and serves the home feed (`/api/feed`) and post, comment and profile grid reads (`/api/content`) over HTTP.
 
 ## Packages used
 - **`net/http`:** `ServeMux` with method patterns.
@@ -71,6 +71,8 @@ Every read that is not the feed lives under `/api/content`, routed by the gatewa
 | `GET /api/content/posts/{postId}` | 200 `PostView`, 400 `invalid_post_id`, 404 `post_not_found` |
 | `GET /api/content/posts/{postId}/comments?cursor=&limit=` | 200 `{ items: Comment[], nextCursor }`, 400 `invalid_post_id` / `invalid_cursor` / `invalid_limit`, 404 `post_not_found` |
 | `GET /api/content/posts/{postId}/comments/{commentId}/replies?cursor=&limit=` | 200 `{ items: Comment[], nextCursor }`, 400 `invalid_post_id` / `invalid_comment_id` / `invalid_cursor` / `invalid_limit`, 404 `post_not_found` / `comment_not_found` |
+| `GET /api/content/users/{userId}/posts?cursor=&limit=` | 200 `{ items: GridItem[], nextCursor }`, 400 `invalid_user_id` / `invalid_cursor` / `invalid_limit`, 404 `user_not_found` |
+| `GET /api/content/users/{userId}/reposts?cursor=&limit=` | same as `/posts` |
 
 `PostView` is a feed item without `position`, plus two fields that stay null until collab requests are projected: `collab.pendingRequestCount` and `viewer.collabRequestStatus`. Its values come from the same read models and the same mapper as the feed, with `viewer` holding the caller's state and every media URL signed (see "Media URLs").
 
@@ -86,6 +88,14 @@ Every read that is not the feed lives under `/api/content`, routed by the gatewa
 - The order uses counters that change, so a comment liked or replied to between two requests can move across the cursor and appear twice or not at all. Dedupe by `commentId`.
 - Comments and replies written by a user who blocked the caller, or whom the caller blocked, are left out. The post rules are those of `GET /api/content/posts/{postId}` (same 404). A parent comment that is missing, of another post, or written across a block is 404 `comment_not_found`.
 - `likeCount` and `replyCount` come from `rk.post.comment.like.created` / `.deleted` and from replies created or deleted; `likedByMe` from the caller's comment likes.
+
+### Profile grids
+`GridItem = { postId, coverThumbnailUrl: string | null, mediaType: 'IMAGE' | 'VIDEO', mediaCount, postType: 'BASIC' | 'COLLAB', collabStatus: 'OPEN' | 'CLOSED' | null, likeCount, createdAt }`. `mediaType` is that of the first media item; `coverThumbnailUrl`, `postType` and `collabStatus` follow the same rules as a feed item (`coverThumbnailUrl` signed, `collabStatus` null without a collab); `createdAt` is the post's.
+
+- `/posts` lists the user's posts, newest first; `/reposts` the posts the user shared, most recently shared first. Ties on the date are broken by `postId`, descending.
+- Both are public to any signed-in user. A user who is unknown, deleted, or in a block relation with the caller (either direction) is the same 404 `user_not_found`.
+- Keyset pagination as for the comments: `limit` 1 to 50 (default 20), opaque `cursor`, `nextCursor` null on the last page, every page an index seek on `{ user_id: 1, created_at: -1, post_id: -1 }` (on `posts` and on `post_shares`). The dates never change, so the cursor is stable.
+- `/reposts` skips a share whose post no longer exists, and a post GetPost would not serve the caller (creator gone, or in a block relation with the caller). It reads on after the skipped shares to fill the page, at most 3 share reads per request; a page cut short by that has a `nextCursor` that resumes after the last share read.
 
 ## How the feed gets filled
 The feed is prepared ahead of time over RabbitMQ, through the transactional outbox:
@@ -162,4 +172,4 @@ A retry on a timeout runs the pipeline again, so the limit per attempt (10 s) is
 | `MEDIA_READ_SAS_WINDOW` | `24h` | Length of a signing window, a Go duration from `1m` to `72h`. A SAS lasts two windows. |
 
 ## Tests
-`./test.sh` from `post-query-service/`. It needs Docker: integration tests use Testcontainers for MongoDB, RabbitMQ and Azurite (`mcr.microsoft.com/azure-storage/azurite:3.35.0`, where `GET /api/feed` and `GET /api/content/posts/{postId}` are checked to return media URLs that download). The gRPC tests run a real server on localhost. The comment list tests read the queries the service ran from the MongoDB profiler and explain them (one index scan, no in-memory sort, as many keys on page 50 as on page 2).
+`./test.sh` from `post-query-service/`. It needs Docker: integration tests use Testcontainers for MongoDB, RabbitMQ and Azurite (`mcr.microsoft.com/azure-storage/azurite:3.35.0`, where `GET /api/feed` and `GET /api/content/posts/{postId}` are checked to return media URLs that download). The gRPC tests run a real server on localhost. The comment list and profile grid tests read the queries the service ran from the MongoDB profiler and explain them (one index scan, no in-memory sort, as many keys on a deep page as on page 2).
