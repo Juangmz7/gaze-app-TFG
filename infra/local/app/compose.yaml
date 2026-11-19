@@ -104,6 +104,11 @@ services:
       SPRING_NEO4J_URI: bolt://social-neo4j:7687
       SPRING_NEO4J_AUTHENTICATION_USERNAME: ${SOCIAL_NEO4J_USER:-neo4j}
       SPRING_NEO4J_AUTHENTICATION_PASSWORD: ${SOCIAL_NEO4J_PASSWORD}
+      # Avatars and read-signed profile pictures: the same Azurite account and container as
+      # post-command-service; the well-known devstoreaccount1 key comes from application-dev.yaml.
+      AZURE_STORAGE_ACCOUNT_URL: http://azurite:10000/devstoreaccount1
+      AZURE_STORAGE_CONTAINER: post-media-dev
+      MEDIA_READ_SAS_WINDOW: ${MEDIA_READ_SAS_WINDOW:-24h}
       <<: [*spring-rabbitmq, *spring-redis, *keycloak-jwt, *spring-otlp]
     ports:
       # application-dev.yaml sets server.port=8081

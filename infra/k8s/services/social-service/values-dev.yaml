@@ -21,6 +21,14 @@ env:
   # --- Redis (in-cluster) ---
   SPRING_DATA_REDIS_HOST: redis.redis-dev.svc.cluster.local
   SPRING_DATA_REDIS_PORT: "6379"
+  # --- Azure Blob Storage (external: compose azurite) ---
+  # Same account and container as post-command-service: avatars go to avatars/{userId}/
+  # in it. Upload and read SAS are signed locally with Azurite's well-known key
+  # (application-dev.yaml). The URL is the sslip.io name other devices resolve too; in the
+  # cluster CoreDNS rewrites it to the azurite Service, so PUT /profile/me's blob
+  # existence check goes out through the 10.42.0.1:10000 egress below.
+  AZURE_STORAGE_ACCOUNT_URL: http://azurite.dev.192-168-1-135.sslip.io:10000/devstoreaccount1
+  AZURE_STORAGE_CONTAINER: post-media-dev
   # --- Keycloak: tokens carry the public issuer; keys are fetched in-cluster ---
   SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI: https://auth.dev.192-168-1-135.sslip.io/realms/auth-service
   SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak-service.keycloak-dev.svc.cluster.local:8080/realms/auth-service/protocol/openid-connect/certs
@@ -76,6 +84,6 @@ networkPolicy:
     # Databases on the k3s host (compose, DB_BIND_IP=0.0.0.0), reached through
     # infra/k8s/platform/external-databases: after the Service DNAT the
     # traffic goes to the node's pod-network gateway on the published port.
-    - name: postgres (5433) + neo4j (7687)
+    - name: postgres (5433) + neo4j (7687) + azurite (10000)
       cidr: 10.42.0.1/32
-      ports: [5433, 7687]
+      ports: [5433, 7687, 10000]

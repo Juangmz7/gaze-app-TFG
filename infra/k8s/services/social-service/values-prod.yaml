@@ -20,12 +20,26 @@ env:
   OTEL_EXPORTER_OTLP_ENDPOINT: http://gaze-collector.observability.svc.cluster.local:4318
   OTEL_SAMPLING_PROBABILITY: "0.1"
   OTEL_RESOURCE_ATTRIBUTES: deployment.environment.name=prod
+  # Same account and container as post-command-service. No account key: read and upload
+  # SAS are signed with a user delegation key fetched through Workload Identity (below),
+  # once per MEDIA_READ_SAS_WINDOW. The identity needs Storage Blob Delegator on the
+  # account and Storage Blob Data Contributor on the container (avatar existence check).
+  AZURE_STORAGE_ACCOUNT_URL: https://CHANGE_ME.blob.core.windows.net
+  AZURE_STORAGE_CONTAINER: post-media
+  AZURE_STORAGE_UPLOAD_SAS_TTL: PT15M
 
 # Created by External Secrets from Vault. Required keys:
 #   POSTGRES_USER, POSTGRES_PASSWORD, NEO4J_USER, NEO4J_PASSWORD,
 #   RABBITMQ_USER, RABBITMQ_PASSWORD, REDIS_PASSWORD,
 #   RABBITMQ_AMQP_URI (amqp://user:pass@rabbitmq.rabbitmq-prod.svc.cluster.local:5672/, for KEDA)
 existingSecret: social-service
+
+# DefaultAzureCredential through AKS Workload Identity (no storage keys).
+serviceAccount:
+  annotations:
+    azure.workload.identity/client-id: CHANGE_ME
+podLabels:
+  azure.workload.identity/use: "true"
 
 resources:
   requests:
@@ -72,3 +86,9 @@ networkPolicy:
     - name: postgres + neo4j
       cidr: 10.0.0.0/8
       ports: [5432, 7687]
+    # Azure Blob Storage + Entra ID token endpoint (public, HTTPS only): the user
+    # delegation key for avatar SAS and the avatar existence check.
+    - name: azure (blob, entra id)
+      cidr: 0.0.0.0/0
+      except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16]
+      ports: [443]
