@@ -2,6 +2,7 @@ package com.app.socialservice.user.infrastructure.controller;
 
 import java.util.List;
 
+import com.app.socialservice.shared.application.media.PictureUrlResponseSigner;
 import com.app.socialservice.shared.infrastructure.security.SecurityUtils;
 import com.app.socialservice.user.application.dto.RecommendedUserResponse;
 import com.app.socialservice.user.application.service.RecommendedUserService;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class RecommendedUserController {
 
     private final RecommendedUserService recommendedUserService;
+    private final PictureUrlResponseSigner pictureUrlResponseSigner;
     private final SecurityUtils securityUtils;
 
     @GetMapping("/users")
@@ -26,6 +28,7 @@ public class RecommendedUserController {
             throw new org.springframework.security.authentication.AuthenticationCredentialsNotFoundException("User authentication failed");
         }
 
-        return ResponseEntity.ok(recommendedUserService.getRecommendedUsers(requesterUserId));
+        return ResponseEntity.ok(pictureUrlResponseSigner.signAll(
+                recommendedUserService.getRecommendedUsers(requesterUserId)));
     }
 }
