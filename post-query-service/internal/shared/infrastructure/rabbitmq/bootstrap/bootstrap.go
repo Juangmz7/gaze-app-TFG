@@ -204,12 +204,15 @@ func addPostConsumer(ctx context.Context, wmRouter *message.Router, amqpURI stri
 	postRepository := postmongo.NewRepository(db)
 	likeRepository := likemongo.NewRepository(db)
 	commentRepository := commentmongo.NewRepository(db)
+	commentLikeRepository := commentmongo.NewCommentLikeRepository(db)
 	shareRepository := sharemongo.NewRepository(db)
 	collabRepository := collabmongo.NewRepository(db)
 	for _, ensure := range []func(context.Context) error{
 		postRepository.EnsureIndexes,
 		likeRepository.EnsureIndexes,
 		commentRepository.EnsureIndexes,
+		commentRepository.BackfillCounters,
+		commentLikeRepository.EnsureIndexes,
 		shareRepository.EnsureIndexes,
 		collabRepository.EnsureIndexes,
 	} {
@@ -228,9 +231,11 @@ func addPostConsumer(ctx context.Context, wmRouter *message.Router, amqpURI stri
 	postDeletedHandler := postrabbitmq.NewPostDeletedHandler(idempotencyRepo, postusecase.NewDeletePost(postRepository, feedmongo.NewFeedUnitRepository(db)), logger)
 	likeCreatedHandler := likerabbitmq.NewPostLikeCreatedHandler(transactor, idempotencyRepo, likeusecase.NewRecordLike(likeRepository, postRepository), logger)
 	likeDeletedHandler := likerabbitmq.NewPostLikeDeletedHandler(transactor, idempotencyRepo, likeusecase.NewDeleteLike(likeRepository, postRepository, logger), logger)
-	commentCreatedHandler := commentrabbitmq.NewPostCommentCreatedHandler(transactor, idempotencyRepo, commentusecase.NewRecordComment(commentRepository, postRepository), logger)
+	commentCreatedHandler := commentrabbitmq.NewPostCommentCreatedHandler(transactor, idempotencyRepo, commentusecase.NewRecordComment(commentRepository, postRepository, logger), logger)
 	commentUpdatedHandler := commentrabbitmq.NewCommentUpdatedHandler(commentusecase.NewUpdateComment(commentRepository, logger), logger)
 	commentDeletedHandler := commentrabbitmq.NewCommentDeletedHandler(transactor, idempotencyRepo, commentusecase.NewDeleteComment(commentRepository, postRepository, logger), logger)
+	commentLikeCreatedHandler := commentrabbitmq.NewPostCommentLikeCreatedHandler(transactor, idempotencyRepo, commentusecase.NewRecordCommentLike(commentLikeRepository, commentRepository), logger)
+	commentLikeDeletedHandler := commentrabbitmq.NewPostCommentLikeDeletedHandler(transactor, idempotencyRepo, commentusecase.NewDeleteCommentLike(commentLikeRepository, commentRepository, logger), logger)
 	shareCreatedHandler := sharerabbitmq.NewPostShareCreatedHandler(transactor, idempotencyRepo, shareusecase.NewRecordShare(shareRepository, postRepository), logger)
 	shareDeletedHandler := sharerabbitmq.NewPostShareDeletedHandler(transactor, idempotencyRepo, shareusecase.NewDeleteShare(shareRepository, postRepository, logger), logger)
 	collabOpenedHandler := collabrabbitmq.NewPostCollabOpenedHandler(idempotencyRepo, collabusecase.NewRecordCollabOpened(collabRepository), logger)
@@ -252,6 +257,8 @@ func addPostConsumer(ctx context.Context, wmRouter *message.Router, amqpURI stri
 		topology.RKPostCommentCreated:          commentCreatedHandler.Handle,
 		topology.RKPostCommentUpdated:          commentUpdatedHandler.Handle,
 		topology.RKPostCommentDeleted:          commentDeletedHandler.Handle,
+		topology.RKPostCommentLikeCreated:      commentLikeCreatedHandler.Handle,
+		topology.RKPostCommentLikeDeleted:      commentLikeDeletedHandler.Handle,
 		topology.RKPostShareCreated:            shareCreatedHandler.Handle,
 		topology.RKPostShareDeleted:            shareDeletedHandler.Handle,
 		topology.RKPostCollabOpenedPostCreated: collabOpenedHandler.Handle,

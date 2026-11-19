@@ -19,6 +19,16 @@ import (
 // collectionName is the MongoDB collection backing the comment read model.
 const collectionName = "post_comments"
 
+// Index names of the two comment list queries of /api/content (task 48). The read
+// side hints them, so the query never falls back to another plan.
+const (
+	// TopLevelCommentsIndex serves GET /api/content/posts/{postId}/comments: top-level
+	// comments of a post, most liked, then most replied, then newest.
+	TopLevelCommentsIndex = "post_id_1_reply_to_1_like_count_-1_reply_count_-1_created_at_-1_comment_id_-1"
+	// RepliesIndex serves GET .../comments/{commentId}/replies: oldest first.
+	RepliesIndex = "reply_to_1_created_at_1_comment_id_1"
+)
+
 // operationTimeout bounds every Mongo call made by Repository.
 const operationTimeout = 5 * time.Second
 
@@ -31,12 +41,16 @@ type commentDocument struct {
 	ReplyTo   string    `bson:"reply_to"`
 	CreatedAt time.Time `bson:"created_at"`
 	UpdatedAt time.Time `bson:"updated_at"`
-	Version   int64     `bson:"version"`
+	// LikeCount and ReplyCount are only written by Insert and adjustCounter, never
+	// by Update, and never bump version; see adjustCounter.
+	LikeCount  int64 `bson:"like_count"`
+	ReplyCount int64 `bson:"reply_count"`
+	Version    int64 `bson:"version"`
 }
 
 // Repository implements usecase.RecordCommentRepository,
-// usecase.UpdateCommentRepository, and usecase.DeleteCommentRepository
-// against MongoDB.
+// usecase.UpdateCommentRepository, usecase.DeleteCommentRepository and the comment
+// counter ports of the comment like usecases against MongoDB.
 type Repository struct {
 	collection *mongo.Collection
 }
@@ -49,18 +63,114 @@ func NewRepository(db *mongo.Database) *Repository {
 
 // EnsureIndexes creates the unique index on comment_id required to make
 // Insert idempotent under concurrent or retried deliveries of the same
-// creation event.
+// creation event, and the two indexes whose key order matches the sort of the
+// comment lists exactly, so every page is an index seek with no SORT stage:
+// TopLevelCommentsIndex and RepliesIndex.
 func (r *Repository) EnsureIndexes(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
 
-	indexModel := mongo.IndexModel{
-		Keys:    bson.D{{Key: "comment_id", Value: 1}},
-		Options: options.Index().SetUnique(true),
+	indexModels := []mongo.IndexModel{
+		{
+			Keys:    bson.D{{Key: "comment_id", Value: 1}},
+			Options: options.Index().SetUnique(true),
+		},
+		{
+			Keys: bson.D{
+				{Key: "post_id", Value: 1},
+				{Key: "reply_to", Value: 1},
+				{Key: "like_count", Value: -1},
+				{Key: "reply_count", Value: -1},
+				{Key: "created_at", Value: -1},
+				{Key: "comment_id", Value: -1},
+			},
+			Options: options.Index().SetName(TopLevelCommentsIndex),
+		},
+		{
+			Keys: bson.D{
+				{Key: "reply_to", Value: 1},
+				{Key: "created_at", Value: 1},
+				{Key: "comment_id", Value: 1},
+			},
+			Options: options.Index().SetName(RepliesIndex),
+		},
 	}
 
-	if _, err := r.collection.Indexes().CreateOne(ctx, indexModel); err != nil {
+	if _, err := r.collection.Indexes().CreateMany(ctx, indexModels); err != nil {
 		return fmt.Errorf("ensure post_comments indexes: %w", err)
+	}
+
+	return nil
+}
+
+// migrationsCollectionName holds one marker per one-off data migration that ran.
+const migrationsCollectionName = "schema_migrations"
+
+// counterBackfillMigration marks that BackfillCounters already ran on this database.
+const counterBackfillMigration = "post_comments_counters_v1"
+
+// BackfillCounters gives like_count and reply_count to the comments projected before
+// the counters existed, once per database: a missing counter sorts below every
+// number, so the keyset of the comment list would skip it after the first page.
+// like_count starts at 0, because no comment like was projected before it existed;
+// reply_count is counted from the stored replies. A marker in schema_migrations makes
+// every later bootstrap a single lookup, and only documents still missing a counter
+// are written, so a run interrupted before the marker is safe to repeat.
+func (r *Repository) BackfillCounters(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
+	defer cancel()
+
+	migrations := r.collection.Database().Collection(migrationsCollectionName)
+	marker := bson.D{{Key: "_id", Value: counterBackfillMigration}}
+	err := migrations.FindOne(ctx, marker).Err()
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, mongo.ErrNoDocuments) {
+		return fmt.Errorf("find migration %s: %w", counterBackfillMigration, err)
+	}
+
+	if err := r.backfillReplyCounts(ctx); err != nil {
+		return err
+	}
+	missingLikeCount := bson.D{{Key: "like_count", Value: bson.D{{Key: "$exists", Value: false}}}}
+	if _, err := r.collection.UpdateMany(ctx, missingLikeCount, bson.D{{Key: "$set", Value: bson.D{{Key: "like_count", Value: int64(0)}}}}); err != nil {
+		return fmt.Errorf("backfill post_comments like_count: %w", err)
+	}
+
+	if _, err := migrations.InsertOne(ctx, append(marker, bson.E{Key: "applied_at", Value: time.Now().UTC()})); err != nil && !mongo.IsDuplicateKeyError(err) {
+		return fmt.Errorf("record migration %s: %w", counterBackfillMigration, err)
+	}
+
+	return nil
+}
+
+// backfillReplyCounts sets reply_count, where it is missing, from the stored replies.
+func (r *Repository) backfillReplyCounts(ctx context.Context) error {
+	cursor, err := r.collection.Aggregate(ctx, mongo.Pipeline{
+		{{Key: "$match", Value: bson.D{{Key: "reply_to", Value: bson.D{{Key: "$ne", Value: ""}}}}}},
+		{{Key: "$group", Value: bson.D{{Key: "_id", Value: "$reply_to"}, {Key: "count", Value: bson.D{{Key: "$sum", Value: int64(1)}}}}}},
+	})
+	if err != nil {
+		return fmt.Errorf("count post_comments replies: %w", err)
+	}
+	var replyCounts []struct {
+		ParentID string `bson:"_id"`
+		Count    int64  `bson:"count"`
+	}
+	if err := cursor.All(ctx, &replyCounts); err != nil {
+		return fmt.Errorf("read post_comments reply counts: %w", err)
+	}
+
+	missingReplyCount := bson.E{Key: "reply_count", Value: bson.D{{Key: "$exists", Value: false}}}
+	for _, parent := range replyCounts {
+		filter := bson.D{{Key: "comment_id", Value: parent.ParentID}, missingReplyCount}
+		if _, err := r.collection.UpdateOne(ctx, filter, bson.D{{Key: "$set", Value: bson.D{{Key: "reply_count", Value: parent.Count}}}}); err != nil {
+			return fmt.Errorf("backfill reply_count of comment %s: %w", parent.ParentID, err)
+		}
+	}
+	if _, err := r.collection.UpdateMany(ctx, bson.D{missingReplyCount}, bson.D{{Key: "$set", Value: bson.D{{Key: "reply_count", Value: int64(0)}}}}); err != nil {
+		return fmt.Errorf("backfill post_comments reply_count: %w", err)
 	}
 
 	return nil
@@ -93,16 +203,24 @@ func (r *Repository) Insert(ctx context.Context, input usecase.RecordCommentInpu
 	if updatedAt.IsZero() {
 		updatedAt = input.CreatedAt
 	}
+	// A reply whose parent was not projected yet was stored without moving any
+	// counter (see RecordCommentUsecase), so the parent starts from its stored replies.
+	replyCount, err := r.collection.CountDocuments(ctx, bson.D{{Key: "reply_to", Value: input.CommentID.String()}})
+	if err != nil {
+		return false, fmt.Errorf("count replies of comment %s: %w", input.CommentID, err)
+	}
 
 	doc := commentDocument{
-		CommentID: input.CommentID.String(),
-		PostID:    input.PostID.String(),
-		UserID:    input.UserID.String(),
-		Content:   input.Content,
-		ReplyTo:   replyTo,
-		CreatedAt: input.CreatedAt,
-		UpdatedAt: updatedAt,
-		Version:   1,
+		CommentID:  input.CommentID.String(),
+		PostID:     input.PostID.String(),
+		UserID:     input.UserID.String(),
+		Content:    input.Content,
+		ReplyTo:    replyTo,
+		CreatedAt:  input.CreatedAt,
+		UpdatedAt:  updatedAt,
+		LikeCount:  0,
+		ReplyCount: replyCount,
+		Version:    1,
 	}
 	if _, err := r.collection.InsertOne(ctx, doc); err != nil {
 		return false, fmt.Errorf("insert comment %s: %w", input.CommentID, err)
@@ -196,17 +314,69 @@ func (r *Repository) Update(ctx context.Context, input usecase.UpdateCommentInpu
 }
 
 // Delete idempotently removes commentID's comment read model document and reports
-// whether a document was really removed. Deleting an already-absent document is
-// not an error.
-func (r *Repository) Delete(ctx context.Context, commentID uuid.UUID) (bool, error) {
+// whether a document was really removed and, for a reply, the comment it replied to
+// (uuid.Nil for a top-level comment or when nothing was removed). Deleting an
+// already-absent document is not an error.
+func (r *Repository) Delete(ctx context.Context, commentID uuid.UUID) (bool, uuid.UUID, error) {
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
 
 	filter := bson.D{{Key: "comment_id", Value: commentID.String()}}
-	result, err := r.collection.DeleteOne(ctx, filter)
+	var removed struct {
+		ReplyTo string `bson:"reply_to"`
+	}
+	err := r.collection.FindOneAndDelete(ctx, filter, options.FindOneAndDelete().SetProjection(bson.D{{Key: "reply_to", Value: 1}})).Decode(&removed)
+	if errors.Is(err, mongo.ErrNoDocuments) {
+		return false, uuid.Nil, nil
+	}
 	if err != nil {
-		return false, fmt.Errorf("delete comment %s: %w", commentID, err)
+		return false, uuid.Nil, fmt.Errorf("delete comment %s: %w", commentID, err)
+	}
+	if removed.ReplyTo == "" {
+		return true, uuid.Nil, nil
+	}
+	parentID, err := uuid.Parse(removed.ReplyTo)
+	if err != nil {
+		return true, uuid.Nil, fmt.Errorf("delete comment %s: stored reply_to %q is not a uuid: %w", commentID, removed.ReplyTo, err)
 	}
 
-	return result.DeletedCount > 0, nil
+	return true, parentID, nil
+}
+
+// AdjustLikeCount adds delta to like_count. See adjustCounter.
+func (r *Repository) AdjustLikeCount(ctx context.Context, commentID uuid.UUID, delta int64) (bool, error) {
+	return r.adjustCounter(ctx, commentID, "like_count", delta)
+}
+
+// AdjustReplyCount adds delta to reply_count. See adjustCounter.
+func (r *Repository) AdjustReplyCount(ctx context.Context, commentID uuid.UUID, delta int64) (bool, error) {
+	return r.adjustCounter(ctx, commentID, "reply_count", delta)
+}
+
+// adjustCounter atomically adds delta to one counter, flooring it at 0, and reports
+// whether the comment exists. One aggregation-pipeline update expresses the floor and
+// treats a missing counter as 0, like the post counters. It does not touch version:
+// Update's optimistic concurrency would otherwise conflict with every like.
+func (r *Repository) adjustCounter(ctx context.Context, commentID uuid.UUID, counter string, delta int64) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
+	defer cancel()
+
+	update := mongo.Pipeline{
+		{{Key: "$set", Value: bson.D{
+			{Key: counter, Value: bson.D{{Key: "$max", Value: bson.A{
+				int64(0),
+				bson.D{{Key: "$add", Value: bson.A{
+					bson.D{{Key: "$ifNull", Value: bson.A{"$" + counter, int64(0)}}},
+					delta,
+				}}},
+			}}}},
+		}}},
+	}
+
+	result, err := r.collection.UpdateOne(ctx, bson.D{{Key: "comment_id", Value: commentID.String()}}, update)
+	if err != nil {
+		return false, fmt.Errorf("adjust %s of comment %s: %w", counter, commentID, err)
+	}
+
+	return result.MatchedCount > 0, nil
 }

@@ -18,9 +18,12 @@ type DeleteCommentInput struct {
 }
 
 // DeleteCommentRepository removes the comment read model and reports whether a
-// document was really removed. Implemented by comment/infrastructure/mongo.Repository.
+// document was really removed and, for a reply, the comment it replied to (uuid.Nil
+// otherwise). AdjustReplyCount moves that parent's reply counter and reports whether
+// the parent is projected. Implemented by comment/infrastructure/mongo.Repository.
 type DeleteCommentRepository interface {
-	Delete(ctx context.Context, commentID uuid.UUID) (removed bool, err error)
+	Delete(ctx context.Context, commentID uuid.UUID) (removed bool, replyTo uuid.UUID, err error)
+	AdjustReplyCount(ctx context.Context, commentID uuid.UUID, delta int64) (found bool, err error)
 }
 
 // DeleteCommentPostStats adjusts the post read model's comment counter and reports
@@ -43,8 +46,9 @@ func NewDeleteComment(repository DeleteCommentRepository, postStats DeleteCommen
 }
 
 // Execute deletes the comment read model described by input and, only when a
-// document was really removed, decrements the post's comment counter (never below
-// 0). A comment document can only exist once its post was projected, because the
+// document was really removed, decrements the post's comment counter and, for a
+// reply, its parent's reply counter (neither below 0). A missing parent was deleted
+// first: a warning, and the event is acked. A comment document can only exist once its post was projected, because the
 // insert that created it runs in one transaction with the counter increment. So a
 // missing post here means the post was deleted, not "not projected yet": there is
 // no counter left to adjust and a retry could never succeed, so it logs a warning
@@ -57,7 +61,7 @@ func (u *DeleteCommentUsecase) Execute(ctx context.Context, input DeleteCommentI
 		return fmt.Errorf("delete comment usecase: post id is required")
 	}
 
-	removed, err := u.repository.Delete(ctx, input.CommentID)
+	removed, replyTo, err := u.repository.Delete(ctx, input.CommentID)
 	if err != nil {
 		return fmt.Errorf("delete comment usecase: %w", err)
 	}
@@ -72,6 +76,18 @@ func (u *DeleteCommentUsecase) Execute(ctx context.Context, input DeleteCommentI
 	}
 	if !found {
 		u.logger.WarnContext(ctx, "comment removed for a post that is no longer projected", "correlation_id", input.CorrelationID, "userId", input.UserID, "post_id", input.PostID, "comment_id", input.CommentID)
+	}
+	if replyTo == uuid.Nil {
+		return nil
+	}
+
+	parentFound, err := u.repository.AdjustReplyCount(ctx, replyTo, -1)
+	if err != nil {
+		return fmt.Errorf("delete comment usecase: %w", err)
+	}
+	if !parentFound {
+		u.logger.WarnContext(ctx, "reply removed for a parent comment that is no longer projected", "correlation_id", input.CorrelationID, "userId", input.UserID,
+			"post_id", input.PostID, "comment_id", input.CommentID, "reply_to", replyTo)
 	}
 
 	return nil
