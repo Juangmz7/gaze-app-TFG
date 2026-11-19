@@ -1,7 +1,7 @@
 # post-query-service
 
 ## What it does
-Read side of the platform, written in Go. It consumes the events of `post-command-service` and `social-service` from RabbitMQ, keeps its own read models in MongoDB, and serves the home feed (`/api/feed`) and post reads (`/api/content`) over HTTP.
+Read side of the platform, written in Go. It consumes the events of `post-command-service` and `social-service` from RabbitMQ, keeps its own read models in MongoDB, and serves the home feed (`/api/feed`) and post and comment reads (`/api/content`) over HTTP.
 
 ## Packages used
 - **`net/http`:** `ServeMux` with method patterns.
@@ -69,12 +69,23 @@ Every read that is not the feed lives under `/api/content`, routed by the gatewa
 | Endpoint | Answer |
 | --- | --- |
 | `GET /api/content/posts/{postId}` | 200 `PostView`, 400 `invalid_post_id`, 404 `post_not_found` |
+| `GET /api/content/posts/{postId}/comments?cursor=&limit=` | 200 `{ items: Comment[], nextCursor }`, 400 `invalid_post_id` / `invalid_cursor` / `invalid_limit`, 404 `post_not_found` |
+| `GET /api/content/posts/{postId}/comments/{commentId}/replies?cursor=&limit=` | 200 `{ items: Comment[], nextCursor }`, 400 `invalid_post_id` / `invalid_comment_id` / `invalid_cursor` / `invalid_limit`, 404 `post_not_found` / `comment_not_found` |
 
 `PostView` is a feed item without `position`, plus two fields that stay null until collab requests are projected: `collab.pendingRequestCount` and `viewer.collabRequestStatus`. Its values come from the same read models and the same mapper as the feed, with `viewer` holding the caller's state and every media URL signed (see "Media URLs").
 
 - `postId` must be a canonical UUID; anything else is a 400.
 - A post that was never projected, was deleted or banned, whose creator is gone, or whose creator has a block with the caller in either direction, is the same 404 `post_not_found`, so a block is never revealed.
 - Reading a post does not touch the feed: nothing is marked served.
+
+### Comments
+`Comment = { commentId, postId, author: UserSummary, content, replyTo: string | null, likeCount, replyCount, likedByMe, createdAt, updatedAt }`, where `UserSummary = { userId, username, pictureUrl: string | null }` is the same shape as a feed item's `creator`, with the picture signed.
+
+- `/comments` lists the top-level comments of the post: most liked first, then most replied, then newest (`commentId` breaks the last ties). `/replies` lists the replies of one comment of that post, oldest first.
+- Keyset pagination: `limit` is 1 to 50 (default 20); `nextCursor` is an opaque string to send back as `cursor`, and null on the last page. Every page costs the same, however deep. A cursor from one list is rejected by the other.
+- The order uses counters that change, so a comment liked or replied to between two requests can move across the cursor and appear twice or not at all. Dedupe by `commentId`.
+- Comments and replies written by a user who blocked the caller, or whom the caller blocked, are left out. The post rules are those of `GET /api/content/posts/{postId}` (same 404). A parent comment that is missing, of another post, or written across a block is 404 `comment_not_found`.
+- `likeCount` and `replyCount` come from `rk.post.comment.like.created` / `.deleted` and from replies created or deleted; `likedByMe` from the caller's comment likes.
 
 ## How the feed gets filled
 The feed is prepared ahead of time over RabbitMQ, through the transactional outbox:
@@ -151,4 +162,4 @@ A retry on a timeout runs the pipeline again, so the limit per attempt (10 s) is
 | `MEDIA_READ_SAS_WINDOW` | `24h` | Length of a signing window, a Go duration from `1m` to `72h`. A SAS lasts two windows. |
 
 ## Tests
-`./test.sh` from `post-query-service/`. It needs Docker: integration tests use Testcontainers for MongoDB, RabbitMQ and Azurite (`mcr.microsoft.com/azure-storage/azurite:3.35.0`, where `GET /api/feed` and `GET /api/content/posts/{postId}` are checked to return media URLs that download). The gRPC tests run a real server on localhost.
+`./test.sh` from `post-query-service/`. It needs Docker: integration tests use Testcontainers for MongoDB, RabbitMQ and Azurite (`mcr.microsoft.com/azure-storage/azurite:3.35.0`, where `GET /api/feed` and `GET /api/content/posts/{postId}` are checked to return media URLs that download). The gRPC tests run a real server on localhost. The comment list tests read the queries the service ran from the MongoDB profiler and explain them (one index scan, no in-memory sort, as many keys on page 50 as on page 2).
