@@ -19,6 +19,12 @@ The service is divided into distinct bounded contexts (domains):
 
 Explore the `docs` folder inside each domain package for detailed layer-specific documentation.
 
+## Profile by username
+`GET /api/social/profile/by-username/{username}` answers `200` with exactly the body of `GET /api/social/profile/{userId}` (`UserProfileResponse`: `id`, `username`, `description`, `socialMedia`, `followerCount`, `followingCount`, `postCount`, `profilePic`, `following`, `followsMe`), for mentions (`@username`) and tagged users, which carry only a username. It resolves the user id and then runs the same use case output (`PublicUserProfileReader` cache + live relationship), and `profilePic` is read-signed like every other picture.
+- The match is case-insensitive (`lower(username)`, served by the unique index `uk_users_username_lower` in `db/schema/social-service-prod.sql`; Keycloak usernames are unique and lowercase).
+- The path value must be 1..64 characters of letters, digits, `_` and `.` (the Keycloak username charset, any letter case), else 400 `invalid_username`.
+- Unknown, deleted, banned, and a block in either direction all answer the same 404 `NOT_FOUND`, so a lookup by name never tells them apart (`/profile/{userId}` answers 403 `BLOCKED` for a block). Your own username answers 400 `BAD_REQUEST`, like your own id (use `/profile/me`).
+
 ## Profile pictures (Azure Blob)
 Profile pictures live in the private media container of post-command-service (`post-media-dev` locally, `post-media` in prod), under `avatars/{userId}/{uuid}.{jpg|png|webp}`.
 
@@ -27,7 +33,7 @@ Profile pictures live in the private media container of post-command-service (`p
 2. The client `PUT`s the bytes to `uploadUrl` with `x-ms-blob-type: BlockBlob`.
 3. The client sends `profilePicture: pictureUrl` in `PUT /api/social/profile/me` (also served on `/api/social/profile`). A URL of the media container is reduced to its bare blob URL (the read-signed URL the app got back from `GET` is accepted and stored bare) and, when it differs from the current picture, must be `avatars/{callerUserId}/{uuid}.{ext}` (else 400 `invalid_profile_picture`) and exist in Blob Storage (`getProperties`, else 400 `profile_picture_not_uploaded`). URLs of other hosts are stored as before. The blob check runs outside any database transaction.
 
-**Reading pictures.** Every `profilePic` / `profilePicture` returned (`/profile/me`, `/profile/{userId}`, `PUT /profile/me`, `/recommended/users`, `/block/users`) carries a read-only SAS, applied in one place (`PictureUrlResponseSigner`) on the way out, after the Redis-cached result: a signed URL is never stored or cached. Same rules as post-query-service: `sp=r`, `sr=b`, HTTPS only unless the account is plain-HTTP Azurite, only URLs of the configured account and container (others, and null, unchanged); fixed windows of `azure.storage.read-sas-window` (24 h) from the epoch, `st` = window start - 5 min, `se` = window start + 2 windows, so a URL is byte-identical for a whole window. Signing is a local HMAC: Azurite signs with its account key; prod fetches one user delegation key per window through Workload Identity (`DefaultAzureCredential`), keeps the previous one as a fallback, and retries a failed fetch at most every 30 s.
+**Reading pictures.** Every `profilePic` / `profilePicture` returned (`/profile/me`, `/profile/{userId}`, `/profile/by-username/{username}`, `PUT /profile/me`, `/recommended/users`, `/block/users`) carries a read-only SAS, applied in one place (`PictureUrlResponseSigner`) on the way out, after the Redis-cached result: a signed URL is never stored or cached. Same rules as post-query-service: `sp=r`, `sr=b`, HTTPS only unless the account is plain-HTTP Azurite, only URLs of the configured account and container (others, and null, unchanged); fixed windows of `azure.storage.read-sas-window` (24 h) from the epoch, `st` = window start - 5 min, `se` = window start + 2 windows, so a URL is byte-identical for a whole window. Signing is a local HMAC: Azurite signs with its account key; prod fetches one user delegation key per window through Workload Identity (`DefaultAzureCredential`), keeps the previous one as a fallback, and retries a failed fetch at most every 30 s.
 
 | Property (env) | Default | Meaning |
 |---|---|---|

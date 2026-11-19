@@ -279,6 +279,20 @@ class ProfilePictureAzuriteIntegrationTest {
         assertDownloadableSignedUrlOf(recommended.get(0).get("profilePic").asString(), candidatePicture);
     }
 
+    @Test
+    void profileByUsernameReturnsTheSameReadSignedPictureAsTheProfileById() throws Exception {
+        var requesterId = seedUser("requester", null);
+        var targetId = UUID.randomUUID();
+        var targetPicture = uploadAvatarOf(targetId);
+        seedUser(targetId, "mentioned.user", targetPicture);
+
+        var byId = getJson("/api/social/profile/" + targetId, requesterId);
+        var byUsername = getJson("/api/social/profile/by-username/Mentioned.User", requesterId);
+
+        assertThat(byUsername).isEqualTo(byId);
+        assertDownloadableSignedUrlOf(byUsername.get("profilePic").asString(), targetPicture);
+    }
+
     private void assertDownloadableSignedUrlOf(String signedUrl, String bareUrl) throws Exception {
         assertThat(signedUrl).startsWith(bareUrl + "?");
         assertThat(queryParameters(signedUrl)).containsEntry("sp", READ_PERMISSION);

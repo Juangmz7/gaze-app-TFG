@@ -12,6 +12,7 @@ import com.app.socialservice.user.application.repository.UserRepository;
 import com.app.socialservice.shared.domain.exception.UserNotFoundException;
 import com.app.socialservice.user.domain.enums.UserAccountStatus;
 import com.app.socialservice.user.domain.model.User;
+import com.app.socialservice.user.domain.model.valueobj.UsernameLookup;
 import com.app.socialservice.user.application.dto.OwnUserProfileData;
 import com.app.socialservice.user.application.dto.RecommendedUserDetails;
 
@@ -76,6 +77,16 @@ public class UserRepositoryImpl implements UserRepository {
         validateUserId(targetUserId, "targetUserId");
 
         return jpaUserRepository.findPublicProfileData(targetUserId);
+    }
+
+    @Override
+    public Optional<UUID> findUserIdByUsername(UsernameLookup username) {
+        if (username == null) {
+            throw new IllegalArgumentException("username must not be null");
+        }
+
+        // UsernameLookup holds the lower-case form, the one the index compares
+        return jpaUserRepository.findIdByLowercaseUsername(username.value());
     }
 
     @Override

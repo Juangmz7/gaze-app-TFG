@@ -53,6 +53,18 @@ public class UserProfileController {
     }
 
     /**
+     * The same body as /{userId}, for mentions and tagged users that carry only a username.
+     * The username is validated (and matched case-insensitively) by the use case.
+     */
+    @GetMapping("/by-username/{username}")
+    public ResponseEntity<UserProfileResponse> getUserProfileByUsername(@PathVariable String username) {
+        var requesterUserId = requireAuthenticatedUserId();
+
+        var response = userProfileService.getUserProfileByUsername(requesterUserId, username);
+        return ResponseEntity.ok(pictureUrlResponseSigner.sign(response));
+    }
+
+    /**
      * Served on /profile (the historical path) and /profile/me.
      */
     @PutMapping({"", "/me"})

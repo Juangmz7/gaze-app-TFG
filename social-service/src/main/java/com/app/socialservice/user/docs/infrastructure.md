@@ -27,6 +27,7 @@ The infrastructure layer provides concrete implementations for the application's
 - `UserProfileController`, `RecommendedUserController`
 - `GET /api/social/profile/me`
 - `GET /api/social/profile/{userId}`
+- `GET /api/social/profile/by-username/{username}` (same body; `JpaUserRepository.findIdByLowercaseUsername`)
 - `PUT /api/social/profile` and `PUT /api/social/profile/me`
 - `POST /api/social/profile/me/picture/upload-url`
 - Every returned picture is read-signed by `PictureUrlResponseSigner` in the controller (never inside cached services)
