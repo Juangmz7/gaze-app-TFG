@@ -242,7 +242,7 @@ func TestRepository_Delete_RemovesAnExistingCommentReadModelDocument(t *testing.
 		t.Fatalf("Insert() error = %v", err)
 	}
 
-	if _, err := repository.Delete(ctx, commentID); err != nil {
+	if _, _, err := repository.Delete(ctx, commentID); err != nil {
 		t.Fatalf("Delete() error = %v", err)
 	}
 
@@ -262,7 +262,7 @@ func TestRepository_Delete_IsANoOpWhenTheCommentWasNeverProjected(t *testing.T) 
 	db := testDatabase(t, ctx)
 	repository := commentmongo.NewRepository(db)
 
-	if _, err := repository.Delete(ctx, uuid.New()); err != nil {
+	if _, _, err := repository.Delete(ctx, uuid.New()); err != nil {
 		t.Fatalf("Delete() error = %v, want nil for an absent document", err)
 	}
 }
@@ -341,11 +341,11 @@ func TestRepository_Delete_ReportsWhetherItReallyRemoved(t *testing.T) {
 		t.Fatalf("Insert() error = %v", err)
 	}
 
-	removed, err := repository.Delete(ctx, commentID)
+	removed, _, err := repository.Delete(ctx, commentID)
 	if err != nil || !removed {
 		t.Fatalf("Delete() removed/error = %v/%v, want true/nil", removed, err)
 	}
-	removed, err = repository.Delete(ctx, commentID)
+	removed, _, err = repository.Delete(ctx, commentID)
 	if err != nil || removed {
 		t.Fatalf("Delete() removed/error = %v/%v, want false/nil on an absent document", removed, err)
 	}

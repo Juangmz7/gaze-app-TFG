@@ -1,7 +1,8 @@
 // Package rabbitmq handles PostCommentCreatedEvent, CommentUpdatedEvent,
-// and CommentDeletedEvent deliveries from topology.ExchangePostEvents
-// (routing keys rk.post.comment.created, rk.post.comment.updated,
-// rk.post.comment.deleted).
+// CommentDeletedEvent, PostCommentLikeCreatedEvent and PostCommentLikeDeletedEvent
+// deliveries from topology.ExchangePostEvents (routing keys rk.post.comment.created,
+// rk.post.comment.updated, rk.post.comment.deleted, rk.post.comment.like.created,
+// rk.post.comment.like.deleted).
 package rabbitmq
 
 import (
@@ -99,13 +100,14 @@ func (h *PostCommentCreatedHandler) Handle(ctx context.Context, msg *message.Mes
 		}
 
 		input := usecase.RecordCommentInput{
-			CommentID: event.CommentID,
-			PostID:    event.PostID,
-			UserID:    event.UserID,
-			Content:   event.Content,
-			ReplyTo:   event.ReplyTo,
-			CreatedAt: event.CreatedAt,
-			UpdatedAt: event.UpdatedAt,
+			CommentID:     event.CommentID,
+			PostID:        event.PostID,
+			UserID:        event.UserID,
+			Content:       event.Content,
+			ReplyTo:       event.ReplyTo,
+			CreatedAt:     event.CreatedAt,
+			UpdatedAt:     event.UpdatedAt,
+			CorrelationID: event.CorrelationID,
 		}
 		if err := h.usecase.Execute(ctx, input); err != nil {
 			return fmt.Errorf("execute record comment usecase for event %s: %w", event.ID, err)

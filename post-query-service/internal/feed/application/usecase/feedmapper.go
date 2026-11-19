@@ -32,10 +32,16 @@ import (
 //     (post-command-service stores seconds * 1000), so it is summed but never
 //     re-scaled or re-rounded.
 //
-// Blob URLs are stored bare and leave only signed: FeedPageToResponse passes
-// media[].url, media[].thumbnailUrl, coverThumbnailUrl and creator.pictureUrl through a
-// MediaURLSigner, which adds a short-lived read-only SAS. A signed URL is never stored,
-// since it expires, and null stays null.
+// Blob URLs are stored bare and leave only signed: FeedPageToResponse and
+// PostViewToResponse pass media[].url, media[].thumbnailUrl, coverThumbnailUrl and
+// creator.pictureUrl through a MediaURLSigner, which adds a short-lived read-only SAS. A
+// signed URL is never stored, since it expires, and null stays null.
+//
+// A feed item (FeedCardResponse) and a post view (PostViewResponse, GET
+// /api/content/posts/{postId}) are one shape: the post view is the feed item without
+// position, plus collab.pendingRequestCount and viewer.collabRequestStatus. Both are
+// built by feedCardToResponse, so their field names and signing cannot drift apart. A
+// following feed page (FollowingFeedPageResponse) is a list of post views.
 
 // MediaURLSigner adds a read-only SAS to a blob URL of the media container and returns
 // any other URL unchanged. Within one signing window it returns the same URL for the
@@ -119,7 +125,8 @@ type FeedCollabDocument struct {
 	CreatedAt time.Time `bson:"created_at"`
 }
 
-// FeedCreatorResponse is the API shape of a card's creator.
+// FeedCreatorResponse is the API shape of a card's creator and of a comment's author:
+// the API's UserSummary.
 type FeedCreatorResponse struct {
 	UserID     string  `json:"userId"`
 	Username   string  `json:"username"`
@@ -175,6 +182,46 @@ type FeedCardResponse struct {
 	DurationMS        *int64              `json:"durationMs"`
 	Stats             FeedStatsResponse   `json:"stats"`
 	Viewer            FeedViewerResponse  `json:"viewer"`
+}
+
+// PostViewCollabResponse is the API shape of a post view's collab: the feed's, plus
+// pendingRequestCount, null until the collab requests are projected (task 52).
+type PostViewCollabResponse struct {
+	FeedCollabResponse
+	PendingRequestCount *int64 `json:"pendingRequestCount"`
+}
+
+// PostViewViewerResponse is the API shape of a post view's viewer state: the feed's,
+// plus collabRequestStatus, null until the collab requests are projected (task 52).
+type PostViewViewerResponse struct {
+	FeedViewerResponse
+	CollabRequestStatus *string `json:"collabRequestStatus"`
+}
+
+// PostViewResponse is the API shape of one post read by id: a feed card without
+// position. Its fields are copied from feedCardToResponse's result, never mapped again.
+type PostViewResponse struct {
+	PostID            string                 `json:"postId"`
+	Creator           FeedCreatorResponse    `json:"creator"`
+	Description       *string                `json:"description"`
+	PostType          string                 `json:"postType"`
+	PostTags          []string               `json:"postTags"`
+	CollabID          *string                `json:"collabId"`
+	Collab            PostViewCollabResponse `json:"collab"`
+	CreatedAt         time.Time              `json:"createdAt"`
+	Media             []FeedMediaResponse    `json:"media"`
+	CoverThumbnailURL *string                `json:"coverThumbnailUrl"`
+	DurationMS        *int64                 `json:"durationMs"`
+	Stats             FeedStatsResponse      `json:"stats"`
+	Viewer            PostViewViewerResponse `json:"viewer"`
+}
+
+// FollowingFeedPageResponse is the API shape of a following feed page (GET
+// /api/feed/following): post views newest first, and the cursor of the next page, null
+// on the last.
+type FollowingFeedPageResponse struct {
+	Items      []PostViewResponse `json:"items"`
+	NextCursor *string            `json:"nextCursor"`
 }
 
 // FeedPageResponse is the API shape of a claim response.
@@ -319,20 +366,30 @@ func FeedUnitRefFromDocument(document FeedUnitDocument) FeedUnitRef {
 
 // FeedCardFromUnit overlays the current read models on a stored unit. The unit only
 // contributes what cannot change: its post id, position and the post's creation date.
+func FeedCardFromUnit(unit FeedUnitRef, post FeedPost, creator FeedCreator, collab *FeedCollab, viewer FeedViewerState) FeedCard {
+	card := FeedCardFromPost(post, creator, collab, viewer)
+	card.PostID = unit.PostID
+	card.Position = unit.Position
+	card.CreatedAt = unit.PostCreatedAt
+
+	return card
+}
+
+// FeedCardFromPost builds a card from the current read models alone, for a post read
+// outside any feed: its position stays 0 and is never sent (PostViewToResponse).
 //
 // A collab that resolves makes the post COLLAB whatever posts says: a collab opened
 // on an existing post only publishes CollabOpenedEvent, and a linked post only
 // changes its collab_id, so the post's own post_type can still read BASIC.
-func FeedCardFromUnit(unit FeedUnitRef, post FeedPost, creator FeedCreator, collab *FeedCollab, viewer FeedViewerState) FeedCard {
+func FeedCardFromPost(post FeedPost, creator FeedCreator, collab *FeedCollab, viewer FeedViewerState) FeedCard {
 	card := FeedCard{
-		PostID:            unit.PostID,
-		Position:          unit.Position,
+		PostID:            post.PostID,
 		Creator:           creator,
 		Description:       post.Description,
 		PostType:          post.PostType,
 		Tags:              post.Tags,
 		CollabID:          post.CollabID,
-		CreatedAt:         unit.PostCreatedAt,
+		CreatedAt:         post.CreatedAt,
 		Media:             post.Media,
 		CoverThumbnailURL: FeedCoverThumbnailURL(post.Media),
 		DurationMS:        FeedDurationMS(post.Media),
@@ -369,6 +426,56 @@ func FeedPageToResponse(ctx context.Context, output ClaimFeedOutput, signer Medi
 	return FeedPageResponse{Items: items, LastSeenID: output.LastSeenID, HasMore: output.HasMore}, nil
 }
 
+// PostViewToResponse maps one post read by id to its API shape, with every blob URL
+// signed by signer. collab.pendingRequestCount and viewer.collabRequestStatus are null
+// until the collab requests are projected (task 52).
+func PostViewToResponse(ctx context.Context, card FeedCard, signer MediaURLSigner) (PostViewResponse, error) {
+	if signer == nil {
+		return PostViewResponse{}, errors.New("map post view: a media url signer is required")
+	}
+
+	item, err := feedCardToResponse(ctx, card, signer)
+	if err != nil {
+		return PostViewResponse{}, fmt.Errorf("map post view %s: %w", card.PostID, err)
+	}
+
+	return PostViewResponse{
+		PostID:            item.PostID,
+		Creator:           item.Creator,
+		Description:       item.Description,
+		PostType:          item.PostType,
+		PostTags:          item.PostTags,
+		CollabID:          item.CollabID,
+		Collab:            PostViewCollabResponse{FeedCollabResponse: item.Collab},
+		CreatedAt:         item.CreatedAt,
+		Media:             item.Media,
+		CoverThumbnailURL: item.CoverThumbnailURL,
+		DurationMS:        item.DurationMS,
+		Stats:             item.Stats,
+		Viewer:            PostViewViewerResponse{FeedViewerResponse: item.Viewer},
+	}, nil
+}
+
+// FollowingFeedPageToResponse maps a following feed page to its API shape: each item
+// through PostViewToResponse, so it is exactly what GET /api/content/posts/{postId}
+// answers for that post, and a list that is never null.
+func FollowingFeedPageToResponse(ctx context.Context, page FollowingFeedPage, signer MediaURLSigner) (FollowingFeedPageResponse, error) {
+	if signer == nil {
+		return FollowingFeedPageResponse{}, errors.New("map following feed page: a media url signer is required")
+	}
+
+	items := make([]PostViewResponse, 0, len(page.Items))
+	for _, card := range page.Items {
+		view, err := PostViewToResponse(ctx, card, signer)
+		if err != nil {
+			return FollowingFeedPageResponse{}, fmt.Errorf("map following feed page: %w", err)
+		}
+		items = append(items, view)
+	}
+
+	return FollowingFeedPageResponse{Items: items, NextCursor: page.NextCursor}, nil
+}
+
 func feedCardToResponse(ctx context.Context, card FeedCard, signer MediaURLSigner) (FeedCardResponse, error) {
 	media := make([]FeedMediaResponse, 0, len(card.Media))
 	for _, element := range card.Media {
@@ -394,19 +501,15 @@ func feedCardToResponse(ctx context.Context, card FeedCard, signer MediaURLSigne
 	if err != nil {
 		return FeedCardResponse{}, err
 	}
-	pictureURL, err := signOptionalURL(ctx, signer, card.Creator.PictureURL)
+	creator, err := userSummaryToResponse(ctx, card.Creator, signer)
 	if err != nil {
 		return FeedCardResponse{}, err
 	}
 
 	return FeedCardResponse{
-		PostID:   card.PostID,
-		Position: card.Position,
-		Creator: FeedCreatorResponse{
-			UserID:     card.Creator.UserID,
-			Username:   card.Creator.Username,
-			PictureURL: pictureURL,
-		},
+		PostID:            card.PostID,
+		Position:          card.Position,
+		Creator:           creator,
 		Description:       card.Description,
 		PostType:          card.PostType,
 		PostTags:          emptyIfNull(card.Tags),
@@ -427,6 +530,18 @@ func feedCardToResponse(ctx context.Context, card FeedCard, signer MediaURLSigne
 			FollowingCreator: card.Viewer.FollowingCreator,
 		},
 	}, nil
+}
+
+// userSummaryToResponse maps a user to the API's UserSummary { userId, username,
+// pictureUrl }, with the picture signed: a feed card's creator and a comment's author
+// (commentmapper.go) are both built here.
+func userSummaryToResponse(ctx context.Context, user FeedCreator, signer MediaURLSigner) (FeedCreatorResponse, error) {
+	pictureURL, err := signOptionalURL(ctx, signer, user.PictureURL)
+	if err != nil {
+		return FeedCreatorResponse{}, err
+	}
+
+	return FeedCreatorResponse{UserID: user.UserID, Username: user.Username, PictureURL: pictureURL}, nil
 }
 
 // signOptionalURL signs a nullable URL; null stays null.

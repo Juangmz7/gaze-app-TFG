@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/ThreeDotsLabs/watermill"
 	wmamqp "github.com/ThreeDotsLabs/watermill-amqp/v3/pkg/amqp"
@@ -45,6 +46,9 @@ import (
 	userusecase "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/user/application/usecase"
 	usermongo "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/user/infrastructure/mongo"
 	userrabbitmq "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/user/infrastructure/rabbitmq"
+	viewusecase "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/view/application/usecase"
+	viewmongo "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/view/infrastructure/mongo"
+	viewrabbitmq "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/view/infrastructure/rabbitmq"
 )
 
 // Result holds every component main() needs to run and later shut down the
@@ -78,6 +82,9 @@ type Dependencies struct {
 	Prefetch userusecase.RegisterUserFeedPrefetcher
 	// Lease releases a prefetch lease when its response arrives.
 	Lease feedusecase.BuildUserFeedLease
+	// ViewHistoryRetention is the TTL of a viewing history row after its last view
+	// (config.ViewHistoryConfig.Retention).
+	ViewHistoryRetention time.Duration
 }
 
 // Bootstrap builds the Watermill router with one consumer handler per queue
@@ -86,6 +93,9 @@ type Dependencies struct {
 func Bootstrap(ctx context.Context, amqpURI string, db *mongo.Database, dependencies Dependencies, logger *slog.Logger) (Result, error) {
 	if dependencies.Prefetch == nil || dependencies.Lease == nil {
 		return Result{}, fmt.Errorf("bootstrap rabbitmq: prefetch and lease are required")
+	}
+	if dependencies.ViewHistoryRetention <= 0 {
+		return Result{}, fmt.Errorf("bootstrap rabbitmq: a positive view history retention is required")
 	}
 
 	wmLogger := watermill.NewSlogLogger(logger)
@@ -116,7 +126,7 @@ func Bootstrap(ctx context.Context, amqpURI string, db *mongo.Database, dependen
 	if err := addUserSlowConsumer(wmRouter, amqpURI, db, idempotencyRepo, logger, &result); err != nil {
 		return Result{}, err
 	}
-	if err := addPostConsumer(ctx, wmRouter, amqpURI, db, idempotencyRepo, logger, &result); err != nil {
+	if err := addPostConsumer(ctx, wmRouter, amqpURI, db, idempotencyRepo, dependencies.ViewHistoryRetention, logger, &result); err != nil {
 		return Result{}, err
 	}
 	if err := addFeedConsumer(wmRouter, amqpURI, db, idempotencyRepo, dependencies.Lease, logger, &result); err != nil {
@@ -192,7 +202,7 @@ func addUserSlowConsumer(wmRouter *message.Router, amqpURI string, db *mongo.Dat
 	return nil
 }
 
-func addPostConsumer(ctx context.Context, wmRouter *message.Router, amqpURI string, db *mongo.Database, idempotencyRepo *idempotency.Repository, logger *slog.Logger, result *Result) error {
+func addPostConsumer(ctx context.Context, wmRouter *message.Router, amqpURI string, db *mongo.Database, idempotencyRepo *idempotency.Repository, historyRetention time.Duration, logger *slog.Logger, result *Result) error {
 	spec := topology.PostSpec()
 
 	subscriber, err := newSubscriber(amqpURI, spec, watermill.NewSlogLogger(logger))
@@ -204,14 +214,19 @@ func addPostConsumer(ctx context.Context, wmRouter *message.Router, amqpURI stri
 	postRepository := postmongo.NewRepository(db)
 	likeRepository := likemongo.NewRepository(db)
 	commentRepository := commentmongo.NewRepository(db)
+	commentLikeRepository := commentmongo.NewCommentLikeRepository(db)
 	shareRepository := sharemongo.NewRepository(db)
 	collabRepository := collabmongo.NewRepository(db)
+	historyRepository := viewmongo.NewHistoryRepository(db)
 	for _, ensure := range []func(context.Context) error{
 		postRepository.EnsureIndexes,
 		likeRepository.EnsureIndexes,
 		commentRepository.EnsureIndexes,
+		commentRepository.BackfillCounters,
+		commentLikeRepository.EnsureIndexes,
 		shareRepository.EnsureIndexes,
 		collabRepository.EnsureIndexes,
+		func(ctx context.Context) error { return historyRepository.EnsureIndexes(ctx, historyRetention) },
 	} {
 		if err := ensure(ctx); err != nil {
 			return fmt.Errorf("bootstrap rabbitmq: %w", err)
@@ -219,7 +234,8 @@ func addPostConsumer(ctx context.Context, wmRouter *message.Router, amqpURI stri
 	}
 
 	// The stats-adjusting handlers commit their projection, the post counter and
-	// the idempotency record in one transaction.
+	// the idempotency record in one transaction; the view handler its history row and
+	// the idempotency record.
 	transactor := database.NewTransactor(db.Client())
 
 	postCreatedHandler := postrabbitmq.NewPostCreatedHandler(idempotencyRepo, postusecase.NewCreatePost(postRepository), logger)
@@ -228,14 +244,17 @@ func addPostConsumer(ctx context.Context, wmRouter *message.Router, amqpURI stri
 	postDeletedHandler := postrabbitmq.NewPostDeletedHandler(idempotencyRepo, postusecase.NewDeletePost(postRepository, feedmongo.NewFeedUnitRepository(db)), logger)
 	likeCreatedHandler := likerabbitmq.NewPostLikeCreatedHandler(transactor, idempotencyRepo, likeusecase.NewRecordLike(likeRepository, postRepository), logger)
 	likeDeletedHandler := likerabbitmq.NewPostLikeDeletedHandler(transactor, idempotencyRepo, likeusecase.NewDeleteLike(likeRepository, postRepository, logger), logger)
-	commentCreatedHandler := commentrabbitmq.NewPostCommentCreatedHandler(transactor, idempotencyRepo, commentusecase.NewRecordComment(commentRepository, postRepository), logger)
+	commentCreatedHandler := commentrabbitmq.NewPostCommentCreatedHandler(transactor, idempotencyRepo, commentusecase.NewRecordComment(commentRepository, postRepository, logger), logger)
 	commentUpdatedHandler := commentrabbitmq.NewCommentUpdatedHandler(commentusecase.NewUpdateComment(commentRepository, logger), logger)
 	commentDeletedHandler := commentrabbitmq.NewCommentDeletedHandler(transactor, idempotencyRepo, commentusecase.NewDeleteComment(commentRepository, postRepository, logger), logger)
+	commentLikeCreatedHandler := commentrabbitmq.NewPostCommentLikeCreatedHandler(transactor, idempotencyRepo, commentusecase.NewRecordCommentLike(commentLikeRepository, commentRepository), logger)
+	commentLikeDeletedHandler := commentrabbitmq.NewPostCommentLikeDeletedHandler(transactor, idempotencyRepo, commentusecase.NewDeleteCommentLike(commentLikeRepository, commentRepository, logger), logger)
 	shareCreatedHandler := sharerabbitmq.NewPostShareCreatedHandler(transactor, idempotencyRepo, shareusecase.NewRecordShare(shareRepository, postRepository), logger)
 	shareDeletedHandler := sharerabbitmq.NewPostShareDeletedHandler(transactor, idempotencyRepo, shareusecase.NewDeleteShare(shareRepository, postRepository, logger), logger)
 	collabOpenedHandler := collabrabbitmq.NewPostCollabOpenedHandler(idempotencyRepo, collabusecase.NewRecordCollabOpened(collabRepository), logger)
 	collabClosedHandler := collabrabbitmq.NewPostCollabClosedHandler(idempotencyRepo, collabusecase.NewCloseCollab(collabRepository), logger)
 	collabDeletedHandler := collabrabbitmq.NewCollabDeletedHandler(idempotencyRepo, collabusecase.NewDeleteCollab(collabRepository), logger)
+	postViewedHandler := viewrabbitmq.NewPostViewedHandler(transactor, idempotencyRepo, viewusecase.NewRecordPostView(historyRepository), logger)
 
 	// Every routing key listed in topology.PostRoutingKeys is bound to this
 	// queue at the AMQP level (see topology.Builder). Only the subset below
@@ -247,11 +266,14 @@ func addPostConsumer(ctx context.Context, wmRouter *message.Router, amqpURI stri
 		topology.RKPostCreated:                 postCreatedHandler.Handle,
 		topology.RKPostUpdated:                 postUpdatedHandler.Handle,
 		topology.RKPostDeleted:                 postDeletedHandler.Handle,
+		topology.RKPostViewed:                  postViewedHandler.Handle,
 		topology.RKPostLikeCreated:             likeCreatedHandler.Handle,
 		topology.RKPostLikeDeleted:             likeDeletedHandler.Handle,
 		topology.RKPostCommentCreated:          commentCreatedHandler.Handle,
 		topology.RKPostCommentUpdated:          commentUpdatedHandler.Handle,
 		topology.RKPostCommentDeleted:          commentDeletedHandler.Handle,
+		topology.RKPostCommentLikeCreated:      commentLikeCreatedHandler.Handle,
+		topology.RKPostCommentLikeDeleted:      commentLikeDeletedHandler.Handle,
 		topology.RKPostShareCreated:            shareCreatedHandler.Handle,
 		topology.RKPostShareDeleted:            shareDeletedHandler.Handle,
 		topology.RKPostCollabOpenedPostCreated: collabOpenedHandler.Handle,

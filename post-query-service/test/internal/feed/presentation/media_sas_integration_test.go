@@ -269,6 +269,26 @@ func TestFeedClaim_ServesMediaURLsThatDownloadFromAzurite(t *testing.T) {
 		}
 	})
 
+	t.Run("GET /api/content/posts/{postId} signs the same URLs as the feed and they download", func(t *testing.T) {
+		recorder := serve(app.mux, http.MethodGet, "/api/content/posts/"+withMedia.String(), "", nil)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("status = %d: %s", recorder.Code, recorder.Body)
+		}
+		var view signedCard
+		if err := json.Unmarshal(recorder.Body.Bytes(), &view); err != nil {
+			t.Fatalf("Unmarshal() error = %v", err)
+		}
+		card := first.Items[0]
+		if view.Media[1].URL != card.Media[1].URL || *view.Media[1].ThumbnailURL != *card.Media[1].ThumbnailURL ||
+			*view.CoverThumbnailURL != *card.CoverThumbnailURL || *view.Creator.PictureURL != *card.Creator.PictureURL {
+			t.Fatalf("post view urls = %+v, want the feed's signed urls %+v", view, card)
+		}
+		assertReadOnlySAS(t, "media[0].url", view.Media[0].URL)
+		if status, body := download(t, ctx, view.Media[0].URL); status != http.StatusOK || !bytes.Equal(body, blobs["image"]) {
+			t.Fatalf("GET media[0].url = %d %q, want 200 with the image blob", status, body)
+		}
+	})
+
 	t.Run("nothing signed is stored", func(t *testing.T) {
 		for _, collection := range []string{"posts", "feed_units", "users"} {
 			cursor, err := app.db.Collection(collection).Find(ctx, bson.D{})

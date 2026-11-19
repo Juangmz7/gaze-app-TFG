@@ -139,6 +139,7 @@ func run() error {
 		Events:         publisher.NewPublisher(outboxStore),
 		Feed:           cfg.Feed,
 		Recommendation: cfg.Recommendation,
+		ViewHistory:    cfg.ViewHistory,
 		MediaSigner:    mediaSigner,
 		Logger:         slog.Default(),
 	})

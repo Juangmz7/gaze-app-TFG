@@ -33,6 +33,10 @@ env:
   FEED_MAX_READS_PER_CLAIM: "3"
   FEED_RETENTION_HOURS: "168"
   FEED_DISCONNECT_WRITE_TIMEOUT_MS: "5000"
+  # Follows the following feed (GET /api/feed/following) reads posts from: the most recent ones
+  FEED_FOLLOWING_MAX_FOLLOWS: "2000"
+  # TTL of a viewing history entry after its last view (GET /api/content/me/history)
+  VIEW_HISTORY_RETENTION_DAYS: "90"
   # OpenTelemetry (common-packages/go-utils/telemetry, OTLP/gRPC)
   OTEL_SERVICE_NAME: post-query-service
   # Asynchronous prefetch. The instance id is the pod's hostname.
@@ -77,8 +81,11 @@ env:
 
 httpRoute:
   enabled: true
+  # /api/content: every read that is not the feed (GET /api/content/posts/{postId}, ...),
+  # same JWT validation as the feed.
   pathPrefixes:
     - /api/feed
+    - /api/content
 
 autoscaling:
   enabled: true

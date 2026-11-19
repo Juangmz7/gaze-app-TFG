@@ -304,9 +304,9 @@ func (u *ClaimFeedUsecase) hydrate(ctx context.Context, viewerID string, refs []
 		}
 	}
 
-	state, err := u.readClaimState(ctx, viewerID, postIDs, creatorIDs, collabIDs)
+	state, err := readFeedState(ctx, u.hydration, viewerID, postIDs, creatorIDs, collabIDs)
 	if err != nil {
-		return nil, claimFeedDrops{}, err
+		return nil, claimFeedDrops{}, fmt.Errorf("claim feed usecase: %w", err)
 	}
 
 	cards := make([]FeedCard, 0, len(refs))
@@ -330,100 +330,6 @@ func (u *ClaimFeedUsecase) hydrate(ctx context.Context, viewerID string, refs []
 	}
 
 	return cards, drops, nil
-}
-
-// claimFeedState is the read-model state of one batch of units.
-type claimFeedState struct {
-	creators      map[string]FeedCreator
-	collabsByID   map[string]FeedCollab
-	collabsByPost map[string]FeedCollab
-	liked         map[string]struct{}
-	shared        map[string]struct{}
-	followed      map[string]struct{}
-	blocked       map[string]struct{}
-}
-
-// collabFor picks the most recently opened of the collabs attached to the post and
-// the one the post names, because that is the one post-command-service holds: opening
-// a collab on a post overwrites its collabId, without any event reaching
-// posts.collab_id, so posts.collab_id can name an older collab or one that is gone.
-func (s claimFeedState) collabFor(post FeedPost) *FeedCollab {
-	collab, found := s.collabsByPost[post.PostID]
-	if post.CollabID != nil {
-		named, namedFound := s.collabsByID[*post.CollabID]
-		if namedFound && (!found || named.openedAfter(collab)) {
-			collab, found = named, true
-		}
-	}
-	if !found {
-		return nil
-	}
-
-	return &collab
-}
-
-func (s claimFeedState) viewerFor(post FeedPost) FeedViewerState {
-	_, liked := s.liked[post.PostID]
-	_, shared := s.shared[post.PostID]
-	_, following := s.followed[post.CreatorID]
-
-	return FeedViewerState{Liked: liked, Shared: shared, FollowingCreator: following}
-}
-
-func (u *ClaimFeedUsecase) readClaimState(ctx context.Context, viewerID string, postIDs, creatorIDs, collabIDs []string) (claimFeedState, error) {
-	creators, err := u.hydration.FindCreators(ctx, creatorIDs)
-	if err != nil {
-		return claimFeedState{}, fmt.Errorf("claim feed usecase: %w", err)
-	}
-	blocked, err := u.hydration.FindBlockRelatedUserIDs(ctx, viewerID, creatorIDs)
-	if err != nil {
-		return claimFeedState{}, fmt.Errorf("claim feed usecase: %w", err)
-	}
-	collabs, err := u.hydration.FindCollabs(ctx, collabIDs, postIDs)
-	if err != nil {
-		return claimFeedState{}, fmt.Errorf("claim feed usecase: %w", err)
-	}
-	liked, err := u.hydration.FindLikedPostIDs(ctx, viewerID, postIDs)
-	if err != nil {
-		return claimFeedState{}, fmt.Errorf("claim feed usecase: %w", err)
-	}
-	shared, err := u.hydration.FindSharedPostIDs(ctx, viewerID, postIDs)
-	if err != nil {
-		return claimFeedState{}, fmt.Errorf("claim feed usecase: %w", err)
-	}
-	followed, err := u.hydration.FindFollowedUserIDs(ctx, viewerID, creatorIDs)
-	if err != nil {
-		return claimFeedState{}, fmt.Errorf("claim feed usecase: %w", err)
-	}
-
-	state := claimFeedState{
-		creators:      make(map[string]FeedCreator, len(creators)),
-		collabsByID:   make(map[string]FeedCollab, len(collabs)),
-		collabsByPost: make(map[string]FeedCollab, len(collabs)),
-		liked:         idSet(liked),
-		shared:        idSet(shared),
-		followed:      idSet(followed),
-		blocked:       idSet(blocked),
-	}
-	for _, creator := range creators {
-		state.creators[creator.UserID] = creator
-	}
-	for _, collab := range collabs {
-		state.collabsByID[collab.CollabID] = collab
-		if current, found := state.collabsByPost[collab.PostID]; !found || collab.openedAfter(current) {
-			state.collabsByPost[collab.PostID] = collab
-		}
-	}
-
-	return state, nil
-}
-
-func idSet(ids []string) map[string]struct{} {
-	set := make(map[string]struct{}, len(ids))
-	for _, id := range ids {
-		set[id] = struct{}{}
-	}
-	return set
 }
 
 func lastSeenID(cards []FeedCard) *string {

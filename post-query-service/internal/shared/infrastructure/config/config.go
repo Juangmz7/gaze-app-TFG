@@ -57,6 +57,15 @@ const (
 	defaultFeedRefillLeaseTTL = 30000
 )
 
+// defaultFeedFollowingMaxFollows is used when FEED_FOLLOWING_MAX_FOLLOWS is not set: the
+// following feed (GET /api/feed/following) reads the posts of at most the 2000 most
+// recent follows of the caller.
+const defaultFeedFollowingMaxFollows = 2000
+
+// maxFeedFollowingMaxFollows bounds FEED_FOLLOWING_MAX_FOLLOWS: every followed id is a
+// point of the page query's $in, and each one costs an index seek per page.
+const maxFeedFollowingMaxFollows = 5000
+
 // Recommendation-service gRPC defaults, used when the matching RECOMMENDATION_GRPC_*
 // variable is not set. The timeouts come from a measurement, on CPU in WSL and not in
 // production, with 20000 posts: a user with history takes p50 4.4 s, 5.1 s at most, and
@@ -76,6 +85,17 @@ const (
 	defaultRecommendationBackoffJitter = 20
 	maxPercent                         = 100
 )
+
+// defaultViewHistoryRetentionDays is used when VIEW_HISTORY_RETENTION_DAYS is not set:
+// a viewing history row nobody refreshes for 90 days expires.
+const defaultViewHistoryRetentionDays = 90
+
+// maxViewHistoryRetentionDays bounds VIEW_HISTORY_RETENTION_DAYS well inside what a
+// TTL index's expireAfterSeconds (a 32-bit integer) can hold.
+const maxViewHistoryRetentionDays = 3650
+
+// hoursPerDay turns a retention in days into a duration.
+const hoursPerDay = 24
 
 // defaultMediaReadSASWindow is used when MEDIA_READ_SAS_WINDOW is not set: a SAS is
 // shared by every URL signed in one day and lasts two (see mediasas).
@@ -169,6 +189,9 @@ type FeedConfig struct {
 	// RefillLeaseTTL is the recovery from a holder that died during a synchronous
 	// refill. It must exceed the gRPC call's overall timeout, and not exceed LeaseTTL.
 	RefillLeaseTTL time.Duration
+	// FollowingMaxFollows caps the follows the following feed reads its posts from: only
+	// the most recent ones when the caller follows more (FEED_FOLLOWING_MAX_FOLLOWS).
+	FollowingMaxFollows int
 }
 
 // RecommendationConfig holds the settings of the gRPC client of recommendation-service.
@@ -209,6 +232,13 @@ type MediaStorageConfig struct {
 	ReadSASWindow time.Duration
 }
 
+// ViewHistoryConfig holds the settings of the viewing history read model (task 50).
+type ViewHistoryConfig struct {
+	// Retention is how long a history row lives after its last view (TTL index on
+	// last_viewed_at), from VIEW_HISTORY_RETENTION_DAYS.
+	Retention time.Duration
+}
+
 // AppConfig holds the post-query-service-specific configuration. The HTTP
 // port is intentionally not duplicated here: it is already loaded by
 // common-packages/go-utils/server.LoadServer, which callers should use
@@ -233,6 +263,8 @@ type AppConfig struct {
 	Recommendation RecommendationConfig
 	// Media holds the settings of the media read SAS.
 	Media MediaStorageConfig
+	// ViewHistory holds the settings of the viewing history.
+	ViewHistory ViewHistoryConfig
 }
 
 // Load reads AppConfig from environment variables. It returns an error when
@@ -240,7 +272,8 @@ type AppConfig struct {
 // RABBITMQ_PASSWORD, JWKS_URL, JWT_ISSUER, JWT_AUDIENCE, RECOMMENDATION_GRPC_ADDR,
 // AZURE_STORAGE_ACCOUNT_URL and AZURE_STORAGE_CONTAINER are required.
 // POST_QUERY_MONGO_DATABASE, RABBITMQ_HOST, RABBITMQ_PORT, the FEED_* variables, the other
-// RECOMMENDATION_GRPC_* variables and MEDIA_READ_SAS_WINDOW fall back to sensible
+// RECOMMENDATION_GRPC_* variables, MEDIA_READ_SAS_WINDOW and VIEW_HISTORY_RETENTION_DAYS
+// fall back to sensible
 // defaults; a value among them that makes no sense is an error. AZURE_STORAGE_ACCOUNT_KEY
 // is optional.
 func Load() (AppConfig, error) {
@@ -279,6 +312,14 @@ func Load() (AppConfig, error) {
 		return AppConfig{}, err
 	}
 
+	historyDays, err := positiveIntEnv("VIEW_HISTORY_RETENTION_DAYS", defaultViewHistoryRetentionDays)
+	if err != nil {
+		return AppConfig{}, err
+	}
+	if historyDays > maxViewHistoryRetentionDays {
+		return AppConfig{}, fmt.Errorf("load config: VIEW_HISTORY_RETENTION_DAYS %d is above %d", historyDays, maxViewHistoryRetentionDays)
+	}
+
 	return AppConfig{
 		Mongo: MongoConfig{
 			URI:      uri,
@@ -289,6 +330,7 @@ func Load() (AppConfig, error) {
 		Feed:           feed,
 		Recommendation: recommendation,
 		Media:          media,
+		ViewHistory:    ViewHistoryConfig{Retention: time.Duration(historyDays) * hoursPerDay * time.Hour},
 	}, nil
 }
 
@@ -372,6 +414,13 @@ func loadFeedConfig() (FeedConfig, error) {
 	if err != nil {
 		return FeedConfig{}, err
 	}
+	followingMaxFollows, err := positiveIntEnv("FEED_FOLLOWING_MAX_FOLLOWS", defaultFeedFollowingMaxFollows)
+	if err != nil {
+		return FeedConfig{}, err
+	}
+	if followingMaxFollows > maxFeedFollowingMaxFollows {
+		return FeedConfig{}, fmt.Errorf("load config: FEED_FOLLOWING_MAX_FOLLOWS %d is above %d", followingMaxFollows, maxFeedFollowingMaxFollows)
+	}
 
 	feed := FeedConfig{
 		DefaultPageSize:        defaultPageSize,
@@ -379,6 +428,7 @@ func loadFeedConfig() (FeedConfig, error) {
 		MaxReadsPerClaim:       maxReads,
 		Retention:              time.Duration(retentionHours) * time.Hour,
 		DisconnectWriteTimeout: time.Duration(disconnectTimeoutMs) * time.Millisecond,
+		FollowingMaxFollows:    followingMaxFollows,
 	}
 	if err := loadFeedPrefetchConfig(&feed); err != nil {
 		return FeedConfig{}, err
