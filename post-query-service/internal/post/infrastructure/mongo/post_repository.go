@@ -74,19 +74,30 @@ func NewRepository(db *mongo.Database) *Repository {
 	return &Repository{collection: db.Collection(collectionName)}
 }
 
+// UserPostsIndex is the name of the posts index that serves GET
+// /api/content/users/{userId}/posts (task 49): a user's posts newest first, whose sort
+// it matches exactly, so every keyset page is an index seek.
+const UserPostsIndex = "user_id_1_created_at_-1_post_id_-1"
+
 // EnsureIndexes creates the unique index on post_id required to make Insert
 // idempotent under concurrent or retried deliveries of the same creation
-// event.
+// event, and UserPostsIndex.
 func (r *Repository) EnsureIndexes(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
 
-	indexModel := mongo.IndexModel{
-		Keys:    bson.D{{Key: "post_id", Value: 1}},
-		Options: options.Index().SetUnique(true),
+	indexModels := []mongo.IndexModel{
+		{
+			Keys:    bson.D{{Key: "post_id", Value: 1}},
+			Options: options.Index().SetUnique(true),
+		},
+		{
+			Keys:    bson.D{{Key: "user_id", Value: 1}, {Key: "created_at", Value: -1}, {Key: "post_id", Value: -1}},
+			Options: options.Index().SetName(UserPostsIndex),
+		},
 	}
 
-	if _, err := r.collection.Indexes().CreateOne(ctx, indexModel); err != nil {
+	if _, err := r.collection.Indexes().CreateMany(ctx, indexModels); err != nil {
 		return fmt.Errorf("ensure posts indexes: %w", err)
 	}
 

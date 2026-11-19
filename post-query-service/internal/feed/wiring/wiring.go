@@ -39,7 +39,7 @@ type Params struct {
 	Feed config.FeedConfig
 	// Recommendation holds the settings of the recommendation-service client.
 	Recommendation config.RecommendationConfig
-	// MediaSigner signs the blob URLs of every feed page, post view and comment page. main builds the one signer the
+	// MediaSigner signs the blob URLs of every feed page, post view, comment page and grid page. main builds the one signer the
 	// whole service shares, so every context reuses one delegation key per window.
 	MediaSigner *mediasas.Signer
 	// Logger is shared by every feed component.
@@ -118,12 +118,14 @@ func New(ctx context.Context, params Params) (*Feed, error) {
 
 	return &Feed{
 		Routes: feedpresentation.Routes{
-			Heartbeat:    feedpresentation.NewHeartbeatHandler(feedusecase.NewRegisterHeartbeat(sessions, logger), logger),
-			Disconnect:   feedpresentation.NewDisconnectHandler(feedusecase.NewRegisterUserDisconnected(sessions, prefetch, cfg.DisconnectWriteTimeout, logger), logger),
-			ClaimFeed:    feedpresentation.NewClaimFeedHandler(claim, params.MediaSigner, logger),
-			GetPost:      feedpresentation.NewGetPostHandler(feedusecase.NewGetPost(hydration, logger), params.MediaSigner, logger),
-			ListComments: feedpresentation.NewListCommentsHandler(feedusecase.NewListComments(hydration, logger), params.MediaSigner, logger),
-			ListReplies:  feedpresentation.NewListRepliesHandler(feedusecase.NewListReplies(hydration, logger), params.MediaSigner, logger),
+			Heartbeat:       feedpresentation.NewHeartbeatHandler(feedusecase.NewRegisterHeartbeat(sessions, logger), logger),
+			Disconnect:      feedpresentation.NewDisconnectHandler(feedusecase.NewRegisterUserDisconnected(sessions, prefetch, cfg.DisconnectWriteTimeout, logger), logger),
+			ClaimFeed:       feedpresentation.NewClaimFeedHandler(claim, params.MediaSigner, logger),
+			GetPost:         feedpresentation.NewGetPostHandler(feedusecase.NewGetPost(hydration, logger), params.MediaSigner, logger),
+			ListComments:    feedpresentation.NewListCommentsHandler(feedusecase.NewListComments(hydration, logger), params.MediaSigner, logger),
+			ListReplies:     feedpresentation.NewListRepliesHandler(feedusecase.NewListReplies(hydration, logger), params.MediaSigner, logger),
+			ListUserPosts:   feedpresentation.NewListUserPostsHandler(feedusecase.NewListUserPosts(hydration, logger), params.MediaSigner, logger),
+			ListUserReposts: feedpresentation.NewListUserRepostsHandler(feedusecase.NewListUserReposts(hydration, logger), params.MediaSigner, logger),
 		},
 		Dependencies:    bootstrap.Dependencies{Prefetch: prefetch, Lease: lease},
 		sweeper:         feedsweeper.NewPrefetchSweeper(sweep, cfg.SweepInterval, logger),

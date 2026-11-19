@@ -30,6 +30,7 @@ import (
 	followmongo "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/follow/infrastructure/mongo"
 	postusecase "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/post/application/usecase"
 	postmongo "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/post/infrastructure/mongo"
+	sharemongo "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/share/infrastructure/mongo"
 	userusecase "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/user/application/usecase"
 	usermongo "github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/user/infrastructure/mongo"
 )
@@ -94,6 +95,7 @@ type feedApp struct {
 	posts    *postmongo.Repository
 	users    *usermongo.Repository
 	comments *commentmongo.Repository
+	shares   *sharemongo.Repository
 }
 
 // noPrefetch stands in for the prefetch, which has its own tests against a broker.
@@ -126,7 +128,8 @@ func newFeedAppSigning(t *testing.T, ctx context.Context, signer usecase.MediaUR
 
 	posts, users := postmongo.NewRepository(db), usermongo.NewRepository(db)
 	comments, commentLikes := commentmongo.NewRepository(db), commentmongo.NewCommentLikeRepository(db)
-	for _, ensure := range []func(context.Context) error{posts.EnsureIndexes, users.EnsureIndexes, comments.EnsureIndexes, commentLikes.EnsureIndexes} {
+	shares := sharemongo.NewRepository(db)
+	for _, ensure := range []func(context.Context) error{posts.EnsureIndexes, users.EnsureIndexes, comments.EnsureIndexes, commentLikes.EnsureIndexes, shares.EnsureIndexes} {
 		if err := ensure(ctx); err != nil {
 			t.Fatalf("EnsureIndexes() error = %v", err)
 		}
@@ -141,12 +144,14 @@ func newFeedAppSigning(t *testing.T, ctx context.Context, signer usecase.MediaUR
 	config := usecase.ClaimFeedConfig{DefaultPageSize: 15, MaxPageSize: 20, MaxReads: 3}
 	mux := http.NewServeMux()
 	presentation.RegisterRoutes(mux, withSubject(t, viewerID.String()), presentation.Routes{
-		Heartbeat:    presentation.NewHeartbeatHandler(usecase.NewRegisterHeartbeat(sessions, logger), logger),
-		Disconnect:   presentation.NewDisconnectHandler(usecase.NewRegisterUserDisconnected(sessions, noPrefetch{}, 5*time.Second, logger), logger),
-		ClaimFeed:    presentation.NewClaimFeedHandler(usecase.NewClaimFeed(units, hydration, config, logger), signer, logger),
-		GetPost:      presentation.NewGetPostHandler(usecase.NewGetPost(hydration, logger), signer, logger),
-		ListComments: presentation.NewListCommentsHandler(usecase.NewListComments(hydration, logger), signer, logger),
-		ListReplies:  presentation.NewListRepliesHandler(usecase.NewListReplies(hydration, logger), signer, logger),
+		Heartbeat:       presentation.NewHeartbeatHandler(usecase.NewRegisterHeartbeat(sessions, logger), logger),
+		Disconnect:      presentation.NewDisconnectHandler(usecase.NewRegisterUserDisconnected(sessions, noPrefetch{}, 5*time.Second, logger), logger),
+		ClaimFeed:       presentation.NewClaimFeedHandler(usecase.NewClaimFeed(units, hydration, config, logger), signer, logger),
+		GetPost:         presentation.NewGetPostHandler(usecase.NewGetPost(hydration, logger), signer, logger),
+		ListComments:    presentation.NewListCommentsHandler(usecase.NewListComments(hydration, logger), signer, logger),
+		ListReplies:     presentation.NewListRepliesHandler(usecase.NewListReplies(hydration, logger), signer, logger),
+		ListUserPosts:   presentation.NewListUserPostsHandler(usecase.NewListUserPosts(hydration, logger), signer, logger),
+		ListUserReposts: presentation.NewListUserRepostsHandler(usecase.NewListUserReposts(hydration, logger), signer, logger),
 	})
 
 	return &feedApp{
@@ -158,6 +163,7 @@ func newFeedAppSigning(t *testing.T, ctx context.Context, signer usecase.MediaUR
 		posts:    posts,
 		users:    users,
 		comments: comments,
+		shares:   shares,
 	}
 }
 

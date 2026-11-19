@@ -27,9 +27,11 @@ const (
 
 // Content routes: every read that is not the feed, behind the same authentication.
 const (
-	GetPostRoute      = "GET /api/content/posts/{" + postIDPathValue + "}"
-	ListCommentsRoute = "GET /api/content/posts/{" + postIDPathValue + "}/comments"
-	ListRepliesRoute  = "GET /api/content/posts/{" + postIDPathValue + "}/comments/{" + commentIDPathValue + "}/replies"
+	GetPostRoute         = "GET /api/content/posts/{" + postIDPathValue + "}"
+	ListCommentsRoute    = "GET /api/content/posts/{" + postIDPathValue + "}/comments"
+	ListRepliesRoute     = "GET /api/content/posts/{" + postIDPathValue + "}/comments/{" + commentIDPathValue + "}/replies"
+	ListUserPostsRoute   = "GET /api/content/users/{" + userIDPathValue + "}/posts"
+	ListUserRepostsRoute = "GET /api/content/users/{" + userIDPathValue + "}/reposts"
 )
 
 // CorrelationIDHeader carries the correlation id of a request.
@@ -45,12 +47,14 @@ const statusClientClosedRequest = 499
 
 // Routes holds the feed's and the content's HTTP handlers.
 type Routes struct {
-	Heartbeat    *HeartbeatHandler
-	Disconnect   *DisconnectHandler
-	ClaimFeed    *ClaimFeedHandler
-	GetPost      *GetPostHandler
-	ListComments *ListCommentsHandler
-	ListReplies  *ListRepliesHandler
+	Heartbeat       *HeartbeatHandler
+	Disconnect      *DisconnectHandler
+	ClaimFeed       *ClaimFeedHandler
+	GetPost         *GetPostHandler
+	ListComments    *ListCommentsHandler
+	ListReplies     *ListRepliesHandler
+	ListUserPosts   *UserGridHandler
+	ListUserReposts *UserGridHandler
 }
 
 // RegisterRoutes adds the feed and content endpoints to mux behind authenticate
@@ -67,6 +71,8 @@ func RegisterRoutes(mux *http.ServeMux, authenticate func(http.Handler) http.Han
 	register(GetPostRoute, routes.GetPost)
 	register(ListCommentsRoute, routes.ListComments)
 	register(ListRepliesRoute, routes.ListReplies)
+	register(ListUserPostsRoute, routes.ListUserPosts)
+	register(ListUserRepostsRoute, routes.ListUserReposts)
 }
 
 // withTraceContext continues the caller's W3C trace, so a call to another service
