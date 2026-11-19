@@ -261,6 +261,47 @@ class PostViewFlowTest {
         assertThat(processedEventsRepository.count()).isEqualTo(2);
     }
 
+    @Test
+    void shouldStoreOneRowAndOneOutboxEventWhenSameViewIdIsProcessedTwice() throws Exception {
+        var post = seedPost(UUID.randomUUID());
+        var viewId = UUID.randomUUID();
+        var queueName = "test.post.viewed." + UUID.randomUUID();
+        var rabbitAdmin = new RabbitAdmin(connectionFactory);
+        bindQueue(rabbitAdmin, queueName, rabbitMQProperties.getExchange().getPost().getEvents(),
+                rabbitMQProperties.getRk().getPost().getViewed());
+
+        rabbitTemplate.convertAndSend(
+                rabbitMQProperties.getExchange().getPost().getCommands(),
+                rabbitMQProperties.getRk().getPost().getView().getProcess(),
+                command(post.getId(), VIEWER_ID, viewId)
+        );
+        waitUntil(() -> processedEventsRepository.count() == 1);
+        var firstRow = postViewJpaRepository.findById(viewId).orElseThrow();
+
+        // Client retry: a new command envelope (new command id) carrying the same viewId.
+        rabbitTemplate.convertAndSend(
+                rabbitMQProperties.getExchange().getPost().getCommands(),
+                rabbitMQProperties.getRk().getPost().getView().getProcess(),
+                command(post.getId(), VIEWER_ID, viewId)
+        );
+        waitUntil(() -> processedEventsRepository.count() == 2);
+
+        assertThat(postViewJpaRepository.count()).isEqualTo(1);
+        var storedRow = postViewJpaRepository.findById(viewId).orElseThrow();
+        assertThat(storedRow.getReplayCount()).isEqualTo(1);
+        assertThat(storedRow.getServerTimestamp()).isEqualTo(firstRow.getServerTimestamp());
+        assertThat(outboxEventRepository.count()).isEqualTo(1);
+        assertThat(outboxEventRepository.findAll().getFirst().getEventType()).isEqualTo("PostViewedEvent");
+
+        var firstEvent = receiveMessage(queueName);
+        assertThat(firstEvent).isNotNull();
+        var eventPayload = objectMapper.readValue(firstEvent.getBody(), new TypeReference<Map<String, Object>>() { });
+        assertThat(eventPayload.get("viewId")).isEqualTo(viewId.toString());
+        assertThat(rabbitTemplate.receive(queueName, 1000L)).isNull();
+
+        rabbitAdmin.deleteQueue(queueName);
+    }
+
     private PostEntity seedPost(UUID ownerId) {
         return postJpaRepository.save(PostEntity.builder()
                 .id(UUID.randomUUID())

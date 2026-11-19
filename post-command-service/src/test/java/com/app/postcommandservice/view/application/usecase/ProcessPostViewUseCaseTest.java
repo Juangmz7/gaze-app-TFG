@@ -4,6 +4,12 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -11,8 +17,11 @@ import org.mockito.Captor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
 
+import com.app.postcommandservice.post.domain.model.valueobj.PostId;
+import com.app.postcommandservice.shared.domain.model.user.valueobj.UserId;
 import com.app.postcommandservice.shared.infrastructure.entity.OutboxEvent;
 import com.app.postcommandservice.shared.infrastructure.enums.EventStatus;
 import com.app.postcommandservice.shared.infrastructure.mapper.JsonMapper;
@@ -31,6 +40,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -71,22 +81,25 @@ class ProcessPostViewUseCaseTest {
     @InjectMocks
     private ProcessPostViewUseCase processPostViewUseCase;
 
+    private final Logger useCaseLogger = (Logger) LoggerFactory.getLogger(ProcessPostViewUseCase.class);
+    private final ListAppender<ILoggingEvent> logAppender = new ListAppender<>();
+
+    @BeforeEach
+    void attachLogAppender() {
+        logAppender.start();
+        useCaseLogger.addAppender(logAppender);
+    }
+
+    @AfterEach
+    void detachLogAppender() {
+        useCaseLogger.detachAppender(logAppender);
+        logAppender.stop();
+    }
+
     @Test
     void shouldAugmentViewPersistItAndPublishPostViewedEventWhenCommandIsValid() {
         var command = command();
-        var savedView = new PostView(
-                VIEW_ID,
-                new com.app.postcommandservice.post.domain.model.valueobj.PostId(POST_ID),
-                new com.app.postcommandservice.shared.domain.model.user.valueobj.UserId(USER_ID),
-                PostViewSource.USER_PROFILE,
-                2,
-                5000,
-                3500,
-                70,
-                PostViewExitReason.SCROLL_NEXT,
-                Instant.now(),
-                3
-        );
+        var savedView = existingView(POST_ID, USER_ID);
         var event = PostViewedEvent.builder()
                 .id(UUID.randomUUID())
                 .correlationId(CORRELATION_ID)
@@ -104,18 +117,19 @@ class ProcessPostViewUseCaseTest {
                 .replayCount(3)
                 .build();
 
+        when(postViewRepository.findById(VIEW_ID)).thenReturn(Optional.empty());
         when(postViewValidationRepository.findActivePost(POST_ID))
                 .thenReturn(Optional.of(new PostViewValidationRepository.ActivePost(POST_ID, OWNER_ID)));
         when(postViewValidationRepository.existsBlockRelationship(USER_ID, OWNER_ID)).thenReturn(false);
         when(postViewRepository.countByPostIdAndUserId(POST_ID, USER_ID)).thenReturn(2L);
-        when(postViewRepository.save(any(PostView.class))).thenReturn(savedView);
-        when(postViewEventMapper.toPostViewedEvent(any(UUID.class), eq(CORRELATION_ID), eq(savedView), any(Instant.class)))
+        when(postViewRepository.insertIfAbsent(any(PostView.class))).thenReturn(true);
+        when(postViewEventMapper.toPostViewedEvent(any(UUID.class), eq(CORRELATION_ID), any(PostView.class), any(Instant.class)))
                 .thenReturn(event);
         when(jsonMapper.toJson(event)).thenReturn("{\"viewed\":true}");
 
         processPostViewUseCase.process(command);
 
-        verify(postViewRepository).save(postViewCaptor.capture());
+        verify(postViewRepository).insertIfAbsent(postViewCaptor.capture());
         var persistedView = postViewCaptor.getValue();
         assertThat(persistedView.getViewId()).isEqualTo(VIEW_ID);
         assertThat(persistedView.getUserId().value()).isEqualTo(USER_ID);
@@ -132,19 +146,21 @@ class ProcessPostViewUseCaseTest {
 
     @Test
     void shouldAbortProcessingWhenPostDoesNotExist() {
+        when(postViewRepository.findById(VIEW_ID)).thenReturn(Optional.empty());
         when(postViewValidationRepository.findActivePost(POST_ID)).thenReturn(Optional.empty());
 
         processPostViewUseCase.process(command());
 
         verify(postViewValidationRepository, never()).existsBlockRelationship(any(UUID.class), any(UUID.class));
         verify(postViewRepository, never()).countByPostIdAndUserId(any(UUID.class), any(UUID.class));
-        verify(postViewRepository, never()).save(any(PostView.class));
+        verify(postViewRepository, never()).insertIfAbsent(any(PostView.class));
         verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
         verify(applicationEventPublisher, never()).publishEvent(any(PostViewedDomainEvent.class));
     }
 
     @Test
     void shouldAbortProcessingWhenBlockRelationshipExists() {
+        when(postViewRepository.findById(VIEW_ID)).thenReturn(Optional.empty());
         when(postViewValidationRepository.findActivePost(POST_ID))
                 .thenReturn(Optional.of(new PostViewValidationRepository.ActivePost(POST_ID, OWNER_ID)));
         when(postViewValidationRepository.existsBlockRelationship(USER_ID, OWNER_ID)).thenReturn(true);
@@ -152,9 +168,123 @@ class ProcessPostViewUseCaseTest {
         processPostViewUseCase.process(command());
 
         verify(postViewRepository, never()).countByPostIdAndUserId(any(UUID.class), any(UUID.class));
-        verify(postViewRepository, never()).save(any(PostView.class));
+        verify(postViewRepository, never()).insertIfAbsent(any(PostView.class));
         verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
         verify(applicationEventPublisher, never()).publishEvent(any(PostViewedDomainEvent.class));
+    }
+
+    @Test
+    void shouldSkipKnownViewIdWithoutPublishing() {
+        when(postViewRepository.findById(VIEW_ID)).thenReturn(Optional.of(existingView(POST_ID, USER_ID)));
+
+        processPostViewUseCase.process(command());
+
+        assertNoViewPersistedOrPublished();
+        verify(postViewValidationRepository, never()).findActivePost(any(UUID.class));
+        verify(postViewRepository, never()).countByPostIdAndUserId(any(UUID.class), any(UUID.class));
+        assertThat(logAppender.list)
+                .anySatisfy(log -> {
+                    assertThat(log.getLevel()).isEqualTo(Level.INFO);
+                    assertThat(log.getFormattedMessage()).contains(VIEW_ID.toString(), "already processed");
+                })
+                .noneMatch(log -> log.getLevel() == Level.WARN);
+    }
+
+    @Test
+    void shouldDiscardViewIdReusedForAnotherPost() {
+        var otherPostId = UUID.randomUUID();
+        when(postViewRepository.findById(VIEW_ID)).thenReturn(Optional.of(existingView(otherPostId, USER_ID)));
+
+        processPostViewUseCase.process(command());
+
+        assertNoViewPersistedOrPublished();
+        verify(postViewValidationRepository, never()).findActivePost(any(UUID.class));
+        assertThat(logAppender.list).anySatisfy(log -> {
+            assertThat(log.getLevel()).isEqualTo(Level.WARN);
+            assertThat(log.getFormattedMessage()).contains(VIEW_ID.toString(), otherPostId.toString());
+        });
+    }
+
+    @Test
+    void shouldDiscardViewIdReusedByAnotherUser() {
+        var otherUserId = UUID.randomUUID();
+        when(postViewRepository.findById(VIEW_ID)).thenReturn(Optional.of(existingView(POST_ID, otherUserId)));
+
+        processPostViewUseCase.process(command());
+
+        assertNoViewPersistedOrPublished();
+        assertThat(logAppender.list).anySatisfy(log -> {
+            assertThat(log.getLevel()).isEqualTo(Level.WARN);
+            assertThat(log.getFormattedMessage()).contains(VIEW_ID.toString(), otherUserId.toString());
+        });
+    }
+
+    @Test
+    void shouldTreatConcurrentDuplicateKeyAsAlreadyProcessedWithoutPublishing() {
+        when(postViewRepository.findById(VIEW_ID))
+                .thenReturn(Optional.empty())
+                .thenReturn(Optional.of(existingView(POST_ID, USER_ID)));
+        when(postViewValidationRepository.findActivePost(POST_ID))
+                .thenReturn(Optional.of(new PostViewValidationRepository.ActivePost(POST_ID, OWNER_ID)));
+        when(postViewValidationRepository.existsBlockRelationship(USER_ID, OWNER_ID)).thenReturn(false);
+        when(postViewRepository.countByPostIdAndUserId(POST_ID, USER_ID)).thenReturn(0L);
+        when(postViewRepository.insertIfAbsent(any(PostView.class))).thenReturn(false);
+
+        processPostViewUseCase.process(command());
+
+        verify(postViewRepository).insertIfAbsent(any(PostView.class));
+        verify(postViewRepository, times(2)).findById(VIEW_ID);
+        verify(postViewEventMapper, never()).toPostViewedEvent(any(UUID.class), any(UUID.class), any(PostView.class), any(Instant.class));
+        verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
+        verify(applicationEventPublisher, never()).publishEvent(any(PostViewedDomainEvent.class));
+        assertThat(logAppender.list).anySatisfy(log -> {
+            assertThat(log.getLevel()).isEqualTo(Level.INFO);
+            assertThat(log.getFormattedMessage()).contains(VIEW_ID.toString(), "already processed");
+        });
+    }
+
+    @Test
+    void shouldWarnWhenConcurrentDuplicateKeyBelongsToAnotherPost() {
+        var otherPostId = UUID.randomUUID();
+        when(postViewRepository.findById(VIEW_ID))
+                .thenReturn(Optional.empty())
+                .thenReturn(Optional.of(existingView(otherPostId, USER_ID)));
+        when(postViewValidationRepository.findActivePost(POST_ID))
+                .thenReturn(Optional.of(new PostViewValidationRepository.ActivePost(POST_ID, OWNER_ID)));
+        when(postViewValidationRepository.existsBlockRelationship(USER_ID, OWNER_ID)).thenReturn(false);
+        when(postViewRepository.countByPostIdAndUserId(POST_ID, USER_ID)).thenReturn(0L);
+        when(postViewRepository.insertIfAbsent(any(PostView.class))).thenReturn(false);
+
+        processPostViewUseCase.process(command());
+
+        verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
+        verify(applicationEventPublisher, never()).publishEvent(any(PostViewedDomainEvent.class));
+        assertThat(logAppender.list).anySatisfy(log -> {
+            assertThat(log.getLevel()).isEqualTo(Level.WARN);
+            assertThat(log.getFormattedMessage()).contains(VIEW_ID.toString(), otherPostId.toString());
+        });
+    }
+
+    private void assertNoViewPersistedOrPublished() {
+        verify(postViewRepository, never()).insertIfAbsent(any(PostView.class));
+        verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
+        verify(applicationEventPublisher, never()).publishEvent(any(PostViewedDomainEvent.class));
+    }
+
+    private PostView existingView(UUID postId, UUID userId) {
+        return new PostView(
+                VIEW_ID,
+                new PostId(postId),
+                new UserId(userId),
+                PostViewSource.USER_PROFILE,
+                2,
+                5000,
+                3500,
+                70,
+                PostViewExitReason.SCROLL_NEXT,
+                Instant.now(),
+                3
+        );
     }
 
     private ProcessPostViewCommand command() {
