@@ -1,7 +1,7 @@
 # post-query-service
 
 ## What it does
-Read side of the platform, written in Go. It consumes the events of `post-command-service` and `social-service` from RabbitMQ, keeps its own read models in MongoDB, and serves the home feed (`/api/feed`) and post, comment and profile grid reads (`/api/content`) over HTTP.
+Read side of the platform, written in Go. It consumes the events of `post-command-service` and `social-service` from RabbitMQ, keeps its own read models in MongoDB, and serves the home feed (`/api/feed`) and post, comment, profile grid and own tab (liked, history) reads (`/api/content`) over HTTP.
 
 ## Packages used
 - **`net/http`:** `ServeMux` with method patterns.
@@ -73,6 +73,8 @@ Every read that is not the feed lives under `/api/content`, routed by the gatewa
 | `GET /api/content/posts/{postId}/comments/{commentId}/replies?cursor=&limit=` | 200 `{ items: Comment[], nextCursor }`, 400 `invalid_post_id` / `invalid_comment_id` / `invalid_cursor` / `invalid_limit`, 404 `post_not_found` / `comment_not_found` |
 | `GET /api/content/users/{userId}/posts?cursor=&limit=` | 200 `{ items: GridItem[], nextCursor }`, 400 `invalid_user_id` / `invalid_cursor` / `invalid_limit`, 404 `user_not_found` |
 | `GET /api/content/users/{userId}/reposts?cursor=&limit=` | same as `/posts` |
+| `GET /api/content/me/liked?cursor=&limit=` | 200 `{ items: (GridItem & { likedAt })[], nextCursor }`, 400 `invalid_cursor` / `invalid_limit` |
+| `GET /api/content/me/history?cursor=&limit=` | 200 `{ items: (GridItem & { viewedAt })[], nextCursor }`, 400 `invalid_cursor` / `invalid_limit` |
 
 `PostView` is a feed item without `position`, plus two fields that stay null until collab requests are projected: `collab.pendingRequestCount` and `viewer.collabRequestStatus`. Its values come from the same read models and the same mapper as the feed, with `viewer` holding the caller's state and every media URL signed (see "Media URLs").
 
@@ -96,6 +98,16 @@ Every read that is not the feed lives under `/api/content`, routed by the gatewa
 - Both are public to any signed-in user. A user who is unknown, deleted, or in a block relation with the caller (either direction) is the same 404 `user_not_found`.
 - Keyset pagination as for the comments: `limit` 1 to 50 (default 20), opaque `cursor`, `nextCursor` null on the last page, every page an index seek on `{ user_id: 1, created_at: -1, post_id: -1 }` (on `posts` and on `post_shares`). The dates never change, so the cursor is stable.
 - `/reposts` skips a share whose post no longer exists, and a post GetPost would not serve the caller (creator gone, or in a block relation with the caller). It reads on after the skipped shares to fill the page, at most 3 share reads per request; a page cut short by that has a `nextCursor` that resumes after the last share read.
+
+### Own tabs: liked and history
+Private tabs of the caller's own profile. The routes take no user id: the list is always the token subject's, so there is no way to read another user's likes or history.
+
+- `/me/liked` lists the posts the caller liked, most recently liked first (`likedAt` is the like's date). It reads `post_likes` on `{ user_id: 1, created_at: -1, post_id: -1 }`.
+- `/me/history` lists the posts the caller viewed, **one entry per post**, most recently viewed first (`viewedAt` is the latest view). It reads `view_history` on `{ user_id: 1, last_viewed_at: -1, post_id: -1 }`.
+- Items are `GridItem`s (see "Profile grids") plus that date. Posts that no longer exist, whose creator is gone, or whose creator is in a block relation with the caller are skipped, and the page reads on to fill itself (at most 3 reads, like `/reposts`).
+- Keyset pagination as for the grids: `limit` 1 to 50 (default 20), opaque `cursor`, `nextCursor` null on the last page, every page an index seek. A post viewed again while the caller pages moves to the top of the history: it is not served again further down, and shows up first on the next refresh.
+
+**Viewing history projection.** `rk.post.viewed` (`PostViewedEvent` of post-command-service, already bound to `q.post-query-service.post`) is projected into `view_history { user_id, post_id, last_viewed_at }`, with a unique index on `(user_id, post_id)`: one row per user and post, however many views, so the collection grows with the posts a user saw, not with the views. Each view sets `last_viewed_at = max(stored, serverTimestamp)`, so an older view delivered late never moves an entry back. The write, the idempotency check and its record run in one transaction. A TTL index on `last_viewed_at` removes entries not refreshed for `VIEW_HISTORY_RETENTION_DAYS` (90 by default); a changed value is applied in place at the next start.
 
 ## How the feed gets filled
 The feed is prepared ahead of time over RabbitMQ, through the transactional outbox:
@@ -170,6 +182,7 @@ A retry on a timeout runs the pipeline again, so the limit per attempt (10 s) is
 | `AZURE_STORAGE_CONTAINER` | required | Media container (`post-media-dev` locally, `post-media` in prod). Only its blobs are signed. |
 | `AZURE_STORAGE_ACCOUNT_KEY` | none | Account key, for Azurite only: refused unless the account URL is plain HTTP. Without it the service signs with a user delegation key, through Workload Identity (`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_FEDERATED_TOKEN_FILE`, injected by the webhook). The identity needs Storage Blob Delegator on the account and Storage Blob Data Reader on the container. |
 | `MEDIA_READ_SAS_WINDOW` | `24h` | Length of a signing window, a Go duration from `1m` to `72h`. A SAS lasts two windows. |
+| `VIEW_HISTORY_RETENTION_DAYS` | `90` | How long a viewing history entry lives after the caller's last view of that post (TTL index), 1 to 3650. |
 
 ## Tests
-`./test.sh` from `post-query-service/`. It needs Docker: integration tests use Testcontainers for MongoDB, RabbitMQ and Azurite (`mcr.microsoft.com/azure-storage/azurite:3.35.0`, where `GET /api/feed` and `GET /api/content/posts/{postId}` are checked to return media URLs that download). The gRPC tests run a real server on localhost. The comment list and profile grid tests read the queries the service ran from the MongoDB profiler and explain them (one index scan, no in-memory sort, as many keys on a deep page as on page 2).
+`./test.sh` from `post-query-service/`. It needs Docker: integration tests use Testcontainers for MongoDB, RabbitMQ and Azurite (`mcr.microsoft.com/azure-storage/azurite:3.35.0`, where `GET /api/feed` and `GET /api/content/posts/{postId}` are checked to return media URLs that download). The gRPC tests run a real server on localhost. The comment list, profile grid and own tab tests read the queries the service ran from the MongoDB profiler and explain them (one index scan, no in-memory sort, as many keys on a deep page as on page 2).
