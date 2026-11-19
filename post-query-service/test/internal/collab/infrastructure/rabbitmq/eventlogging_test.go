@@ -11,6 +11,7 @@ import (
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/google/uuid"
 
+	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/collab/application/usecase"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/collab/infrastructure/rabbitmq"
 	"github.com/Juangmz7/gaze-app-TFG/post-query-service/internal/shared/infrastructure/rabbitmq/rmqerror"
 )
@@ -111,7 +112,7 @@ func TestEventHandlers_LogTheCorrelationAndUserOfEveryOutcome(t *testing.T) {
 }
 
 func loggedHandlerCases() []loggedHandlerCase {
-	return []loggedHandlerCase{
+	cases := []loggedHandlerCase{
 		{
 			name:      "PostCollabOpened",
 			eventType: rabbitmq.PostCollabOpenedEventType,
@@ -124,4 +125,19 @@ func loggedHandlerCases() []loggedHandlerCase {
 			},
 		},
 	}
+	for _, member := range collabMemberHandlerCases() {
+		cases = append(cases, loggedHandlerCase{
+			name:      member.name,
+			eventType: member.eventType,
+			projected: "event projected",
+			payload:   func(*testing.T) []byte { return []byte(member.payload) },
+			handle: func(logger *slog.Logger, duplicate bool) func(context.Context, *message.Message) error {
+				idempotency := newFakeCollabMemberIdempotency()
+				idempotency.processed[uuid.MustParse(loggedEventID)] = duplicate
+				return member.newHandler(fakeCollabMemberTransactor{}, idempotency, usecase.NewApplyCollabMember(newFakeCollabMemberStore()), logger)
+			},
+		})
+	}
+
+	return cases
 }

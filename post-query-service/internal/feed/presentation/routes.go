@@ -37,6 +37,8 @@ const (
 	ListUserRepostsRoute = "GET /api/content/users/{" + userIDPathValue + "}/reposts"
 	ListMyLikedRoute     = "GET /api/content/me/liked"
 	ListMyHistoryRoute   = "GET /api/content/me/history"
+	// ListCollabRequestsRoute lists a collab's join requests, to its owner only.
+	ListCollabRequestsRoute = "GET /api/content/collabs/{" + collabIDPathValue + "}/requests"
 )
 
 // CorrelationIDHeader carries the correlation id of a request.
@@ -63,6 +65,8 @@ type Routes struct {
 	ListUserReposts *UserGridHandler
 	ListMyLiked     *OwnListHandler
 	ListMyHistory   *OwnListHandler
+	// ListCollabRequests serves the collab requests list (task 52).
+	ListCollabRequests *ListCollabRequestsHandler
 }
 
 // RegisterRoutes adds the feed and content endpoints to mux behind authenticate
@@ -84,6 +88,7 @@ func RegisterRoutes(mux *http.ServeMux, authenticate func(http.Handler) http.Han
 	register(ListUserRepostsRoute, routes.ListUserReposts)
 	register(ListMyLikedRoute, routes.ListMyLiked)
 	register(ListMyHistoryRoute, routes.ListMyHistory)
+	register(ListCollabRequestsRoute, routes.ListCollabRequests)
 }
 
 // withTraceContext continues the caller's W3C trace, so a call to another service

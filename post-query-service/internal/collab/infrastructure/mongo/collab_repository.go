@@ -23,8 +23,9 @@ const collectionName = "post_collabs"
 const operationTimeout = 5 * time.Second
 
 // ErrVersionConflict is returned by Update when the stored document's
-// version does not match CloseCollabInput.ExpectedVersion, meaning the
-// document was modified by another writer since the version was read.
+// version does not match CloseCollabInput.ExpectedVersion, and by
+// MemberRepository.UpdateMember when the membership's version moved, meaning
+// the document was modified by another writer since the version was read.
 var ErrVersionConflict = errors.New("collab version conflict")
 
 // collabDocument is the persisted shape of a collab read model entry. The

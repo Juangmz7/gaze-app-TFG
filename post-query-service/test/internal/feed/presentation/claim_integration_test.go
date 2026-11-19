@@ -161,17 +161,18 @@ func newFeedAppSigning(t *testing.T, ctx context.Context, signer usecase.MediaUR
 	logger := discardLogger()
 	config := usecase.ClaimFeedConfig{DefaultPageSize: 15, MaxPageSize: 20, MaxReads: 3}
 	routes := presentation.Routes{
-		Heartbeat:       presentation.NewHeartbeatHandler(usecase.NewRegisterHeartbeat(sessions, logger), logger),
-		Disconnect:      presentation.NewDisconnectHandler(usecase.NewRegisterUserDisconnected(sessions, noPrefetch{}, 5*time.Second, logger), logger),
-		ClaimFeed:       presentation.NewClaimFeedHandler(usecase.NewClaimFeed(units, hydration, config, logger), signer, logger),
-		FollowingFeed:   presentation.NewFollowingFeedHandler(usecase.NewFollowingFeed(hydration, usecase.FollowingFeedConfig{MaxFollows: 2000}, logger), signer, logger),
-		GetPost:         presentation.NewGetPostHandler(usecase.NewGetPost(hydration, logger), signer, logger),
-		ListComments:    presentation.NewListCommentsHandler(usecase.NewListComments(hydration, logger), signer, logger),
-		ListReplies:     presentation.NewListRepliesHandler(usecase.NewListReplies(hydration, logger), signer, logger),
-		ListUserPosts:   presentation.NewListUserPostsHandler(usecase.NewListUserPosts(hydration, logger), signer, logger),
-		ListUserReposts: presentation.NewListUserRepostsHandler(usecase.NewListUserReposts(hydration, logger), signer, logger),
-		ListMyLiked:     presentation.NewListMyLikedHandler(usecase.NewListMyLiked(hydration, logger), signer, logger),
-		ListMyHistory:   presentation.NewListMyHistoryHandler(usecase.NewListMyHistory(hydration, logger), signer, logger),
+		Heartbeat:          presentation.NewHeartbeatHandler(usecase.NewRegisterHeartbeat(sessions, logger), logger),
+		Disconnect:         presentation.NewDisconnectHandler(usecase.NewRegisterUserDisconnected(sessions, noPrefetch{}, 5*time.Second, logger), logger),
+		ClaimFeed:          presentation.NewClaimFeedHandler(usecase.NewClaimFeed(units, hydration, config, logger), signer, logger),
+		FollowingFeed:      presentation.NewFollowingFeedHandler(usecase.NewFollowingFeed(hydration, usecase.FollowingFeedConfig{MaxFollows: 2000}, logger), signer, logger),
+		GetPost:            presentation.NewGetPostHandler(usecase.NewGetPost(hydration, logger), signer, logger),
+		ListComments:       presentation.NewListCommentsHandler(usecase.NewListComments(hydration, logger), signer, logger),
+		ListReplies:        presentation.NewListRepliesHandler(usecase.NewListReplies(hydration, logger), signer, logger),
+		ListUserPosts:      presentation.NewListUserPostsHandler(usecase.NewListUserPosts(hydration, logger), signer, logger),
+		ListUserReposts:    presentation.NewListUserRepostsHandler(usecase.NewListUserReposts(hydration, logger), signer, logger),
+		ListMyLiked:        presentation.NewListMyLikedHandler(usecase.NewListMyLiked(hydration, logger), signer, logger),
+		ListMyHistory:      presentation.NewListMyHistoryHandler(usecase.NewListMyHistory(hydration, logger), signer, logger),
+		ListCollabRequests: presentation.NewListCollabRequestsHandler(usecase.NewListCollabRequests(hydration, logger), signer, logger),
 	}
 	mux := http.NewServeMux()
 	presentation.RegisterRoutes(mux, withSubject(t, viewerID.String()), routes)

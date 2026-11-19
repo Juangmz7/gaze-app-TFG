@@ -54,13 +54,25 @@ type FeedPost struct {
 	CreatedAt   time.Time
 }
 
-// FeedCollab is what the feed reads from the post_collabs read model.
+// FeedCollab is what the feed reads from the post_collabs read model. OwnerUserID is
+// the collab's creator, the only user who sees its pending requests:
+// PendingRequestCount is set by readFeedState only when the viewer is that owner, and
+// stays null for everyone else.
 type FeedCollab struct {
-	CollabID  string
-	PostID    string
-	Title     *string
-	Status    *string
-	CreatedAt time.Time
+	CollabID            string
+	PostID              string
+	OwnerUserID         string
+	Title               *string
+	Status              *string
+	CreatedAt           time.Time
+	PendingRequestCount *int64
+}
+
+// FeedCollabMembership is the viewer's membership of one collab, from the
+// collab_members read model (task 52): the status of their join request or membership.
+type FeedCollabMembership struct {
+	CollabID string
+	Status   string
 }
 
 // openedAfter says whether c was opened after other. Equal dates fall back to the
@@ -102,27 +114,33 @@ type FeedUnitRef struct {
 }
 
 // FeedViewerState says how the viewer relates to a post and its creator.
+// CollabRequestStatus is the viewer's membership status in the post's collab, null for a
+// BASIC post or when the viewer never asked to join it.
 type FeedViewerState struct {
-	Liked            bool
-	Shared           bool
-	FollowingCreator bool
+	Liked               bool
+	Shared              bool
+	FollowingCreator    bool
+	CollabRequestStatus *string
 }
 
 // FeedCard is one item of a claim response.
 type FeedCard struct {
-	PostID            string
-	Position          int64
-	Creator           FeedCreator
-	Description       *string
-	PostType          string
-	Tags              []string
-	CollabID          *string
-	CollabTitle       *string
-	CollabStatus      *string
-	CreatedAt         time.Time
-	Media             []FeedMedia
-	CoverThumbnailURL *string
-	DurationMS        *int64
-	Stats             FeedStats
-	Viewer            FeedViewerState
+	PostID       string
+	Position     int64
+	Creator      FeedCreator
+	Description  *string
+	PostType     string
+	Tags         []string
+	CollabID     *string
+	CollabTitle  *string
+	CollabStatus *string
+	// CollabPendingRequestCount is the number of PENDING requests of the post's collab,
+	// set only when the viewer owns that collab.
+	CollabPendingRequestCount *int64
+	CreatedAt                 time.Time
+	Media                     []FeedMedia
+	CoverThumbnailURL         *string
+	DurationMS                *int64
+	Stats                     FeedStats
+	Viewer                    FeedViewerState
 }

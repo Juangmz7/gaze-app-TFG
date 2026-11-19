@@ -1,7 +1,7 @@
 # post-query-service
 
 ## What it does
-Read side of the platform, written in Go. It consumes the events of `post-command-service` and `social-service` from RabbitMQ, keeps its own read models in MongoDB, and serves the home feed (`/api/feed`), the following feed (`/api/feed/following`) and post, comment, profile grid and own tab (liked, history) reads (`/api/content`) over HTTP.
+Read side of the platform, written in Go. It consumes the events of `post-command-service` and `social-service` from RabbitMQ, keeps its own read models in MongoDB, and serves the home feed (`/api/feed`), the following feed (`/api/feed/following`) and post, comment, profile grid, own tab (liked, history) and collab join request reads (`/api/content`) over HTTP.
 
 ## Packages used
 - **`net/http`:** `ServeMux` with method patterns.
@@ -48,12 +48,14 @@ Each item has:
 | `creator.userId`, `creator.username`, `creator.pictureUrl` | `pictureUrl` can be null. `username` is the only visible name. |
 | `description`, `postType`, `postTags` | `description` can be null. `postType` is `BASIC` or `COLLAB`. |
 | `collabId`, `collab.title`, `collab.status` | Null for a `BASIC` post. A post with several collabs serves the most recently opened one. |
+| `collab.pendingRequestCount` | Number of `PENDING` join requests of that collab, **only for its owner** (0 when none). Null for everyone else and for a `BASIC` post. See "Collab join requests". |
 | `createdAt` | The post's creation date. |
 | `media[]` | Sorted by `order`: `id`, `url`, `thumbnailUrl` (nullable), `mediaType` (`IMAGE` or `VIDEO`), `order` (1-based), `durationMs` (null for an `IMAGE`), `taggedUsers`. |
 | `coverThumbnailUrl` | The first element's thumbnail, or its `url` if it is an `IMAGE` with none. Null otherwise. |
 | `durationMs` | Sum of the `VIDEO` durations. Null when there is no video. |
 | `stats.likeCount`, `stats.commentCount`, `stats.shareCount` | Current values. |
 | `viewer.liked`, `viewer.shared`, `viewer.followingCreator` | The caller's state. |
+| `viewer.collabRequestStatus` | The caller's membership of the post's collab: `PENDING`, `ACCEPTED`, `REJECTED`, `DELETED`, `LEFT` or `BANNED`. Null when the caller never asked to join it, and for a `BASIC` post. |
 
 ### Following feed
 `GET /api/feed/following` is the Home "Following" tab: the posts of the users the caller follows, newest first (`createdAt`, then `postId`, both descending). Items are `PostView`s, exactly what `GET /api/content/posts/{postId}` answers for each post (see "Content API").
@@ -84,8 +86,9 @@ Every read that is not the feed lives under `/api/content`, routed by the gatewa
 | `GET /api/content/users/{userId}/reposts?cursor=&limit=` | same as `/posts` |
 | `GET /api/content/me/liked?cursor=&limit=` | 200 `{ items: (GridItem & { likedAt })[], nextCursor }`, 400 `invalid_cursor` / `invalid_limit` |
 | `GET /api/content/me/history?cursor=&limit=` | 200 `{ items: (GridItem & { viewedAt })[], nextCursor }`, 400 `invalid_cursor` / `invalid_limit` |
+| `GET /api/content/collabs/{collabId}/requests?status=&cursor=&limit=` | 200 `{ items: { user: UserSummary, status, requestedAt }[], nextCursor }`, 400 `invalid_collab_id` / `invalid_status` / `invalid_cursor` / `invalid_limit`, 403 `not_collab_owner`, 404 `collab_not_found` |
 
-`PostView` is a feed item without `position`, plus two fields that stay null until collab requests are projected: `collab.pendingRequestCount` and `viewer.collabRequestStatus`. Its values come from the same read models and the same mapper as the feed, with `viewer` holding the caller's state and every media URL signed (see "Media URLs").
+`PostView` is a feed item without `position`, `collab.pendingRequestCount` and `viewer.collabRequestStatus` included. Its values come from the same read models and the same mapper as the feed, with `viewer` holding the caller's state and every media URL signed (see "Media URLs").
 
 - `postId` must be a canonical UUID; anything else is a 400.
 - A post that was never projected, was deleted or banned, whose creator is gone, or whose creator has a block with the caller in either direction, is the same 404 `post_not_found`, so a block is never revealed.
@@ -117,6 +120,14 @@ Private tabs of the caller's own profile. The routes take no user id: the list i
 - Keyset pagination as for the grids: `limit` 1 to 50 (default 20), opaque `cursor`, `nextCursor` null on the last page, every page an index seek. A post viewed again while the caller pages moves to the top of the history: it is not served again further down, and shows up first on the next refresh.
 
 **Viewing history projection.** `rk.post.viewed` (`PostViewedEvent` of post-command-service, already bound to `q.post-query-service.post`) is projected into `view_history { user_id, post_id, last_viewed_at }`, with a unique index on `(user_id, post_id)`: one row per user and post, however many views, so the collection grows with the posts a user saw, not with the views. Each view sets `last_viewed_at = max(stored, serverTimestamp)`, so an older view delivered late never moves an entry back. The write, the idempotency check and its record run in one transaction. A TTL index on `last_viewed_at` removes entries not refreshed for `VIEW_HISTORY_RETENTION_DAYS` (90 by default); a changed value is applied in place at the next start.
+
+### Collab join requests
+Accepting and declining stay in post-command-service (`PUT /api/collabs/{collabId}/requests/{userId}/accept|decline`); this service projects the join request and member events and serves them.
+
+- **Projection.** `rk.post.collab.request.created`, `.accepted`, `.declined`, `.deleted`, `rk.post.collab.member.left` and `.banned` (already bound to `q.post-query-service.post`) are projected into `collab_members { collab_id, user_id, status, role, requested_at, updated_at, version }`, one row per user and collab (unique `(collab_id, user_id)`). Each event carries the whole member row. The events have no version, so they are ordered by `occurredAt` (at millisecond precision): an event is applied only when it is newer than the row's `updated_at`, so an accept processed before its request is not undone by the request, and a late redelivery changes nothing. The write, the idempotency check and its record run in one transaction. `requested_at` is the member row's creation date (`createdAt` / `memberCreatedAt` of the event) and never changes.
+- **In the feed.** A feed item, a `PostView` and a following feed item carry `viewer.collabRequestStatus` (the caller's row) and `collab.pendingRequestCount` (owner only, see "Feed API"). A page reads them with two queries whatever its size: the caller's rows for the page's collabs (one `$in`), and the pending counts of the collabs the caller owns (one aggregation, skipped when the caller owns none of them, reading index keys only).
+- **The list.** `GET /api/content/collabs/{collabId}/requests` answers the collab's owner only (`post_collabs.owner_user_id`): anyone else gets 403 `not_collab_owner`, checked before any request is read; an unknown or deleted collab is 404 `collab_not_found`. `status` filters by membership status (`PENDING` by default, any `CollabMemberStatus`). Items are `{ user: UserSummary, status, requestedAt }`, oldest request first (`requestedAt`, then `userId`, ascending) so nobody waits forever; `user.pictureUrl` is signed. A requester no longer projected (deleted) is left out.
+- Keyset pagination as for the grids: `limit` 1 to 50 (default 20), opaque `cursor`, `nextCursor` null on the last page. Every page is an index seek on `{ collab_id: 1, status: 1, requested_at: 1, user_id: 1 }`, which also serves the counts. A request whose status changes while the owner pages leaves that status's list; nobody is served twice.
 
 ## How the feed gets filled
 The feed is prepared ahead of time over RabbitMQ, through the transactional outbox:
@@ -195,4 +206,4 @@ A retry on a timeout runs the pipeline again, so the limit per attempt (10 s) is
 | `VIEW_HISTORY_RETENTION_DAYS` | `90` | How long a viewing history entry lives after the caller's last view of that post (TTL index), 1 to 3650. |
 
 ## Tests
-`./test.sh` from `post-query-service/`. It needs Docker: integration tests use Testcontainers for MongoDB, RabbitMQ and Azurite (`mcr.microsoft.com/azure-storage/azurite:3.35.0`, where `GET /api/feed` and `GET /api/content/posts/{postId}` are checked to return media URLs that download). The gRPC tests run a real server on localhost. The comment list, profile grid, own tab and following feed tests read the queries the service ran from the MongoDB profiler and explain them (one index scan, or for the following feed a merge of index scans, with no in-memory sort, and as many keys on a deep page as on page 2).
+`./test.sh` from `post-query-service/`. It needs Docker: integration tests use Testcontainers for MongoDB, RabbitMQ and Azurite (`mcr.microsoft.com/azure-storage/azurite:3.35.0`, where `GET /api/feed` and `GET /api/content/posts/{postId}` are checked to return media URLs that download). The gRPC tests run a real server on localhost. The comment list, profile grid, own tab, following feed and collab requests tests read the queries the service ran from the MongoDB profiler and explain them (one index scan, or for the following feed a merge of index scans, with no in-memory sort, and as many keys on a deep page as on page 2).

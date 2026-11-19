@@ -39,9 +39,14 @@ import (
 //
 // A feed item (FeedCardResponse) and a post view (PostViewResponse, GET
 // /api/content/posts/{postId}) are one shape: the post view is the feed item without
-// position, plus collab.pendingRequestCount and viewer.collabRequestStatus. Both are
-// built by feedCardToResponse, so their field names and signing cannot drift apart. A
-// following feed page (FollowingFeedPageResponse) is a list of post views.
+// position. Both are built by feedCardToResponse, so their field names and signing
+// cannot drift apart. A following feed page (FollowingFeedPageResponse) is a list of
+// post views. Both carry the collab join request state of task 52:
+//
+//	collab.pendingRequestCount   PENDING collab_members of the post's collab, only for
+//	                             its owner; null for everyone else and for BASIC posts
+//	viewer.collabRequestStatus   the caller's collab_members status in the post's
+//	                             collab; null when none or for a BASIC post
 
 // MediaURLSigner adds a read-only SAS to a blob URL of the media container and returns
 // any other URL unchanged. Within one signing window it returns the same URL for the
@@ -118,11 +123,26 @@ type FeedUserDocument struct {
 
 // FeedCollabDocument is the part of a post_collabs document the feed reads.
 type FeedCollabDocument struct {
-	CollabID  string    `bson:"collab_id"`
-	PostID    string    `bson:"post_id"`
-	Title     string    `bson:"title"`
-	Status    string    `bson:"status"`
-	CreatedAt time.Time `bson:"created_at"`
+	CollabID    string    `bson:"collab_id"`
+	PostID      string    `bson:"post_id"`
+	OwnerUserID string    `bson:"owner_user_id"`
+	Title       string    `bson:"title"`
+	Status      string    `bson:"status"`
+	CreatedAt   time.Time `bson:"created_at"`
+}
+
+// FeedCollabMemberDocument is the part of a collab_members document the viewer's
+// membership statuses are read from.
+type FeedCollabMemberDocument struct {
+	CollabID string `bson:"collab_id"`
+	Status   string `bson:"status"`
+}
+
+// FeedCollabPendingCountDocument is one group of the pending requests count: the
+// collab id (the group key) and its number of PENDING collab_members.
+type FeedCollabPendingCountDocument struct {
+	CollabID string `bson:"_id"`
+	Count    int64  `bson:"count"`
 }
 
 // FeedCreatorResponse is the API shape of a card's creator and of a comment's author:
@@ -133,11 +153,12 @@ type FeedCreatorResponse struct {
 	PictureURL *string `json:"pictureUrl"`
 }
 
-// FeedCollabResponse is the API shape of a card's collab. Both fields are null for
-// a BASIC post.
+// FeedCollabResponse is the API shape of a card's collab. Every field is null for a
+// BASIC post; pendingRequestCount is also null unless the caller owns the collab.
 type FeedCollabResponse struct {
-	Title  *string `json:"title"`
-	Status *string `json:"status"`
+	Title               *string `json:"title"`
+	Status              *string `json:"status"`
+	PendingRequestCount *int64  `json:"pendingRequestCount"`
 }
 
 // FeedMediaResponse is the API shape of one media element.
@@ -158,11 +179,14 @@ type FeedStatsResponse struct {
 	ShareCount   int64 `json:"shareCount"`
 }
 
-// FeedViewerResponse is the API shape of the viewer's state.
+// FeedViewerResponse is the API shape of the viewer's state. collabRequestStatus is a
+// CollabMemberStatus, or null when the caller has no membership of the post's collab or
+// the post is BASIC.
 type FeedViewerResponse struct {
-	Liked            bool `json:"liked"`
-	Shared           bool `json:"shared"`
-	FollowingCreator bool `json:"followingCreator"`
+	Liked               bool    `json:"liked"`
+	Shared              bool    `json:"shared"`
+	FollowingCreator    bool    `json:"followingCreator"`
+	CollabRequestStatus *string `json:"collabRequestStatus"`
 }
 
 // FeedCardResponse is the API shape of one feed card. Internal fields such as
@@ -184,36 +208,22 @@ type FeedCardResponse struct {
 	Viewer            FeedViewerResponse  `json:"viewer"`
 }
 
-// PostViewCollabResponse is the API shape of a post view's collab: the feed's, plus
-// pendingRequestCount, null until the collab requests are projected (task 52).
-type PostViewCollabResponse struct {
-	FeedCollabResponse
-	PendingRequestCount *int64 `json:"pendingRequestCount"`
-}
-
-// PostViewViewerResponse is the API shape of a post view's viewer state: the feed's,
-// plus collabRequestStatus, null until the collab requests are projected (task 52).
-type PostViewViewerResponse struct {
-	FeedViewerResponse
-	CollabRequestStatus *string `json:"collabRequestStatus"`
-}
-
 // PostViewResponse is the API shape of one post read by id: a feed card without
 // position. Its fields are copied from feedCardToResponse's result, never mapped again.
 type PostViewResponse struct {
-	PostID            string                 `json:"postId"`
-	Creator           FeedCreatorResponse    `json:"creator"`
-	Description       *string                `json:"description"`
-	PostType          string                 `json:"postType"`
-	PostTags          []string               `json:"postTags"`
-	CollabID          *string                `json:"collabId"`
-	Collab            PostViewCollabResponse `json:"collab"`
-	CreatedAt         time.Time              `json:"createdAt"`
-	Media             []FeedMediaResponse    `json:"media"`
-	CoverThumbnailURL *string                `json:"coverThumbnailUrl"`
-	DurationMS        *int64                 `json:"durationMs"`
-	Stats             FeedStatsResponse      `json:"stats"`
-	Viewer            PostViewViewerResponse `json:"viewer"`
+	PostID            string              `json:"postId"`
+	Creator           FeedCreatorResponse `json:"creator"`
+	Description       *string             `json:"description"`
+	PostType          string              `json:"postType"`
+	PostTags          []string            `json:"postTags"`
+	CollabID          *string             `json:"collabId"`
+	Collab            FeedCollabResponse  `json:"collab"`
+	CreatedAt         time.Time           `json:"createdAt"`
+	Media             []FeedMediaResponse `json:"media"`
+	CoverThumbnailURL *string             `json:"coverThumbnailUrl"`
+	DurationMS        *int64              `json:"durationMs"`
+	Stats             FeedStatsResponse   `json:"stats"`
+	Viewer            FeedViewerResponse  `json:"viewer"`
 }
 
 // FollowingFeedPageResponse is the API shape of a following feed page (GET
@@ -294,15 +304,22 @@ func FeedCreatorFromDocument(document FeedUserDocument) FeedCreator {
 	}
 }
 
-// FeedCollabFromDocument maps a post_collabs document.
+// FeedCollabFromDocument maps a post_collabs document. Its pending request count is
+// not part of it: readFeedState sets it for the owner only.
 func FeedCollabFromDocument(document FeedCollabDocument) FeedCollab {
 	return FeedCollab{
-		CollabID:  document.CollabID,
-		PostID:    document.PostID,
-		Title:     nullIfEmpty(document.Title),
-		Status:    nullIfEmpty(document.Status),
-		CreatedAt: document.CreatedAt,
+		CollabID:    document.CollabID,
+		PostID:      document.PostID,
+		OwnerUserID: document.OwnerUserID,
+		Title:       nullIfEmpty(document.Title),
+		Status:      nullIfEmpty(document.Status),
+		CreatedAt:   document.CreatedAt,
 	}
+}
+
+// FeedCollabMembershipFromDocument maps a collab_members document read for the viewer.
+func FeedCollabMembershipFromDocument(document FeedCollabMemberDocument) FeedCollabMembership {
+	return FeedCollabMembership{CollabID: document.CollabID, Status: document.Status}
 }
 
 // FeedUnitFromPost builds the snapshot stored for userID at position.
@@ -401,6 +418,7 @@ func FeedCardFromPost(post FeedPost, creator FeedCreator, collab *FeedCollab, vi
 		card.CollabID = &collabID
 		card.CollabTitle = collab.Title
 		card.CollabStatus = collab.Status
+		card.CollabPendingRequestCount = collab.PendingRequestCount
 		card.PostType = FeedPostTypeCollab
 	}
 
@@ -427,8 +445,7 @@ func FeedPageToResponse(ctx context.Context, output ClaimFeedOutput, signer Medi
 }
 
 // PostViewToResponse maps one post read by id to its API shape, with every blob URL
-// signed by signer. collab.pendingRequestCount and viewer.collabRequestStatus are null
-// until the collab requests are projected (task 52).
+// signed by signer: the feed item of the same card without position.
 func PostViewToResponse(ctx context.Context, card FeedCard, signer MediaURLSigner) (PostViewResponse, error) {
 	if signer == nil {
 		return PostViewResponse{}, errors.New("map post view: a media url signer is required")
@@ -446,13 +463,13 @@ func PostViewToResponse(ctx context.Context, card FeedCard, signer MediaURLSigne
 		PostType:          item.PostType,
 		PostTags:          item.PostTags,
 		CollabID:          item.CollabID,
-		Collab:            PostViewCollabResponse{FeedCollabResponse: item.Collab},
+		Collab:            item.Collab,
 		CreatedAt:         item.CreatedAt,
 		Media:             item.Media,
 		CoverThumbnailURL: item.CoverThumbnailURL,
 		DurationMS:        item.DurationMS,
 		Stats:             item.Stats,
-		Viewer:            PostViewViewerResponse{FeedViewerResponse: item.Viewer},
+		Viewer:            item.Viewer,
 	}, nil
 }
 
@@ -507,14 +524,18 @@ func feedCardToResponse(ctx context.Context, card FeedCard, signer MediaURLSigne
 	}
 
 	return FeedCardResponse{
-		PostID:            card.PostID,
-		Position:          card.Position,
-		Creator:           creator,
-		Description:       card.Description,
-		PostType:          card.PostType,
-		PostTags:          emptyIfNull(card.Tags),
-		CollabID:          card.CollabID,
-		Collab:            FeedCollabResponse{Title: card.CollabTitle, Status: card.CollabStatus},
+		PostID:      card.PostID,
+		Position:    card.Position,
+		Creator:     creator,
+		Description: card.Description,
+		PostType:    card.PostType,
+		PostTags:    emptyIfNull(card.Tags),
+		CollabID:    card.CollabID,
+		Collab: FeedCollabResponse{
+			Title:               card.CollabTitle,
+			Status:              card.CollabStatus,
+			PendingRequestCount: card.CollabPendingRequestCount,
+		},
 		CreatedAt:         card.CreatedAt,
 		Media:             media,
 		CoverThumbnailURL: coverThumbnailURL,
@@ -525,9 +546,10 @@ func feedCardToResponse(ctx context.Context, card FeedCard, signer MediaURLSigne
 			ShareCount:   card.Stats.ShareCount,
 		},
 		Viewer: FeedViewerResponse{
-			Liked:            card.Viewer.Liked,
-			Shared:           card.Viewer.Shared,
-			FollowingCreator: card.Viewer.FollowingCreator,
+			Liked:               card.Viewer.Liked,
+			Shared:              card.Viewer.Shared,
+			FollowingCreator:    card.Viewer.FollowingCreator,
+			CollabRequestStatus: card.Viewer.CollabRequestStatus,
 		},
 	}, nil
 }
