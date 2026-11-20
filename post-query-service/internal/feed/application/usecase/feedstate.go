@@ -19,6 +19,9 @@ type feedStateReader interface {
 	CountPendingCollabRequests(ctx context.Context, collabIDs []string) (map[string]int64, error)
 }
 
+// collabMemberStatusAccepted is the membership status of an accepted collab member.
+const collabMemberStatusAccepted = "ACCEPTED"
+
 // feedState is the read-model state around a batch of posts, as one viewer sees it.
 type feedState struct {
 	collabIndex
@@ -126,17 +129,42 @@ func readCollabRequestState(ctx context.Context, reader feedStateReader, viewerI
 
 // collabFor resolves the post's collab (collabIndex.collabFor) as the viewer sees it:
 // with its PENDING requests count when the viewer owns it (0 when none is pending), and
-// a null count for everyone else.
+// a null count for everyone else; with its join instructions when the viewer may read
+// them (canReadJoinInstructions) and the collab has some, null otherwise.
 func (s feedState) collabFor(post FeedPost) *FeedCollab {
 	collab := s.collabIndex.collabFor(post)
-	if collab == nil || collab.OwnerUserID == "" || collab.OwnerUserID != s.viewerID {
-		return collab
+	if collab == nil {
+		return nil
 	}
 
-	count := s.pendingCounts[collab.CollabID]
-	collab.PendingRequestCount = &count
+	if s.ownsCollab(*collab) {
+		count := s.pendingCounts[collab.CollabID]
+		collab.PendingRequestCount = &count
+	}
+	if s.canReadJoinInstructions(*collab) {
+		collab.JoinInstructions = nullIfEmpty(collab.storedJoinInstructions)
+	}
 
 	return collab
+}
+
+// ownsCollab says whether the viewer is the collab's owner (its creator).
+func (s feedState) ownsCollab(collab FeedCollab) bool {
+	return s.viewerID != "" && collab.OwnerUserID == s.viewerID
+}
+
+// canReadJoinInstructions says whether the viewer may read the collab's join
+// instructions (task 61): its owner, or a member whose status is ACCEPTED. An ADMIN
+// member is covered by the second rule, since post-command-service only gives the ADMIN
+// role to an ACCEPTED member; the creator's own ADMIN row is never projected (no event
+// carries it), hence the owner rule. PENDING, REJECTED, DELETED, LEFT, BANNED and no
+// membership at all read nothing.
+func (s feedState) canReadJoinInstructions(collab FeedCollab) bool {
+	if s.ownsCollab(collab) {
+		return true
+	}
+
+	return s.viewerID != "" && s.memberships[collab.CollabID] == collabMemberStatusAccepted
 }
 
 // collabIndex holds the collabs read for a batch of posts (FindCollabs), indexed for

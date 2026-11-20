@@ -117,6 +117,7 @@ func (r *HydrationRepository) FindCollabs(ctx context.Context, collabIDs, postID
 		{Key: "title", Value: 1},
 		{Key: "status", Value: 1},
 		{Key: "created_at", Value: 1},
+		{Key: "join_instructions", Value: 1},
 	}, &documents)
 	if err != nil {
 		return nil, err

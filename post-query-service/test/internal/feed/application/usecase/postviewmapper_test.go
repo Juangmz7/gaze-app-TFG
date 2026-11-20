@@ -41,7 +41,7 @@ func TestPostViewToResponse_MapsAStoredPostToPostViewWithoutPosition(t *testing.
 	assertKeys(t, "post view", body, "postId", "creator", "description", "postType", "postTags", "collabId", "collab",
 		"createdAt", "media", "coverThumbnailUrl", "durationMs", "stats", "viewer")
 	assertKeys(t, "creator", body["creator"].(map[string]any), "userId", "username", "pictureUrl")
-	assertKeys(t, "collab", body["collab"].(map[string]any), "title", "status", "pendingRequestCount")
+	assertKeys(t, "collab", body["collab"].(map[string]any), "title", "status", "pendingRequestCount", "joinInstructions")
 	assertKeys(t, "stats", body["stats"].(map[string]any), "likeCount", "commentCount", "shareCount")
 	assertKeys(t, "viewer", body["viewer"].(map[string]any), "liked", "shared", "followingCreator", "collabRequestStatus")
 	assertKeys(t, "media element", body["media"].([]any)[0].(map[string]any), "id", "url", "thumbnailUrl", "mediaType", "order", "durationMs", "taggedUsers")

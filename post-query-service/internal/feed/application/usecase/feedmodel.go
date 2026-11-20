@@ -58,6 +58,12 @@ type FeedPost struct {
 // the collab's creator, the only user who sees its pending requests:
 // PendingRequestCount is set by readFeedState only when the viewer is that owner, and
 // stays null for everyone else.
+//
+// JoinInstructions (task 61) follows the same rule for a wider audience: it is null
+// until feedState.collabFor finds the viewer eligible (the owner, or an ACCEPTED
+// member). The stored text is kept unexported in storedJoinInstructions, so nothing
+// outside this package (a grid, a repository, a handler) can copy it to a response
+// without that check.
 type FeedCollab struct {
 	CollabID            string
 	PostID              string
@@ -66,6 +72,9 @@ type FeedCollab struct {
 	Status              *string
 	CreatedAt           time.Time
 	PendingRequestCount *int64
+	JoinInstructions    *string
+
+	storedJoinInstructions string
 }
 
 // FeedCollabMembership is the viewer's membership of one collab, from the
@@ -137,10 +146,14 @@ type FeedCard struct {
 	// CollabPendingRequestCount is the number of PENDING requests of the post's collab,
 	// set only when the viewer owns that collab.
 	CollabPendingRequestCount *int64
-	CreatedAt                 time.Time
-	Media                     []FeedMedia
-	CoverThumbnailURL         *string
-	DurationMS                *int64
-	Stats                     FeedStats
-	Viewer                    FeedViewerState
+	// CollabJoinInstructions is the post's collab's join instructions, set only when
+	// the viewer owns that collab or is an ACCEPTED member of it, and the collab has
+	// some.
+	CollabJoinInstructions *string
+	CreatedAt              time.Time
+	Media                  []FeedMedia
+	CoverThumbnailURL      *string
+	DurationMS             *int64
+	Stats                  FeedStats
+	Viewer                 FeedViewerState
 }

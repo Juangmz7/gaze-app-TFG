@@ -129,6 +129,8 @@ type FeedCollabDocument struct {
 	Title       string    `bson:"title"`
 	Status      string    `bson:"status"`
 	CreatedAt   time.Time `bson:"created_at"`
+	// JoinInstructions is read for every collab; feedState.collabFor decides who sees it.
+	JoinInstructions string `bson:"join_instructions"`
 }
 
 // FeedCollabMemberDocument is the part of a collab_members document the viewer's
@@ -154,11 +156,13 @@ type FeedCreatorResponse struct {
 }
 
 // FeedCollabResponse is the API shape of a card's collab. Every field is null for a
-// BASIC post; pendingRequestCount is also null unless the caller owns the collab.
+// BASIC post; pendingRequestCount is also null unless the caller owns the collab, and
+// joinInstructions unless the caller owns the collab or is an ACCEPTED member of it.
 type FeedCollabResponse struct {
 	Title               *string `json:"title"`
 	Status              *string `json:"status"`
 	PendingRequestCount *int64  `json:"pendingRequestCount"`
+	JoinInstructions    *string `json:"joinInstructions"`
 }
 
 // FeedMediaResponse is the API shape of one media element.
@@ -305,15 +309,17 @@ func FeedCreatorFromDocument(document FeedUserDocument) FeedCreator {
 }
 
 // FeedCollabFromDocument maps a post_collabs document. Its pending request count is
-// not part of it: readFeedState sets it for the owner only.
+// not part of it: readFeedState sets it for the owner only. Its join instructions are
+// kept unexported: feedState.collabFor exposes them to eligible viewers only.
 func FeedCollabFromDocument(document FeedCollabDocument) FeedCollab {
 	return FeedCollab{
-		CollabID:    document.CollabID,
-		PostID:      document.PostID,
-		OwnerUserID: document.OwnerUserID,
-		Title:       nullIfEmpty(document.Title),
-		Status:      nullIfEmpty(document.Status),
-		CreatedAt:   document.CreatedAt,
+		CollabID:               document.CollabID,
+		PostID:                 document.PostID,
+		OwnerUserID:            document.OwnerUserID,
+		Title:                  nullIfEmpty(document.Title),
+		Status:                 nullIfEmpty(document.Status),
+		CreatedAt:              document.CreatedAt,
+		storedJoinInstructions: document.JoinInstructions,
 	}
 }
 
@@ -419,6 +425,7 @@ func FeedCardFromPost(post FeedPost, creator FeedCreator, collab *FeedCollab, vi
 		card.CollabTitle = collab.Title
 		card.CollabStatus = collab.Status
 		card.CollabPendingRequestCount = collab.PendingRequestCount
+		card.CollabJoinInstructions = collab.JoinInstructions
 		card.PostType = FeedPostTypeCollab
 	}
 
@@ -535,6 +542,7 @@ func feedCardToResponse(ctx context.Context, card FeedCard, signer MediaURLSigne
 			Title:               card.CollabTitle,
 			Status:              card.CollabStatus,
 			PendingRequestCount: card.CollabPendingRequestCount,
+			JoinInstructions:    card.CollabJoinInstructions,
 		},
 		CreatedAt:         card.CreatedAt,
 		Media:             media,
