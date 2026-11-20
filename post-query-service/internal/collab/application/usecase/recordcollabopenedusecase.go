@@ -5,20 +5,26 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 )
 
 // RecordCollabOpenedInput is the data required to project a newly opened
-// collaboration.
+// collaboration. JoinInstructions is the text the ADMIN wrote when opening it, empty
+// when none (task 61); OccurredAt is the event's time, which becomes the instructions'
+// last update time (truncated to the millisecond MongoDB stores), so a
+// CollabJoinInstructionsUpdatedEvent older than the opening is stale.
 type RecordCollabOpenedInput struct {
-	CollabID    uuid.UUID
-	PostID      uuid.UUID
-	OwnerUserID uuid.UUID
-	Title       string
-	Status      string
-	CreatedAt   time.Time
+	CollabID         uuid.UUID
+	PostID           uuid.UUID
+	OwnerUserID      uuid.UUID
+	Title            string
+	Status           string
+	CreatedAt        time.Time
+	JoinInstructions string
+	OccurredAt       time.Time
 }
 
 // RecordCollabOpenedRepository persists the collab read model. Implemented
@@ -49,6 +55,10 @@ func (u *RecordCollabOpenedUsecase) Execute(ctx context.Context, input RecordCol
 	}
 	if input.OwnerUserID == uuid.Nil {
 		return fmt.Errorf("record collab opened usecase: owner user id is required")
+	}
+	input.JoinInstructions = strings.TrimSpace(input.JoinInstructions)
+	if !input.OccurredAt.IsZero() {
+		input.OccurredAt = input.OccurredAt.UTC().Truncate(time.Millisecond)
 	}
 
 	if err := u.repository.Insert(ctx, input); err != nil {

@@ -1,7 +1,8 @@
 // Package rabbitmq handles both variants of CollabOpenedEvent and
 // CollabClosedEvent from topology.ExchangePostEvents (routing keys
 // rk.post.collab.opened.post-created, rk.post.collab.opened.existing-post and
-// rk.post.collab.closed).
+// rk.post.collab.closed), CollabDeletedEvent, the collab membership events (task 52)
+// and CollabJoinInstructionsUpdatedEvent (task 61).
 package rabbitmq
 
 import (
@@ -28,17 +29,20 @@ const PostCollabOpenedEventType = "PostCollabOpenedPostCreatedEvent"
 // names are camelCase. Only the collab's own fields are modeled: the record's post
 // fields (postType, description, postTags, media, ...) are ignored, because the
 // post read model is projected from PostCreatedEvent, which post-command-service
-// publishes for collab posts too once their media is verified.
+// publishes for collab posts too once their media is verified. JoinInstructions is
+// null when the ADMIN wrote none (task 61); an event published before task 61 has no
+// such field, which decodes the same way.
 type PostCollabOpenedEvent struct {
-	ID              uuid.UUID `json:"id"`
-	CorrelationID   uuid.UUID `json:"correlationId"`
-	OccurredAt      time.Time `json:"occurredAt"`
-	CollabID        uuid.UUID `json:"collabId"`
-	Title           string    `json:"title"`
-	CreatedBy       uuid.UUID `json:"createdBy"`
-	CollabStatus    string    `json:"collabStatus"`
-	CollabCreatedAt time.Time `json:"collabCreatedAt"`
-	PostID          uuid.UUID `json:"postId"`
+	ID               uuid.UUID `json:"id"`
+	CorrelationID    uuid.UUID `json:"correlationId"`
+	OccurredAt       time.Time `json:"occurredAt"`
+	CollabID         uuid.UUID `json:"collabId"`
+	Title            string    `json:"title"`
+	CreatedBy        uuid.UUID `json:"createdBy"`
+	CollabStatus     string    `json:"collabStatus"`
+	CollabCreatedAt  time.Time `json:"collabCreatedAt"`
+	PostID           uuid.UUID `json:"postId"`
+	JoinInstructions *string   `json:"joinInstructions"`
 }
 
 // PostCollabOpenedIdempotencyRepository records and checks processed
@@ -95,6 +99,10 @@ func (h *PostCollabOpenedHandler) Handle(ctx context.Context, msg *message.Messa
 		Title:       event.Title,
 		Status:      event.CollabStatus,
 		CreatedAt:   event.CollabCreatedAt,
+		OccurredAt:  event.OccurredAt,
+	}
+	if event.JoinInstructions != nil {
+		input.JoinInstructions = *event.JoinInstructions
 	}
 	if err := h.usecase.Execute(ctx, input); err != nil {
 		return fmt.Errorf("execute record collab opened usecase for event %s: %w", event.ID, err)

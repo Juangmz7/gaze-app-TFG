@@ -257,6 +257,7 @@ func addPostConsumer(ctx context.Context, wmRouter *message.Router, amqpURI stri
 	collabOpenedHandler := collabrabbitmq.NewPostCollabOpenedHandler(idempotencyRepo, collabusecase.NewRecordCollabOpened(collabRepository), logger)
 	collabClosedHandler := collabrabbitmq.NewPostCollabClosedHandler(idempotencyRepo, collabusecase.NewCloseCollab(collabRepository), logger)
 	collabDeletedHandler := collabrabbitmq.NewCollabDeletedHandler(idempotencyRepo, collabusecase.NewDeleteCollab(collabRepository), logger)
+	collabJoinInstructionsUpdatedHandler := collabrabbitmq.NewCollabJoinInstructionsUpdatedHandler(idempotencyRepo, collabusecase.NewUpdateCollabJoinInstructions(collabRepository), logger)
 	// The six membership events carry the whole member row and share one forward-only
 	// usecase: a late event never moves a membership back in time.
 	applyCollabMember := collabusecase.NewApplyCollabMember(collabMemberRepository)
@@ -291,16 +292,17 @@ func addPostConsumer(ctx context.Context, wmRouter *message.Router, amqpURI stri
 		topology.RKPostCollabOpenedPostCreated: collabOpenedHandler.Handle,
 		// Same CollabOpenedEvent record: post-command-service only picks the routing
 		// key from its withPostCreated field.
-		topology.RKPostCollabOpenedExistingPost: collabOpenedHandler.Handle,
-		topology.RKPostCollabClosed:             collabClosedHandler.Handle,
-		topology.RKPostCollabDeleted:            collabDeletedHandler.Handle,
-		topology.RKPostCollabLinked:             postCollabLinkedHandler.Handle,
-		topology.RKPostCollabRequestCreated:     collabRequestCreatedHandler.Handle,
-		topology.RKPostCollabRequestAccepted:    collabRequestAcceptedHandler.Handle,
-		topology.RKPostCollabRequestDeclined:    collabRequestDeclinedHandler.Handle,
-		topology.RKPostCollabRequestDeleted:     collabRequestDeletedHandler.Handle,
-		topology.RKPostCollabMemberLeft:         collabMemberLeftHandler.Handle,
-		topology.RKPostCollabMemberBanned:       collabMemberBannedHandler.Handle,
+		topology.RKPostCollabOpenedExistingPost:      collabOpenedHandler.Handle,
+		topology.RKPostCollabClosed:                  collabClosedHandler.Handle,
+		topology.RKPostCollabDeleted:                 collabDeletedHandler.Handle,
+		topology.RKPostCollabLinked:                  postCollabLinkedHandler.Handle,
+		topology.RKPostCollabRequestCreated:          collabRequestCreatedHandler.Handle,
+		topology.RKPostCollabRequestAccepted:         collabRequestAcceptedHandler.Handle,
+		topology.RKPostCollabRequestDeclined:         collabRequestDeclinedHandler.Handle,
+		topology.RKPostCollabRequestDeleted:          collabRequestDeletedHandler.Handle,
+		topology.RKPostCollabMemberLeft:              collabMemberLeftHandler.Handle,
+		topology.RKPostCollabMemberBanned:            collabMemberBannedHandler.Handle,
+		topology.RKPostCollabJoinInstructionsUpdated: collabJoinInstructionsUpdatedHandler.Handle,
 	}
 	dispatcher := dispatch.New(spec.Queue, handlers, logger)
 
