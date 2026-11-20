@@ -22,9 +22,11 @@ import com.app.postcommandservice.collab.application.repository.CollabMemberRepo
 import com.app.postcommandservice.collab.application.repository.CollabRepository;
 import com.app.postcommandservice.collab.application.repository.CollabRequestIdempotencyRepository;
 import com.app.postcommandservice.collab.domain.events.CollabOpenedDomainEvent;
+import com.app.postcommandservice.collab.domain.exception.CollabJoinInstructionsTooLongException;
 import com.app.postcommandservice.collab.domain.model.Collab;
 import com.app.postcommandservice.collab.domain.model.CollabMember;
 import com.app.postcommandservice.collab.domain.model.valueobj.ColabStatus;
+import com.app.postcommandservice.collab.domain.model.valueobj.CollabJoinInstructions;
 import com.app.postcommandservice.collab.domain.model.valueobj.CollabMemberRole;
 import com.app.postcommandservice.collab.domain.model.valueobj.CollabMemberStatus;
 import com.app.postcommandservice.collab.domain.model.valueobj.CollabTitle;
@@ -174,6 +176,7 @@ class OpenCollabAndCreatePostUseCaseTest {
                 "New collab",
                 "hello",
                 Set.of("spring"),
+                null,
                 defaultMedia()
         ));
 
@@ -217,13 +220,86 @@ class OpenCollabAndCreatePostUseCaseTest {
         when(createPostUseCase.signUploadUrls(savedPost)).thenReturn(signedPostResponse);
 
         openCollabAndCreatePostUseCase.open(new OpenCollabAndCreatePostCommand(
-                CORRELATION_ID, USER_ID, "New collab", "hello", Set.of("spring"), defaultMedia()));
+                CORRELATION_ID, USER_ID, "New collab", "hello", Set.of("spring"), null, defaultMedia()));
 
         // Delegation to the shared task-33 entry point: no bespoke validation, url-generation,
         // or SAS-signing logic lives in the collab use case itself.
         verify(createPostUseCase).createPendingPost(any(CreatePostCommand.class));
         verify(createPostUseCase).signUploadUrls(savedPost);
         verify(postRepository, never()).save(any(Post.class));
+    }
+
+    @Test
+    void shouldOpenTheCollabWithTrimmedJoinInstructionsWhenTheRequestCarriesThem() {
+        var collabId = UUID.randomUUID();
+        var postId = UUID.randomUUID();
+        var savedCollab = new Collab(collabId, new CollabTitle("New collab"), new UserId(USER_ID), ColabStatus.OPEN,
+                Instant.now(), new CollabJoinInstructions("Join https://discord.gg/abc"));
+        var savedMember = new CollabMember(collabId, new UserId(USER_ID), CollabMemberStatus.ACCEPTED, CollabMemberRole.ADMIN,
+                Instant.now());
+        var savedPost = persistedCollabPost(postId, collabId);
+        var signedPostResponse = new PostResponse(postId, USER_ID, collabId, PostType.COLLAB, "hello", Set.of("spring"),
+                List.of(), PostStatus.PENDING, Instant.now().plusSeconds(600), savedPost.getCreatedAt(), savedPost.getUpdatedAt());
+        var collabCaptor = ArgumentCaptor.forClass(Collab.class);
+
+        when(collabRequestIdempotencyRepository.findEntityIdByCorrelationId(CORRELATION_ID)).thenReturn(Optional.empty());
+        when(collabRepository.save(any(Collab.class))).thenReturn(savedCollab);
+        when(collabMemberRepository.save(any(CollabMember.class))).thenReturn(savedMember);
+        when(createPostUseCase.createPendingPost(any(CreatePostCommand.class))).thenReturn(savedPost);
+        when(collabEventMapper.toCollabOpenedEvent(any(), any(), eq(savedCollab), any(), any(), anyBoolean(), any()))
+                .thenReturn(CollabOpenedEvent.builder().id(UUID.randomUUID()).correlationId(CORRELATION_ID).build());
+        when(jsonMapper.toJson(any(CollabOpenedEvent.class))).thenReturn("{}");
+        when(createPostUseCase.signUploadUrls(savedPost)).thenReturn(signedPostResponse);
+
+        openCollabAndCreatePostUseCase.open(new OpenCollabAndCreatePostCommand(
+                CORRELATION_ID, USER_ID, "New collab", "hello", Set.of("spring"), "  Join https://discord.gg/abc \n",
+                defaultMedia()));
+
+        verify(collabRepository).save(collabCaptor.capture());
+        assertThat(collabCaptor.getValue().getJoinInstructions())
+                .isEqualTo(new CollabJoinInstructions("Join https://discord.gg/abc"));
+    }
+
+    @Test
+    void shouldOpenTheCollabWithoutJoinInstructionsWhenTheRequestSendsABlankValue() {
+        var collabId = UUID.randomUUID();
+        var postId = UUID.randomUUID();
+        var savedCollab = new Collab(collabId, new CollabTitle("New collab"), new UserId(USER_ID), ColabStatus.OPEN, Instant.now());
+        var savedMember = new CollabMember(collabId, new UserId(USER_ID), CollabMemberStatus.ACCEPTED, CollabMemberRole.ADMIN,
+                Instant.now());
+        var savedPost = persistedCollabPost(postId, collabId);
+        var signedPostResponse = new PostResponse(postId, USER_ID, collabId, PostType.COLLAB, "hello", Set.of("spring"),
+                List.of(), PostStatus.PENDING, Instant.now().plusSeconds(600), savedPost.getCreatedAt(), savedPost.getUpdatedAt());
+        var collabCaptor = ArgumentCaptor.forClass(Collab.class);
+
+        when(collabRequestIdempotencyRepository.findEntityIdByCorrelationId(CORRELATION_ID)).thenReturn(Optional.empty());
+        when(collabRepository.save(any(Collab.class))).thenReturn(savedCollab);
+        when(collabMemberRepository.save(any(CollabMember.class))).thenReturn(savedMember);
+        when(createPostUseCase.createPendingPost(any(CreatePostCommand.class))).thenReturn(savedPost);
+        when(collabEventMapper.toCollabOpenedEvent(any(), any(), any(), any(), any(), anyBoolean(), any()))
+                .thenReturn(CollabOpenedEvent.builder().id(UUID.randomUUID()).correlationId(CORRELATION_ID).build());
+        when(jsonMapper.toJson(any(CollabOpenedEvent.class))).thenReturn("{}");
+        when(createPostUseCase.signUploadUrls(savedPost)).thenReturn(signedPostResponse);
+
+        openCollabAndCreatePostUseCase.open(new OpenCollabAndCreatePostCommand(
+                CORRELATION_ID, USER_ID, "New collab", "hello", Set.of("spring"), "   ", defaultMedia()));
+
+        verify(collabRepository).save(collabCaptor.capture());
+        assertThat(collabCaptor.getValue().getJoinInstructions()).isNull();
+    }
+
+    @Test
+    void shouldRejectJoinInstructionsLongerThanTheLimitBeforeOpeningAnything() {
+        when(collabRequestIdempotencyRepository.findEntityIdByCorrelationId(CORRELATION_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> openCollabAndCreatePostUseCase.open(new OpenCollabAndCreatePostCommand(
+                CORRELATION_ID, USER_ID, "New collab", "hello", Set.of("spring"), "a".repeat(4001), defaultMedia())))
+                .isInstanceOf(CollabJoinInstructionsTooLongException.class)
+                .hasMessageContaining("JOIN_INSTRUCTIONS_TOO_LONG");
+
+        verify(collabRepository, never()).save(any(Collab.class));
+        verify(createPostUseCase, never()).createPendingPost(any(CreatePostCommand.class));
+        verify(outboxEventRepository, never()).save(any(OutboxEvent.class));
     }
 
     @Test
@@ -247,7 +323,7 @@ class OpenCollabAndCreatePostUseCaseTest {
         when(createPostUseCase.signUploadUrls(savedPost)).thenReturn(signedPostResponse);
 
         var response = openCollabAndCreatePostUseCase.open(new OpenCollabAndCreatePostCommand(
-                CORRELATION_ID, USER_ID, "New collab", "hello", Set.of("spring"), defaultMedia()));
+                CORRELATION_ID, USER_ID, "New collab", "hello", Set.of("spring"), null, defaultMedia()));
 
         verify(createPostUseCase).createPendingPost(createPostCommandCaptor.capture());
         var forwardedCommand = createPostCommandCaptor.getValue();
@@ -296,6 +372,7 @@ class OpenCollabAndCreatePostUseCaseTest {
                 "ignored",
                 "ignored",
                 Set.of(),
+                null,
                 defaultMedia()
         ));
 
@@ -331,6 +408,7 @@ class OpenCollabAndCreatePostUseCaseTest {
                 "ignored",
                 "ignored",
                 Set.of(),
+                null,
                 defaultMedia()
         ));
 
@@ -362,6 +440,7 @@ class OpenCollabAndCreatePostUseCaseTest {
                 "ignored",
                 "ignored",
                 Set.of(),
+                null,
                 defaultMedia()
         ))).isInstanceOf(IdempotencyKeyReuseException.class);
 
