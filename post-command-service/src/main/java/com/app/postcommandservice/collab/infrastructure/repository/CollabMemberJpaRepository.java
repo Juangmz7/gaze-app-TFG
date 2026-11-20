@@ -74,4 +74,12 @@ public interface CollabMemberJpaRepository extends JpaRepository<CollabMemberEnt
             WHERE collabMember.id.collabId = :collabId
             """)
     List<UUID> findUserIdsByCollabId(@Param("collabId") UUID collabId);
+
+    /** Hard-deletes every member row of a collab (task 60). */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            delete from CollabMemberEntity member
+             where member.id.collabId = :collabId
+            """)
+    int deleteAllByCollabId(@Param("collabId") UUID collabId);
 }

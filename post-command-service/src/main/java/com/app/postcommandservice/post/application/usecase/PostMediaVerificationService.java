@@ -93,10 +93,14 @@ public class PostMediaVerificationService {
         UUID postId = event.postId();
 
         Optional<PostSnapshot> snapshot = self.findPostSnapshot(postId);
-        if (snapshot.isEmpty() || snapshot.get().status() != PostStatus.PENDING) {
-            log.info(
-                    "Ignoring media-uploaded event for post {}: post is absent or not PENDING (status={})",
-                    postId, snapshot.map(PostSnapshot::status).orElse(null));
+        if (snapshot.isEmpty()) {
+            // Late message for a post its owner (or the failed-post purge) deleted (task 60): ack it
+            log.info("Ignoring media-uploaded event for post {}: the post no longer exists", postId);
+            return;
+        }
+        if (snapshot.get().status() != PostStatus.PENDING) {
+            log.info("Ignoring media-uploaded event for post {}: post is not PENDING (status={})",
+                    postId, snapshot.get().status());
             return;
         }
 
