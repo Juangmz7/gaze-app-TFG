@@ -319,6 +319,20 @@ class PostCommandProductionSchemaValidationIT {
         } catch (java.sql.SQLException exception) {
             throw new IllegalStateException("Failed to inspect idx_posts_media_cleanup", exception);
         }
+        // Task 60: the failed-post purge index is created after the column, so legacy databases get it too
+        try (Connection connection = DriverManager.getConnection(
+                POSTGRES.getJdbcUrl(),
+                POSTGRES.getUsername(),
+                POSTGRES.getPassword());
+             Statement statement = connection.createStatement();
+             ResultSet resultSet = statement.executeQuery(
+                     "SELECT indexdef FROM pg_indexes WHERE tablename = 'posts' AND indexname = 'idx_posts_failed_purge'")) {
+            assertThat(resultSet.next()).as("idx_posts_failed_purge on posts").isTrue();
+            assertThat(resultSet.getString("indexdef"))
+                    .contains("(status, media_purged_at, id)", "WHERE (media_purged_at IS NOT NULL)");
+        } catch (java.sql.SQLException exception) {
+            throw new IllegalStateException("Failed to inspect idx_posts_failed_purge", exception);
+        }
     }
 
     private int insertPostReport(UUID reporterId, UUID postId) {
