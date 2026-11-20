@@ -17,6 +17,7 @@ import com.app.postcommandservice.collab.application.repository.CollabRequestIde
 import com.app.postcommandservice.collab.domain.events.CollabOpenedDomainEvent;
 import com.app.postcommandservice.collab.domain.model.Collab;
 import com.app.postcommandservice.collab.domain.model.CollabMember;
+import com.app.postcommandservice.collab.domain.model.valueobj.CollabJoinInstructions;
 import com.app.postcommandservice.collab.domain.model.valueobj.CollabTitle;
 import com.app.postcommandservice.collab.infrastructure.events.CollabOpenedEvent;
 import com.app.postcommandservice.collab.infrastructure.mapper.CollabEventMapper;
@@ -64,7 +65,8 @@ public class OpenCollabForExistingPostUseCase {
         var savedCollab = collabRepository.save(Collab.open(
                 UUID.randomUUID(),
                 new CollabTitle(command.title()),
-                new UserId(command.currentUserId())
+                new UserId(command.currentUserId()),
+                CollabJoinInstructions.ofNullable(command.joinInstructions())
         ));
         var savedCreatorMember = collabMemberRepository.save(
                 CollabMember.createCreatorAdmin(savedCollab.getId(), new UserId(command.currentUserId()))
