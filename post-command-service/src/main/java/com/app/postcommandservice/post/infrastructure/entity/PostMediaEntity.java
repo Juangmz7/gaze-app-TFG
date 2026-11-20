@@ -65,7 +65,11 @@ public class PostMediaEntity {
     private Integer duration;
 
     @ElementCollection
-    @CollectionTable(name = "post_media_tagged_users", joinColumns = @JoinColumn(name = "post_media_id"))
+    @CollectionTable(
+            name = "post_media_tagged_users",
+            joinColumns = @JoinColumn(name = "post_media_id"),
+            foreignKey = @ForeignKey(name = "fk_post_media_tagged_users_post_media"))
+    @OnDelete(action = OnDeleteAction.CASCADE)
     @Column(name = "username", nullable = false)
     @Builder.Default
     private List<String> taggedUsers = new ArrayList<>();

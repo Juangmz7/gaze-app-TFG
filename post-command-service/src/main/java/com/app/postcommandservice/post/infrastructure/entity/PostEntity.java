@@ -28,6 +28,8 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.OnDelete;
+import org.hibernate.annotations.OnDeleteAction;
 
 import com.app.postcommandservice.collab.infrastructure.entity.CollabEntity;
 import com.app.postcommandservice.post.domain.model.valueobj.PostStatus;
@@ -63,7 +65,11 @@ public class PostEntity {
     private String description;
 
     @ElementCollection
-    @CollectionTable(name = "post_tags", joinColumns = @JoinColumn(name = "post_id"))
+    @CollectionTable(
+            name = "post_tags",
+            joinColumns = @JoinColumn(name = "post_id"),
+            foreignKey = @ForeignKey(name = "fk_post_tags_post"))
+    @OnDelete(action = OnDeleteAction.CASCADE)
     @Column(name = "tag_value", nullable = false)
     @Builder.Default
     private List<String> tags = new ArrayList<>();
