@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -32,6 +33,8 @@ import com.app.postcommandservice.collab.application.commands.CloseCollabCommand
 import com.app.postcommandservice.collab.application.usecase.DeclineCollabJoinRequestUseCase;
 import com.app.postcommandservice.collab.application.commands.OpenCollabAndCreatePostCommand;
 import com.app.postcommandservice.collab.application.commands.RequestToJoinCollabCommand;
+import com.app.postcommandservice.collab.application.commands.UpdateCollabJoinInstructionsCommand;
+import com.app.postcommandservice.collab.application.dto.CollabJoinInstructionsResponse;
 import com.app.postcommandservice.collab.application.dto.CollabMemberResponse;
 import com.app.postcommandservice.collab.application.dto.DeclineCollabJoinRequestResponse;
 import com.app.postcommandservice.collab.application.dto.OpenCollabAndCreatePostResponse;
@@ -41,6 +44,7 @@ import com.app.postcommandservice.collab.application.usecase.BanCollabMemberUseC
 import com.app.postcommandservice.collab.application.usecase.CloseCollabUseCase;
 import com.app.postcommandservice.collab.application.usecase.OpenCollabAndCreatePostUseCase;
 import com.app.postcommandservice.collab.application.usecase.RequestToJoinCollabUseCase;
+import com.app.postcommandservice.collab.application.usecase.UpdateCollabJoinInstructionsUseCase;
 import com.app.postcommandservice.post.infrastructure.controller.PostMediaRequest;
 import com.app.postcommandservice.shared.infrastructure.security.SecurityUtils;
 
@@ -58,6 +62,7 @@ public class CollabController {
     private final LeaveCollabUseCase leaveCollabUseCase;
     private final BanCollabMemberUseCase banCollabMemberUseCase;
     private final RequestToJoinCollabUseCase requestToJoinCollabUseCase;
+    private final UpdateCollabJoinInstructionsUseCase updateCollabJoinInstructionsUseCase;
     private final SecurityUtils securityUtils;
 
     @PostMapping
@@ -77,6 +82,7 @@ public class CollabController {
                 request.title(),
                 request.description(),
                 request.postTags(),
+                request.joinInstructions(),
                 request.media() == null
                         ? java.util.List.of()
                         : request.media().stream().map(PostMediaRequest::toCommand).toList()
@@ -134,6 +140,23 @@ public class CollabController {
         }
 
         return ResponseEntity.noContent().build();
+    }
+
+    @PatchMapping("/{collabId}/join-instructions")
+    public ResponseEntity<CollabJoinInstructionsResponse> updateJoinInstructions(
+            @PathVariable UUID collabId,
+            @RequestBody UpdateCollabJoinInstructionsRequest request) {
+        var currentUserId = securityUtils.getUserId();
+        if (currentUserId == null) {
+            throw new AuthenticationCredentialsNotFoundException("JWT subject claim is missing or invalid");
+        }
+
+        var command = new UpdateCollabJoinInstructionsCommand(
+                collabId,
+                currentUserId,
+                request.joinInstructions()
+        );
+        return ResponseEntity.ok(updateCollabJoinInstructionsUseCase.update(command));
     }
 
     @DeleteMapping("/{collabId}/requests")

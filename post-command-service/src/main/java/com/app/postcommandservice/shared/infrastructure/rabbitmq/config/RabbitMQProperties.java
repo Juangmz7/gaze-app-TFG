@@ -143,6 +143,7 @@ public class RabbitMQProperties {
                 private String linked;
                 private RequestRk request = new RequestRk();
                 private MemberRk member = new MemberRk();
+                private JoinInstructionsRk joinInstructions = new JoinInstructionsRk();
 
                 @Data
                 public static class OpenedRk {
@@ -162,6 +163,11 @@ public class RabbitMQProperties {
                 public static class MemberRk {
                     private String left;
                     private String banned;
+                }
+
+                @Data
+                public static class JoinInstructionsRk {
+                    private String updated;              // outgoing: rk.post.collab.join-instructions.updated
                 }
             }
         }

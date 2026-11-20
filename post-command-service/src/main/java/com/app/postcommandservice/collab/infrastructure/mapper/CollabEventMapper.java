@@ -7,8 +7,10 @@ import org.springframework.stereotype.Component;
 
 import com.app.postcommandservice.collab.domain.model.Collab;
 import com.app.postcommandservice.collab.domain.model.CollabMember;
+import com.app.postcommandservice.collab.domain.model.valueobj.CollabJoinInstructions;
 import com.app.postcommandservice.collab.infrastructure.events.CollabDeletedEvent;
 import com.app.postcommandservice.collab.infrastructure.events.CollabClosedEvent;
+import com.app.postcommandservice.collab.infrastructure.events.CollabJoinInstructionsUpdatedEvent;
 import com.app.postcommandservice.collab.infrastructure.events.CollabJoinRequestAcceptedEvent;
 import com.app.postcommandservice.collab.infrastructure.events.CollabJoinRequestCreatedEvent;
 import com.app.postcommandservice.collab.infrastructure.events.CollabJoinRequestDeletedEvent;
@@ -41,6 +43,7 @@ public class CollabEventMapper {
                 .createdBy(collab.getCreatedBy().value())
                 .collabStatus(collab.getCollabStatus())
                 .collabCreatedAt(collab.getCreatedAt())
+                .joinInstructions(CollabJoinInstructions.valueOrNull(collab.getJoinInstructions()))
                 .creatorMemberStatus(collabMember.getCollabMemberStatus())
                 .creatorRole(collabMember.getRole())
                 .creatorMemberCreatedAt(collabMember.getCreatedAt())
@@ -225,6 +228,21 @@ public class CollabEventMapper {
                 .closedBy(closedBy)
                 .collabStatus(collab.getCollabStatus())
                 .collabCreatedAt(collab.getCreatedAt())
+                .build();
+    }
+
+    public CollabJoinInstructionsUpdatedEvent toCollabJoinInstructionsUpdatedEvent(
+            UUID eventId,
+            UUID correlationId,
+            Collab collab,
+            Instant occurredAt) {
+
+        return CollabJoinInstructionsUpdatedEvent.builder()
+                .id(eventId)
+                .correlationId(correlationId)
+                .occurredAt(occurredAt)
+                .collabId(collab.getId())
+                .joinInstructions(CollabJoinInstructions.valueOrNull(collab.getJoinInstructions()))
                 .build();
     }
 }
