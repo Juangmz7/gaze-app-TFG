@@ -86,6 +86,10 @@ CREATE TABLE IF NOT EXISTS post_media (
     media_type VARCHAR(255) NOT NULL,
     duration INTEGER,
     media_order INTEGER NOT NULL,
+    upload_sas_hash VARCHAR(255),
+    upload_sas_expires_at TIMESTAMP WITH TIME ZONE,
+    thumbnail_sas_hash VARCHAR(255),
+    thumbnail_sas_expires_at TIMESTAMP WITH TIME ZONE,
     CONSTRAINT pk_post_media PRIMARY KEY (id),
     CONSTRAINT uk_post_media_post_id_media_order UNIQUE (post_id, media_order),
     CONSTRAINT ck_post_media_order_positive CHECK (media_order > 0),
@@ -545,3 +549,16 @@ CREATE INDEX IF NOT EXISTS idx_posts_failed_purge
 -- instructions (the domain stores blank values as NULL and caps the text at 4000 characters).
 ALTER TABLE collabs
     ADD COLUMN IF NOT EXISTS join_instructions TEXT;
+
+-- --- Task 38: refresh-upload-urls stores each issued SAS hashed with its expiry ---
+ALTER TABLE post_media
+    ADD COLUMN IF NOT EXISTS upload_sas_hash VARCHAR(255);
+
+ALTER TABLE post_media
+    ADD COLUMN IF NOT EXISTS upload_sas_expires_at TIMESTAMP WITH TIME ZONE;
+
+ALTER TABLE post_media
+    ADD COLUMN IF NOT EXISTS thumbnail_sas_hash VARCHAR(255);
+
+ALTER TABLE post_media
+    ADD COLUMN IF NOT EXISTS thumbnail_sas_expires_at TIMESTAMP WITH TIME ZONE;
