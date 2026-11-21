@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Stops the local k3s cluster WITHOUT deleting it: every pod and k3s process
-# stops, and nothing is removed (cluster state, PersistentVolumes, images and
+# stops (and the Argo CD / Grafana port-forwards of start.sh), and nothing is removed (cluster state, PersistentVolumes, images and
 # the gaze-local-ca stay, so devices keep trusting the CA). Start it again
 # with start.sh. To delete the cluster instead, use teardown.sh.
 #
@@ -46,6 +46,14 @@ command -v sudo >/dev/null 2>&1 || fail "sudo is not installed"
 systemctl list-unit-files k3s.service 2>/dev/null | grep -q '^k3s\.service' \
   || fail "k3s is not installed: create the cluster with ./infra/k8s/bootstrap/bootstrap.sh"
 
+# --- Port-forwards started by start.sh ----------------------------------------
+PF_DIR="${XDG_STATE_HOME:-${HOME}/.local/state}/gaze/port-forwards"
+for pid_file in "$PF_DIR"/*.pid; do
+  [ -f "$pid_file" ] || continue
+  kill -- "-$(cat "$pid_file")" 2>/dev/null || true
+  rm -f "$pid_file"
+done
+
 # --- k3s ---------------------------------------------------------------------
 sudo systemctl stop k3s
 # Stopping the unit leaves the pods running (containerd shims): killall stops
@@ -65,8 +73,15 @@ fi
 
 # --- Databases (optional) ----------------------------------------------------
 if [ "$with_dbs" = true ]; then
-  command -v docker >/dev/null 2>&1 || fail "docker is not installed: the databases were not stopped"
-  docker compose -f "${REPO_ROOT}/infra/local/compose.yaml" --env-file "${REPO_ROOT}/infra/local/.env" stop
+  # Ubuntu's docker.io ships without the compose plugin (see start.sh).
+  if docker compose version >/dev/null 2>&1; then
+    compose=(docker compose)
+  elif command -v docker-compose >/dev/null 2>&1; then
+    compose=(docker-compose)
+  else
+    fail "docker compose is not installed: the databases were not stopped (stop them from Docker Desktop, or 'sudo apt install docker-compose-v2')"
+  fi
+  "${compose[@]}" -f "${REPO_ROOT}/infra/local/compose.yaml" --env-file "${REPO_ROOT}/infra/local/.env" stop
   ok "databases stopped (data kept)"
 fi
 
