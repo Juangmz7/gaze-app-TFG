@@ -12,6 +12,7 @@ public record OpenCollabAndCreatePostCommand(
         String title,
         String description,
         Set<String> postTags,
+        String joinInstructions,
         List<PostMediaCommand> media
 ) {
 }

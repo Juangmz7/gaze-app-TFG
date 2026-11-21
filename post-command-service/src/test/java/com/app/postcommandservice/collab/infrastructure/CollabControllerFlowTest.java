@@ -62,6 +62,7 @@ import static org.springframework.security.test.web.servlet.setup.SecurityMockMv
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -1383,6 +1384,311 @@ class CollabControllerFlowTest {
         assertThat(receiveMessage(queueName)).isNull();
 
         new RabbitAdmin(connectionFactory).deleteQueue(queueName);
+    }
+
+    @Test
+    void shouldOpenCollabWithTrimmedJoinInstructionsAndCarryThemInTheOpenedEvent() throws Exception {
+        String queueName = declareEventQueue("test.collab.opened.join.",
+                rabbitMQProperties.getRk().getPost().getCollab().getOpened().getPostCreated());
+        var payload = objectMapper.writeValueAsString(Map.of(
+                "correlationId", UUID.randomUUID(),
+                "title", "Open collab",
+                "description", "hello",
+                "postTags", Set.of("spring"),
+                "joinInstructions", "  Welcome!\nDiscord: https://discord.gg/abc  ",
+                "media", List.of(Map.of("mediaType", "IMAGE", "order", 1, "taggedUsers", Set.of()))
+        ));
+
+        mockMvc.perform(post("/api/collabs")
+                        .with(jwtFor(CREATOR_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isOk());
+
+        var savedCollab = collabJpaRepository.findAll().getFirst();
+        assertThat(savedCollab.getJoinInstructions()).isEqualTo("Welcome!\nDiscord: https://discord.gg/abc");
+
+        Message message = receiveMessage(queueName);
+        assertThat(message).isNotNull();
+        var eventPayload = objectMapper.readValue(message.getBody(), new TypeReference<Map<String, Object>>() { });
+        assertThat(eventPayload)
+                .containsEntry("collabId", savedCollab.getId().toString())
+                .containsEntry("joinInstructions", "Welcome!\nDiscord: https://discord.gg/abc");
+
+        deleteQueue(queueName);
+    }
+
+    @Test
+    void shouldOpenCollabWithoutJoinInstructionsAndPublishThemAsNull() throws Exception {
+        String queueName = declareEventQueue("test.collab.opened.nojoin.",
+                rabbitMQProperties.getRk().getPost().getCollab().getOpened().getPostCreated());
+        var payload = objectMapper.writeValueAsString(Map.of(
+                "correlationId", UUID.randomUUID(),
+                "title", "Open collab",
+                "description", "hello",
+                "postTags", Set.of("spring"),
+                "media", List.of(Map.of("mediaType", "IMAGE", "order", 1, "taggedUsers", Set.of()))
+        ));
+
+        mockMvc.perform(post("/api/collabs")
+                        .with(jwtFor(CREATOR_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isOk());
+
+        assertThat(collabJpaRepository.findAll().getFirst().getJoinInstructions()).isNull();
+        Message message = receiveMessage(queueName);
+        assertThat(message).isNotNull();
+        var eventPayload = objectMapper.readValue(message.getBody(), new TypeReference<Map<String, Object>>() { });
+        assertThat(eventPayload).containsEntry("joinInstructions", null);
+
+        deleteQueue(queueName);
+    }
+
+    @Test
+    void shouldRejectOpeningCollabWithJoinInstructionsLongerThan4000CharactersWithoutSideEffects() throws Exception {
+        var payload = objectMapper.writeValueAsString(Map.of(
+                "correlationId", UUID.randomUUID(),
+                "title", "Open collab",
+                "description", "hello",
+                "postTags", Set.of("spring"),
+                "joinInstructions", "a".repeat(4001),
+                "media", List.of(Map.of("mediaType", "IMAGE", "order", 1, "taggedUsers", Set.of()))
+        ));
+
+        mockMvc.perform(post("/api/collabs")
+                        .with(jwtFor(CREATOR_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("JOIN_INSTRUCTIONS_TOO_LONG")));
+
+        assertThat(collabJpaRepository.count()).isZero();
+        assertThat(postJpaRepository.count()).isZero();
+        assertThat(outboxEventRepository.count()).isZero();
+    }
+
+    @Test
+    void shouldUpdateJoinInstructionsPersistThemPublishTheEventAndOverwriteThemOnASecondPatch() throws Exception {
+        String queueName = declareJoinInstructionsUpdatedQueue();
+        var collabId = seedCollab(ColabStatus.OPEN);
+        seedMember(collabId, CREATOR_ID, CollabMemberRole.ADMIN, CollabMemberStatus.ACCEPTED);
+
+        mockMvc.perform(patchJoinInstructions(collabId, CREATOR_ID, Map.of("joinInstructions", "  Chat: https://chat.example  ")))
+                .andExpect(status().isOk())
+                .andExpect(content().json("{\"joinInstructions\":\"Chat: https://chat.example\"}"));
+
+        assertThat(collabJpaRepository.findById(collabId).orElseThrow().getJoinInstructions())
+                .isEqualTo("Chat: https://chat.example");
+        var firstEvent = receiveEventPayload(queueName);
+        assertThat(firstEvent)
+                .containsEntry("collabId", collabId.toString())
+                .containsEntry("joinInstructions", "Chat: https://chat.example")
+                .containsKeys("id", "correlationId", "occurredAt");
+        Instant.parse(String.valueOf(firstEvent.get("occurredAt")));
+
+        mockMvc.perform(patchJoinInstructions(collabId, CREATOR_ID, Map.of("joinInstructions", "Repo: https://git.example")))
+                .andExpect(status().isOk())
+                .andExpect(content().json("{\"joinInstructions\":\"Repo: https://git.example\"}"));
+
+        assertThat(collabJpaRepository.findById(collabId).orElseThrow().getJoinInstructions())
+                .isEqualTo("Repo: https://git.example");
+        assertThat(receiveEventPayload(queueName))
+                .containsEntry("collabId", collabId.toString())
+                .containsEntry("joinInstructions", "Repo: https://git.example");
+        assertThat(outboxEventRepository.count()).isEqualTo(2);
+
+        deleteQueue(queueName);
+    }
+
+    @Test
+    void shouldAllowAnotherAcceptedAdminToUpdateJoinInstructionsOfAClosedCollab() throws Exception {
+        var collabId = seedCollab(ColabStatus.CLOSED);
+        seedMember(collabId, CREATOR_ID, CollabMemberRole.ADMIN, CollabMemberStatus.ACCEPTED);
+        seedMember(collabId, OTHER_ADMIN_ID, CollabMemberRole.ADMIN, CollabMemberStatus.ACCEPTED);
+
+        mockMvc.perform(patchJoinInstructions(collabId, OTHER_ADMIN_ID, Map.of("joinInstructions", "Still welcome")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.joinInstructions").value("Still welcome"));
+
+        assertThat(collabJpaRepository.findById(collabId).orElseThrow().getJoinInstructions()).isEqualTo("Still welcome");
+    }
+
+    @Test
+    void shouldClearJoinInstructionsAndPublishNullWhenAdminSendsNullAbsentOrBlankValue() throws Exception {
+        String queueName = declareJoinInstructionsUpdatedQueue();
+        var collabId = seedCollab(ColabStatus.OPEN);
+        seedMember(collabId, CREATOR_ID, CollabMemberRole.ADMIN, CollabMemberStatus.ACCEPTED);
+
+        for (String body : List.of("{\"joinInstructions\":null}", "{}", "{\"joinInstructions\":\"  \\n  \"}")) {
+            seedJoinInstructions(collabId, "old instructions");
+
+            mockMvc.perform(patch("/api/collabs/{collabId}/join-instructions", collabId)
+                            .with(jwtFor(CREATOR_ID))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body))
+                    .andExpect(status().isOk())
+                    .andExpect(content().json("{\"joinInstructions\":null}"));
+
+            assertThat(collabJpaRepository.findById(collabId).orElseThrow().getJoinInstructions())
+                    .as("stored value after %s", body)
+                    .isNull();
+            var event = receiveEventPayload(queueName);
+            assertThat(event)
+                    .as("event after %s", body)
+                    .containsEntry("collabId", collabId.toString())
+                    .containsEntry("joinInstructions", null);
+        }
+
+        deleteQueue(queueName);
+    }
+
+    @Test
+    void shouldReturnForbiddenWhenANonAdminMemberUpdatesJoinInstructions() throws Exception {
+        String queueName = declareJoinInstructionsUpdatedQueue();
+        var collabId = seedCollab(ColabStatus.OPEN);
+        seedMember(collabId, CREATOR_ID, CollabMemberRole.ADMIN, CollabMemberStatus.ACCEPTED);
+        seedMember(collabId, MEMBER_ID, CollabMemberRole.MEMBER, CollabMemberStatus.ACCEPTED);
+        seedJoinInstructions(collabId, "original");
+
+        mockMvc.perform(patchJoinInstructions(collabId, MEMBER_ID, Map.of("joinInstructions", "hijacked")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("FORBIDDEN"));
+
+        assertJoinInstructionsUnchanged(collabId, "original", queueName);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = CollabMemberStatus.class, names = "ACCEPTED", mode = EnumSource.Mode.EXCLUDE)
+    void shouldReturnForbiddenWhenAnAdminWhoseMembershipIsNotAcceptedUpdatesJoinInstructions(CollabMemberStatus status)
+            throws Exception {
+        var collabId = seedCollab(ColabStatus.OPEN);
+        seedMember(collabId, OTHER_ADMIN_ID, CollabMemberRole.ADMIN, status);
+
+        mockMvc.perform(patchJoinInstructions(collabId, OTHER_ADMIN_ID, Map.of("joinInstructions", "text")))
+                .andExpect(status().isForbidden());
+
+        assertThat(outboxEventRepository.count()).isZero();
+    }
+
+    @Test
+    void shouldReturnForbiddenWhenANonMemberUpdatesJoinInstructions() throws Exception {
+        String queueName = declareJoinInstructionsUpdatedQueue();
+        var collabId = seedCollab(ColabStatus.OPEN);
+        seedMember(collabId, CREATOR_ID, CollabMemberRole.ADMIN, CollabMemberStatus.ACCEPTED);
+        seedJoinInstructions(collabId, "original");
+
+        mockMvc.perform(patchJoinInstructions(collabId, MEMBER_ID, Map.of("joinInstructions", "hijacked")))
+                .andExpect(status().isForbidden());
+
+        assertJoinInstructionsUnchanged(collabId, "original", queueName);
+    }
+
+    @Test
+    void shouldReturnNotFoundWhenUpdatingJoinInstructionsOfAnUnknownOrDeletedCollab() throws Exception {
+        mockMvc.perform(patchJoinInstructions(UUID.randomUUID(), CREATOR_ID, Map.of("joinInstructions", "text")))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("NOT_FOUND"));
+
+        var deletedCollabId = seedCollab(ColabStatus.DELETED);
+        seedMember(deletedCollabId, CREATOR_ID, CollabMemberRole.ADMIN, CollabMemberStatus.ACCEPTED);
+        mockMvc.perform(patchJoinInstructions(deletedCollabId, CREATOR_ID, Map.of("joinInstructions", "text")))
+                .andExpect(status().isNotFound());
+
+        assertThat(outboxEventRepository.count()).isZero();
+    }
+
+    @Test
+    void shouldReturnBadRequestWhenJoinInstructionsExceed4000CharactersAndAcceptExactly4000() throws Exception {
+        String queueName = declareJoinInstructionsUpdatedQueue();
+        var collabId = seedCollab(ColabStatus.OPEN);
+        seedMember(collabId, CREATOR_ID, CollabMemberRole.ADMIN, CollabMemberStatus.ACCEPTED);
+        seedJoinInstructions(collabId, "original");
+
+        mockMvc.perform(patchJoinInstructions(collabId, CREATOR_ID, Map.of("joinInstructions", "a".repeat(4001))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("BAD_REQUEST"))
+                .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("JOIN_INSTRUCTIONS_TOO_LONG")));
+
+        assertJoinInstructionsUnchanged(collabId, "original", queueName);
+
+        mockMvc.perform(patchJoinInstructions(collabId, CREATOR_ID, Map.of("joinInstructions", "b".repeat(4000))))
+                .andExpect(status().isOk());
+        assertThat(collabJpaRepository.findById(collabId).orElseThrow().getJoinInstructions()).hasSize(4000);
+
+        deleteQueue(queueName);
+    }
+
+    @Test
+    void shouldReturnBadRequestForMalformedJoinInstructionsRequestsWithoutSideEffects() throws Exception {
+        var collabId = seedCollab(ColabStatus.OPEN);
+        seedMember(collabId, CREATOR_ID, CollabMemberRole.ADMIN, CollabMemberStatus.ACCEPTED);
+
+        mockMvc.perform(patch("/api/collabs/{collabId}/join-instructions", "not-a-uuid")
+                        .with(jwtFor(CREATOR_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"joinInstructions\":\"text\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("VALIDATION_ERROR"));
+        mockMvc.perform(patch("/api/collabs/{collabId}/join-instructions", collabId)
+                        .with(jwtFor(CREATOR_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"joinInstructions\": "))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("VALIDATION_ERROR"));
+        mockMvc.perform(patch("/api/collabs/{collabId}/join-instructions", collabId)
+                        .with(jwtFor(CREATOR_ID))
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest());
+
+        assertThat(collabJpaRepository.findById(collabId).orElseThrow().getJoinInstructions()).isNull();
+        assertThat(outboxEventRepository.count()).isZero();
+    }
+
+    @Test
+    void shouldReturnUnauthorizedWhenUpdatingJoinInstructionsWithoutAJwt() throws Exception {
+        var collabId = seedCollab(ColabStatus.OPEN);
+
+        mockMvc.perform(patch("/api/collabs/{collabId}/join-instructions", collabId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"joinInstructions\":\"text\"}"))
+                .andExpect(status().isUnauthorized());
+
+        assertThat(outboxEventRepository.count()).isZero();
+    }
+
+    private org.springframework.test.web.servlet.RequestBuilder patchJoinInstructions(
+            UUID collabId,
+            UUID userId,
+            Map<String, ?> body) throws Exception {
+        return patch("/api/collabs/{collabId}/join-instructions", collabId)
+                .with(jwtFor(userId))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(body));
+    }
+
+    private void seedJoinInstructions(UUID collabId, String joinInstructions) {
+        var collab = collabJpaRepository.findById(collabId).orElseThrow();
+        collab.setJoinInstructions(joinInstructions);
+        collabJpaRepository.save(collab);
+    }
+
+    private String declareJoinInstructionsUpdatedQueue() {
+        return declareEventQueue("test.collab.join-instructions.updated.",
+                rabbitMQProperties.getRk().getPost().getCollab().getJoinInstructions().getUpdated());
+    }
+
+    private Map<String, Object> receiveEventPayload(String queueName) throws Exception {
+        Message message = receiveMessage(queueName);
+        assertThat(message).as("message on %s", queueName).isNotNull();
+        return objectMapper.readValue(message.getBody(), new TypeReference<Map<String, Object>>() { });
+    }
+
+    private void assertJoinInstructionsUnchanged(UUID collabId, String expected, String queueName) throws Exception {
+        assertThat(collabJpaRepository.findById(collabId).orElseThrow().getJoinInstructions()).isEqualTo(expected);
+        assertThat(outboxEventRepository.count()).isZero();
+        assertThat(rabbitTemplate.receive(queueName, 500)).isNull();
+        deleteQueue(queueName);
     }
 
     private void seedUser(UUID userId, String username, String email, UserBioPayload bio) {

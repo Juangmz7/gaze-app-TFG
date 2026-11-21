@@ -6,6 +6,7 @@ public record OpenCollabForExistingPostCommand(
         UUID postId,
         UUID correlationId,
         UUID currentUserId,
-        String title
+        String title,
+        String joinInstructions
 ) {
 }

@@ -351,6 +351,50 @@ class PostControllerIT {
                 entry("postCollabId", collabId.toString()),
                 entry("postType", "COLLAB")
         );
+        // Task 61: opened without instructions -> the key travels as null and the column stays NULL
+        assertThat(eventPayload).containsEntry("joinInstructions", null);
+        assertThat(collabJpaRepository.findById(collabId).orElseThrow().getJoinInstructions()).isNull();
+
+        rabbitAdmin.deleteQueue(queueName);
+    }
+
+    @Test
+    void shouldOpenCollabForExistingPostWithTrimmedJoinInstructionsAndCarryThemInTheOpenedEvent() throws Exception {
+        String queueName = "test.post.collab.opened.join." + UUID.randomUUID();
+        RabbitAdmin rabbitAdmin = new RabbitAdmin(connectionFactory);
+        Queue queue = new Queue(queueName, false, true, true);
+        rabbitAdmin.declareQueue(queue);
+        rabbitAdmin.declareBinding(BindingBuilder.bind(queue)
+                .to(new org.springframework.amqp.core.TopicExchange(
+                        rabbitMQProperties.getExchange().getPost().getEvents()))
+                .with(rabbitMQProperties.getRk().getPost().getCollab().getOpened().getExistingPost()));
+        var existingPost = seedPost(CREATOR_ID, "standalone", Set.of(), Set.of("java"));
+        var payload = objectMapper.writeValueAsString(Map.of(
+                "correlationId", UUID.randomUUID(),
+                "title", "Existing post collab",
+                "joinInstructions", "  Repo: https://git.example/x\nChat: https://chat.example  "
+        ));
+
+        var response = mockMvc.perform(post("/api/posts/{postId}/collabs", existingPost.getId())
+                        .with(jwtFor(CREATOR_ID))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString(StandardCharsets.UTF_8);
+
+        var collabId = UUID.fromString(String.valueOf(
+                objectMapper.readValue(response, new TypeReference<Map<String, Object>>() { }).get("collabId")));
+        assertThat(collabJpaRepository.findById(collabId).orElseThrow().getJoinInstructions())
+                .isEqualTo("Repo: https://git.example/x\nChat: https://chat.example");
+
+        Message message = receiveMessage(queueName);
+        assertThat(message).isNotNull();
+        var eventPayload = objectMapper.readValue(message.getBody(), new TypeReference<Map<String, Object>>() { });
+        assertThat(eventPayload)
+                .containsEntry("collabId", collabId.toString())
+                .containsEntry("joinInstructions", "Repo: https://git.example/x\nChat: https://chat.example");
 
         rabbitAdmin.deleteQueue(queueName);
     }

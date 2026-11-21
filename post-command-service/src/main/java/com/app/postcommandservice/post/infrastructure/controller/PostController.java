@@ -180,7 +180,8 @@ public class PostController {
                         postId,
                         request.correlationId(),
                         currentUserId,
-                        request.title()
+                        request.title(),
+                        request.joinInstructions()
                 )
         ));
     }
