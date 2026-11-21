@@ -14,6 +14,7 @@ import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import com.app.postcommandservice.SelfProvider;
 import com.app.postcommandservice.post.application.repository.FailedPostPurgeRepository;
 import com.app.postcommandservice.post.application.repository.FailedPostPurgeRepository.PurgeCursor;
 import com.app.postcommandservice.post.application.repository.FailedPostPurgeRepository.PurgeablePost;
@@ -51,19 +52,14 @@ class FailedPostPurgeServiceTest {
     private FailedPostPurgeService service;
 
     /**
-     * In production {@code self} is the Spring proxy of this bean; here it is wired to the same
-     * instance through reflection (the constructor cannot receive {@code this}).
+     * In production {@code self} provides the Spring proxy of this bean; here it provides the
+     * same instance (see {@link SelfProvider}).
      */
     @BeforeEach
     void setUp() {
-        service = new FailedPostPurgeService(failedPostPurgeRepository, deleteUnacceptedPostUseCase, properties, null);
-        try {
-            var selfField = FailedPostPurgeService.class.getDeclaredField("self");
-            selfField.setAccessible(true);
-            selfField.set(service, service);
-        } catch (ReflectiveOperationException exception) {
-            throw new IllegalStateException(exception);
-        }
+        var self = new SelfProvider<FailedPostPurgeService>();
+        service = self.set(new FailedPostPurgeService(failedPostPurgeRepository, deleteUnacceptedPostUseCase, properties,
+                self));
     }
 
     @Test

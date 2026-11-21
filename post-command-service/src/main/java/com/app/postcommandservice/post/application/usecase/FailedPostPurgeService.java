@@ -5,7 +5,7 @@ import java.util.List;
 
 import lombok.extern.slf4j.Slf4j;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
-import org.springframework.context.annotation.Lazy;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,9 +23,9 @@ import com.app.postcommandservice.post.infrastructure.config.FailedPostPurgeProp
  * {@code CollabDeletedEvent}).
  *
  * <p>Same layout as {@link PostMediaCleanupService}: {@link #run()} is not transactional, reads
- * keyset pages in a read-only transaction through {@code self} (an injected {@code @Lazy} proxy of
- * this bean), and work per run is bounded by {@code batch-size * max-batches-per-run}. A failure on
- * one post is logged and skipped; it never aborts the run and the next run retries it. ShedLock
+ * keyset pages in a read-only transaction through {@code self} (which provides this bean's
+ * transactional proxy), and work per run is bounded by {@code batch-size *
+ * max-batches-per-run}. A failure on one post is logged and skipped; it never aborts the run and the next run retries it. ShedLock
  * makes sure a single instance runs each interval.</p>
  */
 @Slf4j
@@ -37,13 +37,13 @@ public class FailedPostPurgeService {
     private final FailedPostPurgeRepository failedPostPurgeRepository;
     private final DeleteUnacceptedPostUseCase deleteUnacceptedPostUseCase;
     private final FailedPostPurgeProperties failedPostPurgeProperties;
-    private final FailedPostPurgeService self;
+    private final ObjectProvider<FailedPostPurgeService> self;
 
     public FailedPostPurgeService(
             FailedPostPurgeRepository failedPostPurgeRepository,
             DeleteUnacceptedPostUseCase deleteUnacceptedPostUseCase,
             FailedPostPurgeProperties failedPostPurgeProperties,
-            @Lazy FailedPostPurgeService self) {
+            ObjectProvider<FailedPostPurgeService> self) {
         this.failedPostPurgeRepository = failedPostPurgeRepository;
         this.deleteUnacceptedPostUseCase = deleteUnacceptedPostUseCase;
         this.failedPostPurgeProperties = failedPostPurgeProperties;
@@ -63,7 +63,7 @@ public class FailedPostPurgeService {
 
         PurgeCursor cursor = null;
         for (int batch = 0; batch < maxBatches; batch++) {
-            List<PurgeablePost> page = self.findPurgeablePosts(purgedBefore, cursor, batchSize);
+            List<PurgeablePost> page = self.getObject().findPurgeablePosts(purgedBefore, cursor, batchSize);
             for (PurgeablePost post : page) {
                 purgeSafely(post, summary);
             }

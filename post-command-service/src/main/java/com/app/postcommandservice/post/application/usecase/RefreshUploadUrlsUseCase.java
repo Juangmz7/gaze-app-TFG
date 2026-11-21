@@ -13,7 +13,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.annotation.Lazy;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -54,7 +54,7 @@ import com.app.postcommandservice.post.infrastructure.config.PostMediaProperties
  * potentially slow, network-bound {@link MediaUploadUrlSigner} with no transaction open, then
  * persists any freshly issued SAS hash/expiry in a separate, fresh {@code REQUIRES_NEW}
  * transaction — mirroring {@code PostMediaVerificationService} (task 37). Both transactional
- * steps are invoked through {@code self}, an injected {@code @Lazy} proxy of this same bean,
+ * steps are invoked through {@code self}, which provides this same bean's proxy,
  * since calling them directly would bypass the Spring AOP proxy and silently run with no
  * transaction at all.</p>
  */
@@ -65,13 +65,13 @@ public class RefreshUploadUrlsUseCase {
     private final RefreshUploadUrlsRepository refreshUploadUrlsRepository;
     private final PostMediaProperties postMediaProperties;
     private final MediaUploadUrlSigner mediaUploadUrlSigner;
-    private final RefreshUploadUrlsUseCase self;
+    private final ObjectProvider<RefreshUploadUrlsUseCase> self;
 
     public RefreshUploadUrlsUseCase(
             RefreshUploadUrlsRepository refreshUploadUrlsRepository,
             PostMediaProperties postMediaProperties,
             MediaUploadUrlSigner mediaUploadUrlSigner,
-            @Lazy RefreshUploadUrlsUseCase self) {
+            ObjectProvider<RefreshUploadUrlsUseCase> self) {
         this.refreshUploadUrlsRepository = refreshUploadUrlsRepository;
         this.postMediaProperties = postMediaProperties;
         this.mediaUploadUrlSigner = mediaUploadUrlSigner;
@@ -79,7 +79,7 @@ public class RefreshUploadUrlsUseCase {
     }
 
     public RefreshUploadUrlsResponse refresh(RefreshUploadUrlsCommand command) {
-        RefreshableUpload upload = self.findUpload(command.postId())
+        RefreshableUpload upload = self.getObject().findUpload(command.postId())
                 .orElseThrow(() -> new PostNotFoundException(command.postId()));
 
         assertOwnership(upload, command.userId());
@@ -121,7 +121,7 @@ public class RefreshUploadUrlsUseCase {
         }
 
         if (!sasUpdates.isEmpty()) {
-            self.persistSasUpdates(sasUpdates);
+            self.getObject().persistSasUpdates(sasUpdates);
         }
 
         log.info("Refreshed upload SAS urls for post {}: {} media item(s), {} newly signed",

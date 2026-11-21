@@ -15,6 +15,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import com.app.postcommandservice.SelfProvider;
 import com.app.postcommandservice.post.application.commands.RefreshUploadUrlsCommand;
 import com.app.postcommandservice.post.application.commands.RefreshUploadUrlsCommand.ClientMediaUpload;
 import com.app.postcommandservice.post.application.port.MediaUploadUrlSigner;
@@ -63,27 +64,23 @@ class RefreshUploadUrlsUseCaseTest {
     private PostMediaProperties postMediaProperties;
 
     /**
-     * {@code self} is the Spring AOP proxy of this same bean in production, so {@code
-     * refresh()}'s calls to {@code self.findUpload(...)}/{@code self.persistSasUpdates(...)}
-     * run inside their own transactions. No Spring context here, so {@code self} is wired to
-     * the very same instance via reflection, matching {@code PostMediaVerificationServiceTest}.
+     * {@code self} provides the Spring AOP proxy of this same bean in production, so {@code
+     * refresh()}'s calls to {@code findUpload(...)}/{@code persistSasUpdates(...)} run inside
+     * their own transactions. No Spring context here, so {@code self} provides the very same
+     * instance (see {@link SelfProvider}).
      */
     private RefreshUploadUrlsUseCase useCase(Duration uploadWindow) {
         postMediaProperties = new PostMediaProperties();
         postMediaProperties.setUploadWindow(uploadWindow);
 
-        RefreshUploadUrlsUseCase instance = new RefreshUploadUrlsUseCase(
+        var self = new SelfProvider<RefreshUploadUrlsUseCase>();
+
+        var instance = self.set(new RefreshUploadUrlsUseCase(
                 refreshUploadUrlsRepository,
                 postMediaProperties,
                 mediaUploadUrlSigner,
-                null);
-        try {
-            var selfField = RefreshUploadUrlsUseCase.class.getDeclaredField("self");
-            selfField.setAccessible(true);
-            selfField.set(instance, instance);
-        } catch (ReflectiveOperationException e) {
-            throw new IllegalStateException(e);
-        }
+
+                self));
         return instance;
     }
 

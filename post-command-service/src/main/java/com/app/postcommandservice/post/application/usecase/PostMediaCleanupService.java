@@ -8,8 +8,8 @@ import java.util.UUID;
 
 import lombok.extern.slf4j.Slf4j;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -41,7 +41,7 @@ import com.app.postcommandservice.shared.infrastructure.repository.OutboxEventRe
  *
  * <p>Same transaction layout as {@link PostMediaVerificationService}: {@link #run()} is not
  * transactional and calls the read-only page query and the two {@code REQUIRES_NEW} writes
- * through {@code self}, an injected {@code @Lazy} proxy of this bean (calling them on
+ * through {@code self}, which provides this bean's proxy (calling them on
  * {@code this} would bypass the transaction proxy). Blobs are deleted between the two writes,
  * with no transaction open, and only after the conditional {@code PENDING ->
  * MEDIA_UPLOAD_FAILED} update succeeded, so a post the upload listener accepts concurrently
@@ -64,7 +64,7 @@ public class PostMediaCleanupService {
     private final OutboxEventRepository outboxEventRepository;
     private final JsonMapper jsonMapper;
     private final ApplicationEventPublisher applicationEventPublisher;
-    private final PostMediaCleanupService self;
+    private final ObjectProvider<PostMediaCleanupService> self;
 
     public PostMediaCleanupService(
             PostMediaCleanupRepository postMediaCleanupRepository,
@@ -74,7 +74,7 @@ public class PostMediaCleanupService {
             OutboxEventRepository outboxEventRepository,
             JsonMapper jsonMapper,
             ApplicationEventPublisher applicationEventPublisher,
-            @Lazy PostMediaCleanupService self) {
+            ObjectProvider<PostMediaCleanupService> self) {
         this.postMediaCleanupRepository = postMediaCleanupRepository;
         this.mediaBlobDeleter = mediaBlobDeleter;
         this.postMediaProperties = postMediaProperties;
@@ -98,7 +98,7 @@ public class PostMediaCleanupService {
 
         CleanupCursor cursor = null;
         for (int batch = 0; batch < maxBatches; batch++) {
-            List<ExpiredUpload> page = self.findExpiredUploads(createdBefore, cursor, batchSize);
+            List<ExpiredUpload> page = self.getObject().findExpiredUploads(createdBefore, cursor, batchSize);
             for (ExpiredUpload upload : page) {
                 processSafely(upload, summary);
             }
@@ -168,7 +168,7 @@ public class PostMediaCleanupService {
     private void process(ExpiredUpload upload, RunSummary summary) {
         UUID postId = upload.postId();
         if (upload.status() == PostStatus.PENDING) {
-            if (!self.expirePendingUpload(postId)) {
+            if (!self.getObject().expirePendingUpload(postId)) {
                 summary.skipped++;
                 log.info("Skipping media cleanup of post {}: it is no longer PENDING", postId);
                 return;
@@ -183,7 +183,7 @@ public class PostMediaCleanupService {
 
         summary.blobsDeleted += deleteBlobs(upload);
 
-        if (self.markMediaPurged(postId)) {
+        if (self.getObject().markMediaPurged(postId)) {
             summary.purged++;
         } else {
             log.info("Post {} was already purged or is no longer MEDIA_UPLOAD_FAILED", postId);

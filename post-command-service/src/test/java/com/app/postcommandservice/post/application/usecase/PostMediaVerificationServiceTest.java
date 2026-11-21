@@ -16,6 +16,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 
+import com.app.postcommandservice.SelfProvider;
 import com.app.postcommandservice.post.application.port.MediaVerificationFailureReason;
 import com.app.postcommandservice.post.application.port.MediaVerificationResult;
 import com.app.postcommandservice.post.application.port.MediaVerifier;
@@ -87,6 +88,12 @@ class PostMediaVerificationServiceTest {
      * actually goes through a separate reference rather than {@code this}.
      */
     private PostMediaVerificationService newService(PostMediaVerificationService self) {
+        var provider = new SelfProvider<PostMediaVerificationService>();
+        provider.set(self);
+        return newService(provider);
+    }
+
+    private PostMediaVerificationService newService(SelfProvider<PostMediaVerificationService> self) {
         return new PostMediaVerificationService(
                 postMediaVerificationRepository,
                 postRepository,
@@ -99,24 +106,16 @@ class PostMediaVerificationServiceTest {
     }
 
     /**
-     * In production {@code self} is the Spring AOP proxy of this same bean, so {@code
-     * process()}'s calls to {@code self.findPostSnapshot(...)}/{@code
-     * self.applyVerificationOutcome(...)} actually run inside their own transactions. There is
-     * no Spring context in this plain unit test, so {@code self} is wired to the very same
-     * instance via reflection (the constructor cannot take {@code this} before construction
-     * finishes) — behaviourally equivalent for everything these tests assert on, since a proxy
-     * forwarding to the real bean behaves like the bean calling itself.
+     * In production {@code self} provides the Spring AOP proxy of this same bean, so {@code
+     * process()}'s calls to {@code findPostSnapshot(...)}/{@code applyVerificationOutcome(...)}
+     * actually run inside their own transactions. There is no Spring context in this plain unit
+     * test, so {@code self} provides the very same instance (see {@link SelfProvider}) —
+     * behaviourally equivalent for everything these tests assert on, since a proxy forwarding to
+     * the real bean behaves like the bean calling itself.
      */
     private PostMediaVerificationService service() {
-        PostMediaVerificationService instance = newService(null);
-        try {
-            var selfField = PostMediaVerificationService.class.getDeclaredField("self");
-            selfField.setAccessible(true);
-            selfField.set(instance, instance);
-        } catch (ReflectiveOperationException e) {
-            throw new IllegalStateException(e);
-        }
-        return instance;
+        var self = new SelfProvider<PostMediaVerificationService>();
+        return self.set(newService(self));
     }
 
     private PostMediaUploadedEvent uploadedEvent(UUID mediaId, MediaType mediaType) {
