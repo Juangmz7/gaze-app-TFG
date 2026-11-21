@@ -5,6 +5,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.test.context.ActiveProfiles;
 import com.app.postcommandservice.TestcontainersConfiguration;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -12,6 +13,8 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 @SpringBootTest
 @Import(TestcontainersConfiguration.class)
+// The test profile supplies the settings the context needs (Azure storage, ...)
+@ActiveProfiles("test")
 class RedisConfigIT {
 
     @Autowired

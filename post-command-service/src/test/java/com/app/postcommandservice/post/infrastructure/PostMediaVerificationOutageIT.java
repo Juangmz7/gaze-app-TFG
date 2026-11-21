@@ -29,9 +29,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Proves the task-37 infrastructure-failure path: this test deliberately does NOT start an
- * Azurite container, so the real {@code AzureMediaVerifier} bean (wired to the unreachable
- * placeholder {@code azure.storage.account-url=http://127.0.0.1:10000/...} from {@code
- * application-test.yaml}) fails with a genuine connection error when {@code
+ * Azurite container, so the real {@code AzureMediaVerifier} bean (wired to port 1 of
+ * localhost, where nothing listens; application-test.yaml's 127.0.0.1:10000 is where a local
+ * stack's Azurite runs, which would turn the outage into a "blob not found") fails with a
+ * genuine connection error when {@code
  * PostMediaUploadedListener} delegates to it — simulating an Azure outage without mocking
  * {@code MediaVerifier} itself. The listener container's retry policy ({@code
  * RabbitMQConfig#retryInterceptor}) then exhausts its bounded attempts and routes the message
@@ -39,7 +40,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @ActiveProfiles("test")
 @Import(TestcontainersConfiguration.class)
-@SpringBootTest
+@SpringBootTest(properties = "azure.storage.account-url=http://127.0.0.1:1/devstoreaccount1")
 class PostMediaVerificationOutageIT {
 
     private static final UUID AUTHOR_ID = UUID.fromString("44444444-4444-4444-4444-444444444444");
