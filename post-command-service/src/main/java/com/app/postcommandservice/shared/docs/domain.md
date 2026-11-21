@@ -11,3 +11,4 @@ The shared domain layer contains common domain abstractions and exceptions used 
 - `DomainEvent`
 - `DomainException`
 - `UserNotFoundException`
+- `KeysetPosition`, `PageLimit` (keyset pagination primitives), `InvalidCursorException`, `InvalidPageLimitException`

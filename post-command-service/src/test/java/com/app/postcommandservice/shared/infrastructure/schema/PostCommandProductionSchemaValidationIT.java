@@ -254,6 +254,117 @@ class PostCommandProductionSchemaValidationIT {
         }
     }
 
+    @Test
+    void shouldAddReportTablesToALegacyDatabase() {
+        bootstrapSchema("create");
+        execute("DROP TABLE IF EXISTS post_reports");
+        execute("DROP TABLE IF EXISTS comment_reports");
+
+        assertThatThrownBy(() -> bootstrapSchema("validate"))
+                .hasRootCauseInstanceOf(Exception.class);
+
+        applySchemaPatch("db/schema/post-command-service-prod.sql");
+
+        assertThatNoException().isThrownBy(() -> bootstrapSchema("validate"));
+    }
+
+    @Test
+    void shouldKeepOneOpenReportPerReporterAndTargetButAllowANewOneAfterResolution() {
+        applySchemaPatch("db/schema/post-command-service-prod.sql");
+        UUID reporterId = UUID.randomUUID();
+        UUID postId = UUID.randomUUID();
+        UUID commentId = UUID.randomUUID();
+
+        assertThat(insertPostReport(reporterId, postId)).isEqualTo(1);
+        assertThat(insertPostReport(reporterId, postId)).isZero();
+        assertThat(insertPostReport(UUID.randomUUID(), postId)).isEqualTo(1);
+
+        execute("UPDATE post_reports SET status = 'RESOLVED' WHERE reporter_user_id = '%s'".formatted(reporterId));
+        assertThat(insertPostReport(reporterId, postId)).isEqualTo(1);
+
+        assertThat(insertCommentReport(reporterId, postId, commentId)).isEqualTo(1);
+        assertThat(insertCommentReport(reporterId, postId, commentId)).isZero();
+
+        assertThatThrownBy(() -> execute("""
+                INSERT INTO post_reports (id, post_id, reporter_user_id, reason, snapshot, status, created_at)
+                VALUES ('%s', '%s', '%s', 'SPAM', '{}'::jsonb, 'ARCHIVED', now())
+                """.formatted(UUID.randomUUID(), postId, UUID.randomUUID())))
+                .isInstanceOf(IllegalStateException.class);
+        assertIndexExists("post_reports", "idx_post_reports_status_created_at_id");
+        assertIndexExists("comment_reports", "idx_comment_reports_status_created_at_id");
+    }
+
+    @Test
+    void shouldAddTheMediaCleanupColumnIndexAndShedlockTableToALegacyDatabase() {
+        bootstrapSchema("create");
+        execute("ALTER TABLE posts DROP COLUMN media_purged_at");
+        execute("DROP TABLE IF EXISTS shedlock");
+
+        assertThatThrownBy(() -> bootstrapSchema("validate"))
+                .hasRootCauseInstanceOf(Exception.class);
+
+        applySchemaPatch("db/schema/post-command-service-prod.sql");
+
+        assertThatNoException().isThrownBy(() -> bootstrapSchema("validate"));
+        try (Connection connection = DriverManager.getConnection(
+                POSTGRES.getJdbcUrl(),
+                POSTGRES.getUsername(),
+                POSTGRES.getPassword());
+             Statement statement = connection.createStatement();
+             ResultSet resultSet = statement.executeQuery(
+                     "SELECT indexdef FROM pg_indexes WHERE tablename = 'posts' AND indexname = 'idx_posts_media_cleanup'")) {
+            assertThat(resultSet.next()).as("idx_posts_media_cleanup on posts").isTrue();
+            assertThat(resultSet.getString("indexdef"))
+                    .contains("(status, created_at, id)", "WHERE (media_purged_at IS NULL)");
+        } catch (java.sql.SQLException exception) {
+            throw new IllegalStateException("Failed to inspect idx_posts_media_cleanup", exception);
+        }
+    }
+
+    private int insertPostReport(UUID reporterId, UUID postId) {
+        return executeUpdate("""
+                INSERT INTO post_reports (id, post_id, reporter_user_id, reason, details, snapshot, created_at)
+                VALUES ('%s', '%s', '%s', 'SPAM', NULL, '{"description":"d"}'::jsonb, now())
+                ON CONFLICT DO NOTHING
+                """.formatted(UUID.randomUUID(), postId, reporterId));
+    }
+
+    private int insertCommentReport(UUID reporterId, UUID postId, UUID commentId) {
+        return executeUpdate("""
+                INSERT INTO comment_reports (id, post_id, comment_id, reporter_user_id, reason, snapshot, created_at)
+                VALUES ('%s', '%s', '%s', '%s', 'SPAM', '{"content":"c"}'::jsonb, now())
+                ON CONFLICT DO NOTHING
+                """.formatted(UUID.randomUUID(), postId, commentId, reporterId));
+    }
+
+    private int executeUpdate(String sql) {
+        try (Connection connection = DriverManager.getConnection(
+                POSTGRES.getJdbcUrl(),
+                POSTGRES.getUsername(),
+                POSTGRES.getPassword());
+             Statement statement = connection.createStatement()) {
+            return statement.executeUpdate(sql);
+        } catch (Exception exception) {
+            throw new IllegalStateException("Failed to execute SQL: " + sql, exception);
+        }
+    }
+
+    private void assertIndexExists(String tableName, String indexName) {
+        try (Connection connection = DriverManager.getConnection(
+                POSTGRES.getJdbcUrl(),
+                POSTGRES.getUsername(),
+                POSTGRES.getPassword());
+             Statement statement = connection.createStatement();
+             ResultSet resultSet = statement.executeQuery(
+                     "SELECT indexdef FROM pg_indexes WHERE tablename = '%s' AND indexname = '%s'"
+                             .formatted(tableName, indexName))) {
+            assertThat(resultSet.next()).as("index %s on %s", indexName, tableName).isTrue();
+            assertThat(resultSet.getString("indexdef")).contains("created_at DESC", "id DESC");
+        } catch (java.sql.SQLException exception) {
+            throw new IllegalStateException("Failed to inspect index " + indexName, exception);
+        }
+    }
+
     /*
      * Runs the whole script in one simple-query call, as psql would. Splitting it on ';'
      * (ResourceDatabasePopulator) breaks the DO $$ ... $$ blocks the migrations use.

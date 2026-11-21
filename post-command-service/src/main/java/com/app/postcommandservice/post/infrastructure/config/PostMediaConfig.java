@@ -4,6 +4,6 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Configuration;
 
 @Configuration
-@EnableConfigurationProperties(PostMediaProperties.class)
+@EnableConfigurationProperties({PostMediaProperties.class, PostMediaCleanupProperties.class})
 public class PostMediaConfig {
 }

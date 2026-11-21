@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS posts (
     version BIGINT NOT NULL DEFAULT 0,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    media_purged_at TIMESTAMP WITH TIME ZONE,
     CONSTRAINT pk_posts PRIMARY KEY (id),
     CONSTRAINT fk_posts_collab FOREIGN KEY (collab_id) REFERENCES collabs (id)
 );
@@ -173,6 +174,52 @@ CREATE TABLE IF NOT EXISTS post_views (
 CREATE INDEX IF NOT EXISTS idx_post_views_post_user
     ON post_views (post_id, user_id);
 
+-- --- Content reports (task 55) ---
+-- snapshot keeps the reported content as it was at report time (it can be edited or
+-- deleted later). The partial unique index makes a repeated report of the same target by
+-- the same reporter idempotent while it is OPEN (INSERT ... ON CONFLICT DO NOTHING); the
+-- (status, created_at DESC, id DESC) index serves the keyset-paged admin lists.
+CREATE TABLE IF NOT EXISTS post_reports (
+    id UUID NOT NULL,
+    post_id UUID NOT NULL,
+    reporter_user_id UUID NOT NULL,
+    reason VARCHAR(255) NOT NULL,
+    details VARCHAR(1000),
+    snapshot JSONB NOT NULL,
+    status VARCHAR(255) NOT NULL DEFAULT 'OPEN',
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    CONSTRAINT pk_post_reports PRIMARY KEY (id),
+    CONSTRAINT ck_post_reports_status CHECK (status IN ('OPEN', 'RESOLVED', 'DISMISSED'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_post_reports_status_created_at_id
+    ON post_reports (status, created_at DESC, id DESC);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uk_post_reports_open_reporter_post
+    ON post_reports (reporter_user_id, post_id)
+    WHERE status = 'OPEN';
+
+CREATE TABLE IF NOT EXISTS comment_reports (
+    id UUID NOT NULL,
+    post_id UUID NOT NULL,
+    comment_id UUID NOT NULL,
+    reporter_user_id UUID NOT NULL,
+    reason VARCHAR(255) NOT NULL,
+    details VARCHAR(1000),
+    snapshot JSONB NOT NULL,
+    status VARCHAR(255) NOT NULL DEFAULT 'OPEN',
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    CONSTRAINT pk_comment_reports PRIMARY KEY (id),
+    CONSTRAINT ck_comment_reports_status CHECK (status IN ('OPEN', 'RESOLVED', 'DISMISSED'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_comment_reports_status_created_at_id
+    ON comment_reports (status, created_at DESC, id DESC);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uk_comment_reports_open_reporter_comment
+    ON comment_reports (reporter_user_id, comment_id)
+    WHERE status = 'OPEN';
+
 -- --- User read models (projected from social-service events) ---
 CREATE TABLE IF NOT EXISTS users (
     id UUID NOT NULL,
@@ -235,6 +282,17 @@ CREATE TABLE IF NOT EXISTS outbox_event (
 CREATE INDEX IF NOT EXISTS idx_outbox_event_unfinished
     ON outbox_event (created_at)
     WHERE status IN ('PENDING', 'PROCESSING');
+
+-- --- Scheduling ---
+-- ShedLock: one row per scheduled job lock (task 58). Timestamps are UTC without time
+-- zone, written and compared with the database clock (JdbcTemplateLockProvider usingDbTime).
+CREATE TABLE IF NOT EXISTS shedlock (
+    name VARCHAR(64) NOT NULL,
+    lock_until TIMESTAMP NOT NULL,
+    locked_at TIMESTAMP NOT NULL,
+    locked_by VARCHAR(255) NOT NULL,
+    CONSTRAINT pk_shedlock PRIMARY KEY (name)
+);
 
 -- ===== 2. Tracked migrations =====
 
@@ -461,3 +519,15 @@ ALTER TABLE outbox_event
 
 ALTER TABLE outbox_event
     ADD COLUMN IF NOT EXISTS processed_at TIMESTAMP WITH TIME ZONE;
+
+-- --- Task 58: scheduled cleanup of expired uploads ---
+-- media_purged_at marks posts whose blobs the cleanup job already deleted. The partial
+-- index serves its keyset pages (status IN (...) AND created_at < ? ORDER BY created_at, id)
+-- and stays small: purged posts leave it. It lives here, after the column is added, so it
+-- also applies to databases that predate the column.
+ALTER TABLE posts
+    ADD COLUMN IF NOT EXISTS media_purged_at TIMESTAMP WITH TIME ZONE;
+
+CREATE INDEX IF NOT EXISTS idx_posts_media_cleanup
+    ON posts (status, created_at, id)
+    WHERE media_purged_at IS NULL;

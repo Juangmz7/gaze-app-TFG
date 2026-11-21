@@ -1,5 +1,6 @@
 package com.app.postcommandservice.post.infrastructure.repository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
@@ -32,4 +33,13 @@ public interface PostMediaJpaRepository extends JpaRepository<PostMediaEntity, U
             WHERE m.id = :mediaId
             """)
     int updateDuration(@Param("mediaId") UUID mediaId, @Param("durationMillis") Integer durationMillis);
+
+    /** Blob urls of every media item of the given posts, in one query (media cleanup job, task 58). */
+    @Query("""
+            SELECT m.post.id AS postId, m.url AS url, m.thumbnailUrl AS thumbnailUrl
+            FROM PostMediaEntity m
+            WHERE m.post.id IN :postIds
+            ORDER BY m.mediaOrder ASC
+            """)
+    List<PostMediaBlobView> findBlobViewsByPostIds(@Param("postIds") Collection<UUID> postIds);
 }
