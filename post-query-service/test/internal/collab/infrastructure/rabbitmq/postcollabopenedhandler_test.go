@@ -6,7 +6,9 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/google/uuid"
@@ -212,4 +214,51 @@ func mutatedPostCollabOpenedPayload(t *testing.T, mutate func(fields map[string]
 
 func testPostCollabOpenedLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
+// Task 61: the Java record carries joinInstructions, a string or null. An event
+// published before task 61 has no such field (literalPostCollabOpenedJSON).
+func TestPostCollabOpenedHandler_Handle_ProjectsJoinInstructionsFromThePayload(t *testing.T) {
+	withInstructions := strings.Replace(literalPostCollabOpenedJSON, `"collabStatus":"OPEN",`,
+		`"collabStatus":"OPEN","joinInstructions":"Welcome! Chat: https://chat.example.test/invite/harbour",`, 1)
+	withNull := strings.Replace(literalPostCollabOpenedJSON, `"collabStatus":"OPEN",`, `"collabStatus":"OPEN","joinInstructions":null,`, 1)
+	tests := []struct {
+		name    string
+		payload string
+		want    string
+	}{
+		{name: "text", payload: withInstructions, want: "Welcome! Chat: https://chat.example.test/invite/harbour"},
+		{name: "null", payload: withNull, want: ""},
+		{name: "absent (published before task 61)", payload: literalPostCollabOpenedJSON, want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			uc := &fakePostCollabOpenedUsecase{}
+			handler := rabbitmq.NewPostCollabOpenedHandler(newFakePostCollabOpenedIdempotencyRepository(), uc, testPostCollabOpenedLogger())
+
+			if err := handler.Handle(context.Background(), message.NewMessage(uuid.NewString(), []byte(tt.payload))); err != nil {
+				t.Fatalf("Handle() error = %v", err)
+			}
+			if uc.gotIn.JoinInstructions != tt.want {
+				t.Fatalf("Execute() JoinInstructions = %q, want %q", uc.gotIn.JoinInstructions, tt.want)
+			}
+			if want := time.Date(2026, 3, 1, 10, 15, 30, 123456000, time.UTC); !uc.gotIn.OccurredAt.Equal(want) {
+				t.Fatalf("Execute() OccurredAt = %v, want the event's occurredAt %v", uc.gotIn.OccurredAt, want)
+			}
+		})
+	}
+}
+
+func TestPostCollabOpenedHandler_Handle_RejectsANonStringJoinInstructionsAsPermanent(t *testing.T) {
+	uc := &fakePostCollabOpenedUsecase{}
+	handler := rabbitmq.NewPostCollabOpenedHandler(newFakePostCollabOpenedIdempotencyRepository(), uc, testPostCollabOpenedLogger())
+	payload := mutatedPostCollabOpenedPayload(t, func(fields map[string]any) { fields["joinInstructions"] = 42 })
+
+	if err := handler.Handle(context.Background(), message.NewMessage(uuid.NewString(), payload)); !rmqerror.IsPermanent(err) {
+		t.Fatalf("Handle() error = %v, want a permanent error", err)
+	}
+	if uc.calls != 0 {
+		t.Fatalf("Execute() calls = %d, want 0", uc.calls)
+	}
 }

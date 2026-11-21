@@ -1,7 +1,7 @@
 # post-query-service
 
 ## What it does
-Read side of the platform, written in Go. It consumes the events of `post-command-service` and `social-service` from RabbitMQ, keeps its own read models in MongoDB, and serves the home feed (`/api/feed`), the following feed (`/api/feed/following`) and post, comment, profile grid, own tab (liked, history) and collab join request reads (`/api/content`) over HTTP.
+Read side of the platform, written in Go. It consumes the events of `post-command-service` and `social-service` from RabbitMQ, keeps its own read models in MongoDB, and serves the home feed (`/api/feed`), the following feed (`/api/feed/following`) and post, comment, profile grid, own tab (liked, history) and collab join request reads (`/api/content`) over HTTP, with each collab's join instructions shown only to its owner and accepted members.
 
 ## Packages used
 - **`net/http`:** `ServeMux` with method patterns.
@@ -49,6 +49,7 @@ Each item has:
 | `description`, `postType`, `postTags` | `description` can be null. `postType` is `BASIC` or `COLLAB`. |
 | `collabId`, `collab.title`, `collab.status` | Null for a `BASIC` post. A post with several collabs serves the most recently opened one. |
 | `collab.pendingRequestCount` | Number of `PENDING` join requests of that collab, **only for its owner** (0 when none). Null for everyone else and for a `BASIC` post. See "Collab join requests". |
+| `collab.joinInstructions` | Free-form onboarding text the collab's ADMIN wrote (a chat invite, a repository URL...), **only for its owner and its `ACCEPTED` members**. Null for everyone else (`PENDING`, `REJECTED`, `DELETED`, `LEFT`, `BANNED`, no membership), when the collab has none, and for a `BASIC` post. See "Collab join instructions". |
 | `createdAt` | The post's creation date. |
 | `media[]` | Sorted by `order`: `id`, `url`, `thumbnailUrl` (nullable), `mediaType` (`IMAGE` or `VIDEO`), `order` (1-based), `durationMs` (null for an `IMAGE`), `taggedUsers`. |
 | `coverThumbnailUrl` | The first element's thumbnail, or its `url` if it is an `IMAGE` with none. Null otherwise. |
@@ -88,7 +89,7 @@ Every read that is not the feed lives under `/api/content`, routed by the gatewa
 | `GET /api/content/me/history?cursor=&limit=` | 200 `{ items: (GridItem & { viewedAt })[], nextCursor }`, 400 `invalid_cursor` / `invalid_limit` |
 | `GET /api/content/collabs/{collabId}/requests?status=&cursor=&limit=` | 200 `{ items: { user: UserSummary, status, requestedAt }[], nextCursor }`, 400 `invalid_collab_id` / `invalid_status` / `invalid_cursor` / `invalid_limit`, 403 `not_collab_owner`, 404 `collab_not_found` |
 
-`PostView` is a feed item without `position`, `collab.pendingRequestCount` and `viewer.collabRequestStatus` included. Its values come from the same read models and the same mapper as the feed, with `viewer` holding the caller's state and every media URL signed (see "Media URLs").
+`PostView` is a feed item without `position`, `collab.pendingRequestCount`, `collab.joinInstructions` and `viewer.collabRequestStatus` included. Its values come from the same read models and the same mapper as the feed, with `viewer` holding the caller's state and every media URL signed (see "Media URLs").
 
 - `postId` must be a canonical UUID; anything else is a 400.
 - A post that was never projected, was deleted or banned, whose creator is gone, or whose creator has a block with the caller in either direction, is the same 404 `post_not_found`, so a block is never revealed.
@@ -128,6 +129,12 @@ Accepting and declining stay in post-command-service (`PUT /api/collabs/{collabI
 - **In the feed.** A feed item, a `PostView` and a following feed item carry `viewer.collabRequestStatus` (the caller's row) and `collab.pendingRequestCount` (owner only, see "Feed API"). A page reads them with two queries whatever its size: the caller's rows for the page's collabs (one `$in`), and the pending counts of the collabs the caller owns (one aggregation, skipped when the caller owns none of them, reading index keys only).
 - **The list.** `GET /api/content/collabs/{collabId}/requests` answers the collab's owner only (`post_collabs.owner_user_id`): anyone else gets 403 `not_collab_owner`, checked before any request is read; an unknown or deleted collab is 404 `collab_not_found`. `status` filters by membership status (`PENDING` by default, any `CollabMemberStatus`). Items are `{ user: UserSummary, status, requestedAt }`, oldest request first (`requestedAt`, then `userId`, ascending) so nobody waits forever; `user.pictureUrl` is signed. A requester no longer projected (deleted) is left out.
 - Keyset pagination as for the grids: `limit` 1 to 50 (default 20), opaque `cursor`, `nextCursor` null on the last page. Every page is an index seek on `{ collab_id: 1, status: 1, requested_at: 1, user_id: 1 }`, which also serves the counts. A request whose status changes while the owner pages leaves that status's list; nobody is served twice.
+
+### Collab join instructions
+The ADMIN sets them in post-command-service (`PATCH /api/collabs/{collabId}/join-instructions`, or when opening the collab); this service projects them and decides who reads them.
+
+- **Projection.** `CollabOpenedEvent.joinInstructions` (string or null; absent in events published before it existed) is stored on `post_collabs.join_instructions` (empty when none), with the event's `occurredAt` as `join_instructions_updated_at`. `rk.post.collab.join-instructions.updated` (`CollabJoinInstructionsUpdatedEvent { id, correlationId, occurredAt, collabId, joinInstructions }`, null when cleared), bound to `q.post-query-service.post`, replaces them when its `occurredAt` (millisecond precision) is newer than the stored one, with a version-gated write; an older or equal one changes nothing and is still recorded as processed. A duplicate is skipped by the idempotency record, a malformed payload goes straight to the dead-letter queue, and an update for a collab not projected yet is retried.
+- **Who reads them.** The feed item, the `PostView` and the following feed item carry `collab.joinInstructions` only when the caller is the collab's owner (`post_collabs.owner_user_id`) or has an `ACCEPTED` row in `collab_members`; the ADMIN is an accepted member in post-command-service, and the creator's own row is covered by the owner rule. The check reuses the caller's membership lookup of "Collab join requests" (no extra query) and runs in the response mapping, so the profile grids and the requests list never carry the text.
 
 ## How the feed gets filled
 The feed is prepared ahead of time over RabbitMQ, through the transactional outbox:

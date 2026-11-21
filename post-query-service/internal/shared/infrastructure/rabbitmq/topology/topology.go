@@ -83,6 +83,9 @@ const (
 	RKPostCollabRequestDeleted     = "rk.post.collab.request.deleted"
 	RKPostCollabMemberLeft         = "rk.post.collab.member.left"
 	RKPostCollabMemberBanned       = "rk.post.collab.member.banned"
+	// RKPostCollabJoinInstructionsUpdated carries CollabJoinInstructionsUpdatedEvent
+	// (task 61).
+	RKPostCollabJoinInstructionsUpdated = "rk.post.collab.join-instructions.updated"
 )
 
 // Routing keys bound to QueueFeed.
@@ -135,6 +138,7 @@ var PostRoutingKeys = []string{
 	RKPostCollabRequestDeleted,
 	RKPostCollabMemberLeft,
 	RKPostCollabMemberBanned,
+	RKPostCollabJoinInstructionsUpdated,
 }
 
 // FeedRoutingKeys lists the routing keys bound to QueueFeed.

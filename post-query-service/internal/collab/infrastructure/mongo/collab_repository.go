@@ -22,8 +22,8 @@ const collectionName = "post_collabs"
 // operationTimeout bounds every Mongo call made by Repository.
 const operationTimeout = 5 * time.Second
 
-// ErrVersionConflict is returned by Update when the stored document's
-// version does not match CloseCollabInput.ExpectedVersion, and by
+// ErrVersionConflict is returned by Update and UpdateJoinInstructions when the
+// stored document's version does not match the input's ExpectedVersion, and by
 // MemberRepository.UpdateMember when the membership's version moved, meaning
 // the document was modified by another writer since the version was read.
 var ErrVersionConflict = errors.New("collab version conflict")
@@ -31,20 +31,27 @@ var ErrVersionConflict = errors.New("collab version conflict")
 // collabDocument is the persisted shape of a collab read model entry. The
 // collab-opened Insert path sets Title, CreatedBy and Status from the event;
 // ClosedBy stays empty until a CollabClosedEvent is projected (see Update).
+// JoinInstructions (task 61) is empty when the collab has none, and
+// JoinInstructionsUpdatedAt is the occurredAt of the event that last wrote it
+// (opened or join-instructions updated), so updates apply only forward in time.
+// Only the feed's hydration decides who may see the instructions.
 type collabDocument struct {
-	CollabID    string    `bson:"collab_id"`
-	PostID      string    `bson:"post_id"`
-	OwnerUserID string    `bson:"owner_user_id"`
-	Title       string    `bson:"title"`
-	CreatedBy   string    `bson:"created_by"`
-	ClosedBy    string    `bson:"closed_by"`
-	Status      string    `bson:"status"`
-	CreatedAt   time.Time `bson:"created_at"`
-	Version     int64     `bson:"version"`
+	CollabID                  string    `bson:"collab_id"`
+	PostID                    string    `bson:"post_id"`
+	OwnerUserID               string    `bson:"owner_user_id"`
+	Title                     string    `bson:"title"`
+	CreatedBy                 string    `bson:"created_by"`
+	ClosedBy                  string    `bson:"closed_by"`
+	Status                    string    `bson:"status"`
+	CreatedAt                 time.Time `bson:"created_at"`
+	JoinInstructions          string    `bson:"join_instructions"`
+	JoinInstructionsUpdatedAt time.Time `bson:"join_instructions_updated_at"`
+	Version                   int64     `bson:"version"`
 }
 
-// Repository implements usecase.RecordCollabOpenedRepository and
-// usecase.CloseCollabRepository against MongoDB.
+// Repository implements usecase.RecordCollabOpenedRepository,
+// usecase.CloseCollabRepository and usecase.UpdateCollabJoinInstructionsRepository
+// against MongoDB.
 type Repository struct {
 	collection *mongo.Collection
 }
@@ -90,14 +97,16 @@ func (r *Repository) Insert(ctx context.Context, input usecase.RecordCollabOpene
 	defer cancel()
 
 	doc := collabDocument{
-		CollabID:    input.CollabID.String(),
-		PostID:      input.PostID.String(),
-		OwnerUserID: input.OwnerUserID.String(),
-		Title:       input.Title,
-		CreatedBy:   input.OwnerUserID.String(),
-		Status:      input.Status,
-		CreatedAt:   input.CreatedAt,
-		Version:     1,
+		CollabID:                  input.CollabID.String(),
+		PostID:                    input.PostID.String(),
+		OwnerUserID:               input.OwnerUserID.String(),
+		Title:                     input.Title,
+		CreatedBy:                 input.OwnerUserID.String(),
+		Status:                    input.Status,
+		CreatedAt:                 input.CreatedAt,
+		JoinInstructions:          input.JoinInstructions,
+		JoinInstructionsUpdatedAt: input.OccurredAt,
+		Version:                   1,
 	}
 
 	if _, err := r.collection.InsertOne(ctx, doc); err != nil {
@@ -162,6 +171,65 @@ func (r *Repository) Update(ctx context.Context, input usecase.CloseCollabInput)
 	}
 	if result.ModifiedCount == 0 {
 		return fmt.Errorf("update collab %s: %w", input.CollabID, ErrVersionConflict)
+	}
+
+	return nil
+}
+
+// GetJoinInstructionsState returns the version of collabID's document and when its
+// join instructions last changed, and whether the document exists at all.
+// UpdateCollabJoinInstructionsUsecase reads it right before
+// UpdateJoinInstructions.
+func (r *Repository) GetJoinInstructionsState(ctx context.Context, collabID uuid.UUID) (usecase.CollabJoinInstructionsState, bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
+	defer cancel()
+
+	var doc struct {
+		Version   int64     `bson:"version"`
+		UpdatedAt time.Time `bson:"join_instructions_updated_at"`
+	}
+	opts := options.FindOne().SetProjection(bson.D{
+		{Key: "_id", Value: 0},
+		{Key: "version", Value: 1},
+		{Key: "join_instructions_updated_at", Value: 1},
+	})
+	err := r.collection.FindOne(ctx, bson.D{{Key: "collab_id", Value: collabID.String()}}, opts).Decode(&doc)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return usecase.CollabJoinInstructionsState{}, false, nil
+		}
+		return usecase.CollabJoinInstructionsState{}, false, fmt.Errorf("get collab %s join instructions state: %w", collabID, err)
+	}
+
+	return usecase.CollabJoinInstructionsState{Version: doc.Version, UpdatedAt: doc.UpdatedAt}, true, nil
+}
+
+// UpdateJoinInstructions sets the join instructions of input.CollabID and their
+// update time, only when the stored version equals input.ExpectedVersion, and
+// increments the version. It touches no other field. When no document matched, it
+// returns ErrVersionConflict.
+func (r *Repository) UpdateJoinInstructions(ctx context.Context, input usecase.UpdateCollabJoinInstructionsInput) error {
+	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
+	defer cancel()
+
+	filter := bson.D{
+		{Key: "collab_id", Value: input.CollabID.String()},
+		{Key: "version", Value: input.ExpectedVersion},
+	}
+	update := bson.D{
+		{Key: "$set", Value: bson.D{
+			{Key: "join_instructions", Value: input.JoinInstructions},
+			{Key: "join_instructions_updated_at", Value: input.OccurredAt},
+		}},
+		{Key: "$inc", Value: bson.D{{Key: "version", Value: int64(1)}}},
+	}
+
+	result, err := r.collection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		return fmt.Errorf("update collab %s join instructions: %w", input.CollabID, err)
+	}
+	if result.MatchedCount == 0 {
+		return fmt.Errorf("update collab %s join instructions: %w", input.CollabID, ErrVersionConflict)
 	}
 
 	return nil
