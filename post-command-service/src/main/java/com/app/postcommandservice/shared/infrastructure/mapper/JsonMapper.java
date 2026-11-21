@@ -2,10 +2,12 @@ package com.app.postcommandservice.shared.infrastructure.mapper;
 
 import tools.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.annotation.ImportRuntimeHints;
 import org.springframework.stereotype.Component;
 
 @Component
 @RequiredArgsConstructor
+@ImportRuntimeHints(EventMessageRuntimeHints.class)
 public class JsonMapper {
 
     private final ObjectMapper objectMapper;
