@@ -20,8 +20,13 @@ import java.time.Instant;
 @Getter
 @Setter
 @Entity
-// The primary key starts with followed_id, which counts followers; this counts following
-@Table(name = "follows", indexes = @Index(name = "idx_follows_follower_id_status", columnList = "follower_id, status"))
+// The primary key starts with followed_id, which counts followers; the first index counts following.
+// The other two serve the keyset pages of the followers / following lists (db/schema/social-service-prod.sql).
+@Table(name = "follows", indexes = {
+        @Index(name = "idx_follows_follower_id_status", columnList = "follower_id, status"),
+        @Index(name = "idx_follows_followers_page", columnList = "followed_id, created_at DESC, follower_id DESC"),
+        @Index(name = "idx_follows_following_page", columnList = "follower_id, created_at DESC, followed_id DESC")
+})
 @NoArgsConstructor
 @AllArgsConstructor
 public class FollowEntity {

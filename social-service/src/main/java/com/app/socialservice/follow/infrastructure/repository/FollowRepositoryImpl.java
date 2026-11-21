@@ -1,14 +1,21 @@
 package com.app.socialservice.follow.infrastructure.repository;
 
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
+import com.app.socialservice.follow.application.dto.FollowListEntry;
 import com.app.socialservice.follow.application.repository.FollowRepository;
 import com.app.socialservice.follow.domain.model.Follow;
 import com.app.socialservice.follow.infrastructure.entity.FollowEntity;
 import com.app.socialservice.follow.infrastructure.entity.FollowEntityId;
 import com.app.socialservice.follow.infrastructure.enums.FollowStatus;
+import com.app.socialservice.follow.infrastructure.repository.JpaFollowRepository.FollowListRowProjection;
+import com.app.socialservice.shared.domain.pagination.KeysetCursor;
 import com.app.socialservice.user.domain.model.valueobj.UserId;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
@@ -92,6 +99,72 @@ public class FollowRepositoryImpl implements FollowRepository {
 
         int rows = jpaFollowRepository.markBidirectionalAsRemoved(firstUserId, secondUserId);
         return rows > 0;
+    }
+
+    @Override
+    public List<FollowListEntry> findFollowersPage(
+            UUID followedUserId,
+            UUID viewerUserId,
+            KeysetCursor after,
+            int fetchSize
+    ) {
+        validateUserIds(followedUserId, viewerUserId);
+        validateFetchSize(fetchSize);
+
+        var rows = after == null
+                ? jpaFollowRepository.findFirstFollowersPage(followedUserId, viewerUserId, fetchSize)
+                : jpaFollowRepository.findFollowersPageAfter(
+                        followedUserId, viewerUserId, after.createdAt(), after.id(), fetchSize);
+        return toFollowListEntries(rows);
+    }
+
+    @Override
+    public List<FollowListEntry> findFollowingPage(
+            UUID followerUserId,
+            UUID viewerUserId,
+            KeysetCursor after,
+            int fetchSize
+    ) {
+        validateUserIds(followerUserId, viewerUserId);
+        validateFetchSize(fetchSize);
+
+        var rows = after == null
+                ? jpaFollowRepository.findFirstFollowingPage(followerUserId, viewerUserId, fetchSize)
+                : jpaFollowRepository.findFollowingPageAfter(
+                        followerUserId, viewerUserId, after.createdAt(), after.id(), fetchSize);
+        return toFollowListEntries(rows);
+    }
+
+    @Override
+    public Set<UUID> findActivelyFollowedAmong(UUID followerUserId, Collection<UUID> candidateUserIds) {
+        if (followerUserId == null) {
+            throw new IllegalArgumentException("followerUserId must not be null");
+        }
+        if (candidateUserIds == null || candidateUserIds.stream().anyMatch(Objects::isNull)) {
+            throw new IllegalArgumentException("candidateUserIds must not be null nor contain null");
+        }
+        if (candidateUserIds.isEmpty()) {
+            return Set.of();
+        }
+
+        return new HashSet<>(jpaFollowRepository.findActivelyFollowedAmong(followerUserId, candidateUserIds));
+    }
+
+    private List<FollowListEntry> toFollowListEntries(List<FollowListRowProjection> rows) {
+        return rows.stream()
+                .map(row -> new FollowListEntry(
+                        row.getUserId(),
+                        row.getUsername(),
+                        row.getProfilePic(),
+                        row.getFollowedAt()
+                ))
+                .toList();
+    }
+
+    private void validateFetchSize(int fetchSize) {
+        if (fetchSize < 1) {
+            throw new IllegalArgumentException("fetchSize must be positive, got " + fetchSize);
+        }
     }
 
     private Follow toDomain(FollowEntity entity) {

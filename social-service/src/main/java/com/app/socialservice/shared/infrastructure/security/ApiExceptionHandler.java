@@ -8,8 +8,13 @@ import com.app.socialservice.block.domain.exception.SelfUnblockNotAllowedExcepti
 import com.app.socialservice.follow.domain.exception.FollowBlockedException;
 import com.app.socialservice.follow.domain.exception.SelfFollowNotAllowedException;
 import com.app.socialservice.follow.domain.exception.SelfUnfollowNotAllowedException;
+import com.app.socialservice.report.domain.exception.CannotReportSelfException;
+import com.app.socialservice.report.domain.exception.InvalidReportDetailsException;
+import com.app.socialservice.report.domain.exception.ReportedUserNotFoundException;
 import com.app.socialservice.shared.domain.exception.UserNotFoundException;
 import com.app.socialservice.shared.domain.exception.DomainException;
+import com.app.socialservice.shared.domain.exception.InvalidCursorException;
+import com.app.socialservice.shared.domain.exception.InvalidPageLimitException;
 import com.app.socialservice.user.domain.exception.InvalidEmailException;
 import com.app.socialservice.user.domain.exception.InvalidProfilePictureException;
 import com.app.socialservice.user.domain.exception.InvalidProfilePictureSizeException;
@@ -29,6 +34,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 import org.springframework.validation.BindException;
 import org.springframework.validation.BindingResult;
@@ -37,6 +43,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 @Slf4j
 @RestControllerAdvice
@@ -104,6 +111,84 @@ public class ApiExceptionHandler {
                 HttpStatus.BAD_REQUEST,
                 ApiErrorCode.INVALID_USERNAME,
                 exception.getMessage(),
+                request
+        );
+    }
+
+    @ExceptionHandler({
+            InvalidCursorException.class,
+            InvalidPageLimitException.class
+    })
+    public ResponseEntity<ApiErrorResponse> handlePaginationException(
+            DomainException exception,
+            HttpServletRequest request) {
+
+        var errorCode = exception instanceof InvalidCursorException
+                ? ApiErrorCode.INVALID_CURSOR
+                : ApiErrorCode.INVALID_LIMIT;
+        log.warn("Pagination request rejected on {}: errorCode={}, reason={}",
+                request.getRequestURI(), errorCode, exception.getMessage());
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, errorCode, exception.getMessage(), request);
+    }
+
+    /**
+     * A path or query value that does not convert to the declared type (e.g. a malformed UUID in
+     * /follow/{userId}/followers): a client error, not a 500. The message names only the parameter.
+     */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiErrorResponse> handleMethodArgumentTypeMismatchException(
+            MethodArgumentTypeMismatchException exception,
+            HttpServletRequest request) {
+
+        log.warn("Malformed request parameter on {}: name={}", request.getRequestURI(), exception.getName());
+        return buildErrorResponse(
+                HttpStatus.BAD_REQUEST,
+                ApiErrorCode.BAD_REQUEST,
+                String.format("%s is malformed", exception.getName()),
+                request
+        );
+    }
+
+    @ExceptionHandler(ReportedUserNotFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handleReportedUserNotFoundException(
+            ReportedUserNotFoundException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(HttpStatus.NOT_FOUND, ApiErrorCode.USER_NOT_FOUND, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(CannotReportSelfException.class)
+    public ResponseEntity<ApiErrorResponse> handleCannotReportSelfException(
+            CannotReportSelfException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(
+                HttpStatus.BAD_REQUEST, ApiErrorCode.CANNOT_REPORT_SELF, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(InvalidReportDetailsException.class)
+    public ResponseEntity<ApiErrorResponse> handleInvalidReportDetailsException(
+            InvalidReportDetailsException exception,
+            HttpServletRequest request) {
+
+        return buildErrorResponse(
+                HttpStatus.BAD_REQUEST, ApiErrorCode.VALIDATION_ERROR, exception.getMessage(), request);
+    }
+
+    /**
+     * Malformed JSON, an unknown enum constant or a malformed UUID in a request body: a client
+     * error, never a 500. The parser message is not echoed because it can leak internal types.
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiErrorResponse> handleHttpMessageNotReadableException(
+            HttpMessageNotReadableException exception,
+            HttpServletRequest request) {
+
+        log.warn("Unreadable request body on {}: {}", request.getRequestURI(), exception.getClass().getSimpleName());
+        return buildErrorResponse(
+                HttpStatus.BAD_REQUEST,
+                ApiErrorCode.VALIDATION_ERROR,
+                "Request body is malformed or contains invalid values",
                 request
         );
     }
