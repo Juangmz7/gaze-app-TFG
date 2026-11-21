@@ -1,9 +1,6 @@
 # Production Configuration — post-command-service
 spring:
-  # --- Virtual Threads ---
-  threads:
-    virtual:
-      enabled: true
+  # Virtual threads and open-in-view=false are set in application.yaml
   main:
     keep-alive: true
   lifecycle:
@@ -27,7 +24,6 @@ spring:
 
   # --- JPA / Hibernate ---
   jpa:
-    open-in-view: false
     show-sql: false
     hibernate:
       ddl-auto: validate

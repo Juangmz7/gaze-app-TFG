@@ -4,6 +4,7 @@ import java.util.UUID;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.app.postcommandservice.collab.application.dto.CollabResponse;
 import com.app.postcommandservice.collab.application.repository.CollabRepository;
@@ -22,6 +23,8 @@ public class CheckPostCollabLinkStatusUseCase {
     private final PostRepository postRepository;
     private final CollabRepository collabRepository;
 
+    // Loading the post maps its lazy media collection, which needs an open session
+    @Transactional(readOnly = true)
     public CheckPostCollabLinkStatusResult check(CheckPostCollabLinkStatusCommand command) {
         var post = postRepository.findById(command.postId())
                 .orElseThrow(() -> new PostNotFoundException(command.postId()));

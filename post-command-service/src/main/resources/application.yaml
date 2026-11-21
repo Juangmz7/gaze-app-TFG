@@ -1,7 +1,27 @@
+# Keys that decide which beans exist live here, not only in a profile: the native
+# image evaluates those conditions once, at build time with no profile, and the
+# same image runs with dev and prod. The defaults are the dev values; prod
+# overrides them from its environment.
+
 # --- Application identity (also the default OpenTelemetry service.name) ---
 spring:
   application:
     name: post-command-service
+  threads:
+    virtual:
+      enabled: true
+  jpa:
+    open-in-view: false
+  # --- OAuth2 Resource Server (downloads the Keycloak JWKS to validate tokens) ---
+  # Both are set so the image always builds the JWK-set decoder: the clusters give the
+  # public issuer (checked against each token's "iss") plus Keycloak's in-cluster JWKS URL,
+  # since the public host is not reachable from the pods.
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8080/realms/auth-service}
+          jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8080/realms/auth-service/protocol/openid-connect/certs}
   # --- RabbitMQ publisher confirms (required by the outbox relay) ---
   rabbitmq:
     publisher-confirm-type: correlated
@@ -141,6 +161,16 @@ rabbitmq:
 
 # --- Actuator (Kubernetes probes: /actuator/health/liveness and /readiness) ---
 management:
+  # --- OpenTelemetry (OTLP HTTP export of traces and logs) ---
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/traces
+    logging:
+      export:
+        otlp:
+          endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/logs
   endpoints:
     web:
       exposure:
