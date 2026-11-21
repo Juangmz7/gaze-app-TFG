@@ -1,6 +1,7 @@
 package com.app.postcommandservice.collab.infrastructure.mapper;
 
 import com.app.postcommandservice.collab.domain.model.Collab;
+import com.app.postcommandservice.collab.domain.model.valueobj.CollabJoinInstructions;
 import com.app.postcommandservice.collab.domain.model.valueobj.CollabTitle;
 import com.app.postcommandservice.collab.infrastructure.entity.CollabEntity;
 import com.app.postcommandservice.shared.domain.model.user.valueobj.UserId;
@@ -15,7 +16,8 @@ public class CollabMapper {
                 collab.getTitle().value(),
                 collab.getCreatedBy().value(),
                 collab.getCollabStatus(),
-                collab.getCreatedAt()
+                collab.getCreatedAt(),
+                CollabJoinInstructions.valueOrNull(collab.getJoinInstructions())
         );
     }
 
@@ -25,7 +27,8 @@ public class CollabMapper {
                 new CollabTitle(entity.getTitle()),
                 new UserId(entity.getCreatedBy()),
                 entity.getCollabStatus(),
-                entity.getCreatedAt()
+                entity.getCreatedAt(),
+                CollabJoinInstructions.ofNullable(entity.getJoinInstructions())
         );
     }
 }

@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS collabs (
     created_by UUID NOT NULL,
     collab_status VARCHAR(255) NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    join_instructions TEXT,
     CONSTRAINT pk_collabs PRIMARY KEY (id)
 );
 
@@ -538,3 +539,9 @@ CREATE INDEX IF NOT EXISTS idx_posts_media_cleanup
 CREATE INDEX IF NOT EXISTS idx_posts_failed_purge
     ON posts (status, media_purged_at, id)
     WHERE media_purged_at IS NOT NULL;
+
+-- --- Task 61: collab join instructions ---
+-- Optional onboarding text the collab ADMIN shares with accepted members. NULL means no
+-- instructions (the domain stores blank values as NULL and caps the text at 4000 characters).
+ALTER TABLE collabs
+    ADD COLUMN IF NOT EXISTS join_instructions TEXT;

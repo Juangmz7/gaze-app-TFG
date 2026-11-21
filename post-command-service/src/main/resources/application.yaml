@@ -124,6 +124,8 @@ rabbitmq:
         member:
           left: rk.post.collab.member.left
           banned: rk.post.collab.member.banned
+        join-instructions:
+          updated: rk.post.collab.join-instructions.updated
 
     # --- user ---
     user:

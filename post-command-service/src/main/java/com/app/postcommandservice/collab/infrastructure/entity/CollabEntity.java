@@ -42,6 +42,14 @@ public class CollabEntity {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
+    // Optional, already trimmed and length-checked by the domain (task 61)
+    @Column(name = "join_instructions", columnDefinition = "TEXT")
+    private String joinInstructions;
+
+    public CollabEntity(UUID id, String title, UUID createdBy, ColabStatus collabStatus, Instant createdAt) {
+        this(id, title, createdBy, collabStatus, createdAt, null);
+    }
+
     @PrePersist
     void onCreate() {
         createdAt = Instant.now();

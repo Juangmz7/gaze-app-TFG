@@ -17,6 +17,8 @@ import com.app.postcommandservice.post.infrastructure.controller.PostMediaReques
  * {@code order}/{@code taggedUsers} per media item, never {@code url}/{@code thumbnailUrl}/
  * {@code duration}. The server generates blob urls and returns transient upload SAS urls, just
  * like the plain endpoint.
+ * <p>
+ * {@code joinInstructions} is optional (task 61): absent, {@code null} or blank means none.
  */
 public record OpenCollabAndCreatePostRequest(
         @NotNull(message = "correlationId is required")
@@ -25,6 +27,7 @@ public record OpenCollabAndCreatePostRequest(
         String title,
         String description,
         Set<@NotBlank(message = "postTags must not contain blank values") String> postTags,
+        String joinInstructions,
         @NotEmpty(message = "media must contain at least one item")
         List<@Valid PostMediaRequest> media
 ) {

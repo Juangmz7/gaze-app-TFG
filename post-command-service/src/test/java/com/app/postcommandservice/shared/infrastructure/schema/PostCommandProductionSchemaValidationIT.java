@@ -335,6 +335,47 @@ class PostCommandProductionSchemaValidationIT {
         }
     }
 
+    @Test
+    void shouldAddTheNullableJoinInstructionsColumnToALegacyCollabsTable() {
+        bootstrapSchema("create");
+        execute("ALTER TABLE collabs DROP COLUMN join_instructions");
+        var legacyCollabId = UUID.randomUUID();
+        execute("""
+                INSERT INTO collabs (id, title, created_by, collab_status, created_at)
+                VALUES ('%s', 'legacy collab', '%s', 'OPEN', now())
+                """.formatted(legacyCollabId, UUID.randomUUID()));
+
+        assertThatThrownBy(() -> bootstrapSchema("validate"))
+                .hasRootCauseInstanceOf(Exception.class)
+                .hasMessageContaining("join_instructions");
+
+        applySchemaPatch("db/schema/post-command-service-prod.sql");
+
+        assertThatNoException().isThrownBy(() -> bootstrapSchema("validate"));
+        try (Connection connection = DriverManager.getConnection(
+                POSTGRES.getJdbcUrl(),
+                POSTGRES.getUsername(),
+                POSTGRES.getPassword());
+             Statement statement = connection.createStatement()) {
+            try (ResultSet column = statement.executeQuery("""
+                    SELECT data_type, is_nullable FROM information_schema.columns
+                    WHERE table_name = 'collabs' AND column_name = 'join_instructions'
+                    """)) {
+                assertThat(column.next()).as("collabs.join_instructions").isTrue();
+                assertThat(column.getString("data_type")).isEqualTo("text");
+                assertThat(column.getString("is_nullable")).isEqualTo("YES");
+            }
+            // Existing collabs have no instructions
+            try (ResultSet legacyRow = statement.executeQuery(
+                    "SELECT join_instructions FROM collabs WHERE id = '%s'".formatted(legacyCollabId))) {
+                assertThat(legacyRow.next()).isTrue();
+                assertThat(legacyRow.getString("join_instructions")).isNull();
+            }
+        } catch (java.sql.SQLException exception) {
+            throw new IllegalStateException("Failed to inspect collabs.join_instructions", exception);
+        }
+    }
+
     private int insertPostReport(UUID reporterId, UUID postId) {
         return executeUpdate("""
                 INSERT INTO post_reports (id, post_id, reporter_user_id, reason, details, snapshot, created_at)

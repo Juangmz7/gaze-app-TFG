@@ -24,6 +24,8 @@ public record CollabOpenedEvent(
         UUID createdBy,
         ColabStatus collabStatus,
         Instant collabCreatedAt,
+        // Optional onboarding text (task 61); null when the collab was opened without it
+        String joinInstructions,
         CollabMemberStatus creatorMemberStatus,
         CollabMemberRole creatorRole,
         Instant creatorMemberCreatedAt,

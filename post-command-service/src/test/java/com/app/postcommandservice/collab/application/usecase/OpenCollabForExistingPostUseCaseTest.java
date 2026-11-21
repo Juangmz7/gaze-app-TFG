@@ -23,6 +23,7 @@ import com.app.postcommandservice.collab.domain.events.CollabOpenedDomainEvent;
 import com.app.postcommandservice.collab.domain.model.Collab;
 import com.app.postcommandservice.collab.domain.model.CollabMember;
 import com.app.postcommandservice.collab.domain.model.valueobj.ColabStatus;
+import com.app.postcommandservice.collab.domain.model.valueobj.CollabJoinInstructions;
 import com.app.postcommandservice.collab.domain.model.valueobj.CollabMemberRole;
 import com.app.postcommandservice.collab.domain.model.valueobj.CollabMemberStatus;
 import com.app.postcommandservice.collab.domain.model.valueobj.CollabTitle;
@@ -125,7 +126,8 @@ class OpenCollabForExistingPostUseCaseTest {
                 POST_ID,
                 CORRELATION_ID,
                 OWNER_ID,
-                "Existing post collab"
+                "Existing post collab",
+                null
         ));
 
         assertThat(response.collabId()).isEqualTo(collabId);
@@ -144,6 +146,40 @@ class OpenCollabForExistingPostUseCaseTest {
     }
 
     @Test
+    void shouldOpenTheCollabWithTrimmedJoinInstructionsWhenTheRequestCarriesThem() {
+        var collabId = UUID.randomUUID();
+        var existingPost = persistedPost(OWNER_ID, null, PostType.BASIC, PostStatus.ACCEPTED);
+        var savedPost = persistedPost(OWNER_ID, collabId, PostType.COLLAB, PostStatus.ACCEPTED);
+        var savedCollab = openCollab(collabId).updateJoinInstructions(new CollabJoinInstructions("Repo: https://git/x"));
+        var savedMember = creatorMember(collabId);
+        var event = openedEvent(savedCollab, savedMember, savedPost);
+        var collabCaptor = ArgumentCaptor.forClass(Collab.class);
+
+        when(collabRequestIdempotencyRepository.findEntityIdByCorrelationId(CORRELATION_ID))
+                .thenReturn(Optional.empty());
+        when(postRepository.findById(POST_ID)).thenReturn(Optional.of(existingPost));
+        when(collabRepository.save(any(Collab.class))).thenReturn(savedCollab);
+        when(collabMemberRepository.save(any(CollabMember.class))).thenReturn(savedMember);
+        when(postRepository.saveAndFlush(any(Post.class))).thenReturn(savedPost);
+        when(collabEventMapper.toCollabOpenedEvent(
+                any(UUID.class), eq(CORRELATION_ID), eq(savedCollab), eq(savedMember), eq(savedPost), eq(false),
+                any(Instant.class)))
+                .thenReturn(event);
+        when(jsonMapper.toJson(event)).thenReturn("{\"event\":\"payload\"}");
+
+        useCase.open(new OpenCollabForExistingPostCommand(
+                POST_ID,
+                CORRELATION_ID,
+                OWNER_ID,
+                "Existing post collab",
+                "\tRepo: https://git/x  "
+        ));
+
+        verify(collabRepository).save(collabCaptor.capture());
+        assertThat(collabCaptor.getValue().getJoinInstructions().value()).isEqualTo("Repo: https://git/x");
+    }
+
+    @Test
     void shouldReturnExistingCollabDataWithoutSideEffectsWhenCorrelationIdAlreadyExists() {
         var collabId = UUID.randomUUID();
         var existingCollab = openCollab(collabId);
@@ -158,7 +194,8 @@ class OpenCollabForExistingPostUseCaseTest {
                 POST_ID,
                 CORRELATION_ID,
                 OWNER_ID,
-                "ignored"
+                "ignored",
+                null
         ));
 
         assertThat(response.collabId()).isEqualTo(collabId);
@@ -182,7 +219,8 @@ class OpenCollabForExistingPostUseCaseTest {
                 POST_ID,
                 CORRELATION_ID,
                 OWNER_ID,
-                "Existing post collab"
+                "Existing post collab",
+                null
         )))
                 .isInstanceOf(PostOwnershipException.class)
                 .hasMessageContaining(POST_ID.toString());
@@ -200,7 +238,8 @@ class OpenCollabForExistingPostUseCaseTest {
                 POST_ID,
                 CORRELATION_ID,
                 OWNER_ID,
-                "Existing post collab"
+                "Existing post collab",
+                null
         )))
                 .isInstanceOf(PostNotFoundException.class)
                 .hasMessageContaining(POST_ID.toString());
@@ -217,7 +256,8 @@ class OpenCollabForExistingPostUseCaseTest {
                 POST_ID,
                 CORRELATION_ID,
                 OWNER_ID,
-                "Existing post collab"
+                "Existing post collab",
+                null
         )))
                 .isInstanceOf(PostNotAcceptedException.class)
                 .hasMessageContaining("open a collab");
