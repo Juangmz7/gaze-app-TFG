@@ -111,4 +111,61 @@ public interface PostJpaRepository extends JpaRepository<PostEntity, UUID> {
             @Param("postId") UUID postId,
             @Param("status") PostStatus status,
             @Param("purgedAt") Instant purgedAt);
+
+    @Query("""
+            SELECT post.id AS id, post.userId AS userId, post.collabId AS collabId,
+                   post.status AS status, post.mediaPurgedAt AS mediaPurgedAt
+            FROM PostEntity post
+            WHERE post.id = :postId
+            """)
+    Optional<PostDeletionView> findDeletionViewById(@Param("postId") UUID postId);
+
+    /**
+     * Hard-deletes a post that never reached {@code ACCEPTED} (task 60). The status guard is the
+     * race arbiter against media verification: 0 rows means the post was accepted (or removed)
+     * meanwhile. Hibernate clears the {@code post_tags} collection table first; {@code post_media}
+     * and its tagged users go by {@code ON DELETE CASCADE}.
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            DELETE FROM PostEntity post
+            WHERE post.id = :postId
+              AND post.status IN :statuses
+            """)
+    int deleteByIdAndStatusIn(@Param("postId") UUID postId, @Param("statuses") Collection<PostStatus> statuses);
+
+    boolean existsByCollabId(UUID collabId);
+
+    /**
+     * First keyset page of the failed-post purge job (task 60): {@code MEDIA_UPLOAD_FAILED} posts
+     * whose blobs were purged before {@code purgedBefore}, ordered by {@code (mediaPurgedAt, id)}.
+     */
+    @Query("""
+            SELECT post.id AS id, post.mediaPurgedAt AS mediaPurgedAt
+            FROM PostEntity post
+            WHERE post.status = :status
+              AND post.mediaPurgedAt < :purgedBefore
+            ORDER BY post.mediaPurgedAt ASC, post.id ASC
+            """)
+    List<PostFailedPurgeView> findFailedPurgePage(
+            @Param("status") PostStatus status,
+            @Param("purgedBefore") Instant purgedBefore,
+            Limit limit);
+
+    /** Next keyset page of the failed-post purge job, strictly after {@code (afterPurgedAt, afterId)}. */
+    @Query("""
+            SELECT post.id AS id, post.mediaPurgedAt AS mediaPurgedAt
+            FROM PostEntity post
+            WHERE post.status = :status
+              AND post.mediaPurgedAt < :purgedBefore
+              AND (post.mediaPurgedAt > :afterPurgedAt
+                   OR (post.mediaPurgedAt = :afterPurgedAt AND post.id > :afterId))
+            ORDER BY post.mediaPurgedAt ASC, post.id ASC
+            """)
+    List<PostFailedPurgeView> findFailedPurgePageAfter(
+            @Param("status") PostStatus status,
+            @Param("purgedBefore") Instant purgedBefore,
+            @Param("afterPurgedAt") Instant afterPurgedAt,
+            @Param("afterId") UUID afterId,
+            Limit limit);
 }

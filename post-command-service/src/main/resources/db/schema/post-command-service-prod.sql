@@ -531,3 +531,10 @@ ALTER TABLE posts
 CREATE INDEX IF NOT EXISTS idx_posts_media_cleanup
     ON posts (status, created_at, id)
     WHERE media_purged_at IS NULL;
+
+-- --- Task 60: scheduled purge of failed posts ---
+-- Serves the purge job's keyset pages (status = 'MEDIA_UPLOAD_FAILED' AND media_purged_at < ?
+-- ORDER BY media_purged_at, id). Partial: only purged posts are ever candidates.
+CREATE INDEX IF NOT EXISTS idx_posts_failed_purge
+    ON posts (status, media_purged_at, id)
+    WHERE media_purged_at IS NOT NULL;

@@ -32,6 +32,17 @@ posts:
     lock-at-least-for: PT5M
     batch-size: 200
     max-batches-per-run: 10
+  # --- Scheduled purge of failed posts (task 60) ---
+  # Hourly at minute 45 (30 minutes after the media cleanup). Hard-deletes MEDIA_UPLOAD_FAILED
+  # posts whose blobs were purged more than `retention` ago; each run handles at most
+  # batch-size * max-batches-per-run posts.
+  failed-purge:
+    cron: "0 45 * * * *"
+    retention: P7D
+    lock-at-most-for: PT55M
+    lock-at-least-for: PT5M
+    batch-size: 200
+    max-batches-per-run: 10
 
 # --- RabbitMQ Bindings ---
 rabbitmq:

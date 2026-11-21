@@ -45,6 +45,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -67,6 +68,9 @@ class DeletePostUseCaseTest {
 
     @Mock
     private ApplicationEventPublisher applicationEventPublisher;
+
+    @Mock
+    private DeleteUnacceptedPostUseCase deleteUnacceptedPostUseCase;
 
     @Captor
     private ArgumentCaptor<Post> postCaptor;
@@ -160,6 +164,76 @@ class DeletePostUseCaseTest {
                 .doesNotContain("description")
                 .doesNotContain("createdAt")
                 .doesNotContain("updatedAt");
+    }
+
+    @Test
+    void shouldHardDeleteTheOwnersPendingPostWithoutPublishingPostDeletedEvent() {
+        when(postRepository.findById(POST_ID)).thenReturn(Optional.of(persistedPost(OWNER_ID, PostStatus.PENDING)));
+        when(deleteUnacceptedPostUseCase.delete(POST_ID)).thenReturn(new DeleteUnacceptedPostUseCase.Outcome(true, false));
+
+        deletePostUseCase.deletePost(new DeletePostCommand(POST_ID, OWNER_ID));
+
+        verify(deleteUnacceptedPostUseCase).delete(POST_ID);
+        verify(postRepository, never()).saveAndFlush(any(Post.class));
+        verifyNoInteractions(outboxEventRepository, applicationEventPublisher, postEventMapper);
+    }
+
+    @Test
+    void shouldHardDeleteTheOwnersMediaUploadFailedPostWithoutPublishingPostDeletedEvent() {
+        when(postRepository.findById(POST_ID)).thenReturn(Optional.of(persistedPost(OWNER_ID, PostStatus.MEDIA_UPLOAD_FAILED)));
+        when(deleteUnacceptedPostUseCase.delete(POST_ID)).thenReturn(new DeleteUnacceptedPostUseCase.Outcome(true, false));
+
+        deletePostUseCase.deletePost(new DeletePostCommand(POST_ID, OWNER_ID));
+
+        verify(postRepository, never()).saveAndFlush(any(Post.class));
+        verifyNoInteractions(outboxEventRepository, applicationEventPublisher);
+    }
+
+    @Test
+    void shouldFallBackToTheAcceptedRulesWhenTheConditionalDeleteAffectsNoRow() {
+        var acceptedMeanwhile = persistedPost(OWNER_ID, PostStatus.ACCEPTED);
+        var deletedPost = persistedPost(OWNER_ID, PostStatus.DELETED);
+        var deletedEvent = new PostDeletedEvent(UUID.randomUUID(), UUID.randomUUID(), POST_ID, OWNER_ID, Instant.now());
+        when(postRepository.findById(POST_ID))
+                .thenReturn(Optional.of(persistedPost(OWNER_ID, PostStatus.PENDING)))
+                .thenReturn(Optional.of(acceptedMeanwhile));
+        when(deleteUnacceptedPostUseCase.delete(POST_ID)).thenReturn(DeleteUnacceptedPostUseCase.Outcome.NOT_DELETED);
+        when(postRepository.saveAndFlush(any(Post.class))).thenReturn(deletedPost);
+        when(postEventMapper.toPostDeletedEvent(any(UUID.class), any(UUID.class), eq(POST_ID), eq(OWNER_ID), any(Instant.class)))
+                .thenReturn(deletedEvent);
+        when(jsonMapper.toJson(deletedEvent)).thenReturn("{}");
+
+        deletePostUseCase.deletePost(new DeletePostCommand(POST_ID, OWNER_ID));
+
+        verify(postRepository).saveAndFlush(postCaptor.capture());
+        assertThat(postCaptor.getValue().getStatus()).isEqualTo(PostStatus.DELETED);
+        verify(outboxEventRepository).save(outboxEventCaptor.capture());
+        assertThat(outboxEventCaptor.getValue().getEventType()).isEqualTo(PostDeletedEvent.class.getSimpleName());
+        verify(applicationEventPublisher).publishEvent(any(PostDeletedDomainEvent.class));
+    }
+
+    @Test
+    void shouldReturnNotFoundWhenThePendingPostDisappearsBeforeTheFallback() {
+        when(postRepository.findById(POST_ID))
+                .thenReturn(Optional.of(persistedPost(OWNER_ID, PostStatus.PENDING)))
+                .thenReturn(Optional.empty());
+        when(deleteUnacceptedPostUseCase.delete(POST_ID)).thenReturn(DeleteUnacceptedPostUseCase.Outcome.NOT_DELETED);
+
+        assertThatThrownBy(() -> deletePostUseCase.deletePost(new DeletePostCommand(POST_ID, OWNER_ID)))
+                .isInstanceOf(PostNotFoundException.class);
+
+        verify(postRepository, never()).saveAndFlush(any(Post.class));
+        verifyNoInteractions(outboxEventRepository);
+    }
+
+    @Test
+    void shouldThrowPostOwnershipExceptionForAnotherUsersPendingPostWithoutDeletingIt() {
+        when(postRepository.findById(POST_ID)).thenReturn(Optional.of(persistedPost(UUID.randomUUID(), PostStatus.PENDING)));
+
+        assertThatThrownBy(() -> deletePostUseCase.deletePost(new DeletePostCommand(POST_ID, OWNER_ID)))
+                .isInstanceOf(PostOwnershipException.class);
+
+        verifyNoInteractions(deleteUnacceptedPostUseCase, outboxEventRepository);
     }
 
     private Post persistedPost(UUID ownerId, PostStatus status) {

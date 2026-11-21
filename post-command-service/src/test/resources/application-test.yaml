@@ -18,6 +18,10 @@ posts:
   media-cleanup:
     cron: "-"
     lock-at-least-for: PT0S
+  # Tests call FailedPostPurgeService.run() directly
+  failed-purge:
+    cron: "-"
+    lock-at-least-for: PT0S
 
 spring:
   # --- JPA / Hibernate ---

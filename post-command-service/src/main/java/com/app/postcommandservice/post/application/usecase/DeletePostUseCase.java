@@ -22,6 +22,13 @@ import com.app.postcommandservice.shared.infrastructure.enums.EventStatus;
 import com.app.postcommandservice.shared.infrastructure.mapper.JsonMapper;
 import com.app.postcommandservice.shared.infrastructure.repository.OutboxEventRepository;
 
+/**
+ * Owner delete of a post ({@code DELETE /api/posts/{postId}}). An {@code ACCEPTED} post is soft
+ * deleted ({@code DELETED}) and {@code PostDeletedEvent} is published. A post that never reached
+ * {@code ACCEPTED} ({@code PENDING} or {@code MEDIA_UPLOAD_FAILED}, task 60) is hard deleted by
+ * {@link DeleteUnacceptedPostUseCase} without any post event, since downstream never received it;
+ * if it was accepted between the read and that conditional delete, the {@code ACCEPTED} rules apply.
+ */
 @Service
 @RequiredArgsConstructor
 public class DeletePostUseCase {
@@ -31,6 +38,7 @@ public class DeletePostUseCase {
     private final PostEventMapper postEventMapper;
     private final JsonMapper jsonMapper;
     private final ApplicationEventPublisher applicationEventPublisher;
+    private final DeleteUnacceptedPostUseCase deleteUnacceptedPostUseCase;
 
     @Transactional
     public void deletePost(DeletePostCommand command) {
@@ -38,6 +46,16 @@ public class DeletePostUseCase {
                 .orElseThrow(() -> new PostNotFoundException(command.postId()));
 
         assertOwnership(existingPost, command.currentUserId());
+
+        if (DeleteUnacceptedPostUseCase.isUnaccepted(existingPost.getStatus())) {
+            if (deleteUnacceptedPostUseCase.delete(command.postId()).postDeleted()) {
+                return;
+            }
+            // Accepted (or deleted) meanwhile: the conditional delete matched no row and cleared the
+            // persistence context, so this reload reads the current row and the ACCEPTED rules apply
+            existingPost = postRepository.findById(command.postId())
+                    .orElseThrow(() -> new PostNotFoundException(command.postId()));
+        }
 
         var deletedPost = postRepository.saveAndFlush(existingPost.delete());
 
