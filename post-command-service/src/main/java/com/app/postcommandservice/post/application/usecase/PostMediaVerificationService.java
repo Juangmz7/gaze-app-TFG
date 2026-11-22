@@ -10,8 +10,8 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -47,10 +47,12 @@ import com.app.postcommandservice.shared.infrastructure.repository.OutboxEventRe
  * it reads a snapshot in its own short read-only transaction, calls the (potentially slow,
  * network-bound) {@code MediaVerifier} with no transaction open and therefore no DB connection
  * held, then applies the outcome in a separate, fresh {@code REQUIRES_NEW} transaction. Both
- * transactional steps are invoked through {@code self} — an injected {@code @Lazy} proxy of
- * this same bean — because calling {@code this.findPostSnapshot(...)} or {@code
- * this.applyVerificationOutcome(...)} directly would bypass the Spring AOP proxy and silently
- * run with no transaction at all.</p>
+ * transactional steps are invoked through {@code self}, which looks up this same bean (its
+ * Spring AOP proxy) on each call, because calling {@code this.findPostSnapshot(...)} or {@code
+ * this.applyVerificationOutcome(...)} directly would bypass the proxy and silently run with no
+ * transaction at all. It is an {@link ObjectProvider} rather than a {@code @Lazy} reference:
+ * {@code @Lazy} on a class builds a second CGLIB proxy at run time, which a native image cannot
+ * generate.</p>
  *
  * <p>Only infrastructure failures (the {@code MediaVerifier} call failing because the storage
  * backend is unavailable) propagate out of {@code process}; every business inconsistency is
@@ -68,7 +70,7 @@ public class PostMediaVerificationService {
     private final OutboxEventRepository outboxEventRepository;
     private final JsonMapper jsonMapper;
     private final ApplicationEventPublisher applicationEventPublisher;
-    private final PostMediaVerificationService self;
+    private final ObjectProvider<PostMediaVerificationService> self;
 
     public PostMediaVerificationService(
             PostMediaVerificationRepository postMediaVerificationRepository,
@@ -78,7 +80,7 @@ public class PostMediaVerificationService {
             OutboxEventRepository outboxEventRepository,
             JsonMapper jsonMapper,
             ApplicationEventPublisher applicationEventPublisher,
-            @Lazy PostMediaVerificationService self) {
+            ObjectProvider<PostMediaVerificationService> self) {
         this.postMediaVerificationRepository = postMediaVerificationRepository;
         this.postRepository = postRepository;
         this.mediaVerifier = mediaVerifier;
@@ -92,7 +94,7 @@ public class PostMediaVerificationService {
     public void process(PostMediaUploadedEvent event) {
         UUID postId = event.postId();
 
-        Optional<PostSnapshot> snapshot = self.findPostSnapshot(postId);
+        Optional<PostSnapshot> snapshot = self.getObject().findPostSnapshot(postId);
         if (snapshot.isEmpty()) {
             // Late message for a post its owner (or the failed-post purge) deleted (task 60): ack it
             log.info("Ignoring media-uploaded event for post {}: the post no longer exists", postId);
@@ -112,7 +114,7 @@ public class PostMediaVerificationService {
 
         MediaVerificationResult result = mediaVerifier.verify(toMediaToVerify(event));
 
-        self.applyVerificationOutcome(postId, result);
+        self.getObject().applyVerificationOutcome(postId, result);
     }
 
     @Transactional(readOnly = true)

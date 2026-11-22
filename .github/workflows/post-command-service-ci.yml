@@ -39,6 +39,21 @@ jobs:
       - name: Run tests
         run: ./mvnw test -Dspring.profiles.active=test --no-transfer-progress
 
+  # A pull request builds the native image and runs native-e2e/e2e.sh on it without pushing:
+  # the image can compile and still fail at run time, which the JVM tests cannot see.
+  native-image:
+    needs: test
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/docker-publish.yml
+    with:
+      image: juangmz7/post-command-service
+      context: post-command-service
+      dockerfile: post-command-service/Dockerfile
+      # native-image takes most of the runner's 16 GB by default; 10 GB of heap is enough
+      build-args: NATIVE_IMAGE_OPTIONS=-J-Xmx10g
+      e2e-script: post-command-service/native-e2e/e2e.sh
+      push: false
+
   publish:
     needs: test
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
@@ -47,4 +62,7 @@ jobs:
       image: juangmz7/post-command-service
       context: post-command-service
       dockerfile: post-command-service/Dockerfile
+      build-args: NATIVE_IMAGE_OPTIONS=-J-Xmx10g
+      # Pushed (and then deployed by Argo CD) only if the image passes the end-to-end test
+      e2e-script: post-command-service/native-e2e/e2e.sh
     secrets: inherit

@@ -7,8 +7,9 @@ ARG JAVA_VERSION=25
 FROM maven:3.9-eclipse-temurin-${JAVA_VERSION} AS maven
 
 # Stage 1: Spring AOT processing and native compilation with Oracle GraalVM.
-# native-image needs several GB of memory and a few minutes.
-FROM container-registry.oracle.com/graalvm/native-image:${JAVA_VERSION} AS builder
+# native-image needs several GB of memory and a few minutes. The Oracle Linux
+# version is pinned (the plain tag moved from 9 to 10) and must match the run stage.
+FROM container-registry.oracle.com/graalvm/native-image:${JAVA_VERSION}-ol10 AS builder
 COPY --from=maven /usr/share/maven /usr/share/maven
 ENV PATH=/usr/share/maven/bin:${PATH}
 # Extra native-image options, e.g. --build-arg NATIVE_IMAGE_OPTIONS=-J-Xmx5g to cap its
@@ -22,9 +23,9 @@ COPY src ./src
 # maven.test.skip also skips the AOT processing of the tests, which the image does not need
 RUN --mount=type=cache,target=/root/.m2 mvn -B -Pnative -Dmaven.test.skip=true native:compile
 
-# Stage 2: Run. The executable links glibc and zlib dynamically: Oracle Linux 9,
-# the base of the builder image, has the same versions.
-FROM container-registry.oracle.com/os/oraclelinux:9-slim
+# Stage 2: Run. The executable links glibc and zlib dynamically: the same Oracle
+# Linux version as the builder has the same versions.
+FROM container-registry.oracle.com/os/oraclelinux:10-slim
 WORKDIR /app
 COPY --from=builder /app/target/post-command-service /app/post-command-service
 # Not root, matching the chart's podSecurityContext

@@ -15,6 +15,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 
+import com.app.postcommandservice.SelfProvider;
 import com.app.postcommandservice.post.application.port.MediaBlobDeleter;
 import com.app.postcommandservice.post.application.repository.PostMediaCleanupRepository;
 import com.app.postcommandservice.post.application.repository.PostMediaCleanupRepository.CleanupCursor;
@@ -75,12 +76,13 @@ class PostMediaCleanupServiceTest {
     }
 
     /**
-     * In production {@code self} is the Spring proxy of this bean. Without a Spring context it is
-     * wired to the same instance through reflection (the constructor cannot receive {@code this}),
-     * which behaves like a proxy forwarding to the real bean.
+     * In production {@code self} provides the Spring proxy of this bean. Without a Spring context
+     * it provides the same instance (see {@link SelfProvider}), which behaves like a proxy
+     * forwarding to the real bean.
      */
     private PostMediaCleanupService service() {
-        var instance = new PostMediaCleanupService(
+        var self = new SelfProvider<PostMediaCleanupService>();
+        var instance = self.set(new PostMediaCleanupService(
                 postMediaCleanupRepository,
                 mediaBlobDeleter,
                 postMediaProperties,
@@ -88,14 +90,7 @@ class PostMediaCleanupServiceTest {
                 outboxEventRepository,
                 jsonMapper,
                 applicationEventPublisher,
-                null);
-        try {
-            var selfField = PostMediaCleanupService.class.getDeclaredField("self");
-            selfField.setAccessible(true);
-            selfField.set(instance, instance);
-        } catch (ReflectiveOperationException exception) {
-            throw new IllegalStateException(exception);
-        }
+                self));
         return instance;
     }
 
