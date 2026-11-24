@@ -18,6 +18,7 @@ import (
 //	postType            COLLAB when a collab resolves (feedState.collabFor), else post_type
 //	collabStatus        the resolved collab's status, null without one
 //	likeCount           stats.like_count
+//	viewCount           stats.view_count (0 for a post projected before task 63)
 //	createdAt           the post's created_at (also on the reposts grid and the own tabs)
 //
 // The own tabs (task 50) add the time of the caller's row to the same item:
@@ -34,6 +35,7 @@ type GridItem struct {
 	PostType          string
 	CollabStatus      *string
 	LikeCount         int64
+	ViewCount         int64
 	CreatedAt         time.Time
 }
 
@@ -53,6 +55,7 @@ type GridItemResponse struct {
 	PostType          string    `json:"postType"`
 	CollabStatus      *string   `json:"collabStatus"`
 	LikeCount         int64     `json:"likeCount"`
+	ViewCount         int64     `json:"viewCount"`
 	CreatedAt         time.Time `json:"createdAt"`
 }
 
@@ -118,6 +121,7 @@ func GridItemFromPost(post FeedPost, collab *FeedCollab) (GridItem, bool) {
 		PostType:          card.PostType,
 		CollabStatus:      card.CollabStatus,
 		LikeCount:         card.Stats.LikeCount,
+		ViewCount:         card.Stats.ViewCount,
 		CreatedAt:         card.CreatedAt,
 	}, true
 }
@@ -199,6 +203,7 @@ func gridItemToResponse(ctx context.Context, item GridItem, signer MediaURLSigne
 		PostType:          item.PostType,
 		CollabStatus:      item.CollabStatus,
 		LikeCount:         item.LikeCount,
+		ViewCount:         item.ViewCount,
 		CreatedAt:         item.CreatedAt,
 	}, nil
 }

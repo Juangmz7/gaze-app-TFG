@@ -66,11 +66,13 @@ type FeedMediaDocument struct {
 	TaggedUsers  []string `bson:"tagged_users"`
 }
 
-// FeedStatsDocument holds the counters as posts and feed_units store them.
+// FeedStatsDocument holds the counters as posts and feed_units store them. A post
+// projected before task 63 has no view_count, which decodes as 0.
 type FeedStatsDocument struct {
 	LikeCount    int64 `bson:"like_count"`
 	CommentCount int64 `bson:"comment_count"`
 	ShareCount   int64 `bson:"share_count"`
+	ViewCount    int64 `bson:"view_count"`
 }
 
 // FeedCreatorDocument is the creator as feed_units stores it.
@@ -371,6 +373,7 @@ func FeedUnitToDocument(unit FeedUnit) FeedUnitDocument {
 			LikeCount:    unit.Stats.LikeCount,
 			CommentCount: unit.Stats.CommentCount,
 			ShareCount:   unit.Stats.ShareCount,
+			ViewCount:    unit.Stats.ViewCount,
 		},
 		PostCreatedAt: unit.PostCreatedAt,
 		IngestedAt:    unit.IngestedAt,
@@ -627,6 +630,7 @@ func feedStatsFromDocument(document FeedStatsDocument) FeedStats {
 		LikeCount:    document.LikeCount,
 		CommentCount: document.CommentCount,
 		ShareCount:   document.ShareCount,
+		ViewCount:    document.ViewCount,
 	}
 }
 

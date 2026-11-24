@@ -16,7 +16,7 @@ func sampleTimedPage() usecase.TimedGridPage {
 		Items: []usecase.TimedGridItem{{
 			GridItem: usecase.GridItem{
 				PostID: "post-1", CoverThumbnailURL: &cover, MediaType: "VIDEO", MediaCount: 3, PostType: "BASIC",
-				LikeCount: 7, CreatedAt: time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC),
+				LikeCount: 7, ViewCount: 12, CreatedAt: time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC),
 			},
 			At: time.Date(2026, 3, 2, 8, 30, 0, 0, time.UTC),
 		}},
@@ -46,7 +46,7 @@ func TestOwnTabPageToResponse_IsAGridItemPlusTheRowTimeWithTheCoverSigned(t *tes
 			if err != nil {
 				t.Fatalf("Marshal() error = %v", err)
 			}
-			want := `{"items":[{"postId":"post-1","coverThumbnailUrl":"https://media.test/cover.jpg?sig=signed","mediaType":"VIDEO","mediaCount":3,"postType":"BASIC","collabStatus":null,"likeCount":7,"createdAt":"2026-03-01T10:00:00Z","` +
+			want := `{"items":[{"postId":"post-1","coverThumbnailUrl":"https://media.test/cover.jpg?sig=signed","mediaType":"VIDEO","mediaCount":3,"postType":"BASIC","collabStatus":null,"likeCount":7,"viewCount":12,"createdAt":"2026-03-01T10:00:00Z","` +
 				timeName + `":"2026-03-02T08:30:00Z"}],"nextCursor":"next-page"}`
 			if string(encoded) != want {
 				t.Fatalf("JSON = %s\nwant   %s", encoded, want)

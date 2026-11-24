@@ -23,8 +23,8 @@ const PostViewedEventType = "PostViewedEvent"
 // PostViewedEvent is the wire shape of PostViewedEvent published by
 // post-command-service (view/infrastructure/events/PostViewedEvent.java). Field names
 // are camelCase, matching the Java record. Only the envelope, the ids and
-// serverTimestamp feed the history; the rest is kept so the shape stays the
-// contract's.
+// serverTimestamp feed the history and the view counter; the rest is kept so the
+// shape stays the contract's.
 type PostViewedEvent struct {
 	ID                uuid.UUID `json:"id"`
 	CorrelationID     uuid.UUID `json:"correlationId"`
@@ -54,7 +54,7 @@ type PostViewedTransactor interface {
 	WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error
 }
 
-// PostViewedUsecase executes the viewing history projection.
+// PostViewedUsecase executes the viewing history and view counter projection.
 type PostViewedUsecase interface {
 	Execute(ctx context.Context, input usecase.RecordPostViewInput) error
 }
@@ -86,9 +86,10 @@ func (h *PostViewedHandler) Handle(ctx context.Context, msg *message.Message) er
 		return rmqerror.NewPermanent(err)
 	}
 
-	// IsProcessed, the history write and MarkProcessed commit or abort together. The
-	// driver may re-run this function on a transient transaction error, and a re-run
-	// sees its own committed state.
+	// IsProcessed, the history write, the view count and MarkProcessed commit or abort
+	// together, so a redelivery never counts a view twice. The driver may re-run this
+	// function on a transient transaction error, and a re-run sees its own committed
+	// state.
 	duplicate := false
 	err := h.transactor.WithTransaction(ctx, func(ctx context.Context) error {
 		alreadyProcessed, err := h.idempotency.IsProcessed(ctx, event.ID)
@@ -101,9 +102,10 @@ func (h *PostViewedHandler) Handle(ctx context.Context, msg *message.Message) er
 		}
 
 		input := usecase.RecordPostViewInput{
-			UserID:   event.UserID,
-			PostID:   event.PostID,
-			ViewedAt: event.ServerTimestamp,
+			UserID:        event.UserID,
+			PostID:        event.PostID,
+			ViewedAt:      event.ServerTimestamp,
+			CorrelationID: event.CorrelationID,
 		}
 		if err := h.usecase.Execute(ctx, input); err != nil {
 			return fmt.Errorf("execute record post view usecase for event %s: %w", event.ID, err)

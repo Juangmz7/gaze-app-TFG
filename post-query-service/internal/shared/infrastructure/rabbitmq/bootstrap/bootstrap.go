@@ -267,7 +267,7 @@ func addPostConsumer(ctx context.Context, wmRouter *message.Router, amqpURI stri
 	collabRequestDeletedHandler := collabrabbitmq.NewCollabJoinRequestDeletedHandler(transactor, idempotencyRepo, applyCollabMember, logger)
 	collabMemberLeftHandler := collabrabbitmq.NewCollabMemberLeftHandler(transactor, idempotencyRepo, applyCollabMember, logger)
 	collabMemberBannedHandler := collabrabbitmq.NewCollabMemberBannedHandler(transactor, idempotencyRepo, applyCollabMember, logger)
-	postViewedHandler := viewrabbitmq.NewPostViewedHandler(transactor, idempotencyRepo, viewusecase.NewRecordPostView(historyRepository), logger)
+	postViewedHandler := viewrabbitmq.NewPostViewedHandler(transactor, idempotencyRepo, viewusecase.NewRecordPostView(historyRepository, postRepository, logger), logger)
 
 	// Every routing key listed in topology.PostRoutingKeys is bound to this
 	// queue at the AMQP level (see topology.Builder). Only the subset below

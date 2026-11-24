@@ -207,10 +207,34 @@ func (a *javaEventsApp) waitForDocument(t *testing.T, ctx context.Context, colle
 	}
 }
 
+// waitUntil polls check until it reports done. waitUntilDrained only sees the ready
+// messages of a queue, not the deliveries a consumer holds unacked nor the ones parked
+// for a retry, so assertions on what those deliveries write must poll for the final state.
+func waitUntil(t *testing.T, ctx context.Context, check func() (done bool, state string)) {
+	t.Helper()
+
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		done, state := check()
+		if done {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out: %s", state)
+		}
+		select {
+		case <-time.After(100 * time.Millisecond):
+		case <-ctx.Done():
+			t.Fatalf("context cancelled: %s", state)
+		}
+	}
+}
+
 type postStats struct {
 	LikeCount    int64 `bson:"like_count"`
 	CommentCount int64 `bson:"comment_count"`
 	ShareCount   int64 `bson:"share_count"`
+	ViewCount    int64 `bson:"view_count"`
 }
 
 // waitForStats polls until the post's stats equal want: the counters settle only
@@ -272,9 +296,20 @@ func TestConsumers_ProjectRealPostViewedEventsIntoOneHistoryRowWithTheLatestView
 		at := base.Add(time.Duration(minute) * time.Minute).Format("2006-01-02T15:04:05.000000Z")
 		app.publish(t, ctx, topology.ExchangePostEvents, topology.RKPostViewed, postViewedJSON(postID, viewer, at))
 	}
-	app.waitUntilDrained(t, ctx, topology.QueuePost, 0)
 
 	filter := bson.D{{Key: "user_id", Value: viewer}, {Key: "post_id", Value: postID}}
+	var row struct {
+		LastViewedAt time.Time `bson:"last_viewed_at"`
+	}
+	waitUntil(t, ctx, func() (bool, string) {
+		err := app.db.Collection("view_history").FindOne(ctx, filter).Decode(&row)
+		if err == nil && row.LastViewedAt.Equal(latest) {
+			return true, ""
+		}
+		return false, fmt.Sprintf("last_viewed_at = %v (err %v), want the latest view %v despite the late older ones", row.LastViewedAt, err, latest)
+	})
+	app.waitUntilDrained(t, ctx, topology.QueuePost, 0)
+
 	rows, err := app.db.Collection("view_history").CountDocuments(ctx, filter)
 	if err != nil {
 		t.Fatalf("CountDocuments() error = %v", err)
@@ -282,12 +317,49 @@ func TestConsumers_ProjectRealPostViewedEventsIntoOneHistoryRowWithTheLatestView
 	if rows != 1 {
 		t.Fatalf("view_history rows = %d, want 1 for ten views of one post", rows)
 	}
-	var row struct {
-		LastViewedAt time.Time `bson:"last_viewed_at"`
+}
+
+func TestConsumers_CountEachRealPostViewedEventOnceAlsoWhenItIsRedelivered(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	app := startJavaEventsApp(t, ctx)
+	ex := topology.ExchangePostEvents
+
+	postID, viewer := uuid.NewString(), uuid.NewString()
+	app.publish(t, ctx, ex, topology.RKPostCreated, postCreatedJSON(postID, uuid.NewString()))
+	app.waitForDocument(t, ctx, "posts", bson.D{{Key: "post_id", Value: postID}}, &struct{}{})
+
+	// One view delivered twice (a broker redelivery of the same event id), then a second
+	// view of the same user (a new event, a new viewId): two views.
+	view := postViewedJSON(postID, viewer, testInstant)
+	app.publish(t, ctx, ex, topology.RKPostViewed, view)
+	app.publish(t, ctx, ex, topology.RKPostViewed, view)
+	app.publish(t, ctx, ex, topology.RKPostViewed, postViewedJSON(postID, viewer, "2026-03-01T10:20:00.000000Z"))
+	// A view of a post that is not projected is acked without creating it.
+	unprojected := uuid.NewString()
+	app.publish(t, ctx, ex, topology.RKPostViewed, postViewedJSON(unprojected, viewer, testInstant))
+
+	app.waitForStats(t, ctx, postID, postStats{ViewCount: 2})
+	// Both posts' views are in the viewer's history.
+	waitUntil(t, ctx, func() (bool, string) {
+		rows, err := app.db.Collection("view_history").CountDocuments(ctx, bson.D{{Key: "user_id", Value: viewer}})
+		return err == nil && rows == 2, fmt.Sprintf("view_history rows = %d (err %v), want 2", rows, err)
+	})
+	app.waitUntilDrained(t, ctx, topology.QueuePost, 0)
+
+	var post struct {
+		Version int64 `bson:"version"`
 	}
-	app.waitForDocument(t, ctx, "view_history", filter, &row)
-	if !row.LastViewedAt.Equal(latest) {
-		t.Fatalf("last_viewed_at = %v, want the latest view %v despite the late older ones", row.LastViewedAt, latest)
+	app.waitForDocument(t, ctx, "posts", bson.D{{Key: "post_id", Value: postID}}, &post)
+	if post.Version != 1 {
+		t.Fatalf("post version = %d, want 1: views must not bump it", post.Version)
+	}
+	count, err := app.db.Collection("posts").CountDocuments(ctx, bson.D{{Key: "post_id", Value: unprojected}})
+	if err != nil {
+		t.Fatalf("CountDocuments() error = %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("posts for the unprojected id = %d, want 0", count)
 	}
 }
 

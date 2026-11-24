@@ -3,6 +3,7 @@ package mongo_test
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -377,6 +378,7 @@ type storedPost struct {
 		LikeCount    int64 `bson:"like_count"`
 		CommentCount int64 `bson:"comment_count"`
 		ShareCount   int64 `bson:"share_count"`
+		ViewCount    int64 `bson:"view_count"`
 	} `bson:"stats"`
 	Tags    []string `bson:"tags"`
 	Version int64    `bson:"version"`
@@ -564,5 +566,168 @@ func TestRepository_AdjustLikeCount_ReportsNotFoundWhenThePostIsNotProjected(t *
 	}
 	if found {
 		t.Fatal("AdjustLikeCount() found = true, want false for a post that is not projected")
+	}
+}
+
+func TestRepository_Insert_StartsTheViewCountAtZero(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	db := testDatabase(t, ctx)
+	repository := postmongo.NewRepository(db)
+
+	postID := uuid.New()
+	if err := repository.Insert(ctx, usecase.CreatePostInput{PostID: postID, UserID: uuid.New(), PostType: "BASIC", Media: samplePostMedia()}); err != nil {
+		t.Fatalf("Insert() error = %v", err)
+	}
+
+	// A pointer, so a missing field is not mistaken for a stored 0.
+	var doc struct {
+		Stats struct {
+			ViewCount *int64 `bson:"view_count"`
+		} `bson:"stats"`
+	}
+	if err := db.Collection("posts").FindOne(ctx, bson.D{{Key: "post_id", Value: postID.String()}}).Decode(&doc); err != nil {
+		t.Fatalf("FindOne() error = %v", err)
+	}
+	if doc.Stats.ViewCount == nil || *doc.Stats.ViewCount != 0 {
+		t.Fatalf("stored stats.view_count = %v, want a stored 0", doc.Stats.ViewCount)
+	}
+}
+
+func TestRepository_AdjustViewCount_AddsOneReportsFoundAndKeepsVersionAndTheOtherCounters(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	db := testDatabase(t, ctx)
+	repository := postmongo.NewRepository(db)
+
+	postID := uuid.New()
+	if err := repository.Insert(ctx, usecase.CreatePostInput{PostID: postID, UserID: uuid.New(), PostType: "BASIC", Media: samplePostMedia()}); err != nil {
+		t.Fatalf("Insert() error = %v", err)
+	}
+	if _, err := repository.AdjustLikeCount(ctx, postID, 1); err != nil {
+		t.Fatalf("AdjustLikeCount() error = %v", err)
+	}
+
+	found, err := repository.AdjustViewCount(ctx, postID, 1)
+	if err != nil || !found {
+		t.Fatalf("AdjustViewCount() found/error = %v/%v, want true/nil", found, err)
+	}
+
+	got := findStoredPost(t, ctx, db, postID)
+	if got.Stats.ViewCount != 1 {
+		t.Fatalf("stored view_count = %d, want 1", got.Stats.ViewCount)
+	}
+	if got.Stats.LikeCount != 1 || got.Stats.CommentCount != 0 || got.Stats.ShareCount != 0 {
+		t.Fatalf("stored stats = %+v, want only view_count changed", got.Stats)
+	}
+	if got.Version != 1 {
+		t.Fatalf("stored version = %d, want 1: views must not conflict with PostUpdatedEvent", got.Version)
+	}
+
+	// A following PostUpdatedEvent still applies at the version it read, and keeps the views.
+	if err := repository.Update(ctx, usecase.UpdatePostInput{PostID: postID, ExpectedVersion: 1, PostType: "BASIC", Description: "edited"}); err != nil {
+		t.Fatalf("Update() error = %v, want the version untouched by the view", err)
+	}
+	if got := findStoredPost(t, ctx, db, postID); got.Version != 2 || got.Stats.ViewCount != 1 {
+		t.Fatalf("after Update version/view_count = %d/%d, want 2/1", got.Version, got.Stats.ViewCount)
+	}
+}
+
+func TestRepository_AdjustViewCount_ReportsNotFoundAndCreatesNothingForAnUnknownPost(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	db := testDatabase(t, ctx)
+	repository := postmongo.NewRepository(db)
+
+	found, err := repository.AdjustViewCount(ctx, uuid.New(), 1)
+	if err != nil {
+		t.Fatalf("AdjustViewCount() error = %v", err)
+	}
+	if found {
+		t.Fatal("AdjustViewCount() found = true, want false for a post that is not projected")
+	}
+	count, err := db.Collection("posts").CountDocuments(ctx, bson.D{})
+	if err != nil {
+		t.Fatalf("CountDocuments() error = %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("posts documents = %d, want 0: AdjustViewCount must never upsert", count)
+	}
+}
+
+func TestRepository_AdjustViewCount_StartsFromZeroOnAPostProjectedBeforeViewCounts(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	db := testDatabase(t, ctx)
+	repository := postmongo.NewRepository(db)
+
+	// The shape of a post projected before task 63: stats without view_count.
+	postID := uuid.New()
+	legacy := bson.D{
+		{Key: "post_id", Value: postID.String()},
+		{Key: "stats", Value: bson.D{{Key: "like_count", Value: int64(4)}, {Key: "comment_count", Value: int64(0)}, {Key: "share_count", Value: int64(0)}}},
+		{Key: "version", Value: int64(3)},
+	}
+	if _, err := db.Collection("posts").InsertOne(ctx, legacy); err != nil {
+		t.Fatalf("InsertOne() error = %v", err)
+	}
+	if got := findStoredPost(t, ctx, db, postID); got.Stats.ViewCount != 0 {
+		t.Fatalf("decoded view_count = %d, want 0 for a missing field", got.Stats.ViewCount)
+	}
+
+	if _, err := repository.AdjustViewCount(ctx, postID, 1); err != nil {
+		t.Fatalf("AdjustViewCount() error = %v", err)
+	}
+
+	got := findStoredPost(t, ctx, db, postID)
+	if got.Stats.ViewCount != 1 || got.Stats.LikeCount != 4 || got.Version != 3 {
+		t.Fatalf("stored view_count/like_count/version = %d/%d/%d, want 1/4/3", got.Stats.ViewCount, got.Stats.LikeCount, got.Version)
+	}
+}
+
+func TestRepository_AdjustViewCount_ConcurrentCallsOnOnePostLoseNoIncrement(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	db := testDatabase(t, ctx)
+	repository := postmongo.NewRepository(db)
+
+	postID := uuid.New()
+	if err := repository.Insert(ctx, usecase.CreatePostInput{PostID: postID, UserID: uuid.New(), PostType: "BASIC", Media: samplePostMedia()}); err != nil {
+		t.Fatalf("Insert() error = %v", err)
+	}
+
+	const views = 100
+	var group sync.WaitGroup
+	failures := make(chan error, views)
+	for range views {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			found, err := repository.AdjustViewCount(ctx, postID, 1)
+			if err == nil && !found {
+				err = errors.New("post not found")
+			}
+			if err != nil {
+				failures <- err
+			}
+		}()
+	}
+	group.Wait()
+	close(failures)
+	for err := range failures {
+		t.Fatalf("AdjustViewCount() error = %v", err)
+	}
+
+	got := findStoredPost(t, ctx, db, postID)
+	if got.Stats.ViewCount != views {
+		t.Fatalf("stored view_count = %d, want %d: concurrent views must not lose increments", got.Stats.ViewCount, views)
+	}
+	if got.Version != 1 {
+		t.Fatalf("stored version = %d, want 1", got.Version)
 	}
 }
