@@ -22,7 +22,7 @@ func sampleOwnPage() usecase.TimedGridPage {
 		Items: []usecase.TimedGridItem{{
 			GridItem: usecase.GridItem{
 				PostID: uuid.NewString(), CoverThumbnailURL: &cover, MediaType: "IMAGE", MediaCount: 2, PostType: "BASIC",
-				LikeCount: 4, CreatedAt: ownListEpoch,
+				LikeCount: 4, ViewCount: 9, CreatedAt: ownListEpoch,
 			},
 			At: ownListEpoch.Add(time.Hour),
 		}},
@@ -86,6 +86,7 @@ func TestOwnListHandlers_ReadTheCallersListWithTheDefaultLimitAndAnswerGridItems
 			want := map[string]any{
 				"postId": usecases.ownPage.Items[0].PostID, "coverThumbnailUrl": "https://media.test/cover.jpg", "mediaType": "IMAGE",
 				"mediaCount": float64(2), "postType": "BASIC", "collabStatus": nil, "likeCount": float64(4),
+				"viewCount": float64(9),
 				"createdAt": "2026-03-01T10:00:00Z", list.timeName: "2026-03-01T11:00:00Z",
 			}
 			if len(body.Items[0]) != len(want) {

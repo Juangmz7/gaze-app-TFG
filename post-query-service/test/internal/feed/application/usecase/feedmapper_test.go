@@ -147,7 +147,8 @@ func TestFeedUnitToDocument_PersistsEveryAgreedFieldWithItsExactName(t *testing.
 	assertKeys(t, "feed unit", stored, "user_id", "post_id", "position", "creator", "description", "post_type", "tags",
 		"collab_id", "media", "cover_thumbnail_url", "duration_ms", "stats", "post_created_at", "ingested_at", "served_at")
 	assertKeys(t, "creator", asMap(t, stored["creator"]), "user_id", "username", "picture_url")
-	assertKeys(t, "stats", asMap(t, stored["stats"]), "like_count", "comment_count", "share_count")
+	// FeedStatsDocument is shared with posts, so the snapshot keeps view_count too (task 63).
+	assertKeys(t, "stats", asMap(t, stored["stats"]), "like_count", "comment_count", "share_count", "view_count")
 
 	media := stored["media"].(bson.A)
 	assertKeys(t, "media element", asMap(t, media[0]), "id", "url", "thumbnail_url", "media_type", "order", "duration_ms", "tagged_users")
