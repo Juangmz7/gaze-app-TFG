@@ -40,6 +40,7 @@ public class UserProfileService {
     private final OwnUserProfileReader ownUserProfileReader;
     private final UserCacheEvictor userCacheEvictor;
     private final ProfilePictureStorage profilePictureStorage;
+    private final OwnUserProfileWriter ownUserProfileWriter;
 
     /**
      * The account status is checked live on every request, so a ban applies at once; the
@@ -62,8 +63,8 @@ public class UserProfileService {
     /**
      * Not one transaction on purpose: a new avatar is checked in Blob Storage (a network call)
      * between the read and the write, and no database connection must be held meanwhile. The
-     * write itself is transactional (UserRepository.updateProfile) and, like before, the last
-     * full replacement wins.
+     * write and its UserUpdatedEvent outbox row commit in one transaction (OwnUserProfileWriter)
+     * and, like before, the last full replacement wins.
      */
     @CachePut(cacheNames = CacheNames.OWN_PROFILE, key = CacheNames.KEY_BY_COMMAND)
     public OwnUserProfileResponse updateOwnUserProfile(UpdateOwnUserProfileCommand command) {
@@ -80,7 +81,7 @@ public class UserProfileService {
 
         user.updateProfile(requestedPictureUrl, requestedBio);
 
-        userRepository.updateProfile(user);
+        ownUserProfileWriter.updateProfile(user);
         // Evicted at once (no transaction is open here) so the read below does not return the
         // cached old profile; @CachePut then stores the fresh one
         userCacheEvictor.evictProfiles(command.userId());

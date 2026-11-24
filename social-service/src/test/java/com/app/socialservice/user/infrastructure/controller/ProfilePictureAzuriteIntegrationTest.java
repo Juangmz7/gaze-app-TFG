@@ -4,6 +4,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
@@ -13,6 +14,12 @@ import com.azure.storage.blob.BlobContainerClient;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.amqp.core.AmqpAdmin;
+import org.springframework.amqp.core.BindingBuilder;
+import org.springframework.amqp.core.Message;
+import org.springframework.amqp.core.QueueBuilder;
+import org.springframework.amqp.core.TopicExchange;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -36,12 +43,16 @@ import com.app.socialservice.follow.infrastructure.repository.JpaFollowRepositor
 import com.app.socialservice.follow.testutil.FollowMother;
 import com.app.socialservice.report.infrastructure.repository.JpaUserReportRepository;
 import com.app.socialservice.shared.infrastructure.azure.BlobContainerLocation;
+import com.app.socialservice.shared.infrastructure.enums.EventStatus;
+import com.app.socialservice.shared.infrastructure.rabbitmq.config.RabbitMQProperties;
+import com.app.socialservice.shared.infrastructure.repository.OutboxEventRepository;
 import com.app.socialservice.shared.testutil.SocialIntegrationSeeder;
 import com.app.socialservice.user.application.cache.CacheNames;
 import com.app.socialservice.user.application.dto.OwnUserProfileResponse;
 import com.app.socialservice.user.domain.enums.UserAccountStatus;
 import com.app.socialservice.user.infrastructure.entity.UserBioEmbeddable;
 import com.app.socialservice.user.infrastructure.entity.UserEntity;
+import com.app.socialservice.user.infrastructure.events.UserUpdatedEvent;
 import com.app.socialservice.user.infrastructure.repository.JpaUserRepository;
 import com.app.socialservice.user.infrastructure.repository.UserNodeRepository;
 
@@ -108,12 +119,25 @@ class ProfilePictureAzuriteIntegrationTest {
     @Autowired
     private StringRedisTemplate stringRedisTemplate;
 
+    @Autowired
+    private OutboxEventRepository outboxEventRepository;
+
+    @Autowired
+    private RabbitTemplate rabbitTemplate;
+
+    @Autowired
+    private AmqpAdmin amqpAdmin;
+
+    @Autowired
+    private RabbitMQProperties rabbitMQProperties;
+
     @MockitoBean
     private JwtDecoder jwtDecoder;
 
     @BeforeEach
     void setUp() {
         blobContainerClient.createIfNotExists();
+        outboxEventRepository.deleteAll();
         jpaBlockRepository.deleteAll();
         jpaFollowRepository.deleteAll();
         jpaUserRepository.deleteAll();
@@ -186,6 +210,44 @@ class ProfilePictureAzuriteIntegrationTest {
         var cached = cacheManager.getCache(CacheNames.OWN_PROFILE).get(userId.toString(), OwnUserProfileResponse.class);
         assertThat(cached).isNotNull();
         assertThat(cached.profilePicture()).isEqualTo(pictureUrl);
+    }
+
+    @Test
+    void settingAnUploadedPicturePublishesAUserUpdatedEventWithTheBareUrlToTheUserEventsExchange() throws Exception {
+        var userId = UUID.randomUUID();
+        var pictureUrl = uploadAvatarOf(userId);
+        seedUser(userId, "event-user", null);
+        var queueName = "q.social-service.test.user.updated." + UUID.randomUUID();
+        amqpAdmin.declareQueue(QueueBuilder.nonDurable(queueName).exclusive().autoDelete().build());
+        amqpAdmin.declareBinding(BindingBuilder.bind(QueueBuilder.nonDurable(queueName).build())
+                .to(new TopicExchange(rabbitMQProperties.getExchange().getUser().getEvents()))
+                .with(rabbitMQProperties.getRk().getUser().getUpdated()));
+
+        // Sent back read-signed, as the app does: the event must carry the bare stored URL
+        mockMvc.perform(authenticated(put("/api/social/profile"), userId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(jsonMapper.writeValueAsString(Map.of(
+                                "profilePicture", pictureUrl + "?sp=r&sig=abc",
+                                "description", "Bio of event-user"))))
+                .andExpect(status().isOk());
+
+        var outboxEvents = outboxEventRepository.findAll();
+        assertThat(outboxEvents).singleElement().satisfies(event -> {
+            assertThat(event.getEventType()).isEqualTo(UserUpdatedEvent.class.getSimpleName());
+            assertThat(event.getExchange()).isEqualTo(rabbitMQProperties.getExchange().getUser().getEvents());
+            assertThat(event.getRoutingKey()).isEqualTo(rabbitMQProperties.getRk().getUser().getUpdated());
+            assertThat(readJson(event.getPayload()).get("pictureUrl").asString()).isEqualTo(pictureUrl);
+        });
+
+        var message = waitForMessage(queueName);
+        assertThat(message).isNotNull();
+        var published = readJson(new String(message.getBody(), StandardCharsets.UTF_8));
+        assertThat(published.get("userId").asString()).isEqualTo(userId.toString());
+        assertThat(published.get("pictureUrl").asString()).isEqualTo(pictureUrl);
+        assertThat(published.get("username").asString()).isEqualTo("event-user");
+        assertThat(published.get("accountStatus").asString()).isEqualTo(UserAccountStatus.ACCEPTED.name());
+        assertThat(waitForStatus(outboxEvents.getFirst().getId(), EventStatus.PROCESSED))
+                .isEqualTo(EventStatus.PROCESSED);
     }
 
     @Test
@@ -356,6 +418,27 @@ class ProfilePictureAzuriteIntegrationTest {
                 HttpResponse.BodyHandlers.ofByteArray());
         assertThat(download.statusCode()).isEqualTo(200);
         assertThat(download.body()).isEqualTo(JPEG_BYTES);
+    }
+
+    private Message waitForMessage(String queueName) throws InterruptedException {
+        rabbitTemplate.setReceiveTimeout(200);
+        for (int attempt = 0; attempt < 20; attempt++) {
+            var message = rabbitTemplate.receive(queueName);
+            if (message != null) {
+                return message;
+            }
+            Thread.sleep(200);
+        }
+        return null;
+    }
+
+    private EventStatus waitForStatus(UUID outboxEventId, EventStatus expected) throws InterruptedException {
+        var status = outboxEventRepository.findById(outboxEventId).orElseThrow().getStatus();
+        for (int attempt = 0; attempt < 20 && status != expected; attempt++) {
+            Thread.sleep(200);
+            status = outboxEventRepository.findById(outboxEventId).orElseThrow().getStatus();
+        }
+        return status;
     }
 
     private String uploadAvatarOf(UUID ownerId) {
