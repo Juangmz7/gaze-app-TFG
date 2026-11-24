@@ -35,6 +35,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.cache.annotation.CachePut;
@@ -44,6 +45,7 @@ import org.springframework.cache.annotation.Caching;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -67,6 +69,9 @@ class UserProfileServiceTest {
     @Mock
     private ProfilePictureStorage profilePictureStorage;
 
+    @Mock
+    private OwnUserProfileWriter ownUserProfileWriter;
+
     private UserProfileService userProfileService;
 
     // A real reader over the mocks: the own profile tests read through it
@@ -77,7 +82,8 @@ class UserProfileServiceTest {
                 publicUserProfileReader,
                 new OwnUserProfileReader(userRepository, userStatsService),
                 userCacheEvictor,
-                profilePictureStorage
+                profilePictureStorage,
+                ownUserProfileWriter
         );
     }
 
@@ -287,16 +293,19 @@ class UserProfileServiceTest {
         );
 
         when(userRepository.findById(userId)).thenReturn(Optional.of(existingUser));
-        when(userRepository.updateProfile(any(User.class))).thenReturn(savedUser);
+        when(ownUserProfileWriter.updateProfile(any(User.class))).thenReturn(savedUser);
         when(userRepository.findAccountStatus(userId)).thenReturn(Optional.of(UserAccountStatus.ACCEPTED));
         when(userRepository.findOwnProfileById(userId)).thenReturn(Optional.of(ownProfileData));
         when(userStatsService.getStats(userId)).thenReturn(new UserStats(22L, 31L, 41L));
 
         var response = userProfileService.updateOwnUserProfile(command);
 
-        verify(userRepository).updateProfile(existingUser);
-        // Both go before the profile is read back, or the cached old own profile would be returned
-        verify(userCacheEvictor).evictProfiles(userId);
+        var inOrder = inOrder(ownUserProfileWriter, userCacheEvictor, userRepository);
+        inOrder.verify(ownUserProfileWriter).updateProfile(existingUser);
+        // Evicted before the profile is read back, or the cached old own profile would be returned
+        inOrder.verify(userCacheEvictor).evictProfiles(userId);
+        inOrder.verify(userRepository).findOwnProfileById(userId);
+        verify(userRepository, never()).updateProfile(any(User.class));
         assertThat(response).isEqualTo(new OwnUserProfileResponse(
                 userId,
                 "profile-user",
@@ -340,8 +349,7 @@ class UserProfileServiceTest {
 
         var response = userProfileService.updateOwnUserProfile(command);
 
-        verify(userRepository, never()).updateProfile(any(User.class));
-        verifyNoInteractions(userCacheEvictor);
+        verifyNoInteractions(ownUserProfileWriter, userCacheEvictor);
         assertThat(response).isEqualTo(new OwnUserProfileResponse(
                 userId,
                 "same-user",
@@ -412,7 +420,72 @@ class UserProfileServiceTest {
                 .isInstanceOf(RuntimeException.class)
                 .hasMessageContaining("Profile picture URL");
 
-        verify(userRepository, never()).updateProfile(any(User.class));
+        verifyNoInteractions(ownUserProfileWriter);
+    }
+
+    @Test
+    void shouldHandTheWriterAUserWithoutPictureWhenTheProfilePictureIsOmitted() {
+        var userId = UUID.randomUUID();
+        var existingUser = buildUser(userId, "removing-user", "removing@example.com", UserAccountStatus.ACCEPTED);
+        existingUser.setPictureUrl(new ProfilePictureUrl("https://cdn.example.com/old.png"));
+        var command = new UpdateOwnUserProfileCommand(userId, "Persisted bio", null, Map.of("github", "removing-user"));
+
+        when(userRepository.findById(userId)).thenReturn(Optional.of(existingUser));
+        when(ownUserProfileWriter.updateProfile(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(userRepository.findAccountStatus(userId)).thenReturn(Optional.of(UserAccountStatus.ACCEPTED));
+        when(userRepository.findOwnProfileById(userId)).thenReturn(Optional.of(new OwnUserProfileData(
+                "removing-user", "Persisted bio", Map.of("github", "removing-user"), 0L, null, false)));
+        when(userStatsService.getStats(userId)).thenReturn(UserStats.EMPTY);
+
+        var response = userProfileService.updateOwnUserProfile(command);
+
+        var userCaptor = ArgumentCaptor.forClass(User.class);
+        verify(ownUserProfileWriter).updateProfile(userCaptor.capture());
+        assertThat(userCaptor.getValue().getPictureUrl()).isNull();
+        assertThat(userCaptor.getValue().getBio())
+                .isEqualTo(new UserBio("Persisted bio", Map.of("github", "removing-user")));
+        assertThat(response.profilePicture()).isNull();
+    }
+
+    @Test
+    void shouldHandTheWriterTheNewBioWhenOnlyTheDescriptionChanges() {
+        var userId = UUID.randomUUID();
+        var existingUser = buildUser(userId, "bio-user", "bio@example.com", UserAccountStatus.ACCEPTED);
+        existingUser.setPictureUrl(new ProfilePictureUrl("https://cdn.example.com/same.png"));
+        var command = new UpdateOwnUserProfileCommand(
+                userId, "Brand new bio", "https://cdn.example.com/same.png", Map.of("github", "bio-user"));
+
+        when(userRepository.findById(userId)).thenReturn(Optional.of(existingUser));
+        when(ownUserProfileWriter.updateProfile(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(userRepository.findAccountStatus(userId)).thenReturn(Optional.of(UserAccountStatus.ACCEPTED));
+        when(userRepository.findOwnProfileById(userId)).thenReturn(Optional.of(new OwnUserProfileData(
+                "bio-user", "Brand new bio", Map.of("github", "bio-user"), 0L, "https://cdn.example.com/same.png",
+                false)));
+        when(userStatsService.getStats(userId)).thenReturn(UserStats.EMPTY);
+
+        userProfileService.updateOwnUserProfile(command);
+
+        var userCaptor = ArgumentCaptor.forClass(User.class);
+        verify(ownUserProfileWriter).updateProfile(userCaptor.capture());
+        assertThat(userCaptor.getValue().getBio())
+                .isEqualTo(new UserBio("Brand new bio", Map.of("github", "bio-user")));
+        assertThat(userCaptor.getValue().getPictureUrl())
+                .isEqualTo(new ProfilePictureUrl("https://cdn.example.com/same.png"));
+    }
+
+    @Test
+    void shouldNotEvictTheCachedProfilesWhenTheProfileWriteFails() {
+        var userId = UUID.randomUUID();
+        var existingUser = buildUser(userId, "failing-user", "failing@example.com", UserAccountStatus.ACCEPTED);
+        var command = new UpdateOwnUserProfileCommand(userId, "New bio", null, Map.of());
+
+        when(userRepository.findById(userId)).thenReturn(Optional.of(existingUser));
+        when(ownUserProfileWriter.updateProfile(any(User.class))).thenThrow(new UserNotFoundException(userId));
+
+        assertThatThrownBy(() -> userProfileService.updateOwnUserProfile(command))
+                .isInstanceOf(UserNotFoundException.class);
+
+        verifyNoInteractions(userCacheEvictor);
     }
 
     private PublicUserProfile publicProfile(UUID userId) {
@@ -556,7 +629,7 @@ class UserProfileServiceTest {
                     .isInstanceOf(InvalidProfilePictureException.class);
 
             verify(profilePictureStorage, never()).exists(any());
-            verify(userRepository, never()).updateProfile(any(User.class));
+            verifyNoInteractions(ownUserProfileWriter);
         }
 
         @Test
@@ -566,7 +639,7 @@ class UserProfileServiceTest {
             assertThatThrownBy(() -> userProfileService.updateOwnUserProfile(pictureCommand(CONTAINER_URL + ownBlob)))
                     .isInstanceOf(ProfilePictureNotUploadedException.class);
 
-            verify(userRepository, never()).updateProfile(any(User.class));
+            verifyNoInteractions(ownUserProfileWriter);
         }
 
         @Test
@@ -574,12 +647,15 @@ class UserProfileServiceTest {
             var blobName = new ProfilePictureBlobName(ownBlob);
             when(profilePictureStorage.exists(blobName)).thenReturn(true);
             when(profilePictureStorage.blobUrl(blobName)).thenReturn(CONTAINER_URL + ownBlob);
-            when(userRepository.updateProfile(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+            when(ownUserProfileWriter.updateProfile(any(User.class)))
+                    .thenAnswer(invocation -> invocation.getArgument(0));
             givenOwnProfileReadable(CONTAINER_URL + ownBlob);
 
             userProfileService.updateOwnUserProfile(pictureCommand(CONTAINER_URL + ownBlob + "?sp=cw&sig=abc"));
 
-            verify(userRepository).updateProfile(existingUser);
+            var inOrder = inOrder(profilePictureStorage, ownUserProfileWriter);
+            inOrder.verify(profilePictureStorage).exists(blobName);
+            inOrder.verify(ownUserProfileWriter).updateProfile(existingUser);
             assertThat(existingUser.getPictureUrl()).isEqualTo(new ProfilePictureUrl(CONTAINER_URL + ownBlob));
         }
 
@@ -591,7 +667,7 @@ class UserProfileServiceTest {
             userProfileService.updateOwnUserProfile(pictureCommand(CONTAINER_URL + ownBlob + "?sp=r&sig=abc"));
 
             verify(profilePictureStorage, never()).exists(any());
-            verify(userRepository, never()).updateProfile(any(User.class));
+            verifyNoInteractions(ownUserProfileWriter);
         }
 
         private UpdateOwnUserProfileCommand pictureCommand(String profilePicture) {
