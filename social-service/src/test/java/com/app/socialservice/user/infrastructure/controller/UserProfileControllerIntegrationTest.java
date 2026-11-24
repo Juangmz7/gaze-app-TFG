@@ -1,6 +1,8 @@
 package com.app.socialservice.user.infrastructure.controller;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -9,10 +11,13 @@ import com.app.socialservice.block.infrastructure.repository.JpaBlockRepository;
 import com.app.socialservice.follow.infrastructure.enums.FollowStatus;
 import com.app.socialservice.follow.infrastructure.repository.JpaFollowRepository;
 import com.app.socialservice.follow.testutil.FollowMother;
+import com.app.socialservice.shared.infrastructure.entity.OutboxEvent;
+import com.app.socialservice.shared.infrastructure.repository.OutboxEventRepository;
 import com.app.socialservice.shared.testutil.SocialIntegrationSeeder;
 import com.app.socialservice.user.domain.enums.UserAccountStatus;
 import com.app.socialservice.user.infrastructure.entity.UserBioEmbeddable;
 import com.app.socialservice.user.infrastructure.entity.UserEntity;
+import com.app.socialservice.user.infrastructure.events.UserUpdatedEvent;
 import com.app.socialservice.user.infrastructure.repository.JpaUserRepository;
 import com.app.socialservice.user.testutil.UserMother;
 import org.junit.jupiter.api.BeforeEach;
@@ -32,6 +37,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -69,11 +75,15 @@ class UserProfileControllerIntegrationTest {
     @Autowired
     private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private OutboxEventRepository outboxEventRepository;
+
     @MockitoBean
     private JwtDecoder jwtDecoder;
 
     @BeforeEach
     void setUp() {
+        outboxEventRepository.deleteAll();
         jpaBlockRepository.deleteAll();
         jpaFollowRepository.deleteAll();
         jpaUserRepository.deleteAll();
@@ -513,6 +523,72 @@ class UserProfileControllerIntegrationTest {
         assertThat(jpaUserRepository.findById(otherUserId)).get()
                 .extracting(entity -> entity.getBio().getDescription())
                 .isEqualTo("Other bio");
+
+        var events = userUpdatedOutboxEvents();
+        assertThat(events).hasSize(1);
+        var payload = jsonMapper.readTree(events.getFirst().getPayload());
+        var storedUser = jpaUserRepository.findById(authenticatedUserId).orElseThrow();
+        assertThat(payload.get("userId").asString()).isEqualTo(authenticatedUserId.toString());
+        assertThat(payload.get("pictureUrl").asString()).isEqualTo("https://cdn.example.com/owner-new.png");
+        assertThat(payload.get("bio").get("description").asString()).isEqualTo("Updated owner bio");
+        // Seeded with no updatedAt: the snapshot carries the one set by the write (the DB keeps microseconds)
+        assertThat(payload.get("updatedAt").isNull()).isFalse();
+        assertThat(Instant.parse(payload.get("updatedAt").asString()))
+                .isCloseTo(storedUser.getUpdatedAt(), within(1, ChronoUnit.MILLIS));
+    }
+
+    @Test
+    void putApiSocialProfileWithoutProfilePictureSavesAUserUpdatedEventWithPictureUrlNull() throws Exception {
+        var authenticatedUserId = UUID.randomUUID();
+        seedUser(authenticatedUserId, "removing-user", "Removing bio", "https://cdn.example.com/removing.png");
+
+        mockMvc.perform(put("/api/social/profile")
+                        .with(jwt().jwt(jwt -> jwt.subject(authenticatedUserId.toString())))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "description": "Removing bio",
+                                  "socialMedia": {
+                                    "github": "removing-user"
+                                  }
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.profilePicture").doesNotExist());
+
+        var events = userUpdatedOutboxEvents();
+        assertThat(events).hasSize(1);
+        var payload = jsonMapper.readTree(events.getFirst().getPayload());
+        assertThat(payload.get("userId").asString()).isEqualTo(authenticatedUserId.toString());
+        assertThat(payload.get("pictureUrl").isNull()).isTrue();
+        assertThat(payload.get("bio").get("description").asString()).isEqualTo("Removing bio");
+    }
+
+    @Test
+    void putApiSocialProfileChangingOnlyTheDescriptionSavesAUserUpdatedEventWithTheNewBio() throws Exception {
+        var authenticatedUserId = UUID.randomUUID();
+        seedUser(authenticatedUserId, "bio-user", "Old bio", "https://cdn.example.com/bio-user.png");
+
+        mockMvc.perform(put("/api/social/profile")
+                        .with(jwt().jwt(jwt -> jwt.subject(authenticatedUserId.toString())))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "description": "New bio",
+                                  "profilePicture": "https://cdn.example.com/bio-user.png",
+                                  "socialMedia": {
+                                    "github": "bio-user"
+                                  }
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        var events = userUpdatedOutboxEvents();
+        assertThat(events).hasSize(1);
+        var payload = jsonMapper.readTree(events.getFirst().getPayload());
+        assertThat(payload.get("bio").get("description").asString()).isEqualTo("New bio");
+        assertThat(payload.get("bio").get("socialMedia").get("github").asString()).isEqualTo("bio-user");
+        assertThat(payload.get("pictureUrl").asString()).isEqualTo("https://cdn.example.com/bio-user.png");
     }
 
     @Test
@@ -548,6 +624,7 @@ class UserProfileControllerIntegrationTest {
         var userAfter = jpaUserRepository.findById(authenticatedUserId).orElseThrow();
         assertThat(userAfter.getVersion()).isEqualTo(versionBefore);
         assertThat(userAfter.getUpdatedAt()).isEqualTo(seededUser.getUpdatedAt());
+        assertThat(outboxEventRepository.count()).isZero();
     }
 
     @Test
@@ -644,6 +721,12 @@ class UserProfileControllerIntegrationTest {
         assertThat(jpaUserRepository.findById(spoofedUserId)).get()
                 .extracting(entity -> entity.getBio().getDescription())
                 .isEqualTo("Spoof target bio");
+    }
+
+    private List<OutboxEvent> userUpdatedOutboxEvents() {
+        return outboxEventRepository.findAll().stream()
+                .filter(event -> UserUpdatedEvent.class.getSimpleName().equals(event.getEventType()))
+                .toList();
     }
 
     private UserEntity seedUser(UUID userId, String username, String description, String pictureUrl) {
