@@ -163,7 +163,7 @@ def test_explorative_queries_popular_posts_exclude_blocked_and_seen(db_session_f
 
     seed_data(session_provider, user_id, creator_1_id, creator_2_id, creator_3_id, post_1_id, post_2_id, post_3_id, post_4_id, similar_user_id)
 
-    repo = SqlAlchemyExplorativePostRetrievalRepository(session_provider)
+    repo = SqlAlchemyExplorativePostRetrievalRepository(session_provider, clock=lambda: T0)
 
     # Act
     popular = repo.get_popular_posts(user_id, 10)
@@ -194,7 +194,7 @@ def test_explorative_queries_unseen_tags_exclude_blocked_and_seen(db_session_fac
 
     seed_data(session_provider, user_id, creator_1_id, creator_2_id, creator_3_id, post_1_id, post_2_id, post_3_id, post_4_id, similar_user_id)
 
-    repo = SqlAlchemyExplorativePostRetrievalRepository(session_provider)
+    repo = SqlAlchemyExplorativePostRetrievalRepository(session_provider, clock=lambda: T0)
 
     # Act
     popular = repo.get_popular_posts(user_id, 10)
@@ -223,7 +223,7 @@ def test_explorative_queries_random_posts_exclude_blocked_and_seen(db_session_fa
 
     seed_data(session_provider, user_id, creator_1_id, creator_2_id, creator_3_id, post_1_id, post_2_id, post_3_id, post_4_id, similar_user_id)
 
-    repo = SqlAlchemyExplorativePostRetrievalRepository(session_provider)
+    repo = SqlAlchemyExplorativePostRetrievalRepository(session_provider, clock=lambda: T0)
 
     # Act
     popular = repo.get_popular_posts(user_id, 10)
@@ -252,7 +252,7 @@ def test_explorative_queries_cold_start_posts_exclude_blocked_seen_and_already_r
 
     seed_data(session_provider, user_id, creator_1_id, creator_2_id, creator_3_id, post_1_id, post_2_id, post_3_id, post_4_id, similar_user_id)
 
-    repo = SqlAlchemyExplorativePostRetrievalRepository(session_provider)
+    repo = SqlAlchemyExplorativePostRetrievalRepository(session_provider, clock=lambda: T0)
 
     # Act
     without_exclusions = repo.get_cold_start_posts(user_id, 10, set())

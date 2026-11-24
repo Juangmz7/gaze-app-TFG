@@ -2,7 +2,7 @@
 from datetime import datetime
 import math
 
-from pipeline.config.constants import InteractionSourceMultiplier
+from pipeline.config.constants import ENGAGEMENT_DECAY_RATE_PER_SECOND, InteractionSourceMultiplier
 from rabbitmq.event.post.post_events import InteractionSource
 
 
@@ -11,7 +11,6 @@ def decay(last_updated_at: datetime, occurred_at: datetime | None = None) -> flo
     Calculate the decay factor based on the time since the last update.
     The decay factor decreases as the time since the last update increases.
     """
-    decay_rate = 0.3
     reference_time = occurred_at or datetime.now(tz=last_updated_at.tzinfo)
     if last_updated_at.tzinfo is None and reference_time.tzinfo is not None:
         reference_time = reference_time.replace(tzinfo=None)
@@ -23,7 +22,7 @@ def decay(last_updated_at: datetime, occurred_at: datetime | None = None) -> flo
         (reference_time - last_updated_at).total_seconds(),
     )
 
-    return math.exp(-decay_rate * time_since_last_update_seconds)
+    return math.exp(-ENGAGEMENT_DECAY_RATE_PER_SECOND * time_since_last_update_seconds)
 
 
 def l2_normalize_vector(values: list[float]) -> list[float]:
