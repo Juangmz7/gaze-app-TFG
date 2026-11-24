@@ -71,6 +71,27 @@ func (f *fakeHistoryStore) Record(ctx context.Context, input usecase.RecordPostV
 	return nil
 }
 
+// fakeViewCounter stands in for the posts repository's AdjustViewCount: counts per
+// post, and the context of the last call.
+type fakeViewCounter struct {
+	counts map[uuid.UUID]int64
+	err    error
+	gotCtx context.Context
+}
+
+func newFakeViewCounter() *fakeViewCounter {
+	return &fakeViewCounter{counts: map[uuid.UUID]int64{}}
+}
+
+func (f *fakeViewCounter) AdjustViewCount(ctx context.Context, postID uuid.UUID, delta int64) (bool, error) {
+	f.gotCtx = ctx
+	if f.err != nil {
+		return false, f.err
+	}
+	f.counts[postID] += delta
+	return true, nil
+}
+
 type postViewedTransactionKey struct{}
 
 // fakePostViewedTransactor marks the context it hands to fn, the way a real
@@ -82,7 +103,12 @@ func (fakePostViewedTransactor) WithTransaction(ctx context.Context, fn func(ctx
 }
 
 func newPostViewedHandler(idempotency rabbitmq.PostViewedIdempotencyRepository, store *fakeHistoryStore) *rabbitmq.PostViewedHandler {
-	return rabbitmq.NewPostViewedHandler(fakePostViewedTransactor{}, idempotency, usecase.NewRecordPostView(store), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	return newCountingPostViewedHandler(idempotency, store, newFakeViewCounter())
+}
+
+func newCountingPostViewedHandler(idempotency rabbitmq.PostViewedIdempotencyRepository, store *fakeHistoryStore, counter *fakeViewCounter) *rabbitmq.PostViewedHandler {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	return rabbitmq.NewPostViewedHandler(fakePostViewedTransactor{}, idempotency, usecase.NewRecordPostView(store, counter, logger), logger)
 }
 
 func viewPayload(t *testing.T, mutate func(fields map[string]any)) []byte {
@@ -213,5 +239,58 @@ func TestPostViewedHandler_Handle_ReturnsARetryableErrorAndDoesNotMarkWhenTheWri
 	}
 	if idempotency.markCalls != 0 {
 		t.Fatalf("MarkProcessed() calls = %d, want 0 when the write failed", idempotency.markCalls)
+	}
+}
+
+func TestPostViewedHandler_Handle_IncrementsTheViewCountByOneInsideTheTransaction(t *testing.T) {
+	idempotency := newFakePostViewedIdempotency()
+	counter := newFakeViewCounter()
+	handler := newCountingPostViewedHandler(idempotency, &fakeHistoryStore{rows: map[historyKey]time.Time{}}, counter)
+
+	if err := handler.Handle(context.Background(), message.NewMessage(uuid.NewString(), []byte(literalPostViewedJSON))); err != nil {
+		t.Fatalf("Handle() error = %v", err)
+	}
+
+	postID := uuid.MustParse("33333333-3333-4333-8333-333333333333")
+	if counter.counts[postID] != 1 || len(counter.counts) != 1 {
+		t.Fatalf("view counts = %v, want exactly 1 on post %s", counter.counts, postID)
+	}
+	if counter.gotCtx.Value(postViewedTransactionKey{}) != true {
+		t.Fatal("the view count must be adjusted inside the transaction")
+	}
+}
+
+func TestPostViewedHandler_Handle_DoesNotIncrementTheViewCountWhenTheEventWasAlreadyProcessed(t *testing.T) {
+	idempotency := newFakePostViewedIdempotency()
+	counter := newFakeViewCounter()
+	handler := newCountingPostViewedHandler(idempotency, &fakeHistoryStore{rows: map[historyKey]time.Time{}}, counter)
+
+	// The same delivery twice: the second finds the event processed.
+	for range 2 {
+		if err := handler.Handle(context.Background(), message.NewMessage(uuid.NewString(), []byte(literalPostViewedJSON))); err != nil {
+			t.Fatalf("Handle() error = %v", err)
+		}
+	}
+
+	if got := counter.counts[uuid.MustParse("33333333-3333-4333-8333-333333333333")]; got != 1 {
+		t.Fatalf("view count = %d, want 1 for one event delivered twice", got)
+	}
+}
+
+func TestPostViewedHandler_Handle_ReturnsTheErrorAndDoesNotMarkTheEventProcessedWhenTheViewCountUpdateFails(t *testing.T) {
+	idempotency := newFakePostViewedIdempotency()
+	counter := newFakeViewCounter()
+	counter.err = errors.New("write conflict")
+	handler := newCountingPostViewedHandler(idempotency, &fakeHistoryStore{rows: map[historyKey]time.Time{}}, counter)
+
+	err := handler.Handle(context.Background(), message.NewMessage(uuid.NewString(), []byte(literalPostViewedJSON)))
+	if err == nil || rmqerror.IsPermanent(err) {
+		t.Fatalf("Handle() error = %v, want a retryable error", err)
+	}
+	if !errors.Is(err, counter.err) {
+		t.Fatalf("Handle() error = %v, want it to wrap %v", err, counter.err)
+	}
+	if idempotency.markCalls != 0 {
+		t.Fatalf("MarkProcessed() calls = %d, want 0 when the view count failed", idempotency.markCalls)
 	}
 }

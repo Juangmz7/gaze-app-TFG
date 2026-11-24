@@ -211,6 +211,7 @@ type postStats struct {
 	LikeCount    int64 `bson:"like_count"`
 	CommentCount int64 `bson:"comment_count"`
 	ShareCount   int64 `bson:"share_count"`
+	ViewCount    int64 `bson:"view_count"`
 }
 
 // waitForStats polls until the post's stats equal want: the counters settle only
@@ -288,6 +289,53 @@ func TestConsumers_ProjectRealPostViewedEventsIntoOneHistoryRowWithTheLatestView
 	app.waitForDocument(t, ctx, "view_history", filter, &row)
 	if !row.LastViewedAt.Equal(latest) {
 		t.Fatalf("last_viewed_at = %v, want the latest view %v despite the late older ones", row.LastViewedAt, latest)
+	}
+}
+
+func TestConsumers_CountEachRealPostViewedEventOnceAlsoWhenItIsRedelivered(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	app := startJavaEventsApp(t, ctx)
+	ex := topology.ExchangePostEvents
+
+	postID, viewer := uuid.NewString(), uuid.NewString()
+	app.publish(t, ctx, ex, topology.RKPostCreated, postCreatedJSON(postID, uuid.NewString()))
+	app.waitForDocument(t, ctx, "posts", bson.D{{Key: "post_id", Value: postID}}, &struct{}{})
+
+	// One view delivered twice (a broker redelivery of the same event id), then a second
+	// view of the same user (a new event, a new viewId): two views.
+	view := postViewedJSON(postID, viewer, testInstant)
+	app.publish(t, ctx, ex, topology.RKPostViewed, view)
+	app.publish(t, ctx, ex, topology.RKPostViewed, view)
+	app.publish(t, ctx, ex, topology.RKPostViewed, postViewedJSON(postID, viewer, "2026-03-01T10:20:00.000000Z"))
+	// A view of a post that is not projected is acked without creating it.
+	unprojected := uuid.NewString()
+	app.publish(t, ctx, ex, topology.RKPostViewed, postViewedJSON(unprojected, viewer, testInstant))
+
+	app.waitForStats(t, ctx, postID, postStats{ViewCount: 2})
+	app.waitUntilDrained(t, ctx, topology.QueuePost, 0)
+
+	var post struct {
+		Version int64 `bson:"version"`
+	}
+	app.waitForDocument(t, ctx, "posts", bson.D{{Key: "post_id", Value: postID}}, &post)
+	if post.Version != 1 {
+		t.Fatalf("post version = %d, want 1: views must not bump it", post.Version)
+	}
+	count, err := app.db.Collection("posts").CountDocuments(ctx, bson.D{{Key: "post_id", Value: unprojected}})
+	if err != nil {
+		t.Fatalf("CountDocuments() error = %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("posts for the unprojected id = %d, want 0", count)
+	}
+	// Both posts' views are in the viewer's history.
+	rows, err := app.db.Collection("view_history").CountDocuments(ctx, bson.D{{Key: "user_id", Value: viewer}})
+	if err != nil {
+		t.Fatalf("CountDocuments() error = %v", err)
+	}
+	if rows != 2 {
+		t.Fatalf("view_history rows = %d, want 2", rows)
 	}
 }
 
