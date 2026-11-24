@@ -38,7 +38,9 @@ public class UserRepositoryImpl implements UserRepository {
         entity.setPictureUrl(user.getPictureUrl() == null ? null : user.getPictureUrl().value());
         entity.setBio(userMapper.toUserBioEmbeddable(user.getBio()));
 
-        return userMapper.toDomain(entity);
+        // Flushed so @PreUpdate sets updatedAt (and @Version is checked) before the caller builds
+        // the UserUpdatedEvent snapshot from the returned user
+        return userMapper.toDomain(jpaUserRepository.saveAndFlush(entity));
     }
 
     @Override
