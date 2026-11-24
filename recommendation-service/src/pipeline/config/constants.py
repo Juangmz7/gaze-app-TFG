@@ -1,6 +1,11 @@
 from enum import Enum
 
 
+# Exponential decay of the engagement scores, per second elapsed since the last update.
+# The write path (shared.helpers.decay) and the read-time decay in the explorative
+# retrieval SQL both use this value, so stored and read scores mean the same thing.
+ENGAGEMENT_DECAY_RATE_PER_SECOND = 0.3
+
 POST_VIEW_WEIGHT = 1.0
 FAST_SKIP_WEIGHT = -1.0
 
