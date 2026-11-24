@@ -26,11 +26,13 @@ type FeedMedia struct {
 	TaggedUsers  []string
 }
 
-// FeedStats holds a post's counters.
+// FeedStats holds a post's counters. ViewCount is shown on grid items only, not on
+// feed cards (FeedStatsResponse).
 type FeedStats struct {
 	LikeCount    int64
 	CommentCount int64
 	ShareCount   int64
+	ViewCount    int64
 }
 
 // FeedCreator is the author of a post. Username is the only visible name; there is
