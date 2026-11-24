@@ -39,11 +39,13 @@ type postMediaDocument struct {
 }
 
 // postStatsDocument holds the post's counters. Only the Adjust*Count methods
-// write them; see adjustStat.
+// write them; see adjustStat. Posts projected before task 63 have no view_count:
+// it decodes as 0 and the first AdjustViewCount creates it.
 type postStatsDocument struct {
 	LikeCount    int64 `bson:"like_count"`
 	CommentCount int64 `bson:"comment_count"`
 	ShareCount   int64 `bson:"share_count"`
+	ViewCount    int64 `bson:"view_count"`
 }
 
 // postDocument is the persisted shape of a post read model entry.
@@ -64,7 +66,7 @@ type postDocument struct {
 // Repository implements usecase.CreatePostRepository,
 // usecase.UpdatePostRepository, usecase.LinkPostCollabRepository, and
 // usecase.DeletePostRepository against MongoDB. Its Adjust*Count methods also
-// implement the post-stats ports of the like, comment and share usecases.
+// implement the post-stats ports of the like, comment, share and view usecases.
 type Repository struct {
 	collection *mongo.Collection
 }
@@ -266,6 +268,11 @@ func (r *Repository) AdjustCommentCount(ctx context.Context, postID uuid.UUID, d
 // AdjustShareCount adds delta to stats.share_count. See adjustStat.
 func (r *Repository) AdjustShareCount(ctx context.Context, postID uuid.UUID, delta int64) (bool, error) {
 	return r.adjustStat(ctx, postID, "share_count", delta)
+}
+
+// AdjustViewCount adds delta to stats.view_count. See adjustStat.
+func (r *Repository) AdjustViewCount(ctx context.Context, postID uuid.UUID, delta int64) (bool, error) {
+	return r.adjustStat(ctx, postID, "view_count", delta)
 }
 
 // adjustStat atomically adds delta to one counter, flooring it at 0, and reports
