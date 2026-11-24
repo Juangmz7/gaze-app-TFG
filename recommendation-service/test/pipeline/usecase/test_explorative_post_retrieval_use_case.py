@@ -183,3 +183,29 @@ def test_retrieve_posts_for_new_user_does_not_call_unseen_tags_posts():
 
     # Assert
     repository.get_unseen_tags_posts.assert_not_called()
+
+
+def test_retrieve_posts_passes_effective_scores_through_unchanged():
+    # Arrange
+    user_id = uuid4()
+    popular_ids = [uuid4(), uuid4()]
+    random_id = uuid4()
+    unseen_id = uuid4()
+
+    repository = Mock(spec=ExplorativePostRetrievalRepository)
+    repository.get_popular_posts.return_value = [(popular_ids[0], 4.07436e-5), (popular_ids[1], -0.3704)]
+    repository.get_random_posts.return_value = [(random_id, 9.8e-305)]
+    repository.get_unseen_tags_posts.return_value = [(unseen_id, 1.2345678901)]
+
+    usecase = ExplorativePostRetrievalUsecase(repository)
+
+    # Act
+    candidates = usecase.retrieve_posts(user_id)
+
+    # Assert
+    assert [(c.post_id, c.score) for c in candidates] == [
+        (popular_ids[0], 4.07436e-5),
+        (popular_ids[1], -0.3704),
+        (random_id, 9.8e-305),
+        (unseen_id, 1.2345678901),
+    ]
