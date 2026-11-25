@@ -4,7 +4,7 @@ from uuid import uuid4
 
 import pytest
 
-from pipeline.config.constants import FAST_SKIP_WEIGHT, POST_VIEW_WEIGHT
+from pipeline.config.constants import FAST_SKIP_WEIGHT, MAX_COUNTED_VIEW_REPLAYS, POST_VIEW_WEIGHT
 from pipeline.exceptions.exceptions import (
     PostFeaturesNotFoundException,
     PostInteractionFeaturesNotFoundException,
@@ -39,6 +39,7 @@ def _make_command(
     exit_reason=PostViewExitReason.SCROLL_NEXT,
     source=InteractionSource.HOME_FEED,
     feed_position=1,
+    replay_count=0,
 ):
     return RegisterPostViewCommand(
         event_id=uuid4(),
@@ -54,7 +55,7 @@ def _make_command(
         completion_percent=completion_percent,
         exit_reason=exit_reason,
         server_timestamp=NOW,
-        replay_count=0,
+        replay_count=replay_count,
     )
 
 
@@ -477,3 +478,162 @@ def test_source_weight_applied_to_embedding():
     embedding_search = fixture_search.user_features_repo.save.call_args.args[0].semantic_embedding
     # SEARCH has higher multiplier (1.25) vs HOME_FEED (1.0), so embeddings differ
     assert embedding_home != embedding_search
+
+
+# ---------------------------------------------------------------------------
+# replay_count tests (repeated views of the same post by the same user)
+# ---------------------------------------------------------------------------
+
+def _spy_embedding(fixture):
+    spy = Mock(wraps=fixture.user_features.apply_semantic_interaction)
+    fixture.user_features.apply_semantic_interaction = spy
+    return spy
+
+
+def _valid_view(fixture, replay_count):
+    return _make_command(
+        post_id=fixture.post_id, user_id=fixture.user_id,
+        duration_ms=10000, time_watched_ms=6000, completion_percent=60,
+        exit_reason=PostViewExitReason.NAVIGATED_AWAY, replay_count=replay_count,
+    )
+
+
+def _fast_skip(fixture, replay_count):
+    return _make_command(
+        post_id=fixture.post_id, user_id=fixture.user_id,
+        duration_ms=10000, time_watched_ms=200, completion_percent=2,
+        exit_reason=PostViewExitReason.SCROLL_NEXT, replay_count=replay_count,
+    )
+
+
+def _feature_rows(fixture):
+    return [fixture.user_creator_features, fixture.post_interaction_features, *fixture.post_tag_features_list]
+
+
+def test_register_post_view_applies_the_full_weights_when_replay_count_is_1():
+    # Arrange
+    fixture = _Fixture(tags=["music", "dance"])
+    spy = _spy_embedding(fixture)
+
+    # Act
+    fixture.usecase.execute(_valid_view(fixture, replay_count=1))
+
+    # Assert: no previous update and no time elapsed, so decay is 1
+    assert fixture.post_interaction_features.decayed_engagement_score == pytest.approx(POST_VIEW_WEIGHT)
+    assert spy.call_args.kwargs["embedding_weight"] == pytest.approx(POST_VIEW_WEIGHT)
+    for entity in _feature_rows(fixture):
+        assert entity.decayed_interaction_stats.impressions == pytest.approx(1.0)
+        assert entity.decayed_interaction_stats.watch_time == pytest.approx(6.0)
+        assert entity.raw_interaction_stats.views == 1
+
+
+def test_register_post_view_with_replay_count_1_matches_replay_count_0():
+    # Arrange
+    first, legacy = _Fixture(), _Fixture()
+
+    # Act
+    first.usecase.execute(_valid_view(first, replay_count=1))
+    legacy.usecase.execute(_valid_view(legacy, replay_count=0))
+
+    # Assert
+    assert first.post_interaction_features.decayed_engagement_score == legacy.post_interaction_features.decayed_engagement_score
+    assert first.user_features.semantic_embedding == legacy.user_features.semantic_embedding
+
+
+def test_register_post_view_scales_the_engagement_weight_the_embedding_weight_and_the_decayed_deltas_on_a_replay():
+    # Arrange
+    fixture = _Fixture(tags=["music", "dance"])
+    spy = _spy_embedding(fixture)
+
+    # Act
+    fixture.usecase.execute(_valid_view(fixture, replay_count=3))
+
+    # Assert
+    assert fixture.post_interaction_features.decayed_engagement_score == pytest.approx(POST_VIEW_WEIGHT / 3)
+    assert spy.call_args.kwargs["embedding_weight"] == pytest.approx(POST_VIEW_WEIGHT / 3)
+    for entity in _feature_rows(fixture):
+        assert entity.decayed_interaction_stats.impressions == pytest.approx(1.0 / 3)
+        assert entity.decayed_interaction_stats.watch_time == pytest.approx(6.0 / 3)
+
+
+def test_register_post_view_keeps_raw_deltas_unscaled_on_a_replay():
+    # Arrange
+    fixture = _Fixture(tags=["music", "dance"], raw_stats_kwargs={"views": 2, "impressions": 2, "watch_time": 4.0})
+
+    # Act
+    fixture.usecase.execute(_valid_view(fixture, replay_count=3))
+
+    # Assert
+    for entity in _feature_rows(fixture):
+        raw = entity.raw_interaction_stats
+        assert raw.impressions == 3
+        assert raw.views == 3
+        assert raw.watch_time == pytest.approx(10.0)
+        assert entity.decayed_interaction_stats.views_engagement == pytest.approx(1.0)
+
+
+def test_register_post_view_scales_a_fast_skip_weight_and_keeps_it_negative_on_a_replay():
+    # Arrange
+    fixture = _Fixture()
+    spy = _spy_embedding(fixture)
+
+    # Act
+    fixture.usecase.execute(_fast_skip(fixture, replay_count=2))
+
+    # Assert
+    assert fixture.post_interaction_features.decayed_engagement_score == pytest.approx(FAST_SKIP_WEIGHT / 2)
+    assert fixture.post_interaction_features.decayed_engagement_score < 0
+    assert spy.call_args.kwargs["embedding_weight"] == pytest.approx(FAST_SKIP_WEIGHT / 2)
+    for entity in _feature_rows(fixture):
+        assert entity.raw_interaction_stats.fast_skips == 1
+        assert entity.decayed_interaction_stats.fast_skips == pytest.approx(0.5)
+
+
+@pytest.mark.parametrize("replay_count", [MAX_COUNTED_VIEW_REPLAYS + 1, 50])
+def test_register_post_view_does_not_read_or_save_any_feature_row_when_replay_count_is_above_the_cap(replay_count):
+    # Arrange
+    fixture = _Fixture()
+    transaction_manager = Mock()
+    fixture.usecase.transaction_manager = transaction_manager
+    repositories = [
+        fixture.user_creator_repo, fixture.post_tag_repo, fixture.post_features_repo,
+        fixture.user_features_repo, fixture.post_interaction_repo,
+    ]
+
+    # Act
+    fixture.usecase.execute(_valid_view(fixture, replay_count=replay_count))
+
+    # Assert
+    transaction_manager.transaction.assert_not_called()
+    for repository in repositories:
+        assert repository.mock_calls == []
+
+
+@pytest.mark.parametrize("replay_count", [0, -1])
+def test_register_post_view_handles_replay_count_below_1_as_the_first_view(replay_count):
+    # Arrange
+    fixture = _Fixture()
+    spy = _spy_embedding(fixture)
+
+    # Act
+    fixture.usecase.execute(_valid_view(fixture, replay_count=replay_count))
+
+    # Assert
+    assert fixture.post_interaction_features.decayed_engagement_score == pytest.approx(POST_VIEW_WEIGHT)
+    assert spy.call_args.kwargs["embedding_weight"] == pytest.approx(POST_VIEW_WEIGHT)
+    assert fixture.post_interaction_features.decayed_interaction_stats.impressions == pytest.approx(1.0)
+
+
+def test_register_post_view_bounds_50_views_of_the_same_user_on_the_same_post():
+    # Arrange: every view at the same instant, so the totals are before decay
+    fixture = _Fixture()
+
+    # Act
+    for replay_count in range(1, 51):
+        fixture.usecase.execute(_valid_view(fixture, replay_count=replay_count))
+
+    # Assert
+    harmonic = sum(1.0 / n for n in range(1, MAX_COUNTED_VIEW_REPLAYS + 1))
+    assert fixture.post_interaction_features.decayed_engagement_score == pytest.approx(POST_VIEW_WEIGHT * harmonic)
+    assert fixture.post_interaction_features.raw_interaction_stats.views == MAX_COUNTED_VIEW_REPLAYS
+    assert fixture.post_interaction_repo.get_for_update.call_count == MAX_COUNTED_VIEW_REPLAYS
