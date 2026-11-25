@@ -85,6 +85,9 @@ type Dependencies struct {
 	// ViewHistoryRetention is the TTL of a viewing history row after its last view
 	// (config.ViewHistoryConfig.Retention).
 	ViewHistoryRetention time.Duration
+	// ViewCountDailyLimitPerUser is the most views of one post by one user counted on
+	// its view counter per UTC day (config.ViewHistoryConfig.ViewCountDailyLimitPerUser).
+	ViewCountDailyLimitPerUser int
 }
 
 // Bootstrap builds the Watermill router with one consumer handler per queue
@@ -96,6 +99,9 @@ func Bootstrap(ctx context.Context, amqpURI string, db *mongo.Database, dependen
 	}
 	if dependencies.ViewHistoryRetention <= 0 {
 		return Result{}, fmt.Errorf("bootstrap rabbitmq: a positive view history retention is required")
+	}
+	if dependencies.ViewCountDailyLimitPerUser < 1 {
+		return Result{}, fmt.Errorf("bootstrap rabbitmq: a daily view count limit of at least 1 is required")
 	}
 
 	wmLogger := watermill.NewSlogLogger(logger)
@@ -126,7 +132,7 @@ func Bootstrap(ctx context.Context, amqpURI string, db *mongo.Database, dependen
 	if err := addUserSlowConsumer(wmRouter, amqpURI, db, idempotencyRepo, logger, &result); err != nil {
 		return Result{}, err
 	}
-	if err := addPostConsumer(ctx, wmRouter, amqpURI, db, idempotencyRepo, dependencies.ViewHistoryRetention, logger, &result); err != nil {
+	if err := addPostConsumer(ctx, wmRouter, amqpURI, db, idempotencyRepo, dependencies.ViewHistoryRetention, dependencies.ViewCountDailyLimitPerUser, logger, &result); err != nil {
 		return Result{}, err
 	}
 	if err := addFeedConsumer(wmRouter, amqpURI, db, idempotencyRepo, dependencies.Lease, logger, &result); err != nil {
@@ -202,7 +208,7 @@ func addUserSlowConsumer(wmRouter *message.Router, amqpURI string, db *mongo.Dat
 	return nil
 }
 
-func addPostConsumer(ctx context.Context, wmRouter *message.Router, amqpURI string, db *mongo.Database, idempotencyRepo *idempotency.Repository, historyRetention time.Duration, logger *slog.Logger, result *Result) error {
+func addPostConsumer(ctx context.Context, wmRouter *message.Router, amqpURI string, db *mongo.Database, idempotencyRepo *idempotency.Repository, historyRetention time.Duration, viewCountDailyLimit int, logger *slog.Logger, result *Result) error {
 	spec := topology.PostSpec()
 
 	subscriber, err := newSubscriber(amqpURI, spec, watermill.NewSlogLogger(logger))
@@ -267,7 +273,7 @@ func addPostConsumer(ctx context.Context, wmRouter *message.Router, amqpURI stri
 	collabRequestDeletedHandler := collabrabbitmq.NewCollabJoinRequestDeletedHandler(transactor, idempotencyRepo, applyCollabMember, logger)
 	collabMemberLeftHandler := collabrabbitmq.NewCollabMemberLeftHandler(transactor, idempotencyRepo, applyCollabMember, logger)
 	collabMemberBannedHandler := collabrabbitmq.NewCollabMemberBannedHandler(transactor, idempotencyRepo, applyCollabMember, logger)
-	postViewedHandler := viewrabbitmq.NewPostViewedHandler(transactor, idempotencyRepo, viewusecase.NewRecordPostView(historyRepository, postRepository, logger), logger)
+	postViewedHandler := viewrabbitmq.NewPostViewedHandler(transactor, idempotencyRepo, viewusecase.NewRecordPostView(historyRepository, postRepository, viewCountDailyLimit, logger), logger)
 
 	// Every routing key listed in topology.PostRoutingKeys is bound to this
 	// queue at the AMQP level (see topology.Builder). Only the subset below

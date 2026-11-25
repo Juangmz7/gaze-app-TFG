@@ -82,7 +82,7 @@ func TestLoad_ParsesValidEnvironmentVariablesIntoConfig(t *testing.T) {
 			AccountKey:    azuriteAccountKey,
 			ReadSASWindow: 24 * time.Hour,
 		},
-		ViewHistory: config.ViewHistoryConfig{Retention: 90 * 24 * time.Hour},
+		ViewHistory: config.ViewHistoryConfig{Retention: 90 * 24 * time.Hour, ViewCountDailyLimitPerUser: 5},
 	}
 
 	if got != want {
@@ -340,7 +340,8 @@ func unsetFeedEnv(t *testing.T) {
 		"FEED_LOW_WATERMARK_CONCURRENCY", "FEED_SWEEP_INTERVAL_MS", "FEED_SWEEP_STALE_AFTER_MS", "FEED_SWEEP_BATCH_SIZE",
 		"FEED_REFILL_LEASE_WAIT_MS", "FEED_REFILL_POLL_INTERVAL_MS", "FEED_REFILL_RETRY_AFTER_SECONDS", "FEED_REFILL_LEASE_TTL_MS", "FEED_FOLLOWING_MAX_FOLLOWS",
 		"RECOMMENDATION_GRPC_DIAL_TIMEOUT_MS", "RECOMMENDATION_GRPC_PER_RETRY_TIMEOUT_MS", "RECOMMENDATION_GRPC_OVERALL_TIMEOUT_MS", "RECOMMENDATION_GRPC_MAX_ATTEMPTS",
-		"RECOMMENDATION_GRPC_BACKOFF_BASE_MS", "RECOMMENDATION_GRPC_BACKOFF_MAX_MS", "RECOMMENDATION_GRPC_BACKOFF_JITTER_PERCENT"} {
+		"RECOMMENDATION_GRPC_BACKOFF_BASE_MS", "RECOMMENDATION_GRPC_BACKOFF_MAX_MS", "RECOMMENDATION_GRPC_BACKOFF_JITTER_PERCENT",
+		"VIEW_HISTORY_RETENTION_DAYS", "VIEW_COUNT_DAILY_LIMIT_PER_USER"} {
 		unsetEnv(t, name)
 	}
 }
@@ -560,6 +561,33 @@ func TestLoad_RejectsAViewHistoryRetentionThatMakesNoSense(t *testing.T) {
 
 			if _, err := config.Load(); err == nil {
 				t.Fatalf("Load() error = nil, want an error for VIEW_HISTORY_RETENTION_DAYS=%q", value)
+			}
+		})
+	}
+}
+
+func TestLoad_ReadsTheDailyViewCountLimitPerUser(t *testing.T) {
+	setRequiredEnv(t)
+	setEnv(t, "VIEW_COUNT_DAILY_LIMIT_PER_USER", "3")
+
+	got, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+
+	if got.ViewHistory.ViewCountDailyLimitPerUser != 3 {
+		t.Fatalf("ViewHistory.ViewCountDailyLimitPerUser = %d, want 3", got.ViewHistory.ViewCountDailyLimitPerUser)
+	}
+}
+
+func TestLoad_ShouldRejectADailyLimitBelowOneAtConfigurationLoad(t *testing.T) {
+	for _, value := range []string{"0", "-1", "five", "5.5"} {
+		t.Run(value, func(t *testing.T) {
+			setRequiredEnv(t)
+			setEnv(t, "VIEW_COUNT_DAILY_LIMIT_PER_USER", value)
+
+			if _, err := config.Load(); err == nil {
+				t.Fatalf("Load() error = nil, want an error for VIEW_COUNT_DAILY_LIMIT_PER_USER=%q", value)
 			}
 		})
 	}

@@ -37,6 +37,8 @@ env:
   FEED_FOLLOWING_MAX_FOLLOWS: "2000"
   # TTL of a viewing history entry after its last view (GET /api/content/me/history)
   VIEW_HISTORY_RETENTION_DAYS: "90"
+  # Most views of one post by one user counted on its viewCount per UTC day
+  VIEW_COUNT_DAILY_LIMIT_PER_USER: "5"
   # OpenTelemetry (common-packages/go-utils/telemetry, OTLP/gRPC)
   OTEL_SERVICE_NAME: post-query-service
   # Asynchronous prefetch. The instance id is the pod's hostname.

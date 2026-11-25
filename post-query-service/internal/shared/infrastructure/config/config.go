@@ -94,6 +94,10 @@ const defaultViewHistoryRetentionDays = 90
 // TTL index's expireAfterSeconds (a 32-bit integer) can hold.
 const maxViewHistoryRetentionDays = 3650
 
+// defaultViewCountDailyLimitPerUser is used when VIEW_COUNT_DAILY_LIMIT_PER_USER is not
+// set: a user adds at most 5 views of one post per UTC day to its view counter.
+const defaultViewCountDailyLimitPerUser = 5
+
 // hoursPerDay turns a retention in days into a duration.
 const hoursPerDay = 24
 
@@ -237,6 +241,9 @@ type ViewHistoryConfig struct {
 	// Retention is how long a history row lives after its last view (TTL index on
 	// last_viewed_at), from VIEW_HISTORY_RETENTION_DAYS.
 	Retention time.Duration
+	// ViewCountDailyLimitPerUser is the most views of one post by one user counted on the
+	// post's view counter per UTC day (task 66), from VIEW_COUNT_DAILY_LIMIT_PER_USER.
+	ViewCountDailyLimitPerUser int
 }
 
 // AppConfig holds the post-query-service-specific configuration. The HTTP
@@ -272,8 +279,8 @@ type AppConfig struct {
 // RABBITMQ_PASSWORD, JWKS_URL, JWT_ISSUER, JWT_AUDIENCE, RECOMMENDATION_GRPC_ADDR,
 // AZURE_STORAGE_ACCOUNT_URL and AZURE_STORAGE_CONTAINER are required.
 // POST_QUERY_MONGO_DATABASE, RABBITMQ_HOST, RABBITMQ_PORT, the FEED_* variables, the other
-// RECOMMENDATION_GRPC_* variables, MEDIA_READ_SAS_WINDOW and VIEW_HISTORY_RETENTION_DAYS
-// fall back to sensible
+// RECOMMENDATION_GRPC_* variables, MEDIA_READ_SAS_WINDOW, VIEW_HISTORY_RETENTION_DAYS and
+// VIEW_COUNT_DAILY_LIMIT_PER_USER fall back to sensible
 // defaults; a value among them that makes no sense is an error. AZURE_STORAGE_ACCOUNT_KEY
 // is optional.
 func Load() (AppConfig, error) {
@@ -320,6 +327,11 @@ func Load() (AppConfig, error) {
 		return AppConfig{}, fmt.Errorf("load config: VIEW_HISTORY_RETENTION_DAYS %d is above %d", historyDays, maxViewHistoryRetentionDays)
 	}
 
+	viewCountDailyLimit, err := positiveIntEnv("VIEW_COUNT_DAILY_LIMIT_PER_USER", defaultViewCountDailyLimitPerUser)
+	if err != nil {
+		return AppConfig{}, err
+	}
+
 	return AppConfig{
 		Mongo: MongoConfig{
 			URI:      uri,
@@ -330,7 +342,10 @@ func Load() (AppConfig, error) {
 		Feed:           feed,
 		Recommendation: recommendation,
 		Media:          media,
-		ViewHistory:    ViewHistoryConfig{Retention: time.Duration(historyDays) * hoursPerDay * time.Hour},
+		ViewHistory: ViewHistoryConfig{
+			Retention:                  time.Duration(historyDays) * hoursPerDay * time.Hour,
+			ViewCountDailyLimitPerUser: viewCountDailyLimit,
+		},
 	}, nil
 }
 

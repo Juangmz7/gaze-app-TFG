@@ -21,7 +21,7 @@ func (a *feedApp) consumeView(t *testing.T, ctx context.Context, userID, postID 
 	t.Helper()
 
 	input := viewusecase.RecordPostViewInput{UserID: userID, PostID: postID, ViewedAt: viewedAt, CorrelationID: uuid.New()}
-	if err := viewusecase.NewRecordPostView(a.history, a.posts, discardLogger()).Execute(ctx, input); err != nil {
+	if err := viewusecase.NewRecordPostView(a.history, a.posts, 5, discardLogger()).Execute(ctx, input); err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
 }
