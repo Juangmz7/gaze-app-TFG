@@ -326,6 +326,23 @@ def kubernetes():
 # --------------------------------------------------------------------------
 # RabbitMQ
 # --------------------------------------------------------------------------
+def sum_rates(metrics, sel, window, by=""):
+    """sum(rate()) of several counters as one series per `by` group.
+
+    Not rate({__name__=~"a|b"}): rate() drops the metric name, so two counters
+    with the same labels collide and Prometheus fails the whole query ("vector
+    cannot contain metrics with the same labelset"). Each rate is tagged with
+    its counter first so that `or` keeps all of them."""
+    parts = [f'label_replace(rate({m}{{{sel}}}{window}), "counter", "{m}", "", "")' for m in metrics]
+    return f"sum{by} ({' or '.join(parts)})"
+
+
+RABBITMQ_DEAD_LETTERED = [f"rabbitmq_global_messages_dead_lettered_{reason}_total"
+                          for reason in ("confirmed", "delivery_limit", "expired", "maxlen", "rejected")]
+RABBITMQ_QUEUE_DELIVERED = ["rabbitmq_detailed_queue_messages_delivered_total",
+                            "rabbitmq_detailed_queue_messages_delivered_ack_total"]
+
+
 def rabbitmq():
     ns = 'k8s_namespace_name=~"$namespace"'
     q = f'{ns}, vhost=~"$vhost", queue=~"$queue"'
@@ -368,7 +385,7 @@ def rabbitmq():
         prom(f"sum(rate(rabbitmq_global_messages_redelivered_total{{{ns}}}{rate}))", "redelivered (nack / consumer died)"),
         prom(f"sum(rate(rabbitmq_global_messages_unroutable_dropped_total{{{ns}}}{rate}))", "unroutable dropped", ref="B"),
         prom(f"sum(rate(rabbitmq_global_messages_unroutable_returned_total{{{ns}}}{rate}))", "unroutable returned", ref="C"),
-        prom(f'sum(rate({{__name__=~"rabbitmq_global_messages_dead_lettered_.+_total", {ns}}}{rate}))', "dead-lettered", ref="D"),
+        prom(sum_rates(RABBITMQ_DEAD_LETTERED, ns, rate), "dead-lettered", ref="D"),
     ], unit="short", axis_label="msg/s",
         desc="Redeliveries usually mean consumers failing (nack/requeue or crash). Unroutable messages were published to an exchange with no matching binding."), 12, 9)
     L.add(timeseries("Messages in queues", [
@@ -391,7 +408,7 @@ def rabbitmq():
         prom(f"sum by (vhost, queue) (rabbitmq_detailed_queue_messages_ready{{{q}}})", instant=True, fmt="table"),
         prom(f"sum by (vhost, queue) (rabbitmq_detailed_queue_messages_unacked{{{q}}})", instant=True, fmt="table", ref="B"),
         prom(f"sum by (vhost, queue) (rabbitmq_detailed_queue_consumers{{{q}}})", instant=True, fmt="table", ref="C"),
-        prom(f'sum by (vhost, queue) (rate({{__name__=~"rabbitmq_detailed_queue_messages_delivered(_ack)?_total", {q}}}[5m]))', instant=True, fmt="table", ref="D"),
+        prom(sum_rates(RABBITMQ_QUEUE_DELIVERED, q, "[5m]", by=" by (vhost, queue)"), instant=True, fmt="table", ref="D"),
         prom(f"sum by (vhost, queue) (rate(rabbitmq_detailed_queue_messages_acked_total{{{q}}}[5m]))", instant=True, fmt="table", ref="E"),
         prom(f"sum by (vhost, queue) (rate(rabbitmq_detailed_queue_messages_redelivered_total{{{q}}}[5m]))", instant=True, fmt="table", ref="F"),
     ], rename={"vhost": "VHost", "queue": "Queue", "Value #A": "Ready", "Value #B": "Unacked", "Value #C": "Consumers",
@@ -400,7 +417,7 @@ def rabbitmq():
     L.add(timeseries("Ready messages by queue", [prom(f"sum by (queue) (rabbitmq_detailed_queue_messages_ready{{{q}}})", "{{queue}}")]), 12, 8)
     L.add(timeseries("Unacked messages by queue", [prom(f"sum by (queue) (rabbitmq_detailed_queue_messages_unacked{{{q}}})", "{{queue}}")]), 12, 8)
     L.add(timeseries("Delivery rate by queue", [prom(
-        f'sum by (queue) (rate({{__name__=~"rabbitmq_detailed_queue_messages_delivered(_ack)?_total", {q}}}{rate}))', "{{queue}}")],
+        sum_rates(RABBITMQ_QUEUE_DELIVERED, q, rate, by=" by (queue)"), "{{queue}}")],
         axis_label="msg/s"), 8, 8)
     L.add(timeseries("Redelivery rate by queue", [prom(
         f"sum by (queue) (rate(rabbitmq_detailed_queue_messages_redelivered_total{{{q}}}{rate}))", "{{queue}}")],
@@ -849,6 +866,10 @@ def main():
     for name, d in (("kubernetes-cluster.json", kubernetes()), ("rabbitmq.json", rabbitmq()),
                     ("services-java.json", java_services()), ("services-go.json", go_services()),
                     ("services-python.json", python_services())):
+        exprs = re.findall(r'"expr": "((?:[^"\\]|\\.)*)"', json.dumps(d))
+        bad = [e for e in exprs if re.search(r"(rate|increase)\(\{__name__=~", e)]
+        if bad:
+            sys.exit(f"{name}: rate() over a __name__ regex fails on counters with equal labels, use sum_rates(): {bad}")
         (out / name).write_text(json.dumps(d, indent=2) + "\n")
 
 
