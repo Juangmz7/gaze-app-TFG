@@ -9,6 +9,22 @@ ENGAGEMENT_DECAY_RATE_PER_SECOND = 0.3
 POST_VIEW_WEIGHT = 1.0
 FAST_SKIP_WEIGHT = -1.0
 
+# Repeated views of the same post by the same user (PostViewedEvent.replayCount, 1 for
+# the first view) count less and less, so view spam cannot inflate the signals:
+# factor 1 / replay_count for 1 <= replay_count <= MAX_COUNTED_VIEW_REPLAYS, 0 above it.
+# A replay_count below 1 (malformed or old event) counts as the first view.
+MAX_COUNTED_VIEW_REPLAYS = 5
+
+
+def view_replay_factor(replay_count: int) -> float:
+    """Share of a view's weight that counts, from its replay count (see above)."""
+    if isinstance(replay_count, bool) or not isinstance(replay_count, int):
+        raise TypeError(f"replay_count must be an int, got {type(replay_count).__name__}")
+    effective_replay_count = max(replay_count, 1)
+    if effective_replay_count > MAX_COUNTED_VIEW_REPLAYS:
+        return 0.0
+    return 1.0 / effective_replay_count
+
 POST_LIKE_WEIGHT = 2.0
 POST_UNLIKE_PENALISATION_WEIGHT = 0.8
 

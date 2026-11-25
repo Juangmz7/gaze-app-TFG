@@ -27,6 +27,19 @@ The service consists of several key modules:
 
 9. **Logging**: `configure_logging()` (`observability/logging_config.py`) runs first thing in the entrypoint, before the imports that build the `Container`, and needs no `OTEL_*` variable. This service's packages log at `LOG_LEVEL` (default `INFO`; a value that is not a level name stops the startup), read from the folders of `src/`, so a new package is covered. The root logger stays at `WARNING`, so libraries only print warnings and errors whatever `LOG_LEVEL` says. Records go to stdout through one handler on the root logger, and also to any handler already there, like the OpenTelemetry one. FastStream and uvicorn loggers do not propagate to the root logger and keep their own output. If `OTEL_PYTHON_LOG_CORRELATION=true` is set, `opentelemetry-instrument` has already added a stderr handler: it is reused, so the lines go to stderr instead of stdout, still once, in OpenTelemetry's format. Log calls use `getLogger(__name__)`: a logger with any other name would stay at `WARNING`.
 
+10. **Repeated views (`replayCount`)**: post-command-service deduplicates views only by `viewId`, so `PostViewedEvent.replayCount` (the number of views of that user on that post, this one included: the first view is 1) decides how much a view counts in `RegisterPostViewUsecase`. The factor is `1 / replayCount` up to `MAX_COUNTED_VIEW_REPLAYS` (5, in `pipeline/config/constants.py`, computed by `view_replay_factor`) and 0 above it; a `replayCount` below 1 (malformed or old event) counts as 1.
+
+    | replayCount | factor |
+    |---|---|
+    | 1 (or below 1) | 1 |
+    | 2 | 1/2 |
+    | 3 | 1/3 |
+    | 4 | 1/4 |
+    | 5 | 1/5 |
+    | 6 or more | 0 |
+
+    The factor multiplies the weight added to `post_interaction_features.decayed_engagement_score` (the popular/explorative signal every user sees), the embedding weight of the user's semantic pull (`POST_VIEW_WEIGHT` and `FAST_SKIP_WEIGHT` alike, so a fast skip stays negative) and the decayed deltas (impressions, watch time, fast skips) of the post, user-creator and tag rows. Raw counters stay true counts (`+1`, watched seconds): the cap already bounds them, at most 5 raw views per user and post, so `views_engagement` is unaffected. With factor 0 the view is a no-op: the usecase returns before opening the transaction or locking any row, logs it at debug, and the listener still marks the event processed (no retry, no DLQ). So one user adds at most `POST_VIEW_WEIGHT * (1 + 1/2 + 1/3 + 1/4 + 1/5)` to a post's score (before decay). `replayCount` counts every view ever, not per day, so a rewatch weeks later past the cap adds nothing either.
+
 ## Regenerating the gRPC stubs
 From `recommendation-service/`, after changing the proto (a test fails when the committed stubs are stale):
 
