@@ -1,7 +1,7 @@
 import logging
 from uuid import UUID
 
-from pipeline.config.constants import FAST_SKIP_WEIGHT, POST_VIEW_WEIGHT
+from pipeline.config.constants import FAST_SKIP_WEIGHT, POST_VIEW_WEIGHT, view_replay_factor
 from pipeline.exceptions.exceptions import (
     PostFeaturesNotFoundException,
     PostInteractionFeaturesNotFoundException,
@@ -42,10 +42,20 @@ class RegisterPostViewUsecase:
         self.transaction_manager = transaction_manager
 
     def execute(self, command: RegisterPostViewCommand) -> None:
+        replay_factor = view_replay_factor(command.replay_count)
+        if replay_factor == 0.0:
+            # Past the counted replays: decided before the transaction, so view spam
+            # never takes the row locks. Not an error, the listener still acks it.
+            logger.debug(
+                "Post view past the counted replays, not applied: user_id=%s post_id=%s replay_count=%s",
+                command.user_id, command.post_id, command.replay_count,
+            )
+            return
+
         watch_percent = self._calculate_watch_percent(command.duration_ms, command.time_watched_ms)
         is_fast_skip = self._is_fast_skip(command.completion_percent, command.exit_reason)
         metric_updates, embedding_weight = self._build_metric_updates(
-            command.time_watched_ms, is_fast_skip
+            command.time_watched_ms, is_fast_skip, replay_factor
         )
 
         with transaction_scope(self.transaction_manager):
@@ -80,18 +90,23 @@ class RegisterPostViewUsecase:
             and exit_reason == PostViewExitReason.SCROLL_NEXT
         )
 
-    def _build_metric_updates(self, time_watched_ms: int, is_fast_skip: bool) -> tuple[list[InteractionMetricUpdate], float]:
+    def _build_metric_updates(
+        self, time_watched_ms: int, is_fast_skip: bool, replay_factor: float
+    ) -> tuple[list[InteractionMetricUpdate], float]:
+        """The replay factor scales the decayed deltas and the returned weight (used for
+        the engagement score and the embedding). Raw deltas stay true counts: the cap
+        already bounds them per user."""
         watched_seconds = time_watched_ms / 1000.0
         updates = [
             InteractionMetricUpdate(
                 metric=InteractionMetric.IMPRESSIONS,
                 raw_delta=1,
-                decayed_delta=1,
+                decayed_delta=1 * replay_factor,
             ),
             InteractionMetricUpdate(
                 metric=InteractionMetric.WATCH_TIME,
                 raw_delta=watched_seconds,
-                decayed_delta=watched_seconds,
+                decayed_delta=watched_seconds * replay_factor,
             ),
         ]
 
@@ -99,11 +114,11 @@ class RegisterPostViewUsecase:
             updates.append(InteractionMetricUpdate(
                 metric=InteractionMetric.FAST_SKIPS,
                 raw_delta=1,
-                decayed_delta=1,
+                decayed_delta=1 * replay_factor,
             ))
-            return updates, FAST_SKIP_WEIGHT
-            
-        return updates, POST_VIEW_WEIGHT
+            return updates, FAST_SKIP_WEIGHT * replay_factor
+
+        return updates, POST_VIEW_WEIGHT * replay_factor
 
     def _get_post_entities(self, post_id: UUID):
         post_features = self.post_features_repository.get_post_features(post_id)
