@@ -1052,7 +1052,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate({__name__=~\"rabbitmq_global_messages_dead_lettered_.+_total\", k8s_namespace_name=~\"$namespace\"}[$__rate_interval]))",
+          "expr": "sum (label_replace(rate(rabbitmq_global_messages_dead_lettered_confirmed_total{k8s_namespace_name=~\"$namespace\"}[$__rate_interval]), \"counter\", \"rabbitmq_global_messages_dead_lettered_confirmed_total\", \"\", \"\") or label_replace(rate(rabbitmq_global_messages_dead_lettered_delivery_limit_total{k8s_namespace_name=~\"$namespace\"}[$__rate_interval]), \"counter\", \"rabbitmq_global_messages_dead_lettered_delivery_limit_total\", \"\", \"\") or label_replace(rate(rabbitmq_global_messages_dead_lettered_expired_total{k8s_namespace_name=~\"$namespace\"}[$__rate_interval]), \"counter\", \"rabbitmq_global_messages_dead_lettered_expired_total\", \"\", \"\") or label_replace(rate(rabbitmq_global_messages_dead_lettered_maxlen_total{k8s_namespace_name=~\"$namespace\"}[$__rate_interval]), \"counter\", \"rabbitmq_global_messages_dead_lettered_maxlen_total\", \"\", \"\") or label_replace(rate(rabbitmq_global_messages_dead_lettered_rejected_total{k8s_namespace_name=~\"$namespace\"}[$__rate_interval]), \"counter\", \"rabbitmq_global_messages_dead_lettered_rejected_total\", \"\", \"\"))",
           "refId": "D",
           "legendFormat": "dead-lettered"
         }
@@ -1394,7 +1394,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (vhost, queue) (rate({__name__=~\"rabbitmq_detailed_queue_messages_delivered(_ack)?_total\", k8s_namespace_name=~\"$namespace\", vhost=~\"$vhost\", queue=~\"$queue\"}[5m]))",
+          "expr": "sum by (vhost, queue) (label_replace(rate(rabbitmq_detailed_queue_messages_delivered_total{k8s_namespace_name=~\"$namespace\", vhost=~\"$vhost\", queue=~\"$queue\"}[5m]), \"counter\", \"rabbitmq_detailed_queue_messages_delivered_total\", \"\", \"\") or label_replace(rate(rabbitmq_detailed_queue_messages_delivered_ack_total{k8s_namespace_name=~\"$namespace\", vhost=~\"$vhost\", queue=~\"$queue\"}[5m]), \"counter\", \"rabbitmq_detailed_queue_messages_delivered_ack_total\", \"\", \"\"))",
           "refId": "D",
           "legendFormat": "__auto",
           "instant": true,
@@ -1619,7 +1619,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (queue) (rate({__name__=~\"rabbitmq_detailed_queue_messages_delivered(_ack)?_total\", k8s_namespace_name=~\"$namespace\", vhost=~\"$vhost\", queue=~\"$queue\"}[$__rate_interval]))",
+          "expr": "sum by (queue) (label_replace(rate(rabbitmq_detailed_queue_messages_delivered_total{k8s_namespace_name=~\"$namespace\", vhost=~\"$vhost\", queue=~\"$queue\"}[$__rate_interval]), \"counter\", \"rabbitmq_detailed_queue_messages_delivered_total\", \"\", \"\") or label_replace(rate(rabbitmq_detailed_queue_messages_delivered_ack_total{k8s_namespace_name=~\"$namespace\", vhost=~\"$vhost\", queue=~\"$queue\"}[$__rate_interval]), \"counter\", \"rabbitmq_detailed_queue_messages_delivered_ack_total\", \"\", \"\"))",
           "refId": "A",
           "legendFormat": "{{queue}}"
         }
