@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -99,7 +100,8 @@ func (a *feedApp) like(t *testing.T, ctx context.Context, userID, postID uuid.UU
 func (a *feedApp) view(t *testing.T, ctx context.Context, userID, postID uuid.UUID, viewedAt time.Time) {
 	t.Helper()
 
-	if err := a.history.Record(ctx, viewusecase.RecordPostViewInput{UserID: userID, PostID: postID, ViewedAt: viewedAt}); err != nil {
+	view := viewusecase.RecordPostViewHistory{UserID: userID, PostID: postID, ViewedAt: viewedAt, Day: viewedAt.UTC().Format("2006-01-02"), DailyLimit: 5}
+	if _, err := a.history.Record(ctx, view); err != nil {
 		t.Fatalf("Record() error = %v", err)
 	}
 }
@@ -182,6 +184,35 @@ func TestListMyHistory_ReturnsOneEntryPerPostMostRecentFirst(t *testing.T) {
 	for index, item := range all.Items {
 		if item.ViewedAt == nil || !item.ViewedAt.Equal(wantViewed[index]) || item.LikedAt != nil {
 			t.Fatalf("item %d viewedAt = %v, likedAt = %v, want the latest view %v", index, item.ViewedAt, item.LikedAt, wantViewed[index])
+		}
+	}
+}
+
+func TestListMyHistory_DoesNotExposeTheDailyViewCount(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	app := newFeedApp(t, ctx)
+	postID := app.insertPostBy(t, ctx, app.creator, commentsEpoch)
+	for minute := range 7 {
+		app.view(t, ctx, app.viewerID, postID, commentsEpoch.Add(time.Duration(minute)*time.Minute))
+	}
+
+	recorder := serve(app.mux, http.MethodGet, ownTarget("history", 20, nil), "", nil)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("GET history status = %d: %s", recorder.Code, recorder.Body)
+	}
+	var body struct {
+		Items []map[string]json.RawMessage `json:"items"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if len(body.Items) != 1 {
+		t.Fatalf("items = %d, want 1", len(body.Items))
+	}
+	for key := range body.Items[0] {
+		if strings.Contains(strings.ToLower(key), "counted") {
+			t.Fatalf("history item has key %q: the daily view count must not be exposed", key)
 		}
 	}
 }

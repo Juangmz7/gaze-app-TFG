@@ -58,17 +58,17 @@ type fakeHistoryStore struct {
 	gotCtx  context.Context
 }
 
-func (f *fakeHistoryStore) Record(ctx context.Context, input usecase.RecordPostViewInput) error {
+func (f *fakeHistoryStore) Record(ctx context.Context, view usecase.RecordPostViewHistory) (usecase.ViewCountDecision, error) {
 	f.gotCtx = ctx
 	if f.err != nil {
-		return f.err
+		return 0, f.err
 	}
 	f.records++
-	key := historyKey{input.UserID, input.PostID}
-	if stored, found := f.rows[key]; !found || input.ViewedAt.After(stored) {
-		f.rows[key] = input.ViewedAt
+	key := historyKey{view.UserID, view.PostID}
+	if stored, found := f.rows[key]; !found || view.ViewedAt.After(stored) {
+		f.rows[key] = view.ViewedAt
 	}
-	return nil
+	return usecase.ViewCounted, nil
 }
 
 // fakeViewCounter stands in for the posts repository's AdjustViewCount: counts per
@@ -108,7 +108,7 @@ func newPostViewedHandler(idempotency rabbitmq.PostViewedIdempotencyRepository, 
 
 func newCountingPostViewedHandler(idempotency rabbitmq.PostViewedIdempotencyRepository, store *fakeHistoryStore, counter *fakeViewCounter) *rabbitmq.PostViewedHandler {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	return rabbitmq.NewPostViewedHandler(fakePostViewedTransactor{}, idempotency, usecase.NewRecordPostView(store, counter, logger), logger)
+	return rabbitmq.NewPostViewedHandler(fakePostViewedTransactor{}, idempotency, usecase.NewRecordPostView(store, counter, 5, logger), logger)
 }
 
 func viewPayload(t *testing.T, mutate func(fields map[string]any)) []byte {

@@ -31,6 +31,9 @@ const testInstant = "2026-03-01T10:15:30.123456Z"
 // testViewHistoryRetention is the production default of VIEW_HISTORY_RETENTION_DAYS.
 const testViewHistoryRetention = 90 * 24 * time.Hour
 
+// testViewCountDailyLimit is the production default of VIEW_COUNT_DAILY_LIMIT_PER_USER.
+const testViewCountDailyLimit = 5
+
 // javaEventsApp is the real consumer stack from bootstrap.Bootstrap against a real
 // broker and a real replica set, fed with the exact JSON the Java publishers emit.
 type javaEventsApp struct {
@@ -91,7 +94,8 @@ func startJavaEventsApp(t *testing.T, ctx context.Context) *javaEventsApp {
 
 	app := newPrefetchStack(t, ctx, amqpURI, db, logger)
 
-	result, err := bootstrap.Bootstrap(ctx, amqpURI, db, bootstrap.Dependencies{Prefetch: app.prefetch, Lease: app.lease, ViewHistoryRetention: testViewHistoryRetention}, logger)
+	result, err := bootstrap.Bootstrap(ctx, amqpURI, db, bootstrap.Dependencies{Prefetch: app.prefetch, Lease: app.lease, ViewHistoryRetention: testViewHistoryRetention,
+		ViewCountDailyLimitPerUser: testViewCountDailyLimit}, logger)
 	if err != nil {
 		t.Fatalf("Bootstrap() error = %v", err)
 	}
@@ -360,6 +364,49 @@ func TestConsumers_CountEachRealPostViewedEventOnceAlsoWhenItIsRedelivered(t *te
 	}
 	if count != 0 {
 		t.Fatalf("posts for the unprojected id = %d, want 0", count)
+	}
+}
+
+func TestConsumers_ARedeliveredRealPostViewedEventNeitherIncrementsTheViewCountNorUsesUpADailyView(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	app := startJavaEventsApp(t, ctx)
+	ex := topology.ExchangePostEvents
+
+	postID, viewer := uuid.NewString(), uuid.NewString()
+	app.publish(t, ctx, ex, topology.RKPostCreated, postCreatedJSON(postID, uuid.NewString()))
+	app.waitForDocument(t, ctx, "posts", bson.D{{Key: "post_id", Value: postID}}, &struct{}{})
+
+	// One event delivered three times, then four more views of the same day: five
+	// distinct views, all counted only if the redeliveries used up none of the five.
+	redelivered := postViewedJSON(postID, viewer, testInstant)
+	for range 3 {
+		app.publish(t, ctx, ex, topology.RKPostViewed, redelivered)
+	}
+	app.waitForStats(t, ctx, postID, postStats{ViewCount: 1})
+	for minute := 1; minute <= 4; minute++ {
+		app.publish(t, ctx, ex, topology.RKPostViewed, postViewedJSON(postID, viewer, fmt.Sprintf("2026-03-01T11:%02d:00.000000Z", minute)))
+	}
+	app.waitForStats(t, ctx, postID, postStats{ViewCount: testViewCountDailyLimit})
+
+	// A sixth view of that day is over the limit: it moves the history entry only.
+	app.publish(t, ctx, ex, topology.RKPostViewed, postViewedJSON(postID, viewer, "2026-03-01T12:00:00.000000Z"))
+	filter := bson.D{{Key: "user_id", Value: viewer}, {Key: "post_id", Value: postID}}
+	latest := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+	var row struct {
+		LastViewedAt time.Time `bson:"last_viewed_at"`
+		CountedDay   string    `bson:"counted_day"`
+		CountedViews int       `bson:"counted_views"`
+	}
+	waitUntil(t, ctx, func() (bool, string) {
+		err := app.db.Collection("view_history").FindOne(ctx, filter).Decode(&row)
+		return err == nil && row.LastViewedAt.Equal(latest), fmt.Sprintf("history row = %+v (err %v), want last_viewed_at %v", row, err, latest)
+	})
+	app.waitUntilDrained(t, ctx, topology.QueuePost, 0)
+
+	app.waitForStats(t, ctx, postID, postStats{ViewCount: testViewCountDailyLimit})
+	if row.CountedDay != "2026-03-01" || row.CountedViews != testViewCountDailyLimit {
+		t.Fatalf("history row = %+v, want 2026-03-01 with %d views counted", row, testViewCountDailyLimit)
 	}
 }
 
